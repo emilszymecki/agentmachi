@@ -1,0 +1,138 @@
+"""Ramki, wzmianki i activation envelope. Zero I/O."""
+import math
+import re
+import sys
+
+# (Runda 4 #5) Rozdzial typow: INBOUND to jedyne typy, ktore klient moze
+# przyslac. OUTBOUND to typy WYLACZNIE serwerowe — albo generowane w locie
+# (task_offer/backlog/resync_required/error/ok), albo trwale eventy stanu
+# zapisywane przez serwer (task_expired_batch/offer_resolved). Historyczny
+# task_expired singular pozostaje znanym outbound-only tylko po to, by validate
+# jawnie odrzucal go inbound-em; serwer go juz nie generuje ani nie replayuje.
+INBOUND_FRAME_TYPES = {
+    "hello", "chat", "fyi", "status", "heartbeat", "membership_set",
+    "task_new", "task_claim", "task_done", "task_blocked",
+    "review_changes", "task_approve", "task_unblock",
+}
+OUTBOUND_FRAME_TYPES = {
+    "task_offer", "backlog", "resync_required", "error", "ok",
+    "task_expired", "task_expired_batch", "offer_resolved",
+    "presence",  # efemeryczny (bez seq): nick wszedl/wypadl z polaczenia
+}
+FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
+
+# Kanon statusow agenta (deklarowane ramka `status`; presence
+# connected/offline nadaje serwer z zywych polaczen, NIE deklaracja):
+#   idle    — czekam na taska (serwer moze slac task_offer)
+#   working — robie taska (opcjonalnie task_id + note co dokladnie)
+#   blocked — stoje, czekam na odpowiedz/decyzje (task_id/note = na co)
+#   review  — skonczylem, czekam na review mojej pracy (task_id)
+STATUS_STATES = frozenset({"idle", "working", "blocked", "review"})
+
+# task_* inbound wymagaja command_id (wszystkie) i task_id (poza task_new,
+# ktory taska dopiero tworzy). Glebsza walidacja (card/expected_task_version/
+# CAS/WIP/lease) nalezy do TaskQueue — validate to tylko schemat framingu.
+_TASK_INBOUND = INBOUND_FRAME_TYPES & {
+    "task_new", "task_claim", "task_done", "task_blocked",
+    "review_changes", "task_approve", "task_unblock",
+}
+_MENTION = re.compile(r"(?:^|\s)@(\w+)")
+_GROUP = re.compile(r"(?:^|\s)\$(\w+)")
+
+
+def parse_mentions(text):
+    return set(_MENTION.findall(text or ""))
+
+
+def parse_groups(text):
+    return set(_GROUP.findall(text or ""))
+
+
+def make_frame(ftype, frm, ts, **fields):
+    return {"type": ftype, "from": frm, "ts": ts, **fields}
+
+
+def validate(frame):
+    # (Runda 4 #5) walidacja INBOUND ze SCHEMATEM PER TYP: wspolne pola +
+    # per-typ. Wejscie klienckie musi przejsc tu ZANIM dotknie logu/kolejki.
+    if "type" not in frame:
+        return "missing type"
+    ftype = frame["type"]
+    # (Runda 5 C1) type MUSI byc niepustym stringiem ZANIM sprawdzimy
+    # przynaleznosc do FRAME_TYPES: type=[]/{} to unhashable, a `in FRAME_TYPES`
+    # (membership po secie) rzucalo TypeError, wywalajac cala walidacje zanim
+    # zdazyla zwrocic czytelny blad.
+    if not isinstance(ftype, str) or not ftype:
+        return "type wymagany (niepusty string)"
+    if ftype not in FRAME_TYPES:
+        return f"unknown type: {ftype}"
+    if ftype not in INBOUND_FRAME_TYPES:
+        # znany typ, ale wylacznie wyjsciowy/trwaly — klient nie moze go przyslac
+        return f"{ftype}: typ wylacznie wyjsciowy/trwaly, nie moze przyjsc od klienta"
+    # wspolne: from niepusty string, ts liczba SKONCZONA (bool wykluczony)
+    if "from" not in frame:
+        return "missing from"
+    if not isinstance(frame["from"], str) or not frame["from"]:
+        return "from wymagany (niepusty string)"
+    if "ts" not in frame:
+        return "missing ts"
+    ts = frame["ts"]
+    # (Runda 5 C2) ts musi byc liczba SKONCZONA — NaN/inf przechodzily
+    # (isinstance float True) i trafialy do logu jako niestandardowy JSON.
+    # (Runda 6 #3) math.isfinite wolamy TYLKO dla float: math.isfinite(10**400)
+    # rzuca OverflowError (int za duzy na konwersje do float) i wysypywal cala
+    # walidacje. int sprawdzamy zakresowo BEZ konwersji (porownanie int<->float
+    # jest w Pythonie dokladne, nie przepelnia): int poza zakresem float to
+    # bezsensowny timestamp — odrzucony komunikatem, nie wyjatkiem.
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return "ts wymagany (liczba skonczona)"
+    if isinstance(ts, float):
+        if not math.isfinite(ts):
+            return "ts wymagany (liczba skonczona)"
+    elif abs(ts) > sys.float_info.max:
+        return "ts wymagany (liczba skonczona)"
+    return _validate_body(frame, ftype)
+
+
+def _validate_body(frame, ftype):
+    if ftype in ("chat", "fyi"):
+        # ani chat, ani fyi bez sensownego text nie moga trafic do logu/humana
+        text = frame.get("text")
+        if not isinstance(text, str) or not text:
+            return f"{ftype}: text wymagany (niepusty string)"
+        return None
+    if ftype == "status":
+        state = frame.get("state")
+        if not isinstance(state, str) or state not in STATUS_STATES:
+            return ("status: state musi byc jednym z "
+                    f"{sorted(STATUS_STATES)}")
+        for opt in ("task_id", "note"):
+            if opt in frame and (not isinstance(frame[opt], str)
+                                 or not frame[opt]):
+                return f"status: {opt} jesli podany musi byc niepustym stringiem"
+        return None
+    if ftype == "heartbeat":
+        task_id = frame.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
+            return "heartbeat: task_id wymagany (niepusty string)"
+        return None
+    if ftype == "membership_set":
+        target = frame.get("target")
+        groups = frame.get("groups")
+        if not isinstance(target, str) or not target:
+            return "membership_set: target wymagany (niepusty string)"
+        if not isinstance(groups, list) or not all(
+                isinstance(group, str) and group for group in groups):
+            return "membership_set: groups wymagane (lista niepustych stringow)"
+        return None
+    if ftype in _TASK_INBOUND:
+        command_id = frame.get("command_id")
+        if not isinstance(command_id, str) or not command_id:
+            return f"{ftype}: command_id wymagany (niepusty string)"
+        if ftype != "task_new":
+            task_id = frame.get("task_id")
+            if not isinstance(task_id, str) or not task_id:
+                return f"{ftype}: task_id wymagany (niepusty string)"
+        return None
+    # hello: token/instance_id/last_seq/groups/role waliduje serwer (identity)
+    return None

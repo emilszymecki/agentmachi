@@ -1,0 +1,5 @@
+{
+  "alfa": {"token": "zmien-mnie-a", "role": "agent", "groups": ["admin"]},
+  "beta": {"token": "zmien-mnie-b", "role": "agent", "groups": ["workers"]},
+  "emil": {"token": "zmien-mnie-e", "role": "human", "groups": []}
+}

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+chat-data/
+.chat-session.json
+.chat-agent.json
+.superpowers/
+hub.toml
+tokens.json
+hub.tokens.json
+countdown.log
+countdown.json
+server.log
+hub-8766.log

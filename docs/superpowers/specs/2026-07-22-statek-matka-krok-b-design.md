@@ -100,6 +100,11 @@ wysyła `task_offer` do JEDNEJ idle wyrobnicy (round-robin). Brak
 
 ### Tożsamość i niezawodność (ustalenia tercetu alfa+beta+codex, do B1)
 
+**Inwariant ogólny (beta)**: pola autorytatywne (`seq`, `generation`,
+`groups`, `from`) nadaje wyłącznie serwer; wartości z ramek klienta są
+wejściem do walidacji, nigdy źródłem prawdy. Generation jest przypinana
+do SOCKETU po hello — nigdy czytana z `frame.get()`.
+
 - **Tożsamość logiczna ≠ socket**: `hello` niesie nick + trwałe
   `client_instance_id` (plik sesji obok mechaniki heartbeatu; send.py
   czyta z niego). Wiele socketów tego samego nick+instance współdzieli
@@ -132,37 +137,34 @@ wysyła `task_offer` do JEDNEJ idle wyrobnicy (round-robin). Brak
   chroni nicku przed innym peerem w tailnecie). Szczegóły wydawania —
   sekcja "Role i autoryzacja".
 
-### Role i autoryzacja — config-first (decyzja @Emil + tercet)
+### Grupy adresowe — config-first (korekta @Emil: LESS IS MORE)
+
+**"Slack dla agentów"** — to jest kalibracja całości: pokoje, wzmianki,
+grupy, presence, człowiek przez TUI. Warstwa adresowa prosta jak drut;
+taski/lease/resume to "aplikacje w Slacku", nie fundament.
 
 **Hub jest osobnym bytem odpalanym przez człowieka** (`cowork_agents_4_all
-<sesja> --continue`), nie przez sesję matki. Matka staje się zwykłym,
-restartowalnym klientem z rolą admin. Człowiek/TUI to operator
-control-plane PONAD rolami sieciowymi: tylko on zmienia plik auth,
-mintuje role i może odebrać kontrolę agentom.
+<sesja> --continue`), nie przez sesję matki. Matka = zwykły restartowalny
+klient. Człowiek/TUI to operator huba: tylko on zmienia config.
+
+**Role = ALIASY GRUPOWE w mechanice wzmianek, nie uprawnienia.**
+`$admin == @alfa`, `$workers == @codex + @beta`; wzmianka `$workers`
+budzi całą grupę jednym słowem. Kontrakt: agent card niesie `groups`;
+parser wzmianek rozpoznaje `@nick`, `$group`, `@all`; `$group` rozwija
+się do AKTUALNYCH członków; membership przeżywa reconnect; nieznana
+grupa → jawny błąd, nigdy cichy broadcast. Serwer pilnuje wyłącznie
+poprawności maszyny stanów tasków — legalność komend NIE zależy od
+grupy. Miękkie ograniczenia zachowania żyją w rules.md i skillach.
+(Permission matrix/RBAC: future consideration, jedno zdanie, wraca
+tylko jeśli realnie zaboli.)
 
 **Config huba (`hub.toml`)** — źródło prawdy, pisane ręcznie przez usera:
-- kody ról (enrollment): przechowywane jako VERIFIER (scrypt), nigdy
-  plaintext; opcjonalne max_uses/expiry/disable per kod,
-- `rules` — konstytucja pokoju SŁOWNIE, naturalnym językiem; serwer jej
-  nie interpretuje, agent przyjmuje empirycznie przez tekst,
-- plik: chmod 600, w .gitignore; w repo tylko `hub.toml.example`.
-
-**Enrollment → tożsamość**: kod roli działa wyłącznie jako bootstrap.
-Sekret podawany przez stdin/ukryty prompt — NIGDY jako argument CLI
-(historia shella, lista procesów) i nigdy nie trafia do room-logu.
-Udane pierwsze hello: tworzy stabilne `agent_id`, binduje role+nick,
-wydaje osobny token agenta (zapis 0600 u klienta). Kolejne
-sockety/reconnecty używają tokenu agenta; instance_id/generation dalej
-rozwiązują takeover. Nick jest etykietą, `agent_id` tożsamością.
-Rotacja kodu enrollment nie unieważnia wydanych tokenów (osobny
-mechanizm revocation/role_epoch).
-
-**Macierz uprawnień B1** (serwer waliduje KAŻDĄ komendę; nie ufa polu
-role z ramki): admin-agent — task_new/przydział/anulowanie, merge-gate;
-moderator — worker + review (approve/changes_requested, kolejka review),
-bez zmian auth/ról; worker — claim/heartbeat/blocked/done; wszyscy —
-chat/status. Kontrakt ról wchodzi w B1 (retrofitting RBAC po
-implementacji endpointów jest droższy); workflow peer-review — B2.
+kody grup (enrollment; przypisują do grupy adresowej), definicje grup,
+wskazanie rules.md. Plik: chmod 600, w .gitignore; w repo tylko
+`hub.toml.example`. Sekret enrollment przez stdin/env — NIGDY argv
+(historia shella) i nigdy do room-logu. Token per agent zostaje dla
+tożsamości/reconnect (instance_id/generation bez zmian) — nie daje
+żadnych uprawnień.
 
 **Rules — finalna prostota (korekta @Emil)**: miękkie zasady żyją w
 osobnym pliku `rules.md` przy hubie. Hello/karta wejściowa wskazuje plik
@@ -207,8 +209,9 @@ z możliwych adapterów.
 ### Konwencja wzmianek
 
 `@nick` adresuje uczestnika (tylko wzmianka budzi śpiącego agenta),
-`@all` budzi wszystkich, `@Emil`/`@<human>` — człowiek jest adresowalny
-tak samo jak agenci.
+`$group` budzi wszystkich AKTUALNYCH członków grupy (jedno słowo — cała
+grupa), `@all` budzi wszystkich, `@Emil`/`@<human>` — człowiek jest
+adresowalny tak samo jak agenci. Nieznana grupa → jawny błąd do nadawcy.
 
 Zasady uwagi (ekonomia tokenów): serwer budzi agenta wyłącznie ramkami
 zaadresowanymi do niego (`to` lub `@nick` w treści chatu) oraz taskami
@@ -254,6 +257,25 @@ bramka merge zawsze u matki.
 Semafor plikowy: best-effort — task może deklarować pliki i serwer nie
 wyda dwóch tasków z przecięciem, ale pliki często znane są dopiero
 w trakcie; ostatecznym rozjemcą konfliktów jest git na merge'u.
+
+### Prawo edycji kodu — dwa rozdzielne kanały (pytanie @Emil, konsensus)
+
+**INWARIANT: credential czatu (WS-token) NIGDY nie nadaje prawa zapisu
+repo. Osobny credential Git zatwierdza wyłącznie operator huba.**
+
+- Czat/taski/presence: WS + token z enrollment (jak wyżej).
+- Dostawa kodu: git push przez SSH na maszynę huba. Default: tailscale
+  ogranicza TYLKO sieć; na hubie zwykły OpenSSH + dedykowany user git.
+  Skill wyrobnicy generuje klucz ed25519 per hub (prywatny nie opuszcza
+  maszyny), pubkey+fingerprint idzie uwierzytelnionym WS w agent card;
+  operator akceptuje w TUI → wpis do authorized_keys z `restrict` +
+  forced-command do git-gate (tylko upload-pack/receive-pack, pre-receive
+  blokuje main, opcjonalnie namespace per worker). Audyt: który agent
+  wypchnął co; zero shell access.
+- Tailscale SSH — wariant opcjonalny dla zaufanych maszyn jednoosobowych
+  (omija authorized_keys, więc traci forced-command; sprawdzone w docs).
+- Zakres: B2 (klucz w skillu) / B3 (sieć) / B4 (approve/revoke w TUI);
+  B1 tylko ten inwariant.
 
 ## Pamięć wspólna
 
