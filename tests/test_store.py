@@ -74,20 +74,53 @@ def test_torn_trailing_line_is_tolerated(tmp_path):
     log.append({"type": "chat", "text": "a"})
     log.append({"type": "chat", "text": "b"})
     assert log.last_seq == 2
+    size_before_tear = log.events_path.stat().st_size
 
-    # symulacja crashu w trakcie zapisu trzeciej linii: urwany ogon bez newline
-    with log.events_path.open("a") as f:
-        f.write('{"seq": 3, "type"')
+    # symulacja crashu w trakcie zapisu trzeciej linii: urwany ogon BEZ
+    # koncowego newline (json.dumps nie wstawia \n w srodku, wiec brak \n
+    # na koncu ostatniej linii jednoznacznie oznacza torn tail)
+    with log.events_path.open("ab") as f:
+        f.write(b'{"seq": 3, "type"')
 
     log2 = EventLog(tmp_path)  # nie moze sie wywalic na starcie
     assert log2.last_seq == 2
     assert [e["text"] for e in log2.replay()] == ["a", "b"]
 
-    # plik na dysku przycięty do ostatniej poprawnej linii
+    # plik na dysku przycięty do końca ostatniej poprawnej linii (truncate,
+    # nie rewrite) — dokladnie do rozmiaru sprzed urwanego zapisu
+    assert log2.events_path.stat().st_size == size_before_tear
     assert len(log2.events_path.read_text().splitlines()) == 2
 
     assert log2.append({"type": "chat", "text": "c"}) == 3
     assert log2.last_seq == 3
+
+
+def test_corrupted_terminated_last_line_raises(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "text": "a"})
+
+    # ostatnia linia niepoprawna, ale ZAKONCZONA newline -> pelna korupcja,
+    # nie torn tail (crash nigdy nie zdazylby dopisac konczacego \n do
+    # niedokonczonego zapisu)
+    with log.events_path.open("ab") as f:
+        f.write(b'{bad json}\n')
+
+    with pytest.raises(ValueError):
+        EventLog(tmp_path)
+
+
+def test_corrupted_middle_line_raises(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "text": "a"})
+    log.append({"type": "chat", "text": "b"})
+
+    # zepsuj linie w SRODKU pliku (przed poprawna ostatnia linia)
+    lines = log.events_path.read_text().splitlines()
+    lines[0] = "{bad json}"
+    log.events_path.write_text("\n".join(lines) + "\n")
+
+    with pytest.raises(ValueError):
+        EventLog(tmp_path)
 
 
 def test_snapshot_persists_and_replay_after_restart(tmp_path):

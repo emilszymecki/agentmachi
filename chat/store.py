@@ -1,10 +1,13 @@
 # chat/store.py
-"""Trwaly log zdarzen pokoju: room_seq, snapshot, retencja.
+"""Trwaly log zdarzen pokoju: room_seq, snapshot, kompakcja.
 
 Kolejnosc trwalosci (spec): przy mutacji najpierw trwaly event, potem
 publikacja; przy kompakcji najpierw snapshot (tmp+rename), potem usuniecie
 przykrytych eventow. events_after zwraca None gdy kursor wypada przed
 snapshot_seq — jawny resync_required, nigdy cichy partial replay.
+
+Polityka snapshotow (kiedy i jak czesto kompaktowac) nalezy do serwera;
+EventLog dostarcza tylko mechanizm (save_snapshot/load_snapshot).
 """
 import json
 import os
@@ -24,31 +27,53 @@ class EventLog:
             self.snapshot_seq = data["snapshot_seq"]
         self.last_seq = self.snapshot_seq
         if self.events_path.exists():
-            with self.events_path.open() as f:
-                lines = f.readlines()
-            keep = len(lines)  # ile linii zostawic na dysku (przycinanie ogona)
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    e = json.loads(stripped)
-                except json.JSONDecodeError as exc:
-                    if i == len(lines) - 1:
-                        # urwana OSTATNIA linia (crash w trakcie zapisu) — tolerujemy,
-                        # plik zostanie przycięty do ostatniej poprawnej linii
-                        keep = i
-                        break
-                    raise ValueError(
-                        f"events.jsonl uszkodzony w linii {i + 1} (nie ostatniej) — "
-                        "to korupcja, nie urwany ogon po crashu"
-                    ) from exc
-                if e["seq"] > self.snapshot_seq:
-                    self._events.append(e)
-                    self.last_seq = e["seq"]
-            if keep < len(lines):
-                with self.events_path.open("w") as f:
-                    f.writelines(lines[:keep])
+            raw = self.events_path.read_bytes()
+            n = len(raw)
+            pos = 0
+            good_end_offset = 0  # offset za ostatnia poprawna linia (do przyciecia)
+            while pos < n:
+                nl_idx = raw.find(b"\n", pos)
+                if nl_idx == -1:
+                    line_bytes = raw[pos:]
+                    has_newline = False
+                    line_end = n
+                else:
+                    line_bytes = raw[pos:nl_idx]
+                    has_newline = True
+                    line_end = nl_idx + 1
+                is_last_chunk = line_end == n
+                stripped = line_bytes.strip()
+                if stripped:
+                    try:
+                        e = json.loads(stripped)
+                    except json.JSONDecodeError as exc:
+                        if is_last_chunk and not has_newline:
+                            # json.dumps nigdy nie wstawia \n w srodku zapisu,
+                            # a koncowy \n dopisujemy osobno PO tresci — wiec
+                            # brak \n na koncu ostatniej linii jednoznacznie
+                            # oznacza urwany zapis w trakcie crashu (torn
+                            # tail), nie korupcje. Tolerujemy: przycinamy
+                            # plik do offsetu ostatniej poprawnej linii
+                            # (ponizej pentli) i jedziemy dalej.
+                            break
+                        raise ValueError(
+                            f"events.jsonl uszkodzony w linii zaczynajacej sie "
+                            f"na offsecie {pos} bajtow — linia zakonczona "
+                            "znakiem nowej linii (albo nie jest ostatnia w "
+                            "pliku), to korupcja, nie urwany ogon po crashu"
+                        ) from exc
+                    else:
+                        if e["seq"] > self.snapshot_seq:
+                            self._events.append(e)
+                            self.last_seq = e["seq"]
+                pos = line_end
+                good_end_offset = pos
+            if good_end_offset < n:
+                # truncate zamiast open("w")+rewrite: crash w trakcie naprawy
+                # nie moze skasowac juz-przyjetego zdrowego prefiksu, bo
+                # truncate tylko obcina ogon pliku, nigdy go nie przepisuje
+                with self.events_path.open("r+b") as f:
+                    f.truncate(good_end_offset)
                     f.flush()
                     os.fsync(f.fileno())
 
