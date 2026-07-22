@@ -74,6 +74,33 @@ class TaskQueue:
         self._results[command_id] = (fingerprint, copy.deepcopy(result))
         return result
 
+    def dedup_fingerprint(self, op, *, card=None, task_id=None, nick=None,
+                          generation=None, expected_version=None):
+        # (Runda 6) JEDYNE zrodlo prawdy fingerprintu dedup — uzywane i przez
+        # mutacje (add/claim/_mutate/approve), i przez serwerowy peek_dedup PRZED
+        # deepcopy (short-circuit retry bez kopii calej kolejki). Dla 'add'
+        # fingerprint kotwiczy sie w SERIALIZOWANEJ, zwalidowanej karcie; dla
+        # reszty w (task_id, nick, generation, expected_version). Zmiana
+        # ktoregokolwiek pola = inna komenda (ten sam command_id -> Conflict).
+        if op == "add":
+            return ("add", self._check_card(card), None, None, None)
+        return (op, task_id, nick, generation, expected_version)
+
+    def peek_dedup(self, command_id, fingerprint):
+        # (Runda 6) czysty PODGLAD dedup BEZ mutacji i BEZ zmiany last_dedup_hit:
+        # deepcopy wyniku TYLKO przy pelnym trafieniu (command_id + zgodny
+        # fingerprint). Rozjazd fingerprintu / brak wpisu -> None; wolajacy
+        # schodzi wtedy na sciezke klon-mutacja, gdzie klon (majacy ten sam wpis
+        # dedup) autorytatywnie zwroci cached ALBO rzuci Conflict. Pozwala
+        # pominac deepcopy calej kolejki na najczestszej sciezce (retry).
+        hit = self._results.get(command_id)
+        if hit is None:
+            return None
+        cached_fingerprint, result = hit
+        if cached_fingerprint != tuple(fingerprint):
+            return None
+        return copy.deepcopy(result)
+
     def _check_command_id(self, command_id):
         if not isinstance(command_id, str) or not command_id:
             raise TaskError(f"invalid command_id: {command_id!r}")
@@ -131,8 +158,7 @@ class TaskQueue:
     def add(self, card, command_id, now):
         self._check_command_id(command_id)
         self._check_inputs(now=now)
-        serialized_card = self._check_card(card)
-        fingerprint = ("add", serialized_card, None, None, None)
+        fingerprint = self.dedup_fingerprint("add", card=card)  # waliduje karte
         cached = self._dedup_get(command_id, fingerprint)
         if cached is not None:
             return cached
@@ -172,7 +198,9 @@ class TaskQueue:
         self._check_command_id(command_id)
         self._check_inputs(nick=nick, generation=generation,
                             expected_version=expected_version, now=now)
-        fingerprint = ("claim", task_id, nick, generation, expected_version)
+        fingerprint = self.dedup_fingerprint(
+            "claim", task_id=task_id, nick=nick, generation=generation,
+            expected_version=expected_version)
         cached = self._dedup_get(command_id, fingerprint)
         if cached is not None:
             return cached
@@ -209,7 +237,9 @@ class TaskQueue:
                                 expected_version=expected_version, now=now)
         else:
             self._check_inputs(expected_version=expected_version, now=now)
-        fingerprint = (op, task_id, nick, generation, expected_version)
+        fingerprint = self.dedup_fingerprint(
+            op, task_id=task_id, nick=nick, generation=generation,
+            expected_version=expected_version)
         cached = self._dedup_get(command_id, fingerprint)
         if cached is not None:
             return cached
@@ -273,7 +303,9 @@ class TaskQueue:
         # zamyka" — approve to osobna, swiadoma sciezka.
         self._check_command_id(command_id)
         self._check_inputs(nick=approver, expected_version=expected_version, now=now)
-        fingerprint = ("approve", task_id, approver, None, expected_version)
+        fingerprint = self.dedup_fingerprint(
+            "approve", task_id=task_id, nick=approver,
+            expected_version=expected_version)
         cached = self._dedup_get(command_id, fingerprint)
         if cached is not None:
             return cached

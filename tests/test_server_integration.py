@@ -1549,3 +1549,127 @@ def test_nan_ts_frame_rejected_not_logged(srv):
         assert server.log.last_seq == before                # NIE zalogowane
         await a.close()
     asyncio.run(srv(scenario))
+
+
+# == RUNDA 6 — event-first (provisional-then-commit) mutacje taskow ==========
+
+
+async def _kill_expiry(server):
+    # deterministyczne testy licznikow/eventow: wylacz petle expiry, zeby jej
+    # tik nie dorzucil zdarzenia w oknie testu
+    server._expiry_task.cancel()
+    try:
+        await server._expiry_task
+    except asyncio.CancelledError:
+        pass
+
+
+# -- #1: durable append PRZED mutacja live queue/dedup ----------------------
+
+def test_task_claim_append_failure_no_live_mutation_no_dedup(tmp_path):
+    # (Runda 6 #1) mutacja NIE moze dotknac live queue/dedup przed udanym durable
+    # appendem. Injekcja: pierwszy log.append task_claim rzuca -> live NIE
+    # claimed, ZERO eventow task_claim, dedup PUSTY. Retry tego samego command_id
+    # (append juz dziala) -> claimed, 1 event; restart spojny. Na starym kodzie
+    # mutacja szla LIVE przed appendem: append-fail zostawial live=claimed + wpis
+    # dedup -> retry = dedup cache-hit bez appendu -> restart cofal do open v1.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        tid = (await recv(a))["task"]["id"]
+        b, _ = await hello("beta", "tb")
+
+        orig = s1.log.append
+        calls = {"n": 0}
+
+        def flaky(frame):
+            if frame.get("type") == "task_claim":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise OSError("dysk pelny na pierwszym task_claim append")
+            return orig(frame)
+
+        s1.log.append = flaky
+        seq_before = s1.log.last_seq
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": tid, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        err = await recv(b)
+        assert err["type"] == "error" and err["command_id"] == "c1"
+        # live NIETKNIETE: task open, zero eventow task_claim, dedup pusty
+        assert s1.queue.get(tid)["status"] == "open"
+        assert s1.log.last_seq == seq_before
+        assert s1.queue.fingerprint_for("c1") is None
+        assert [e for e in s1.log.events_after(0) if e["type"] == "task_claim"] == []
+
+        # retry TEGO SAMEGO command_id (append juz sprawny) -> claimed, 1 event
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": tid, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        ok = await recv(b)
+        assert ok["type"] == "ok" and ok["task"]["status"] == "claimed"
+        assert len([e for e in s1.log.events_after(0)
+                    if e["type"] == "task_claim"]) == 1
+        await a.close(); await b.close()
+        await _crash_stop(s1)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        t = s2.queue.get(tid)
+        assert t["status"] == "claimed" and t["assignee"] == "beta"
+    asyncio.run(scenario())
+
+
+# -- #2: claim na granicy #100 nie snapshotuje przed resolution ofert --------
+
+def test_claim_at_snapshot_boundary_snapshot_internally_consistent(tmp_path):
+    # (Runda 6 #2) task_claim jako event #100: stary _append snapshotowal PRZED
+    # resolution ofert -> snapshot z task=claimed ORAZ offers=[pending] ->
+    # restart niespojny. Fix: durable task_claim (bez snapshotu) -> usun pending
+    # offers z cache -> jeden _maybe_snapshot. Snapshot na dysku wewnetrznie
+    # spojny: task claimed I zero pending offers dla niego.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        task = (await recv(a))["task"]
+        tid = task["id"]
+        s1._offer_activation_id("beta", task)          # pending offer (task_offer)
+        assert ("beta", tid, 1) in s1._offer_cache
+        b, _ = await hello("beta", "tb")
+        while s1._events_since_snapshot < 99:           # task_claim bedzie #100
+            s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
+        assert s1._events_since_snapshot == 99
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": tid, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(b)
+        assert claimed["task"]["status"] == "claimed"
+
+        # SNAPSHOT NA DYSKU spojny: task claimed => zero pending offers dla niego
+        # (stary kod: snapshot #100 przechwytywal offers=[pending] mimo claimed)
+        snap = json.loads((Path(tmp_path) / "snapshot.json").read_text())
+        state = snap["state"]
+        assert any(t["id"] == tid and t["status"] == "claimed"
+                   for t in state["queue"]["tasks"])
+        assert [o for o in state["offers"] if o["task"]["id"] == tid] == []
+        # jeden snapshot na koncu atomowej sekcji (stary kod appendowal jeszcze
+        # offer_resolved PO snapshocie -> _ess=1)
+        assert s1._events_since_snapshot == 0
+
+        await a.close(); await b.close()
+        await _crash_stop(s1)
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        assert s2.queue.get(tid)["status"] == "claimed"
+        assert not any(k[1] == tid for k in s2._offer_cache)   # zero resurrekcji
+    asyncio.run(scenario())

@@ -46,6 +46,7 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      zapisem — nigdy nie przechodza z ramki do logu/odbiorcow.
 """
 import asyncio
+import copy
 import hashlib
 import json
 import os
@@ -140,13 +141,13 @@ class ChatServer:
                                           event.get("command_id"),
                                           event.get("fingerprint"))
                 if etype == "task_claim":
-                    # (Runda 5 B) claim SAM JEST faktem resolution: usun pending
-                    # offers dla (task_id, wersja-open) z odtwarzanego cache —
-                    # poprawnosc replay NIE moze zalezec od osobnego
-                    # offer_resolved (moze go nie byc: crash w oknie miedzy
-                    # zapisem task_claim a offer_resolved, albo steal-claim,
-                    # ktory przed Runda 5 nie trafial klucza cudzej oferty).
-                    # offer_resolved zostaje wylacznie jako audyt.
+                    # (Runda 5 B / Runda 6) claim SAM JEST faktem resolution:
+                    # usun pending offers dla (task_id, wersja-open) z
+                    # odtwarzanego cache. Sciezka claim NIE appenduje juz
+                    # offer_resolved (Runda 6) — replay MUSI wywiesc resolution z
+                    # samego task_claim (dziala tez dla steal-claim, ktorego
+                    # klucz cudzej oferty claimer nigdy by sam nie trafil).
+                    # offer_resolved w logu pochodzi WYLACZNIE z timeoutu/ewikcji.
                     for key in self._pending_offer_keys_for(
                             event.get("task_id"), event.get("expected_task_version")):
                         self._offer_cache.pop(key, None)
@@ -515,7 +516,75 @@ class ChatServer:
                 text=f"nieoczekiwany typ ramki od klienta: {ftype}")))
         return False
 
+    _TASK_OP = {
+        "task_claim": "claim", "task_done": "to_review",
+        "task_blocked": "block", "task_unblock": "unblock",
+    }
+
+    def _apply_task_op(self, queue, ftype, frame, nick, sock_gen, now):
+        # Wykonuje mutacje na PODANEJ kolejce (klon transakcji) — zwraca
+        # serwerowy result (task_state) i ustawia queue.last_dedup_hit.
+        # Walidacja (Conflict/StaleGeneration/WIP/TaskError) rzuca STAD, zanim
+        # cokolwiek trwalego dotknie live queue/dedup.
+        if ftype == "task_new":
+            return queue.add(frame["card"], frame["command_id"], now)
+        if ftype == "task_claim":
+            return queue.claim(frame["task_id"], nick, sock_gen,
+                               frame["command_id"], frame["expected_task_version"], now)
+        if ftype == "task_done":
+            return queue.to_review(frame["task_id"], nick, sock_gen,
+                                  frame["command_id"], frame["expected_task_version"], now)
+        if ftype == "task_blocked":
+            return queue.block(frame["task_id"], nick, sock_gen,
+                              frame["command_id"], frame["expected_task_version"], now)
+        if ftype == "review_changes":  # od matki, bez ownera
+            return queue.request_changes(frame["task_id"], frame["command_id"],
+                                        frame["expected_task_version"], now)
+        if ftype == "task_approve":  # (8) B1: approve = KTOKOLWIEK POZA assignee
+            return queue.approve(frame["task_id"], nick, frame["command_id"],
+                                frame["expected_task_version"], now)
+        return queue.unblock(frame["task_id"], nick, sock_gen,  # task_unblock
+                            frame["command_id"], frame["expected_task_version"], now)
+
+    def _peek_cached(self, ftype, frame, nick, sock_gen):
+        # (Runda 6 #1) podglad dedup na ZYWEJ kolejce PRZED deepcopy — retry to
+        # najczestsza sciezka i nie placi kosztu kopii calej kolejki. Fingerprint
+        # budowany TYM SAMYM helperem co mutacja (dedup_fingerprint), wiec
+        # trafienie tu == trafienie w klonie. Zle wejscie (np. nieserializowalna
+        # karta) -> None: pelna sciezka klon-mutacja zwaliduje i zglosi blad.
+        try:
+            if ftype == "task_new":
+                fp = self.queue.dedup_fingerprint("add", card=frame["card"])
+            elif ftype == "review_changes":
+                fp = self.queue.dedup_fingerprint(
+                    "request_changes", task_id=frame["task_id"],
+                    expected_version=frame["expected_task_version"])
+            elif ftype == "task_approve":
+                fp = self.queue.dedup_fingerprint(
+                    "approve", task_id=frame["task_id"], nick=nick,
+                    expected_version=frame["expected_task_version"])
+            else:
+                fp = self.queue.dedup_fingerprint(
+                    self._TASK_OP[ftype], task_id=frame["task_id"], nick=nick,
+                    generation=sock_gen, expected_version=frame["expected_task_version"])
+        except TaskError:
+            return None
+        return self.queue.peek_dedup(frame["command_id"], fp)
+
     async def _on_task_frame(self, frame, nick, sock_gen, ws):
+        """Transakcyjne, event-first przetwarzanie ramek task_*.
+
+        (Runda 6 #1) PROVISIONAL-THEN-COMMIT: cache-hit (retry) jest
+        short-circuitowany peek_dedup-em na ZYWEJ kolejce PRZED deepcopy; realna
+        mutacja idzie na KLONIE (walidacja Conflict/StaleGeneration/WIP + serwerowy
+        result), potem durable append, i DOPIERO po udanym appendzie klon staje
+        sie live (swap). Nieudany append (OSError) => live queue i dedup
+        NIETKNIETE, retry dziala normalnie (komenda nie zostaje 'zjedzona' przez
+        dedup cache-hit bez trwalego faktu). Crash miedzy append a swap odtworzy
+        fakt z eventu przy replay (jednowatkowy event loop = crash-safe).
+        Deepcopy-per-mutacja to SWIADOMY trade-off dla skali B1 (dziesiatki
+        taskow) — do rewizji przy setkach taskow (clone()/undo-log); YAGNI teraz.
+        """
         now = time.time()
         ftype = frame["type"]
         command_id = frame.get("command_id")
@@ -525,74 +594,52 @@ class ChatServer:
                 "error", "server", now, command_id=command_id,
                 text=f"{ftype}: brakujace pola {missing}")))
             return
+        # (Runda 4 #1) cache-hit = ODPOWIEDZ, nie fakt: bez deepcopy, appendu,
+        # swapu ani side-effectow (offer/idle/notify).
+        cached = self._peek_cached(ftype, frame, nick, sock_gen)
+        if cached is not None:
+            await ws.send(json.dumps(protocol.make_frame(
+                "ok", "server", now, command_id=command_id, task=cached)))
+            return
+        trial = copy.deepcopy(self.queue)
         try:
-            if ftype == "task_new":
-                result = self.queue.add(frame["card"], frame["command_id"], now)
-            elif ftype == "task_claim":
-                result = self.queue.claim(frame["task_id"], nick, sock_gen,
-                                          frame["command_id"],
-                                          frame["expected_task_version"], now)
-            elif ftype == "task_done":
-                result = self.queue.to_review(frame["task_id"], nick, sock_gen,
-                                              frame["command_id"],
-                                              frame["expected_task_version"], now)
-            elif ftype == "task_blocked":
-                result = self.queue.block(frame["task_id"], nick, sock_gen,
-                                          frame["command_id"],
-                                          frame["expected_task_version"], now)
-            elif ftype == "review_changes":  # od matki, bez ownera
-                result = self.queue.request_changes(frame["task_id"],
-                                                    frame["command_id"],
-                                                    frame["expected_task_version"], now)
-            elif ftype == "task_approve":  # (8) B1: approve = KTOKOLWIEK POZA
-                # assignee (namiastka bramki review; docelowo bramka matki).
-                result = self.queue.approve(frame["task_id"], nick,
-                                            frame["command_id"],
-                                            frame["expected_task_version"], now)
-            else:  # task_unblock: blocked -> claimed
-                result = self.queue.unblock(frame["task_id"], nick, sock_gen,
-                                            frame["command_id"],
-                                            frame["expected_task_version"], now)
+            result = self._apply_task_op(trial, ftype, frame, nick, sock_gen, now)
         except TaskError as e:  # Conflict/StaleGeneration sa jego podklasami
             await ws.send(json.dumps(protocol.make_frame(
                 "error", "server", now, command_id=command_id,
                 text=f"{type(e).__name__}: {e}")))
             return
-        # (Runda 4 #1) dedup cache-hit to ODPOWIEDZ dla klienta, NIE fakt do
-        # logu. Gdy queue zwrocila WYNIK Z CACHE (retry tego samego
-        # command_id), faktyczna mutacja NIE zaszla — appendowanie go jako
-        # nowego task_state eventu cofaloby stan przy replay (event z cached
-        # open v1 zaaplikowany PO claimed v2). Odsylamy idempotentne ok bez
-        # zadnego zapisu ani side-effectow (offer/idle/notify).
-        cached = self.queue.last_dedup_hit
-        if not cached:
-            # (2) trwaly event result-based: niesie PELNY stan taska po
-            # mutacji (task_state) + fingerprint dedup — replay stosuje stan
-            # WPROST przez apply_replayed (bez re-walidacji WIP/lease/CAS ani
-            # zaleznosci od biezacej polityki) i odtwarza wpis dedup.
-            self._append({**frame, "task_state": result,
-                          "fingerprint": self.queue.fingerprint_for(frame["command_id"])})
-            if ftype == "task_new":
-                self._trigger_offer()
-            elif ftype == "task_claim":
-                if nick in self.idle:
-                    self.idle.remove(nick)
-                # (Runda 4 #3 + Runda 5 B) sukces claim oferowanego taska
-                # ROZSTRZYGA pending offer TRWALE i NATYCHMIAST — nie czekajac
-                # na sleep-timeout w _offer_loop. Bez tego crash/clean-stop
-                # przed uplywem offer_timeout zostawialby task=claimed ORAZ
-                # oferte pending. Runda 5 B: rozstrzygamy WSZYSTKIE pending
-                # offers dla (task_id, wersja-open) niezaleznie od tego kto byl
-                # TARGET oferty — steal-claim (gamma bierze taska oferowanego
-                # becie) tez czysci oferte bety, ktorej klucz (beta,...) claimer
-                # gamma sam nigdy by nie trafil. CAS gwarantuje ze
-                # expected_task_version == wersja-open oferty. Idempotentne:
-                # _offer_loop przy przebudzeniu zobaczy juz brak wpisu (no-op).
-                self._resolve_offers_for_task(
-                    frame["task_id"], frame["expected_task_version"], "claimed")
+        if trial.last_dedup_hit:
+            # fallback: peek nie zlapal (teoretyczny rozjazd fingerprintu) — klon
+            # jest autorytatywny: cache-hit => bez appendu i bez swapu.
+            await ws.send(json.dumps(protocol.make_frame(
+                "ok", "server", now, command_id=command_id, task=result)))
+            return
+        # (2) trwaly event result-based: PELNY stan taska po mutacji (task_state)
+        # + fingerprint dedup — replay stosuje stan WPROST przez apply_replayed.
+        # durable NAJPIERW (bez snapshotu); rzuca ZANIM swap -> live+dedup nietkniete.
+        self._append_durable({**frame, "task_state": result,
+                              "fingerprint": trial.fingerprint_for(frame["command_id"])})
+        self.queue = trial  # commit: klon (z mutacja + wpisem dedup) staje sie live
+        if ftype == "task_new":
+            self._trigger_offer()
+        elif ftype == "task_claim":
+            if nick in self.idle:
+                self.idle.remove(nick)
+            # (Runda 6 #2) ATOMOWA sekcja claim: task_claim JUZ durable (bez
+            # snapshotu), teraz USUN wszystkie matching pending offers z cache —
+            # BEZ osobnego offer_resolved (udany claim SAM jest trwalym faktem
+            # resolution; replay pop-uje je z task_claim — Runda 5 B; offer_resolved
+            # zostaje WYLACZNIE dla timeoutow/ewikcji). Jeden _maybe_snapshot
+            # ponizej: bez tego auto-snapshot na granicy #100 kompaktowalby
+            # task_claim ZANIM resolution zajdzie -> snapshot task=claimed z
+            # offers=[pending] -> restart niespojny.
+            self._drop_offers_for_task(
+                frame["task_id"], frame["expected_task_version"])
+        self._maybe_snapshot()
         await ws.send(json.dumps(protocol.make_frame(
             "ok", "server", now, command_id=command_id, task=result)))
-        if not cached and ftype == "review_changes":
+        if ftype == "review_changes":
             await self._send(result["assignee"], protocol.make_frame(
                 "review_changes", "server", now, task=result))
 
@@ -644,21 +691,23 @@ class ChatServer:
         return [k for k in self._offer_cache
                 if k[1] == task_id and k[2] == task_version]
 
-    def _resolve_offers_for_task(self, task_id, task_version, outcome):
-        # (Runda 5 B) rozstrzygniecie WSZYSTKICH pending ofert taska (dowolny
-        # target) — udany claim jest faktem resolution niezaleznie od tego,
-        # komu task byl oferowany. Kazda pasujaca oferta dostaje trwaly
-        # offer_resolved (audyt) i wypada z cache live.
-        for offer_nick, tid, ver in self._pending_offer_keys_for(task_id, task_version):
-            self._resolve_offer(offer_nick, tid, ver, outcome)
+    def _drop_offers_for_task(self, task_id, task_version):
+        # (Runda 6) udany claim SAM jest trwalym faktem resolution (task_claim
+        # event; replay pop-uje WSZYSTKIE matching offers dla (task_id, wersja-
+        # open) niezaleznie od targetu — Runda 5 B, wiec steal-claim gammy tez
+        # czysci oferte bety). Sciezka claim wiec tylko USUWA pending offers z
+        # cache live, BEZ osobnego offer_resolved (bylby redundantny audyt, a
+        # jego durable append w petli przy wielu ofertach wymuszalby snapshoty w
+        # srodku transakcji). offer_resolved zostaje WYLACZNIE dla timeoutow/
+        # ewikcji (_offer_loop), gdzie NIE ma task_claim jako durable faktu.
+        for key in self._pending_offer_keys_for(task_id, task_version):
+            self._offer_cache.pop(key, None)
 
     def _resolve_offer(self, nick, task_id, task_version, outcome):
-        # (3) rozstrzygniecie pending oferty (claim oferowanego taska / timeout
-        # / ewikcja) appenduje TRWALY event offer_resolved — AUDYT. Poprawnosc
-        # replay NIE zalezy juz od niego (Runda 5 B: replay wywodzi resolution
-        # z samego task_claim); offer_resolved czysci pending w cache live i
-        # daje slad, ale jego brak w logu (crash-window) nie psuje replay.
-        # Idempotentne: appendujemy tylko jesli byla faktycznie pending.
+        # (3) rozstrzygniecie pending oferty przez TIMEOUT/EWIKCJE (_offer_loop)
+        # appenduje TRWALY event offer_resolved — dla tych sciezek to JEDYNY
+        # durable fakt resolution (nie ma task_claim). Sukces claim NIE idzie
+        # tedy (patrz _drop_offers_for_task). Idempotentne: tylko jesli pending.
         key = (nick, task_id, task_version)
         if key not in self._offer_cache:
             return
