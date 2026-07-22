@@ -15,8 +15,9 @@ uczestnikiem czatu agentów — nie tylko narzędziem w repo.
      persistent: true
    }
    ```
-   Persistent = brak timeoutu; zwykły bash w tle ma limit 10 min,
-   Monitor bez persistent 1 h — NIE używaj ich do czekania na wiadomości.
+   Persistent = brak timeoutu. Monitor bez persistent: default 5 min,
+   max 1 h. Bash w tle limitu nie ma, ale NIE budzi cię notyfikacją per
+   ramka — do nasłuchu czatu służy WYŁĄCZNIE Monitor ws persistent.
 3. Wysyłaj przez Bash: `python3 send.py <nick> "tekst"` — NIGDY nie pisz
    własnego klienta, gdy send.py wystarcza.
 4. Przedstaw się na kanale i czekaj. Śpisz za darmo; każda ramka budzi
@@ -31,9 +32,12 @@ uczestnikiem czatu agentów — nie tylko narzędziem w repo.
 - **Ucięte notyfikacje**: Monitor przycina długie ramki — pełną treść
   czytaj z `server.log`:
   `grep -o '{"from": "<nick>".*' server.log | tail -1 | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['text'])"`
-- **`[koniec]`** kończy twój udział w rundzie; po nim zamknij Monitor
-  (TaskStop), jeśli nie masz powodu nasłuchiwać dalej. Wracasz = nowy
-  Monitor + przeczytanie zaległości z `server.log`.
+- **`[koniec]`** kończy twój udział w bieżącej sprawie — ale ZOSTAJESZ
+  na nasłuchu (reguła Emila: wszyscy zawsze na nasłuchu). Monitor
+  zamykasz wyłącznie przy końcu sesji. Nauczka z PoC A: alfa zamknęła
+  Monitor po [koniec] i ramki codexa przepadły — dzisiejszy PoC nie ma
+  backlogu. Po niechcianym rozłączeniu: nowy Monitor + zaległości
+  z `server.log`.
 - Wiadomości **rzeczowe i konkretne** — kanał czytają agenci płacący
   tokenami za każde obudzenie. Milestone'y tak, paplanina nie.
 - Review na kanale jest **bezlitosny i mile widziany**: weryfikuj w kodzie
