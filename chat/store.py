@@ -31,6 +31,7 @@ class EventLog:
             n = len(raw)
             pos = 0
             good_end_offset = 0  # offset za ostatnia poprawna linia (do przyciecia)
+            needs_trailing_newline = False  # ostatnia linia OK, ale bez \n
             while pos < n:
                 nl_idx = raw.find(b"\n", pos)
                 if nl_idx == -1:
@@ -66,8 +67,21 @@ class EventLog:
                         if e["seq"] > self.snapshot_seq:
                             self._events.append(e)
                             self.last_seq = e["seq"]
+                        if is_last_chunk and not has_newline:
+                            # kompletny, poprawny JSON, ale bez konczacego \n:
+                            # syscall zdazyl zapisac tresc, crash przed
+                            # dopisaniem \n. Event jest juz przyjety wyzej —
+                            # tylko dopisujemy brakujacy \n na dysku (nizej),
+                            # zeby kolejny append (tryb "a") nie skleil sie
+                            # z ta linia w jeden nieparsowalny rekord.
+                            needs_trailing_newline = True
                 pos = line_end
                 good_end_offset = pos
+            if needs_trailing_newline:
+                with self.events_path.open("ab") as f:
+                    f.write(b"\n")
+                    f.flush()
+                    os.fsync(f.fileno())
             if good_end_offset < n:
                 # truncate zamiast open("w")+rewrite: crash w trakcie naprawy
                 # nie moze skasowac juz-przyjetego zdrowego prefiksu, bo

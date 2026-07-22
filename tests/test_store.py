@@ -123,6 +123,30 @@ def test_corrupted_middle_line_raises(tmp_path):
         EventLog(tmp_path)
 
 
+def test_valid_last_line_without_newline_gets_repaired(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "text": "a"})
+    log.append({"type": "chat", "text": "b"})
+    assert log.last_seq == 2
+
+    # symulacja crashu PO zapisie kompletnego, poprawnego JSON-a, ale PRZED
+    # dopisaniem koncowego \n: usuwamy z pliku tylko ostatni bajt (\n),
+    # zostawiajac poprawny, ale niezakonczony ostatni rekord
+    size = log.events_path.stat().st_size
+    with log.events_path.open("r+b") as f:
+        f.truncate(size - 1)
+
+    log2 = EventLog(tmp_path)  # recovery: dopisuje brakujacy \n
+    assert log2.last_seq == 2
+
+    assert log2.append({"type": "chat", "text": "c"}) == 3
+
+    log3 = EventLog(tmp_path)
+    got = log3.events_after(0)
+    assert [e["seq"] for e in got] == [1, 2, 3]
+    assert len(got) == 3
+
+
 def test_snapshot_persists_and_replay_after_restart(tmp_path):
     log = EventLog(tmp_path)
     for i in range(3):
