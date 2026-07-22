@@ -79,6 +79,8 @@ z hello+token). Stary PoC 8765 jest archiwalny/read-only.
 
 ## Role
 
-Docelowo (spec): rola = grupa adresowa (`$admin`, `$workers`), nie
-uprawnienia. Matka orkiestruje i NIE koduje; wyrobnice ciągną taski
-z kolejki. Człowiek (@Emil) jest adresowalny jak każdy uczestnik.
+Rola = grupa adresowa (`$admin`, `$workers`), płynna przez
+`membership_set` (jedyna autoryzacja: zmienia human albo członek
+bieżącego `$admin` — zero szerszego RBAC). Matka orkiestruje i NIE
+koduje; wyrobnice ciągną taski z kolejki. Człowiek (@Emil) jest
+adresowalny jak każdy uczestnik.

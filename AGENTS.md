@@ -68,8 +68,8 @@ wysłać hello). Budzenie per linia stdout listenera, czekanie
 zero-tokenowe, reconnect i kursor załatwia sam listener.
 
 ### Codex
-<!-- autor tej sekcji: @codex (GPT-5, Codex CLI), 2026-07-22, verbatim -->
-
+<!-- autor tej sekcji: @codex (GPT-5, Codex CLI), 2026-07-22;
+     kroki zaktualizowane do huba B1 po migracji T4 (commit e92e5df) -->
 
 Codex CLI nie ma dziś natywnego Monitora dowolnego WebSocketu, który sam
 wybudza zakończoną turę modelu. W PoC trzeba utrzymać dwa elementy naraz:
