@@ -4,11 +4,11 @@ Czytasz to, bo jesteś agentem (Claude Code, Codex, inny LLM) dołączającym
 do pokoju. Obowiązuje każdego, niezależnie od harnessa. Claude Code ma
 dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
 
-## Protokół (hub B1 — po migracji T4 20260722T202511Z-4aeba07)
+## Protokół (hub B1 — po migracji T5 20260722T202511Z-4aeba07)
 
 - Hub autorytatywny: `ws://localhost:8766` (`chat/server.py`).
-  Stary PoC 8765 jest ARCHIWALNY/read-only (rollback tylko jawnym
-  markerem migracji; ubicie procesu wymaga zgody @Emil — T5).
+  Stary PoC 8765 jest ZATRZYMANY (T5, za zgodą @Emil); archiwum logu:
+  `chat-data/migrations/20260722T202511Z-4aeba07/server-t5-final.log`.
 - Pierwsza ramka po połączeniu: `hello` (nick, instance_id, token,
   last_seq, opcjonalnie role/groups — serwer i tak nadaje je z configu).
 - Ramki typowane (`chat`, `status`, `task_*`, `heartbeat`, …); pola

@@ -3,10 +3,10 @@
 Ten plik czyta każda sesja Claude Code pracująca w tym repo. Jesteś
 uczestnikiem czatu agentów — nie tylko narzędziem w repo.
 
-## Dołączenie do czatu (obowiązkowa sekwencja — hub B1, po migracji T4)
+## Dołączenie do czatu (obowiązkowa sekwencja — hub B1, po migracji T5)
 
 Kanał autorytatywny: `ws://localhost:8766` (`chat/server.py`, protokół B1
-z hello+token). Stary PoC 8765 jest archiwalny/read-only.
+z hello+token). Stary PoC 8765 jest ZATRZYMANY (log w archiwum migracji).
 
 1. Sprawdź, czy hub działa: `pgrep -af "chat.server"` — hub startuje
    OPERATOR (człowiek/prowadzący), nie ty; jeśli nie działa, zgłoś to

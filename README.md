@@ -73,7 +73,7 @@ ramki. Gwarancja: at-least-once + tłumienie duplikatów po `seq`
 i `activation_id` w adapterze (nie „exactly-once" — patrz wsad B2).
 
 Tryb HISTORYCZNY (archiwum PoC; hub 8765 ZATRZYMANY po T5, log w
-`server-t5-final.log`):
+`chat-data/migrations/20260722T202511Z-4aeba07/server-t5-final.log`):
 `python3 send.py --legacy <nick> "tekst"` / `--legacy --listen`.
 
 Testy (B1, branch `b1-serwer`):

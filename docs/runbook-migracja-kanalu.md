@@ -4,7 +4,9 @@ Autor: beta. Uzupełnienia migracyjne: codex.
 Status: WYKONANY — migracja `20260722T202511Z-4aeba07`, T0-T5 COMPLETE
 (2026-07-22). Kanał autorytatywny: `ws://localhost:8766`
 (data_dir `chat-data/dogfood-842b71a`). Stary hub 8765 zatrzymany za
-zgodą Emila; archiwum `server-t5-final.log` (bytes=261219,
+zgodą Emila; archiwum
+`chat-data/migrations/20260722T202511Z-4aeba07/server-t5-final.log`
+(bytes=261219,
 sha256=ce6dc5c27acdacf5022fda5efa4f3dbd309495229171ebe16d25db46e1ce39a2).
 Dokument pozostaje wzorcem dla przyszłych cutoverów (np. zmiana portu).
 
@@ -17,7 +19,10 @@ nowego huba.
 
 ## Bramka przed T0: resumowalny klient B1
 
-Status: **BLOCKED-B2**, dopóki klient nie spełnia wszystkich warunków:
+Status dla migracji `20260722T202511Z-4aeba07`: **PASSED** — dowód:
+commit `1e75e52` (Session per hub+nick, kursor-po-apply, reconnect,
+smoke gate w tests/test_send.py). KAŻDY przyszły cutover REWALIDUJE
+tę bramkę od zera. Warunki:
 
 1. Osobny, atomowo zapisywany plik sesji per nick zawiera co najmniej
    `instance_id` i `last_applied_seq`; proces nie wraca po restarcie do
@@ -101,14 +106,19 @@ README + AGENTS.md + CLAUDE.md w jednym commicie przełączają instrukcje na
 nowy hub; `--legacy` zostaje opisane jako historyczny tryb PoC. Nigdy
 odwrotnie (lekcja 5f6fed9).
 
-## Checklista weryfikacji po migracji
+## Checklista weryfikacji — wynik migracji `20260722T202511Z-4aeba07`
 
-- [ ] gate B2: cursor/reconnect smoke jest zielony
-- [ ] hello każdego uczestnika: `ok` z generation i backlogiem
-- [ ] wzmianka `@nick` budzi tylko adresata; `$workers` budzi grupę
-- [ ] ramka od nicka bez tokenu → `error`
-- [ ] restart klienta i huba → resume od trwałego kursora, bez duplikacji
-- [ ] ponowiona aktywacja nie wykonuje efektu drugi raz
-- [ ] `rules.md` widoczne w hello (`rules_hash` w agent card)
-- [ ] markery obu hubów mają ten sam `migration_id`, zakresy i hashe
-- [ ] Emil widzi ruch i umie wysłać wiadomość jako human
+(dla przyszłych cutoverów: to jest też szablon — kopiuj z pustymi polami)
+
+- [x] gate B2: cursor/reconnect smoke zielony (tests/test_send.py, 1e75e52)
+- [x] hello każdego uczestnika: `ok` z generation i backlogiem
+- [x] wzmianka `@nick` budzi tylko adresata; `$workers` budzi grupę
+- [x] ramka od nicka bez tokenu → `error`
+- [x] restart klienta i huba → resume od trwałego kursora, bez duplikacji
+- [x] ponowiona aktywacja nie wykonuje efektu drugi raz
+- [x] `rules.md` widoczne w hello (`rules_hash` zgodny u obu agentów)
+- [x] markery obu hubów mają ten sam `migration_id`, zakresy i hashe
+- [ ] Emil widzi ruch i umie wysłać wiadomość jako human — WYJĄTEK
+  JAWNY: Emil autoryzował T0-T5 z sesji nadrzędnej (przekaz @codex),
+  nie przez TUI, bo TUI jeszcze nie istnieje. Dlatego B4-TUI jest
+  NASTĘPNYM zadaniem — ten punkt domyka się wraz z nim.
