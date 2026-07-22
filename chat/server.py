@@ -15,7 +15,8 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      queue.apply_replayed — bez ponownej walidacji WIP/lease/CAS i bez
      zaleznosci od biezacej polityki (wip_limit/lease_ttl moga sie zmienic
      miedzy restartami; lease_until odtwarzany HISTORYCZNY). Expiry to tez
-     trwaly event (task_expired), nie fyi. resync_required robi swiezy,
+     trwaly event (task_expired_batch — jeden atomowy batch na petle), nie fyi.
+     resync_required robi swiezy,
      atomowy snapshot() PRZED odpowiedzia, zeby zwracany snapshot_seq
      zawsze etykietowal dokladnie ten state.
   c) snapshot po kazdych SNAPSHOT_EVERY=100 eventach (licznik zasiany przy
@@ -136,6 +137,12 @@ class ChatServer:
             elif etype == "offer_resolved":
                 key = (event["nick"], event["task_id"], event["task_version"])
                 self._offer_cache.pop(key, None)  # rozstrzygnieta = nie pending
+            elif etype == "task_expired_batch":
+                # (Runda 6) JEDEN atomowy event niosacy task_states WSZYSTKICH
+                # taskow wygaslych w danej petli expiry — aplikujemy kazdy wprost
+                # (result-based), jak pojedynczy reopen.
+                for ts in event["task_states"]:
+                    self.queue.apply_replayed(ts, None, None)
             elif etype in _TASK_STATE_EVENTS:
                 self.queue.apply_replayed(event["task_state"],
                                           event.get("command_id"),
@@ -216,35 +223,36 @@ class ChatServer:
             await asyncio.sleep(1.0)
             try:
                 self._reap_expired(time.time())
-            except Exception:
-                # (Runda 6) trwaly append task_expired moze paść (np. dysk
-                # pelny) — NIE zabijaj petli: provisional-then-commit gwarantuje
-                # ze live jest NIETKNIETE przy append-fail, wygasle taski
-                # zostaja claimed do nastepnej proby (bez utraty).
+            except OSError:
+                # (Runda 6) trwaly append batcha moze paść (np. dysk pelny) —
+                # NIE zabijaj petli: provisional-then-commit gwarantuje ze live
+                # jest NIETKNIETE przy append-fail, wygasle taski zostaja claimed
+                # do nastepnej proby (bez utraty). Zawezone do OSError — bledy
+                # programistyczne maja sie propagowac, nie byc cicho polkniete.
                 pass
 
     def _reap_expired(self, now):
-        # (1) expiry jest TRWALYM, replayowalnym eventem — nie fyi. Kazdy
-        # reopen appenduje {type:"task_expired", task_id, task_state} niosacy
-        # pelny stan taska po powrocie do open, zeby replay odtworzyl reopen
-        # wprost (bez tego drugi claim po expire dawalby Conflict przy
-        # restarcie — patrz apply_replayed).
+        # (1) expiry jest TRWALYM, replayowalnym eventem — nie fyi. Event niesie
+        # pelny stan taskow po powrocie do open, zeby replay odtworzyl reopen
+        # wprost (bez tego drugi claim po expire dawalby Conflict przy restarcie
+        # — patrz apply_replayed).
         # (Runda 6) event-first TEZ tutaj (provisional-then-commit): expire()
-        # LIVE przed appendem dawal ten sam split-brain co mutacje taskow —
-        # OSError na appendzie zostawial reopen w live bez trwalego faktu, a
-        # blad w srodku paczki mieszal czesciowy log z live-stanem calej paczki.
-        # Teraz: expire na KLONIE (walidacja + reopeny), durable append WSZYSTKICH
-        # task_expired, DOPIERO po sukcesie swap live=klon. Append-fail => live
-        # NIETKNIETE, cala paczka zostaje claimed do nastepnej petli (bez utraty).
+        # LIVE przed appendem dawal split-brain — OSError na appendzie zostawial
+        # reopen w live bez trwalego faktu. ATOMOWOSC CALEJ PACZKI: expiry to
+        # JEDEN event task_expired_batch z lista task_states wszystkich wygaslych
+        # w tej petli — jeden _append_durable to albo caly batch trwaly, albo
+        # nic (petla wielu appendow dawala czesciowy log przy calosciowym swapie
+        # -> EXPIRY_SPLIT). Kolejnosc: expire na KLONIE -> durable batch -> DOPIERO
+        # swap live=klon -> snapshot -> trigger. Append-fail => live NIETKNIETE,
+        # ZERO eventow, cala paczka zostaje claimed do nastepnej petli.
         trial = copy.deepcopy(self.queue)
         expired = trial.expire(now)
         if not expired:
             return
-        for task in expired:
-            self._append_durable(protocol.make_frame(
-                "task_expired", "server", time.time(),
-                task_id=task["id"], task_state=task))
-        self.queue = trial       # commit: swap dopiero PO wszystkich appendach
+        self._append_durable(protocol.make_frame(
+            "task_expired_batch", "server", time.time(),
+            task_ids=[t["id"] for t in expired], task_states=expired))
+        self.queue = trial       # commit: swap dopiero PO udanym appendzie batcha
         self._maybe_snapshot()
         self._trigger_offer()
 

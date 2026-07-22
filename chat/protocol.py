@@ -15,7 +15,7 @@ INBOUND_FRAME_TYPES = {
 }
 OUTBOUND_FRAME_TYPES = {
     "task_offer", "backlog", "resync_required", "error", "ok",
-    "task_expired", "offer_resolved",
+    "task_expired", "task_expired_batch", "offer_resolved",
 }
 FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 

@@ -1678,14 +1678,15 @@ def test_claim_at_snapshot_boundary_snapshot_internally_consistent(tmp_path):
 
 # -- expiry event-first: expire na klonie, durable append, potem swap --------
 
-def test_reap_expired_append_failure_leaves_live_untouched(tmp_path):
-    # (Runda 6) _reap_expired robil queue.expire() LIVE przed appendami
-    # task_expired — ten sam split-brain co mutacje: OSError na appendzie
-    # zostawial reopen w live bez trwalego faktu; blad w srodku paczki mieszal
-    # czesciowy log z live-stanem calej paczki. Fix (provisional-then-commit):
-    # expire na KLONIE, durable append task_expired, DOPIERO potem swap live=klon.
-    # Injekcja na 1. appendzie -> live NIETKNIETE (oba nadal claimed), zero
-    # eventow; po naprawie nastepny reap reopenuje oba, restart spojny.
+def test_reap_expired_batch_append_failure_no_partial_log(tmp_path):
+    # (Runda 6) expiry = JEDEN atomowy event task_expired_batch (lista
+    # task_states). Petla wielu appendow (jeden task_expired per task) + swap na
+    # koncu dawala EXPIRY_SPLIT: OSError na N-tym appendzie zostawial pierwsze
+    # eventy trwale na dysku, ale swap sie nie wykonywal -> live=[claimed,...],
+    # persisted=[czesc], replay=rozszczepienie. Batch: jeden append = albo caly
+    # trwaly, albo nic. Injekcja na appendzie batcha (DWA wygasle taski) -> live
+    # NIETKNIETE (oba claimed), ZERO eventow na dysku (nie czesc); po naprawie
+    # nastepna petla reopenuje OBA jednym batchem, replay spojny [open, open].
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
                         lease_ttl=5.0, offer_timeout=30.0)
@@ -1710,37 +1711,38 @@ def test_reap_expired_append_failure_leaves_live_untouched(tmp_path):
 
         future = time.time() + 1000    # oba lease dawno wygasle
         orig = s1.log.append
-        calls = {"n": 0}
 
         def flaky(frame):
-            if frame.get("type") == "task_expired":
-                calls["n"] += 1
-                if calls["n"] == 1:
-                    raise OSError("dysk pelny na pierwszym task_expired")
+            if frame.get("type") == "task_expired_batch":
+                raise OSError("dysk pelny na appendzie batcha")
             return orig(frame)
 
         s1.log.append = flaky
         seq_before = s1.log.last_seq
         with pytest.raises(OSError):
             s1._reap_expired(future)
-        # live NIETKNIETE: oba nadal claimed, zero eventow task_expired
+        # live NIETKNIETE: OBA nadal claimed, ZERO eventow (zero czesciowego logu)
         assert s1.queue.get(t1)["status"] == "claimed"
         assert s1.queue.get(t2)["status"] == "claimed"
         assert s1.log.last_seq == seq_before
 
-        # po naprawie nastepny reap reopenuje OBA i appenduje
+        # po naprawie nastepny reap reopenuje OBA jednym batchem
         s1.log.append = orig
         s1._reap_expired(future)
         assert s1.queue.get(t1)["status"] == "open"
         assert s1.queue.get(t2)["status"] == "open"
-        assert len([e for e in s1.log.events_after(seq_before)
-                    if e["type"] == "task_expired"]) == 2
+        batch = [e for e in s1.log.events_after(seq_before)
+                 if e["type"] == "task_expired_batch"]
+        assert len(batch) == 1                                  # DOKLADNIE jeden batch
+        assert {ts["id"] for ts in batch[0]["task_states"]} == {t1, t2}
+        assert [e for e in s1.log.events_after(seq_before)
+                if e["type"] == "task_expired"] == []           # brak singla-per-task
         await a.close(); await b.close()
         await _crash_stop(s1)
 
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
                         lease_ttl=5.0, offer_timeout=30.0)
-        assert s2.queue.get(t1)["status"] == "open"
+        assert s2.queue.get(t1)["status"] == "open"             # replay batcha spojny
         assert s2.queue.get(t2)["status"] == "open"
     asyncio.run(scenario())
 
