@@ -1169,3 +1169,32 @@ def test_dedup_cache_hit_does_not_append_mutation_event(tmp_path):
         t = s2.queue.get(tid)
         assert t["status"] == "claimed" and t["version"] == 2  # NIE cofniete do open v1
     asyncio.run(scenario())
+
+
+# -- (2) auto-snapshot NIE moze strzelic w srodku atomowej mutacji oferty ---
+
+def test_auto_snapshot_mid_offer_does_not_lose_pending_offer(tmp_path):
+    # (2) serwer wkladal oferte do _offer_cache PO _append. Gdy task_offer to
+    # event #100, _append wywoluje snapshot ZANIM oferta trafi do cache ->
+    # snapshot bez oferty + kompakcja usuwa event task_offer -> po restarcie
+    # pending offer przepada, nowa oferta dostaje inny activation_id. Fix:
+    # domkniecie stanu (offer w cache) PRZED mozliwym snapshotem. Test: 99
+    # eventow + task_offer #100 -> restart -> pending offer odtworzone, ten
+    # sam activation_id, zero nowego eventu.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=0.3)
+        for i in range(99):    # dopchnij licznik do 99 -> nastepny _append snapshotuje
+            s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": str(i)})
+        assert s1._events_since_snapshot == 99
+        task = s1.queue.add(CARD, "c1", 0.0)
+        activation_id = s1._offer_activation_id("beta", task)   # task_offer = event #100
+        assert s1._events_since_snapshot == 0                    # auto-snapshot strzelil
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=0.3)
+        before = s2.log.last_seq
+        again = s2._offer_activation_id("beta", task)
+        assert again == activation_id            # pending offer odtworzone (ten sam id)
+        assert s2.log.last_seq == before         # zero nowego eventu
+    asyncio.run(scenario())
