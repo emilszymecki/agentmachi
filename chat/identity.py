@@ -1,5 +1,7 @@
 """Tozsamosc logiczna: nick + instance_id -> generation. Token per agent."""
 
+import hmac
+
 
 class AuthError(Exception):
     pass
@@ -12,8 +14,12 @@ class Registry:
         self._instance = {}           # nick -> aktualny instance_id
 
     def hello(self, nick, instance_id, token):
-        expected = self.tokens.get(nick)
-        if expected is None or token != expected:
+        if nick not in self.tokens:
+            raise AuthError(f"bad token for {nick}")
+        expected = self.tokens[nick]
+        if not isinstance(token, str) or not token:
+            raise AuthError(f"bad token for {nick}")
+        if not hmac.compare_digest(expected, token):
             raise AuthError(f"bad token for {nick}")
         if self._instance.get(nick) != instance_id:
             self._gen[nick] = self._gen.get(nick, 0) + 1
@@ -25,3 +31,13 @@ class Registry:
 
     def is_current(self, nick, generation):
         return self._gen.get(nick) == generation
+
+    def dump(self):
+        return {"gen": dict(self._gen), "instance": dict(self._instance)}
+
+    @classmethod
+    def restore(cls, tokens, data):
+        registry = cls(tokens)
+        registry._gen = dict(data.get("gen", {}))
+        registry._instance = dict(data.get("instance", {}))
+        return registry
