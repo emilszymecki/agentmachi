@@ -183,6 +183,14 @@ class ChatServer:
         try:
             raw = await ws.recv()
             frame = json.loads(raw)
+            if not isinstance(frame, dict):
+                # niezmiennik E: skalar/lista jako JSON nie moze zabic
+                # handlera przez .get() na nie-dict — error + jawne zamkniecie
+                await ws.send(json.dumps(protocol.make_frame(
+                    "error", "server", time.time(),
+                    text="ramka musi byc obiektem JSON")))
+                await ws.close(code=1008, reason="ramka musi byc obiektem JSON")
+                return
             if frame.get("type") != "hello":
                 await ws.send(json.dumps(protocol.make_frame(
                     "error", "server", time.time(), text="pierwsza ramka musi byc hello")))
@@ -224,6 +232,12 @@ class ChatServer:
                 except json.JSONDecodeError:
                     await ws.send(json.dumps(protocol.make_frame(
                         "error", "server", time.time(), text="invalid json")))
+                    continue
+                if not isinstance(frame, dict):
+                    # niezmiennik E: w petli — error bez rozlaczania
+                    await ws.send(json.dumps(protocol.make_frame(
+                        "error", "server", time.time(),
+                        text="ramka musi byc obiektem JSON")))
                     continue
                 try:
                     stop = await self._on_frame(frame, nick, generation, ws)

@@ -398,3 +398,34 @@ def test_task_unblock_frame_transitions_blocked_to_claimed(srv):
         assert unblocked["type"] == "ok" and unblocked["task"]["status"] == "claimed"
         await a.close(); await b.close()
     asyncio.run(srv(scenario))
+
+
+# -- E: skalar/nie-dict JSON nie zabija handlera -----------------------------
+
+@pytest.mark.parametrize("payload", ["42", '"x"', "[1,2,3]"])
+def test_scalar_json_as_first_frame_gets_error_and_close(srv, payload):
+    async def scenario(server):
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(payload)
+        err = json.loads(await asyncio.wait_for(ws.recv(), timeout=2.0))
+        assert err["type"] == "error"
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=1.0)
+    asyncio.run(srv(scenario))
+
+
+@pytest.mark.parametrize("payload", ["42", '"x"', "[1,2,3]"])
+def test_scalar_json_after_hello_does_not_kill_handler(srv, payload):
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(payload)
+        err = await recv(a)
+        assert err["type"] == "error"
+        # handler wciaz zyje — kolejna poprawna ramka dziala normalnie
+        b, _ = await hello("beta", "tb")
+        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
+                                 "text": "@beta wciaz zyje"}))
+        got = await recv(b)
+        assert got["text"] == "@beta wciaz zyje"
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
