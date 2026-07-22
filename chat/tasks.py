@@ -27,9 +27,15 @@ _UNSET = object()  # odroznia "pole nie dotyczy tej operacji" od realnego None
 class TaskQueue:
     CARD_REQUIRED_FIELDS = ("goal", "acceptance", "verify", "files", "head", "brief")
 
-    def __init__(self, wip_limit=3, lease_ttl=120.0):
+    def __init__(self, wip_limit=3, lease_ttl=120.0, dedup_ttl=None):
         self.wip_limit = wip_limit
         self.lease_ttl = lease_ttl
+        # dedup_ttl: przyjmowany dla kompatybilnosci wstecznej ze starszym
+        # API/planem, NIEUZYWANY w B1 — dedup jest bez TTL (patrz komentarz
+        # nad _dedup_get). None = wpisy dedup zyja do kontrolowanej
+        # kompakcji; wartosc liczbowa jest akceptowana (nie rzuca), ale nie
+        # ma zadnego efektu na retencje.
+        self.dedup_ttl = dedup_ttl
         self._tasks = {}      # id -> task dict
         self._results = {}    # command_id -> (fingerprint, deepcopy wyniku)
         self._next_id = 0
@@ -139,9 +145,12 @@ class TaskQueue:
             raise StaleGeneration(
                 f"{task['id']}: {nick}/gen{generation} nie jest wlascicielem")
 
-    # Gate WIP dla open->claimed (claim) — jedyne miejsce, ktore limituje
-    # WYDAWANIE nowych taskow. unblock (blocked->claimed) go NIE uzywa
-    # (patrz komentarz przy unblock) — to swiadoma asymetria, nie przeoczenie.
+    # Wspolny gate WIP dla kazdego przejscia Z POZA licznika WIP
+    # ({claimed, review}) DO tego licznika: open->claimed (claim) i
+    # blocked->claimed (unblock). Bez tego drugi slot mozna bylo przemycic
+    # obchodzac claim: claim(t1)->block(t1) zwalnia slot (blocked jest poza
+    # WIP), claim(t2) zajmuje go, unblock(t1) wracal bez sprawdzenia i dawal
+    # DWA claimed przy wip_limit=1.
     def _check_wip(self, task_id):
         wip = sum(1 for t in self._tasks.values()
                   if t["status"] in ("claimed", "review"))
@@ -181,7 +190,7 @@ class TaskQueue:
         task["lease_until"] = now + self.lease_ttl
 
     def _mutate(self, op, task_id, command_id, expected_version, now,
-                owner=None, from_status=None, **updates):
+                owner=None, from_status=None, check_wip=False, **updates):
         self._check_command_id(command_id)
         nick, generation = owner if owner is not None else (None, None)
         if owner is not None:
@@ -208,6 +217,11 @@ class TaskQueue:
             raise Conflict(
                 f"{task_id}: lease wygasl ({task['lease_until']} <= {now}), "
                 "wymagane expire()")
+        # unblock (blocked->claimed) wchodzi do licznika WIP z zewnatrz —
+        # sam gate WIP co w claim (open->claimed), zeby unblock nie mogl
+        # obejsc limitu (patrz komentarz nad _check_wip).
+        if check_wip:
+            self._check_wip(task_id)
         task.update(version=task["version"] + 1, **updates)
         return self._dedup_put(command_id, fingerprint, copy.deepcopy(task))
 
@@ -217,10 +231,9 @@ class TaskQueue:
                              status="blocked", frozen=True)
 
     def unblock(self, task_id, nick, generation, command_id, expected_version, now):
-        # unblock celowo NIE sprawdza WIP: nie wydajemy nowego taska, tylko
-        # oddajemy właścicielowi rozpoczęty (konsensus review 2026-07-22)
         return self._mutate("unblock", task_id, command_id, expected_version, now,
                              owner=(nick, generation), from_status=("blocked",),
+                             check_wip=True,
                              status="claimed", frozen=False,
                              lease_until=now + self.lease_ttl)
 
