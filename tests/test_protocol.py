@@ -53,6 +53,20 @@ def test_validate_status_requires_nonempty_string_state():
     assert protocol.validate({"type": "status", "from": "a", "ts": 1.0, "state": "idle"}) is None
 
 
+def test_validate_heartbeat_requires_nonempty_task_id_only():
+    assert protocol.validate({
+        "type": "heartbeat", "from": "beta", "ts": 1.0,
+        "task_id": "t1",
+    }) is None
+    assert protocol.validate({
+        "type": "heartbeat", "from": "beta", "ts": 1.0,
+    }) is not None
+    assert protocol.validate({
+        "type": "heartbeat", "from": "beta", "ts": 1.0,
+        "task_id": "",
+    }) is not None
+
+
 def test_validate_task_frames_require_command_id_and_task_id_where_relevant():
     # task_new: tylko command_id (task_id jeszcze nie istnieje)
     assert protocol.validate({"type": "task_new", "from": "a", "ts": 1.0}) is not None

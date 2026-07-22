@@ -473,6 +473,89 @@ def test_task_unblock_frame_transitions_blocked_to_claimed(srv):
     asyncio.run(srv(scenario))
 
 
+def test_heartbeat_wire_is_durable_transaction_and_replays(tmp_path, caplog):
+    # Dogfood #1: heartbeat istnial tylko w TaskQueue, bez ramki wire. Minimalny
+    # kontrakt to heartbeat{task_id}; identity/generation pochodza z socketu.
+    # Append-fail nie moze przedluzyc live lease, retry ma zapisac task_state,
+    # a restart odtworzyc przedluzony lease bez zmiany wersji taska.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({
+            "type": "task_new", "from": "alfa", "ts": 0.0,
+            "command_id": "hb-new", "card": CARD,
+        }))
+        tid = (await recv(a))["task"]["id"]
+
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({
+            "type": "task_claim", "from": "beta", "ts": 0.0,
+            "task_id": tid, "command_id": "hb-claim",
+            "expected_task_version": 1,
+        }))
+        claimed = (await recv(b))["task"]
+        old_lease = claimed["lease_until"]
+        version = claimed["version"]
+
+        original_append = s1.log.append
+        secret_path = str(s1.log.events_path.resolve())
+        failed = {"done": False}
+
+        def fail_once(frame):
+            if frame.get("type") == "heartbeat" and not failed["done"]:
+                failed["done"] = True
+                raise OSError(f"heartbeat storage fail: {secret_path}")
+            return original_append(frame)
+
+        s1.log.append = fail_once
+        heartbeat = json.dumps({
+            "type": "heartbeat", "from": "podszycie", "ts": 0.0,
+            "task_id": tid,
+        })
+        await b.send(heartbeat)
+        err = await recv(b)
+        assert err["type"] == "error"
+        assert err["text"] == "storage unavailable; retry"
+        assert secret_path not in json.dumps(err)
+        assert secret_path in caplog.text
+        assert s1.queue.get(tid)["lease_until"] == old_lease
+        assert [e for e in s1.log.events_after(0)
+                if e["type"] == "heartbeat"] == []
+
+        s1.log.append = original_append
+        await b.send(heartbeat)
+        ok = await recv(b)
+        renewed = ok["task"]
+        assert ok["type"] == "ok"
+        assert renewed["version"] == version
+        assert renewed["lease_until"] > old_lease
+        events = [e for e in s1.log.events_after(0)
+                  if e["type"] == "heartbeat"]
+        assert len(events) == 1
+        assert events[0]["from"] == "beta"
+        assert events[0]["task_state"] == renewed
+
+        midpoint = (old_lease + renewed["lease_until"]) / 2
+        assert s1._reap_expired(midpoint) is None
+        assert s1.queue.get(tid)["status"] == "claimed"
+
+        await a.close()
+        await b.close()
+        await _crash_stop(s1)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        replayed = s2.queue.get(tid)
+        assert replayed["status"] == "claimed"
+        assert replayed["version"] == version
+        assert replayed["lease_until"] == renewed["lease_until"]
+    asyncio.run(scenario())
+
+
 # -- E: skalar/nie-dict JSON nie zabija handlera -----------------------------
 
 @pytest.mark.parametrize("payload", ["42", '"x"', "[1,2,3]"])

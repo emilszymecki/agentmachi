@@ -227,6 +227,7 @@ class TaskQueue:
                 f"{task_id}: lease wygasl ({task['lease_until']} <= {now}), "
                 "oczekuje na expire()")
         task["lease_until"] = now + self.lease_ttl
+        return copy.deepcopy(task)
 
     def _mutate(self, op, task_id, command_id, expected_version, now,
                 owner=None, from_status=None, check_wip=False, **updates):

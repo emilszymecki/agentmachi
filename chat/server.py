@@ -93,7 +93,7 @@ _TASK_REQUIRED_FIELDS = {
 # stan WPROST przez queue.apply_replayed (result-based), bez re-execution.
 # Expiry jest od R6 wylacznie atomowym task_expired_batch obslugiwanym osobno
 # w replay; historyczny singular zostaje tylko typem inbound-rejected w protocol.
-_TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS)
+_TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"heartbeat"}
 
 
 class ChatServer:
@@ -611,6 +611,8 @@ class ChatServer:
             if frame.get("state") == "idle" and nick not in self.idle:
                 self.idle.append(nick)
                 self._trigger_offer()
+        elif ftype == "heartbeat":
+            await self._on_heartbeat(frame, nick, sock_gen, ws)
         elif ftype in _TASK_REQUIRED_FIELDS:
             await self._on_task_frame(frame, nick, sock_gen, ws)
         else:
@@ -618,6 +620,28 @@ class ChatServer:
                 "error", "server", time.time(),
                 text=f"nieoczekiwany typ ramki od klienta: {ftype}")))
         return False
+
+    async def _on_heartbeat(self, frame, nick, sock_gen, ws):
+        """Minimalny durable heartbeat: task_id + identity przypieta do socketu.
+
+        Duplikat jest nieszkodliwy (ponownie przesuwa lease), wiec nie dokladamy
+        command_id/CAS/dedup. Mutacja nadal spelnia event-first: klon -> append
+        pelnego task_state -> swap. Awaria appendu zostawia live lease bez zmian.
+        """
+        now = time.time()
+        trial = copy.deepcopy(self.queue)
+        try:
+            result = trial.heartbeat(frame["task_id"], nick, sock_gen, now)
+        except TaskError as e:
+            await ws.send(json.dumps(protocol.make_frame(
+                "error", "server", now,
+                text=f"{type(e).__name__}: {e}")))
+            return
+        self._append_durable({**frame, "task_state": result})
+        self.queue = trial
+        self._maybe_snapshot()
+        await ws.send(json.dumps(protocol.make_frame(
+            "ok", "server", now, task=result)))
 
     _TASK_OP = {
         "task_claim": "claim", "task_done": "to_review",
