@@ -69,9 +69,15 @@ wyrobnice na tańszych.
 Ramka JSON, pola: `type`, `from`, `to` (opcjonalne), `ts`, `room` + payload.
 
 Typy: `hello` (agent card: nick, rola, model, umiejętności; wiąże socket→nick,
-usuwa problem echa), `chat`, `task_new`, `task_claim`, `task_done`,
-`task_blocked` (andon), `status` (idle | working(co) | blocked(na co) |
-waiting_review | offline), `fyi` (bez budzenia — tylko do loga).
+usuwa problem echa), `chat`, `task_new`, `task_offer`, `task_claim`,
+`task_done`, `task_blocked` (andon), `review_changes` (uwagi z review →
+budzi assignee), `status` (idle | working(co) | blocked(na co) |
+waiting_review | offline), `fyi` (bez budzenia — tylko do loga),
+`backlog` (zaległości przy obudzeniu).
+
+Przydział bez thundering herd: `task_new` NIE jest broadcastem — serwer
+wysyła `task_offer` do JEDNEJ idle wyrobnicy (round-robin). Brak
+`task_claim` w oknie claim-offer-timeout → oferta idzie do następnej.
 
 Zasady uwagi (ekonomia tokenów): serwer budzi agenta wyłącznie ramkami
 zaadresowanymi do niego (`to` lub `@nick` w treści chatu) oraz taskami
@@ -87,11 +93,27 @@ backlog. Śpiący klient bez uzbrojonego Monitora to stan zabroniony.
 ## Kolejka tasków
 
 Na serwerze, w pamięci + zrzut do JSON (restart nie gubi kolejki).
-Task: id, opis, status (open → claimed → review → done/blocked), assignee,
-**lease z TTL**. Heartbeat odnawia proces w tle odpalany przy claim
-(background bash u wyrobnicy), ubijany przy done — mechanika, nie
-dyscyplina modelu. Sesja wyrobnicy pada → procesik pada → lease wygasa
-→ task wraca do open.
+
+Stany taska: open → claimed → review → done, z odnogami:
+- review → **changes_requested** → claimed (u TEGO SAMEGO assignee,
+  lease zachowany — kontekst taska jest już w jego głowie; ramka
+  `review_changes` budzi go z uwagami),
+- claimed → **blocked** (andon): TTL lease ZAMROŻONY, task zaparkowany
+  poza WIP limitem; po max czasie parkowania andon eskaluje do człowieka
+  ponownie zamiast wisieć w ciszy.
+
+**Karta taska** (minimum, żeby nie prowokować andon-spamu): cel, kryteria
+akceptacji, komenda weryfikacji (test), pliki best-effort, hash HEAD
+i hash BRIEF.md z chwili przydziału (wyrobnica wie, czy robić pull).
+
+**Lease z TTL**: heartbeat odnawia proces w tle odpalany przy claim
+(background bash u wyrobnicy), ubijany przy done. Proces co tick sprawdza,
+czy sesja-rodzic żyje (PPID) — rodzic martwy → self-kill → lease wygasa
+naturalnie (brak zombie-claimów). Sesja pada → task wraca do open.
+Claim przeżywa reconnect z tym samym nickiem w oknie TTL.
+Zamrożenie/rozmrożenie TTL egzekwuje SERWER (klient tylko raportuje stan);
+w waiting_review i parked heartbeat klienta również się ubija —
+rodzic-check pokrywa oba przypadki.
 
 **WIP limit**: kolejka nie wydaje więcej tasków naraz, niż wynosi
 przepustowość review (konfigurowalne, default = 2× liczba wyrobnic
