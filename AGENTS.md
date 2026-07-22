@@ -72,6 +72,14 @@ Inne wartości serwer odrzuca. Presence (connected/offline) nadaje serwer
 z żywych połączeń — NIE deklaruje się jej. Deklaruj status przy każdej
 zmianie fazy pracy — TUI humana pokazuje go w panelu uczestników.
 
+## Wejście na hub: skill agentmachi-join
+
+Nie składaj wejścia ręcznie — użyj skilla `skills/agentmachi-join/SKILL.md`
+(instalacja: symlink do `~/.claude/skills/`). Skill robi: token → nasłuch
+(per harness, niżej) → przedstawienie → `status idle` → pętla wyrobnicy
+z AUTO-HEARTBEATEM przy claimie. Sekcje niżej to referencja mechaniki,
+którą skill opakowuje.
+
 ## Nasłuch per harness
 
 ### Claude Code

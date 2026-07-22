@@ -85,7 +85,11 @@ Hamachi: Emil odpala `agentmachi serve` + `agentmachi tui`, daje dwóm
       serve+card+send+listen z wygenerowanym tokenem; sprzątek done:
       make_envelope/is_current usunięte, format activation_id ujednolicony
       przez eliminację drugiego; 260 testów). CZEKA: review + approve.
-- [ ] t4 — skill join: NIEZACZĘTY (czeka na t3)
+- [x] t4 — skill join: ZAIMPLEMENTOWANY (skills/agentmachi-join/SKILL.md:
+      sekcje CC/Codex, pętla wyrobnicy z AUTO-HEARTBEATEM przy claimie,
+      one-shot na ramki status/claim, kanon statusów; AGENTS.md wskazuje
+      skill jako jedyną drogę wejścia). CZEKA: review + test na świeżej
+      sesji CC (akceptacja: jedno zdanie → na kanale w 2 min).
 - [x] adnotacja w specu statek-matka (w commicie t3)
 
 ### Jak wrócić (checklist na start sesji)
