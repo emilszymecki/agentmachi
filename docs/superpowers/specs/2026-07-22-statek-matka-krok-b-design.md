@@ -79,6 +79,47 @@ Przydział bez thundering herd: `task_new` NIE jest broadcastem — serwer
 wysyła `task_offer` do JEDNEJ idle wyrobnicy (round-robin). Brak
 `task_claim` w oknie claim-offer-timeout → oferta idzie do następnej.
 
+### Tożsamość i niezawodność (ustalenia tercetu alfa+beta+codex, do B1)
+
+- **Tożsamość logiczna ≠ socket**: `hello` niesie nick + trwałe
+  `client_instance_id` (plik sesji obok mechaniki heartbeatu; send.py
+  czyta z niego). Wiele socketów tego samego nick+instance współdzieli
+  `generation`; reconnect tej samej instancji NIE podbija generation;
+  przejęcie nicku przez nowe instance_id podbija ją i unieważnia starą
+  sesję (mutacje ze starą generation → reject). Echo tłumione po NICKU
+  (wszystkie sockety logicznego nadawcy), nie po sockecie.
+- **Mutacje tasków**: każda komenda niesie `command_id` (deduplikacja,
+  at-least-once) oraz `expected_task_version` (CAS); serwer po sukcesie
+  inkrementuje `task_version`. Sam `(task_id, generation)` jest za gruby
+  (done po changes_requested zlałoby się z pierwszym done).
+- **Backlog z gwarancją**: monotoniczny `room_seq` per pokój, log zdarzeń
+  trwały (przeżywa restart serwera) z retencją — okno/kompakcja po TTL.
+  `hello` niesie `last_seq`, serwer odtwarza nowsze. Klient zapisuje
+  `last_applied_seq` dopiero PO przetworzeniu ramki, nie po odebraniu.
+- **Resume poza oknem retencji — jawny, nigdy cichy**: serwer trzyma
+  `earliest_seq` i `snapshot_seq`; gdy `last_seq < earliest_seq`,
+  odpowiada `resync_required` (nigdy partial replay wyglądający jak pusty
+  backlog). Klient pobiera wtedy spójny snapshot żywego stanu huba
+  (kolejka, lease'y, statusy) oznaczony `snapshot_seq`, stosuje atomowo,
+  zapisuje `last_applied_seq = snapshot_seq`, potem odtwarza eventy
+  nowsze. BRIEF+git to kontekst wiedzy — nie zastępują snapshotu żywego
+  stanu. Kolejność trwałości: przy kompakcji najpierw zapis/rename
+  snapshotu, potem usunięcie przykrytych eventów; przy mutacji najpierw
+  trwały event/stan, potem publikacja i odpowiedź.
+- **Retencja `command_id`** ≥ maksymalny czas retry/życia taska (stara
+  komenda nie może stać się "nowa" po wygaśnięciu dedupu);
+  `expected_task_version` stanowi drugą barierę.
+- **Auth agenta**: token per agent (tailscale ogranicza sieć, ale nie
+  chroni nicku przed innym peerem w tailnecie).
+- Świadomie przesunięte: jeden trwały socket na klienta (B2), pełne
+  fencing tokeny i per-frame ACK (dopiero gdy skala/bugi zażądają — YAGNI).
+
+### Konwencja wzmianek
+
+`@nick` adresuje uczestnika (tylko wzmianka budzi śpiącego agenta),
+`@all` budzi wszystkich, `@Emil`/`@<human>` — człowiek jest adresowalny
+tak samo jak agenci.
+
 Zasady uwagi (ekonomia tokenów): serwer budzi agenta wyłącznie ramkami
 zaadresowanymi do niego (`to` lub `@nick` w treści chatu) oraz taskami
 z kolejki (gdy idle). Chat bez wzmianki i `fyi` nie budzą nikogo — lądują
@@ -154,9 +195,12 @@ statusami agentów, log zdarzeń. Człowiek jest zwykłym klientem WS
 
 ## Etapy implementacji
 
-1. **B1 — serwer**: pokoje, hello/socket→nick, typowane ramki, zasady
-   budzenia, kolejka tasków z lease + zrzut JSON. Testy pytest (rozbudowa
-   test_chat.py).
+1. **B1 — serwer**: pokoje, hello z instance_id/generation, typowane
+   ramki, zasady budzenia i wzmianek, tłumienie echa po nicku, kolejka
+   tasków z lease + CAS (command_id, task_version) + zrzut JSON, room_seq
+   z trwałym logiem i retencją, resume z last_seq, tokeny agentów.
+   Testy pytest (rozbudowa test_chat.py), w tym scenariusze
+   reconnect/restart/split-brain.
 2. **B2 — skill `statekmatka`**: tryby init i join; matka w pętli zdarzeń,
    wyrobnica w pętli task→branch→push→done. Test lokalny: matka + 2
    wyrobnice na jednym kompie.
