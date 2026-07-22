@@ -20,6 +20,14 @@ OUTBOUND_FRAME_TYPES = {
 }
 FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 
+# Kanon statusow agenta (deklarowane ramka `status`; presence
+# connected/offline nadaje serwer z zywych polaczen, NIE deklaracja):
+#   idle    — czekam na taska (serwer moze slac task_offer)
+#   working — robie taska (opcjonalnie task_id + note co dokladnie)
+#   blocked — stoje, czekam na odpowiedz/decyzje (task_id/note = na co)
+#   review  — skonczylem, czekam na review mojej pracy (task_id)
+STATUS_STATES = frozenset({"idle", "working", "blocked", "review"})
+
 # task_* inbound wymagaja command_id (wszystkie) i task_id (poza task_new,
 # ktory taska dopiero tworzy). Glebsza walidacja (card/expected_task_version/
 # CAS/WIP/lease) nalezy do TaskQueue — validate to tylko schemat framingu.
@@ -94,8 +102,13 @@ def _validate_body(frame, ftype):
         return None
     if ftype == "status":
         state = frame.get("state")
-        if not isinstance(state, str) or not state:
-            return "status: state wymagany (niepusty string)"
+        if not isinstance(state, str) or state not in STATUS_STATES:
+            return ("status: state musi byc jednym z "
+                    f"{sorted(STATUS_STATES)}")
+        for opt in ("task_id", "note"):
+            if opt in frame and (not isinstance(frame[opt], str)
+                                 or not frame[opt]):
+                return f"status: {opt} jesli podany musi byc niepustym stringiem"
         return None
     if ftype == "heartbeat":
         task_id = frame.get("task_id")

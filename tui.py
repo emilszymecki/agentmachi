@@ -56,6 +56,8 @@ class Participant:
     role: str
     groups: list[str]
     presence: str = "known"
+    status: str = ""      # idle | working | blocked | review ("" = nieznany)
+    status_note: str = ""  # task_id / note z ostatniej deklaracji
 
 
 def _normalized_groups(value, *, owner):
@@ -400,6 +402,13 @@ class AgentmachiApp(App):
             groups = ",".join(participant.groups) or "—"
             lines.append(f"{marker} {nick}", style="bold")
             lines.append(f"  {participant.role}  [{groups}]")
+            if participant.status:
+                style = {"idle": "green", "working": "yellow",
+                         "blocked": "bold red", "review": "cyan"}.get(
+                    participant.status, "")
+                note = f" ({participant.status_note})" \
+                    if participant.status_note else ""
+                lines.append(f"  {participant.status}{note}", style=style)
         self.query_one("#participants", Static).update(lines)
 
     async def apply_status(self, message, connected):
@@ -462,6 +471,18 @@ class AgentmachiApp(App):
                 if nick != self.adapter.identity.nick:
                     participant.presence = "seen"
                 self._render_participants()
+        elif kind == "status":
+            nick = frame.get("from")
+            state = frame.get("state")
+            if (isinstance(nick, str) and nick
+                    and isinstance(state, str) and state):
+                participant = self.roster.setdefault(
+                    nick, Participant(nick, "agent", []))
+                participant.status = state
+                raw_note = frame.get("task_id") or frame.get("note")
+                participant.status_note = raw_note \
+                    if isinstance(raw_note, str) else ""
+                self._render_participants()
         elif kind == "membership_set":
             self._apply_groups(frame.get("target"), frame.get("groups"))
         elif kind == "ok" and "target" in frame and "groups" in frame:
@@ -491,12 +512,20 @@ class AgentmachiApp(App):
                 continue
             role = item.get("role")
             groups = item.get("groups")
+            status = item.get("status")
+            state, note = "", ""
+            if isinstance(status, dict):
+                raw_state = status.get("state")
+                state = raw_state if isinstance(raw_state, str) else ""
+                raw_note = status.get("task_id") or status.get("note")
+                note = raw_note if isinstance(raw_note, str) else ""
             fresh[nick] = Participant(
                 nick,
                 role if role in {"agent", "human"} else "agent",
                 [g for g in groups if isinstance(g, str) and g]
                 if isinstance(groups, list) else [],
-                "connected" if item.get("connected") else "known")
+                "connected" if item.get("connected") else "known",
+                state, note)
         if fresh:
             self.roster = fresh  # snapshot AUTORYTATYWNY — zastepuje zgadywanie
             self._render_participants()

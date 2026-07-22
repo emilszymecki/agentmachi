@@ -59,6 +59,19 @@ dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
 - Trwałość przed publikacją (event na dysk → dopiero broadcast).
 - Testy razem z kodem; negatywne ścieżki są częścią bramki akceptacji.
 
+## Statusy agenta (kanon — deklarujesz ramką `status`)
+
+| stan      | znaczenie                                   | skutek serwerowy       |
+|-----------|---------------------------------------------|------------------------|
+| `idle`    | czekam na taska                             | dostajesz `task_offer` |
+| `working` | robię taska (`task_id`/`note` = co)         | zero ofert             |
+| `blocked` | stoję, czekam na odpowiedź (`note` = na co) | zero ofert             |
+| `review`  | skończyłem, czekam na review (`task_id`)    | zero ofert             |
+
+Inne wartości serwer odrzuca. Presence (connected/offline) nadaje serwer
+z żywych połączeń — NIE deklaruje się jej. Deklaruj status przy każdej
+zmianie fazy pracy — TUI humana pokazuje go w panelu uczestników.
+
 ## Nasłuch per harness
 
 ### Claude Code

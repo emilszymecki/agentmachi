@@ -109,6 +109,7 @@ class ChatServer:
                 state.get("queue", {"next_id": 0, "tasks": []}),
                 wip_limit=wip_limit, lease_ttl=lease_ttl)
             self.registry = Registry.restore(tokens, state.get("registry", {}))
+            restored_status = state.get("status", {})
             offers = state.get("offers", [])
         else:
             self.queue = TaskQueue(wip_limit=wip_limit, lease_ttl=lease_ttl)
@@ -131,6 +132,10 @@ class ChatServer:
         # (queue/registry) co live, bez zadnych side-effectow sieciowych
         # (bez _send/_append — eventy juz sa na dysku).
         self._replay_events()
+        self.status = {}       # nick -> {state, task_id?, note?} (ostatnia deklaracja)
+        if snap:
+            self.status = {n: dict(v) for n, v in restored_status.items()
+                           if isinstance(n, str) and isinstance(v, dict)}
         self.groups = {nick: set(self.registry.groups_of(nick))
                        for nick in self.registry.tokens}
         # (A3) licznik snapshot-co-100 liczy DALEJ od tego, co juz jest w
@@ -147,7 +152,13 @@ class ChatServer:
         # odtwarzane osobno.
         for event in self.log.replay():
             etype = event.get("type")
-            if etype == "hello":
+            if etype == "status":
+                nick = event.get("from")
+                if isinstance(nick, str) and nick:
+                    self.status[nick] = {k: event[k] for k in
+                                         ("state", "task_id", "note")
+                                         if k in event}
+            elif etype == "hello":
                 self.registry.replay_hello(event["from"], event["instance_id"])
             elif etype == "membership_set":
                 # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
@@ -216,7 +227,8 @@ class ChatServer:
     def snapshot(self):
         self.log.save_snapshot({"queue": self.queue.dump(),
                                  "registry": self.registry.dump(),
-                                 "offers": self._dump_offers()})
+                                 "offers": self._dump_offers(),
+                                 "status": dict(self.status)})
         self._events_since_snapshot = 0
 
     def _append(self, frame):
@@ -286,7 +298,8 @@ class ChatServer:
         return [{"nick": nick,
                  "role": self.registry.role_of(nick),
                  "groups": sorted(self.registry.groups_of(nick)),
-                 "connected": bool(self.conns.get(nick))}
+                 "connected": bool(self.conns.get(nick)),
+                 "status": self.status.get(nick)}
                 for nick in sorted(self.registry.tokens)]
 
     def _load_rules(self):
@@ -631,9 +644,15 @@ class ChatServer:
             self._append(frame)
         elif ftype == "status":
             self._append(frame)
-            if frame.get("state") == "idle" and nick not in self.idle:
-                self.idle.append(nick)
-                self._trigger_offer()
+            self.status[nick] = {k: frame[k] for k in
+                                 ("state", "task_id", "note") if k in frame}
+            if frame.get("state") == "idle":
+                if nick not in self.idle:
+                    self.idle.append(nick)
+                    self._trigger_offer()
+            elif nick in self.idle:
+                # working/blocked/review = nie oferuj mi taskow
+                self.idle.remove(nick)
         elif ftype == "heartbeat":
             await self._on_heartbeat(frame, nick, sock_gen, ws)
         elif ftype == "membership_set":

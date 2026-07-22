@@ -2361,3 +2361,48 @@ def test_participants_reflect_membership_after_reconnect(srv):
         assert before["alfa"] != by_nick["alfa"]["groups"]
         await ws_h2.close()
     asyncio.run(srv(scenario))
+
+
+# -- statusy agentow (kanon: idle/working/blocked/review) -------------------
+
+def test_status_tracked_in_snapshot_and_idle_sync(srv):
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 1.0, "state": "idle"}))
+        await asyncio.sleep(0.1)
+        assert "beta" in server.idle
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 2.0, "state": "working",
+                                    "task_id": "t9"}))
+        await asyncio.sleep(0.1)
+        assert "beta" not in server.idle  # working = nie oferuj
+        snap = server._participants_snapshot()
+        by_nick = {p["nick"]: p for p in snap}
+        assert by_nick["beta"]["status"] == {"state": "working",
+                                             "task_id": "t9"}
+        # zly status odrzucony
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 3.0, "state": "spie"}))
+        err = await recv(ws_b)
+        assert err["type"] == "error" and "status" in err["text"]
+        await ws_b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_status_survives_restart_via_replay(srv, tmp_path):
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 1.0, "state": "blocked",
+                                    "note": "czekam na decyzje"}))
+        await asyncio.sleep(0.1)
+        await ws_b.close()
+        return server.log.dir
+
+    data_dir = asyncio.run(srv(scenario))
+    reborn = ChatServer(data_dir=data_dir, tokens=TOKENS, port=PORT + 1)
+    snap = {p["nick"]: p for p in reborn._participants_snapshot()}
+    assert snap["beta"]["status"] == {"state": "blocked",
+                                       "note": "czekam na decyzje"}
+    assert snap["beta"]["connected"] is False

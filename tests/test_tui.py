@@ -309,3 +309,32 @@ def test_app_renders_and_sends_chat(tmp_path):
         {"type": "chat", "text": "czesc kanale"},
         {"type": "membership_set", "target": "beta",
          "groups": ["head", "admin"]}]
+
+
+# -- statusy agentow w rosterze --------------------------------------------
+
+def test_snapshot_carries_status_into_roster(tmp_path):
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+        "beta": {"token": "tok-b", "role": "agent", "groups": ["workers"]},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.apply_hub_frame({
+                "type": "participants_snapshot",
+                "participants": [
+                    {"nick": "beta", "role": "agent", "groups": ["workers"],
+                     "connected": True,
+                     "status": {"state": "working", "task_id": "t2"}}]})
+            assert app.roster["beta"].status == "working"
+            assert app.roster["beta"].status_note == "t2"
+            # live status frame aktualizuje roster
+            await app.apply_hub_frame({
+                "type": "status", "from": "beta", "state": "review",
+                "task_id": "t2", "seq": 50})
+            assert app.roster["beta"].status == "review"
+    asyncio.run(scenario())
