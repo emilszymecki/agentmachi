@@ -130,6 +130,24 @@ class ChatServer:
             except websockets.exceptions.ConnectionClosed:
                 pass
 
+    async def _close_stale_sockets(self, nick):
+        # niezmiennik C: wywolywane w momencie takeover (bump generacji przy
+        # nowym hello) — zamyka KAZDY dotychczasowy socket tego nicka zanim
+        # dolaczy nowy, zeby nic wiecej do nich nie trafilo (routing/_send)
+        stale = list(self.conns.get(nick, ()))
+        for old_ws in stale:
+            try:
+                await old_ws.send(json.dumps(protocol.make_frame(
+                    "error", "server", time.time(),
+                    text="stale generation: ten socket zostal wyparty przez nowsze hello")))
+            except websockets.exceptions.ConnectionClosed:
+                pass
+            try:
+                await old_ws.close(code=4001, reason="takeover")
+            except websockets.exceptions.ConnectionClosed:
+                pass
+            self.conns[nick].discard(old_ws)
+
     async def _publish_chat(self, event, mentions, groups_mentioned, unknown_groups):
         sender = event["from"]
         targets = set()
@@ -195,6 +213,13 @@ class ChatServer:
                 await ws.send(json.dumps(protocol.make_frame(
                     "error", "server", time.time(), text="pierwsza ramka musi byc hello")))
                 return
+            nick_candidate = frame.get("from")
+            # niezmiennik C: generacja SPRZED tego hello — potrzebna zeby
+            # odroznic zwykly reconnect (ten sam instance_id, bez bumpa) od
+            # faktycznego takeover (bump), zeby wiedziec czy stare sockety
+            # trzeba zamknac natychmiast
+            old_gen = (self.registry.generation_of(nick_candidate)
+                       if isinstance(nick_candidate, str) else 0)
             try:
                 last_seq = self._validate_last_seq(frame.get("last_seq"))
                 # niezmiennik H: groups/role w hello sa TYLKO walidowane —
@@ -210,6 +235,10 @@ class ChatServer:
             nick = frame["from"]
             role = self.registry.role_of(nick)
             groups = self.registry.groups_of(nick)
+            if generation != old_gen:
+                # niezmiennik C: takeover — odetnij stare sockety TERAZ, nie
+                # dopiero przy ich kolejnej (moze nigdy nie nadejsc) ramce
+                await self._close_stale_sockets(nick)
             self.conns.setdefault(nick, set()).add(ws)
             self.roles[nick] = role
             self.groups[nick] = set(groups)

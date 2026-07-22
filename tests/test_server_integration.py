@@ -227,16 +227,21 @@ def test_unknown_group_yields_error_no_silent_broadcast(srv):
 # -- Nowe: stary socket po takeover odrzucany --------------------------------
 
 def test_stale_socket_rejected_after_takeover(srv):
+    # (C) od tego fixu takeover zamyka stary socket NATYCHMIAST przy hello —
+    # a1 dostaje error+close, zanim zdazy cokolwiek wyslac (patrz tez
+    # test_takeover_closes_old_socket_immediately_before_it_sends_anything
+    # nizej, ktory sprawdza to explicite jako repro C).
     async def scenario(server):
         a1, reply1 = await hello("alfa", "ta", instance="i1")
         assert reply1["generation"] == 1
         b, _ = await hello("beta", "tb")
         a2, reply2 = await hello("alfa", "ta", instance="i2")  # takeover
         assert reply2["generation"] == 2
-        await a1.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
-                                  "text": "@beta ze starego socketu"}))
-        err = await recv(a1)
+        err = await recv(a1)                              # error natychmiast, bez wysylki
         assert err["type"] == "error"
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await a1.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
+                                      "text": "@beta ze starego socketu"}))
         with pytest.raises(asyncio.TimeoutError):        # nic nie dotarlo do beta
             await recv(b, timeout=0.4)
         # nowy socket dziala normalnie
@@ -244,7 +249,7 @@ def test_stale_socket_rejected_after_takeover(srv):
                                   "text": "@beta z nowego socketu"}))
         got = await recv(b)
         assert got["text"] == "@beta z nowego socketu"
-        for ws in (a1, a2, b):
+        for ws in (a2, b):
             await ws.close()
     asyncio.run(srv(scenario))
 
@@ -508,4 +513,26 @@ def test_declared_groups_in_hello_are_ignored_not_member_of_declared_group(srv):
         with pytest.raises(asyncio.TimeoutError):
             await recv(a, timeout=0.4)
         await a.close(); await c.close()
+    asyncio.run(srv(scenario))
+
+
+# -- C: takeover odcina stary socket NATYCHMIAST, nie dopiero po jego ramce --
+
+def test_takeover_closes_old_socket_immediately_before_it_sends_anything(srv):
+    async def scenario(server):
+        a1, reply1 = await hello("alfa", "ta", instance="i1")
+        b, _ = await hello("beta", "tb")
+        # takeover — a1 NIC jeszcze nie wyslal po hello, a mimo to ma
+        # dostac error i zostac zamknietym NATYCHMIAST przy tym hello
+        a2, reply2 = await hello("alfa", "ta", instance="i2")
+        assert reply2["generation"] == reply1["generation"] + 1
+        err = await recv(a1, timeout=1.0)
+        assert err["type"] == "error"
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(a1.recv(), timeout=1.0)   # socket faktycznie zamkniety
+        await b.send(json.dumps({"type": "chat", "from": "beta", "ts": 1.0,
+                                 "text": "@alfa hej"}))
+        got = await recv(a2)
+        assert got["text"] == "@alfa hej"        # tylko nowy socket dostaje
+        await a2.close(); await b.close()
     asyncio.run(srv(scenario))
