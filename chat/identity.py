@@ -14,7 +14,7 @@ class Registry:
                 raise ValueError(f"bad nick in tokens map: {nick!r}")
             if not isinstance(token, str) or not token:
                 raise ValueError(f"bad token for nick {nick!r}: {token!r}")
-        self.tokens = tokens          # nick -> token
+        self.tokens = dict(tokens)    # nick -> token (kopia — odporne na mutacje wywolujacego)
         self._gen = {}                # nick -> int
         self._instance = {}           # nick -> aktualny instance_id
 
@@ -26,6 +26,8 @@ class Registry:
             raise AuthError(f"bad token for {nick}")
         if not hmac.compare_digest(expected, token):
             raise AuthError(f"bad token for {nick}")
+        if not isinstance(instance_id, str) or not instance_id:
+            raise AuthError(f"bad instance_id for {nick}")
         if self._instance.get(nick) != instance_id:
             self._gen[nick] = self._gen.get(nick, 0) + 1
             self._instance[nick] = instance_id

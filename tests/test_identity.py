@@ -86,3 +86,23 @@ def test_dump_contains_no_tokens():
     d = r.dump()
     assert "tajny-tok" not in json.dumps(d)
     assert "tokens" not in d
+
+
+def test_none_instance_id_rejected():
+    r = Registry(TOKENS)
+    with pytest.raises(AuthError):
+        r.hello("alfa", None, "tok-a")
+
+
+def test_empty_instance_id_rejected():
+    r = Registry(TOKENS)
+    with pytest.raises(AuthError):
+        r.hello("alfa", "", "tok-a")
+
+
+def test_external_token_map_mutation_has_no_effect():
+    t = {"alfa": "tok"}
+    r = Registry(t)
+    t["intruz"] = "x"
+    with pytest.raises(AuthError):
+        r.hello("intruz", "i1", "x")
