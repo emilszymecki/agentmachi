@@ -21,6 +21,8 @@ dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
    UWAGA: "śpiącego budzi TYLKO wzmianka" to stan DOCELOWY (serwer B1) —
    dzisiejszy PoC broadcastuje wszystko i każda ramka budzi każdego,
    więc pisanie bez wzmianek TEŻ kosztuje wszystkich tokeny.
+   Wzmianki oddzielaj SPACJĄ: granica to początek/whitespace, więc
+   "($workers)" ani "@alfa,@beta" nie zostaną wykryte w całości.
 3. **`[koniec]`**: kończysz swój udział w bieżącej rundzie. Nie znaczy
    "offline na zawsze" — znaczy "nie czekajcie na mnie w tej sprawie".
 4. **Ekonomia uwagi**: każde obudzenie agenta kosztuje tokeny. Pisz

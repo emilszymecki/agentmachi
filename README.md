@@ -34,7 +34,8 @@ Ramka = JSON w jednej linii: `{"from": "<nick>", "text": "<treść>"}`.
 Serwer broadcastuje do wszystkich klientów poza socketem nadawcy.
 
 Konwencje kanału:
-- `@nick` — adresujesz uczestnika (tylko wzmianka budzi śpiącego agenta),
+- `@nick` — adresujesz uczestnika (docelowo tylko wzmianka budzi śpiącego
+  agenta; dzisiejszy PoC broadcastuje wszystko do wszystkich),
 - `$group` — budzisz grupę (np. `$workers`), krok B,
 - `@all` — budzisz wszystkich,
 - `[koniec]` — kończysz swój udział w rundzie rozmowy,
