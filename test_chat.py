@@ -3,7 +3,7 @@ zabytek, ale te testy teraz gonia chat/server.py (krok B1: hello/auth,
 echo po nicku, wzmianki) uruchamiany jako `python -m chat.server`.
 
 Serwer odpalany raz na sesje testowa jako subprocess na porcie CHAT_PORT
-(domyslnie 8799, zeby nie zderzyc sie z reczna instancja na 8765), z
+(domyślnie efemerycznym, zeby nie zderzyc sie z reczna instancja), z
 tymczasowym plikiem tokenow (CHAT_TOKENS) i tymczasowym katalogiem danych
 (CHAT_DATA) — zero wplywu na prawdziwy tokens.json/chat-data/.
 
@@ -14,6 +14,7 @@ import asyncio
 import functools
 import json
 import os
+import select
 import socket
 import subprocess
 import sys
@@ -29,7 +30,19 @@ except ImportError:
     HAVE_PYTEST_ASYNCIO = False
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
-TEST_PORT = int(os.environ.get("CHAT_TEST_PORT", 8799))
+
+
+def _free_port():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("localhost", 0))
+        return sock.getsockname()[1]
+    finally:
+        sock.close()
+
+
+TEST_PORT = (int(os.environ["CHAT_TEST_PORT"])
+             if "CHAT_TEST_PORT" in os.environ else _free_port())
 URI = f"ws://localhost:{TEST_PORT}"
 SERVER_START_TIMEOUT = 10.0
 RECV_TIMEOUT = 2.0
@@ -47,13 +60,26 @@ def _port_open(port, host="localhost"):
         sock.close()
 
 
-def _wait_until(predicate, timeout, interval=0.05):
+def _wait_for_server(proc, timeout):
+    """Czekaj na jawny readiness serwera, nie na przypadkowy otwarty TCP port."""
     deadline = time.monotonic() + timeout
+    output = []
     while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(interval)
-    return predicate()
+        if proc.poll() is not None:
+            if proc.stdout is not None:
+                output.extend(proc.stdout.readlines())
+            return False, "".join(output)
+        remaining = max(0.0, deadline - time.monotonic())
+        ready, _, _ = select.select([proc.stdout], [], [], min(0.1, remaining))
+        if not ready:
+            continue
+        line = proc.stdout.readline()
+        if not line:
+            continue
+        output.append(line)
+        if line.startswith("chat server on ws://"):
+            return True, "".join(output)
+    return False, "".join(output)
 
 
 @pytest.fixture(scope="session")
@@ -78,12 +104,12 @@ def chat_server(tmp_path_factory):
         text=True,
     )
     try:
-        ready = _wait_until(lambda: _port_open(TEST_PORT), SERVER_START_TIMEOUT)
+        ready, startup_out = _wait_for_server(proc, SERVER_START_TIMEOUT)
         if not ready:
             proc.terminate()
-            out = ""
+            out = startup_out
             try:
-                out = proc.communicate(timeout=5)[0]
+                out += proc.communicate(timeout=5)[0]
             except Exception:
                 pass
             raise RuntimeError(f"chat.server nie wystartowal na porcie {TEST_PORT}:\n{out}")
@@ -231,7 +257,7 @@ async def test_send_py_success_delivers_json(chat_server):
 # ---------------------------------------------------------------------------
 
 def test_send_py_fails_when_server_down():
-    dead_port = TEST_PORT + 1  # nikt tam nie nasluchuje
+    dead_port = _free_port()  # port przydzielony przez OS, zamiast TEST_PORT+1
     env = dict(os.environ)
     env["CHAT_PORT"] = str(dead_port)
     env["CHAT_TOKEN"] = "irrelevant"
@@ -281,3 +307,54 @@ async def test_server_survives_client_disconnect(chat_server):
     finally:
         await a.close()
         await b.close()
+
+
+def test_sigterm_clean_shutdown_writes_snapshot(tmp_path):
+    """SIGTERM ma przejsc przez ChatServer.stop(), nie zabic proces sygnalem."""
+    port = _free_port()
+    tokens_path = tmp_path / "tokens.json"
+    tokens_path.write_text(json.dumps(TOKENS))
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    env = dict(os.environ)
+    env["CHAT_PORT"] = str(port)
+    env["CHAT_TOKENS"] = str(tokens_path)
+    env["CHAT_DATA"] = str(data_dir)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "chat.server"],
+        cwd=REPO_DIR,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        ready, startup_out = _wait_for_server(proc, SERVER_START_TIMEOUT)
+        assert ready, startup_out
+
+        async def create_durable_identity():
+            ws = await websockets.connect(f"ws://localhost:{port}")
+            await ws.send(json.dumps({
+                "type": "hello", "from": "alfa", "ts": 0.0,
+                "instance_id": "sigterm-i1", "token": TOKENS["alfa"],
+                "last_seq": 0, "role": "agent",
+            }))
+            reply = json.loads(await ws.recv())
+            assert reply["type"] == "ok" and reply["generation"] == 1
+            await ws.close()
+
+        asyncio.run(create_durable_identity())
+        proc.terminate()
+        assert proc.wait(timeout=5) == 0
+
+        snapshot_path = data_dir / "snapshot.json"
+        assert snapshot_path.exists()
+        snapshot = json.loads(snapshot_path.read_text())
+        assert snapshot["snapshot_seq"] >= 1
+        assert snapshot["state"]["registry"]["gen"]["alfa"] == 1
+        assert snapshot["state"]["registry"]["instance"]["alfa"] == "sigterm-i1"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)

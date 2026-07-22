@@ -715,8 +715,8 @@ def test_task_offer_event_persists_activation_id_and_seq(srv):
         # (F1) trwaly event MUSI zawierac activation_id i seq — nie tylko
         # zwrocona wartosc w pamieci
         assert offer_events[0]["activation_id"] == activation_id
-        assert offer_events[0]["seq"] == offer_events[0]["seq"]  # obecne pole seq
-        assert "seq" in offer_events[0]
+        assert offer_events[0]["seq"] == server.log.last_seq
+        assert activation_id == f"beta:{offer_events[0]['seq']}"
     asyncio.run(srv(scenario))
 
 
@@ -1418,6 +1418,98 @@ def test_offer_append_failure_does_not_cache_nondurable_offer(srv):
     asyncio.run(srv(scenario))
 
 
+def test_offer_loop_recovers_after_task_offer_append_oserror(srv):
+    # Whole-branch liveness: OSError z _offer_event nie moze zakonczyc jedynego
+    # future ani zgubic nicka wyjetego z idle. Recovery zachodzi bez zewnetrznego
+    # _trigger_offer po tym, jak storage zacznie znow przyjmowac zapisy.
+    async def scenario(server):
+        server.offer_timeout = 0.01
+        task = server.queue.add(CARD, "liveness-offer", 0.0)
+        server.conns["beta"] = {object()}
+        server.idle = ["beta"]
+        seq_before = server.log.last_seq
+        sent = []
+
+        async def capture_send(nick, event):
+            sent.append((nick, event))
+
+        original_send = server._send
+        original_append = server.log.append
+        failed = {"done": False}
+
+        def fail_once(frame):
+            if frame.get("type") == "task_offer" and not failed["done"]:
+                failed["done"] = True
+                raise OSError("chwilowa awaria storage na task_offer")
+            return original_append(frame)
+
+        server._send = capture_send
+        server.log.append = fail_once
+        try:
+            server._trigger_offer()
+            await asyncio.wait_for(server._offering, timeout=2.0)
+        finally:
+            server._send = original_send
+            server.log.append = original_append
+
+        events = server.log.events_after(seq_before)
+        assert failed["done"]
+        assert [e["type"] for e in events] == ["task_offer", "offer_resolved"]
+        assert len(sent) == 1
+        assert server.queue.get(task["id"])["status"] == "open"
+        assert server._offer_cache == {}
+        assert server.idle == ["beta"]
+        assert server._offering.done() and server._offering.exception() is None
+    asyncio.run(srv(scenario))
+
+
+def test_offer_loop_recovers_after_offer_resolved_append_oserror(srv):
+    # Gdy pada durable offer_resolved, pending event zostaje w cache. Retry ma
+    # wyslac TEN SAM seq/activation_id (at-least-once), domknac resolution i nie
+    # wymagac nowego status/task eventu do obudzenia dystrybucji.
+    async def scenario(server):
+        server.offer_timeout = 0.01
+        task = server.queue.add(CARD, "liveness-resolve", 0.0)
+        server.conns["beta"] = {object()}
+        server.idle = ["beta"]
+        seq_before = server.log.last_seq
+        sent = []
+
+        async def capture_send(nick, event):
+            sent.append((nick, event))
+
+        original_send = server._send
+        original_append = server.log.append
+        failed = {"done": False}
+
+        def fail_once(frame):
+            if frame.get("type") == "offer_resolved" and not failed["done"]:
+                failed["done"] = True
+                raise OSError("chwilowa awaria storage na offer_resolved")
+            return original_append(frame)
+
+        server._send = capture_send
+        server.log.append = fail_once
+        try:
+            server._trigger_offer()
+            await asyncio.wait_for(server._offering, timeout=2.0)
+        finally:
+            server._send = original_send
+            server.log.append = original_append
+
+        events = server.log.events_after(seq_before)
+        assert failed["done"]
+        assert [e["type"] for e in events] == ["task_offer", "offer_resolved"]
+        assert len(sent) == 2
+        assert sent[0][1]["seq"] == sent[1][1]["seq"]
+        assert sent[0][1]["activation_id"] == sent[1][1]["activation_id"]
+        assert server.queue.get(task["id"])["status"] == "open"
+        assert server._offer_cache == {}
+        assert server.idle == ["beta"]
+        assert server._offering.done() and server._offering.exception() is None
+    asyncio.run(srv(scenario))
+
+
 # -- B: RESOLUTION OFERTY atomowa i niezalezna od targetu — udany claim (od
 #       KOGOKOLWIEK) rozstrzyga pending oferty taska; replay wywodzi to z
 #       samego claim, bez zaleznosci od offer_resolved -----------------------
@@ -1552,6 +1644,51 @@ def test_nan_ts_frame_rejected_not_logged(srv):
     asyncio.run(srv(scenario))
 
 
+def test_strict_json_rejects_nested_nan_and_extra_infinity(srv):
+    # Python json.loads domyslnie akceptuje NaN/Infinity. Brama strict JSON ma
+    # odrzucic je niezaleznie od zagniezdzenia/pola, zanim zmienia room_seq lub
+    # kolejke; poprawny socket po hello pozostaje przy tym uzywalny.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+
+        nan_card = dict(CARD, goal=float("nan"))
+        await a.send(json.dumps({
+            "type": "task_new", "from": "alfa", "ts": 0.0,
+            "command_id": "nan-card", "card": nan_card,
+        }))
+        err = await recv(a)
+        assert err["type"] == "error" and err["text"] == "invalid json"
+
+        await a.send(
+            '{"type":"chat","from":"alfa","ts":0.0,'
+            '"text":"bez publikacji","extra":Infinity}')
+        err = await recv(a)
+        assert err["type"] == "error" and err["text"] == "invalid json"
+
+        assert server.log.last_seq == before
+        assert server.queue.dump()["tasks"] == []
+        await a.close()
+    asyncio.run(srv(scenario))
+
+
+def test_strict_json_rejects_nan_in_first_hello_without_side_effects(srv):
+    async def scenario(server):
+        before = server.log.last_seq
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(
+            '{"type":"hello","from":"alfa","ts":0.0,'
+            '"instance_id":"nan-hello","token":"ta","last_seq":0,'
+            '"extra":NaN}')
+        err = await recv(ws)
+        assert err["type"] == "error" and err["text"] == "invalid json"
+        assert server.log.last_seq == before
+        assert server.registry.generation_of("alfa") == 0
+        assert "alfa" not in server.conns
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
 # == RUNDA 6 — event-first (provisional-then-commit) mutacje taskow ==========
 
 
@@ -1567,7 +1704,7 @@ async def _kill_expiry(server):
 
 # -- #1: durable append PRZED mutacja live queue/dedup ----------------------
 
-def test_task_claim_append_failure_no_live_mutation_no_dedup(tmp_path):
+def test_task_claim_append_failure_no_live_mutation_no_dedup(tmp_path, caplog):
     # (Runda 6 #1) mutacja NIE moze dotknac live queue/dedup przed udanym durable
     # appendem. Injekcja: pierwszy log.append task_claim rzuca -> live NIE
     # claimed, ZERO eventow task_claim, dedup PUSTY. Retry tego samego command_id
@@ -1587,12 +1724,14 @@ def test_task_claim_append_failure_no_live_mutation_no_dedup(tmp_path):
 
         orig = s1.log.append
         calls = {"n": 0}
+        secret_path = str(s1.log.events_path.resolve())
 
         def flaky(frame):
             if frame.get("type") == "task_claim":
                 calls["n"] += 1
                 if calls["n"] == 1:
-                    raise OSError("dysk pelny na pierwszym task_claim append")
+                    raise OSError(
+                        f"dysk pelny na pierwszym task_claim append: {secret_path}")
             return orig(frame)
 
         s1.log.append = flaky
@@ -1602,6 +1741,9 @@ def test_task_claim_append_failure_no_live_mutation_no_dedup(tmp_path):
                                  "expected_task_version": 1}))
         err = await recv(b)
         assert err["type"] == "error" and err["command_id"] == "c1"
+        assert err["text"] == "storage unavailable; retry"
+        assert secret_path not in json.dumps(err)
+        assert secret_path in caplog.text
         # live NIETKNIETE: task open, zero eventow task_claim, dedup pusty
         assert s1.queue.get(tid)["status"] == "open"
         assert s1.log.last_seq == seq_before
@@ -1819,7 +1961,7 @@ def test_offer_resolved_at_snapshot_boundary_no_resurrection(tmp_path):
 
 # -- Runda 7: Registry durability w hello (provisional-then-commit) ----------
 
-def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path):
+def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path, caplog):
     # (Runda 7) hello mutowal Registry (bump generacji) PRZED durable appendem.
     # Injekcja: pierwszy log.append typu "hello" rzuca OSError -> registry
     # NIETKNIETY (generation_of == 0, klon wyrzucony), ZERO eventow hello na
@@ -1835,12 +1977,14 @@ def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path):
 
         orig = s1.log.append
         calls = {"n": 0}
+        secret_path = str(s1.log.events_path.resolve())
 
         def flaky(frame):
             if frame.get("type") == "hello":
                 calls["n"] += 1
                 if calls["n"] == 1:
-                    raise OSError("dysk pelny na pierwszym hello append")
+                    raise OSError(
+                        f"dysk pelny na pierwszym hello append: {secret_path}")
             return orig(frame)
 
         s1.log.append = flaky
@@ -1853,7 +1997,10 @@ def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path):
         # niezmiennik f: storage-fail daje czysta ramke error (spojnie z task_*),
         # nie brutalne 1011 — dopiero POTEM graceful close
         err = json.loads(await asyncio.wait_for(bad.recv(), timeout=2.0))
-        assert err["type"] == "error" and "storage" in err["text"]
+        assert err["type"] == "error"
+        assert err["text"] == "storage unavailable; retry"
+        assert secret_path not in json.dumps(err)
+        assert secret_path in caplog.text
         # registry NIETKNIETY, zero eventow hello na dysku
         assert s1.registry.generation_of("alfa") == 0
         assert s1.log.last_seq == seq_before

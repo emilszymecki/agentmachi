@@ -6,8 +6,9 @@ import sys
 # (Runda 4 #5) Rozdzial typow: INBOUND to jedyne typy, ktore klient moze
 # przyslac. OUTBOUND to typy WYLACZNIE serwerowe — albo generowane w locie
 # (task_offer/backlog/resync_required/error/ok), albo trwale eventy stanu
-# zapisywane przez serwer (task_expired/offer_resolved). validate odrzuca
-# inbound-em kazda ramke typu outbound-only (znany typ, ale nie od klienta).
+# zapisywane przez serwer (task_expired_batch/offer_resolved). Historyczny
+# task_expired singular pozostaje znanym outbound-only tylko po to, by validate
+# jawnie odrzucal go inbound-em; serwer go juz nie generuje ani nie replayuje.
 INBOUND_FRAME_TYPES = {
     "hello", "chat", "fyi", "status",
     "task_new", "task_claim", "task_done", "task_blocked",

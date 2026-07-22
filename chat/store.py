@@ -14,6 +14,14 @@ import os
 from pathlib import Path
 
 
+def _reject_json_constant(value):
+    raise ValueError(f"invalid JSON constant in storage: {value}")
+
+
+def _strict_json_loads(data):
+    return json.loads(data, parse_constant=_reject_json_constant)
+
+
 class EventLog:
     def __init__(self, dirpath):
         self.dir = Path(dirpath)
@@ -23,7 +31,7 @@ class EventLog:
         self.snapshot_seq = 0
         self._events = []  # [{seq, ...frame}] tylko > snapshot_seq
         if self.snapshot_path.exists():
-            data = json.loads(self.snapshot_path.read_text())
+            data = _strict_json_loads(self.snapshot_path.read_text())
             self.snapshot_seq = data["snapshot_seq"]
         self.last_seq = self.snapshot_seq
         if self.events_path.exists():
@@ -46,8 +54,8 @@ class EventLog:
                 stripped = line_bytes.strip()
                 if stripped:
                     try:
-                        e = json.loads(stripped)
-                    except json.JSONDecodeError as exc:
+                        e = _strict_json_loads(stripped)
+                    except ValueError as exc:
                         if is_last_chunk and not has_newline:
                             # json.dumps nigdy nie wstawia \n w srodku zapisu,
                             # a koncowy \n dopisujemy osobno PO tresci — wiec
@@ -94,8 +102,12 @@ class EventLog:
     def append(self, frame):
         seq = self.last_seq + 1
         event = {**frame, "seq": seq}
+        # Serializacja PRZED otwarciem pliku: NaN/Infinity ani inny obiekt
+        # niezgodny z JSON-em nie moze zostawic czesciowego rekordu ani podbic
+        # room_seq. allow_nan=False jest defense-in-depth za strict inbound.
+        payload = json.dumps(event, allow_nan=False) + "\n"
         with self.events_path.open("a") as f:
-            f.write(json.dumps(event) + "\n")
+            f.write(payload)
             f.flush()
             os.fsync(f.fileno())
         # last_seq/_events aktualizowane DOPIERO po udanym zapisie — nieudany
@@ -112,8 +124,12 @@ class EventLog:
     def save_snapshot(self, state):
         seq = self.last_seq
         tmp = self.dir / "snapshot.json.tmp"
+        # Najpierw zwaliduj/serializuj calosc. Blad (np. NaN w stanie) zostawia
+        # poprzedni snapshot i jego etykiete nietkniete.
+        payload = json.dumps(
+            {"snapshot_seq": seq, "state": state}, allow_nan=False)
         with tmp.open("w") as f:
-            f.write(json.dumps({"snapshot_seq": seq, "state": state}))
+            f.write(payload)
             f.flush()
             os.fsync(f.fileno())
         tmp.rename(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
@@ -122,7 +138,7 @@ class EventLog:
         events_tmp = self.dir / "events.jsonl.tmp"
         with events_tmp.open("w") as f:
             for e in self._events:
-                f.write(json.dumps(e) + "\n")
+                f.write(json.dumps(e, allow_nan=False) + "\n")
             f.flush()
             os.fsync(f.fileno())
         events_tmp.rename(self.events_path)  # atomowo; crash w polowie nie obcina eventow
@@ -130,7 +146,7 @@ class EventLog:
     def load_snapshot(self):
         if not self.snapshot_path.exists():
             return None
-        data = json.loads(self.snapshot_path.read_text())
+        data = _strict_json_loads(self.snapshot_path.read_text())
         return data["state"], data["snapshot_seq"]
 
     def replay(self):

@@ -50,7 +50,9 @@ import asyncio
 import copy
 import hashlib
 import json
+import logging
 import os
+import signal
 import time
 from pathlib import Path
 
@@ -62,6 +64,20 @@ from .store import EventLog
 from .tasks import TaskError, TaskQueue
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
+OFFER_IO_RETRY_MIN = 0.05
+OFFER_IO_RETRY_MAX = 1.0
+STORAGE_UNAVAILABLE = "storage unavailable; retry"
+LOGGER = logging.getLogger(__name__)
+
+
+def _reject_json_constant(value):
+    """Odrzuc rozszerzenia Pythona (NaN/Infinity), ktore nie sa JSON-em."""
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
+def _strict_json_loads(raw):
+    return json.loads(raw, parse_constant=_reject_json_constant)
+
 
 _TASK_REQUIRED_FIELDS = {
     "task_new": ("card", "command_id"),
@@ -75,9 +91,9 @@ _TASK_REQUIRED_FIELDS = {
 
 # Eventy niosace SERWEROWY WYNIK mutacji (task_state) — replay stosuje ten
 # stan WPROST przez queue.apply_replayed (result-based), bez re-execution.
-# task_expired to trwaly, server-generowany event (nie fyi): reopen po
-# wygasnieciu lease jest tak samo odtwarzalny jak kazda inna mutacja.
-_TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"task_expired"}
+# Expiry jest od R6 wylacznie atomowym task_expired_batch obslugiwanym osobno
+# w replay; historyczny singular zostaje tylko typem inbound-rejected w protocol.
+_TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS)
 
 
 class ChatServer:
@@ -361,7 +377,13 @@ class ChatServer:
         nick = None
         try:
             raw = await ws.recv()
-            frame = json.loads(raw)
+            try:
+                frame = _strict_json_loads(raw)
+            except ValueError:
+                await ws.send(json.dumps(protocol.make_frame(
+                    "error", "server", time.time(), text="invalid json")))
+                await ws.close(code=1008, reason="invalid json")
+                return
             if not isinstance(frame, dict):
                 # niezmiennik E: skalar/lista jako JSON nie moze zabic
                 # handlera przez .get() na nie-dict — error + jawne zamkniecie
@@ -446,18 +468,18 @@ class ChatServer:
                     "hello", nick, time.time(),
                     instance_id=frame.get("instance_id"),
                     groups=list(groups), role=role))
-            except OSError as e:
+            except OSError:
                 # niezmiennik f: awaria storage (dysk pelny) na hello NIE moze
                 # zabic handlera brutalnym 1011 — to laczy sie z zachowaniem
                 # task_* (czysta ramka error + graceful close). Stan pozostaje
                 # czysty (klon wyrzucony, registry nietkniety, zero side-effektow
                 # bo sa PO tym appendzie), a klient odroznia storage-fail od padu
-                # sieci i moze legalnie retry. nick NIE zostal jeszcze dodany do
-                # conns (to nastepuje ponizej), wiec finally nic nie sprzata.
+                # sieci i moze legalnie retry. Pelny wyjatek (w tym sciezka FS)
+                # trafia WYLACZNIE do logu operatora; klient dostaje staly tekst.
+                LOGGER.exception("storage failure during hello for nick=%r", nick)
                 await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(),
-                    text=f"storage error: {e}")))
-                await ws.close(code=1011, reason="storage error")
+                    "error", "server", time.time(), text=STORAGE_UNAVAILABLE)))
+                await ws.close(code=1011, reason="storage unavailable")
                 return
             # COMMIT: dopiero po udanym durable appendzie swap live=klon, a
             # POTEM side-effects (takeover close + rejestracja socketu).
@@ -509,8 +531,8 @@ class ChatServer:
             self._maybe_snapshot()
             async for raw in ws:
                 try:
-                    frame = json.loads(raw)
-                except json.JSONDecodeError:
+                    frame = _strict_json_loads(raw)
+                except ValueError:
                     await ws.send(json.dumps(protocol.make_frame(
                         "error", "server", time.time(), text="invalid json")))
                     continue
@@ -522,16 +544,31 @@ class ChatServer:
                     continue
                 try:
                     stop = await self._on_frame(frame, nick, generation, ws)
-                except Exception as e:  # ostatnia linia obrony (niezmiennik f):
-                    # zaden pojedynczy blad ramki nie moze zabic serwera
+                except OSError:
+                    # Storage detail moze zawierac errno i absolutna sciezke.
+                    # Loguj go operatorowi, ale nigdy nie odbijaj klientowi.
+                    LOGGER.exception(
+                        "storage failure for nick=%r type=%r command_id=%r",
+                        nick, frame.get("type"), frame.get("command_id"))
                     await ws.send(json.dumps(protocol.make_frame(
                         "error", "server", time.time(),
                         command_id=frame.get("command_id"),
-                        text=f"internal error: {type(e).__name__}: {e}")))
+                        text=STORAGE_UNAVAILABLE)))
+                    stop = False
+                except Exception:
+                    # Ostatnia linia obrony (niezmiennik f): detal tylko w logu,
+                    # odpowiedz publiczna nie ujawnia implementacji ani sciezek.
+                    LOGGER.exception(
+                        "internal frame failure for nick=%r type=%r command_id=%r",
+                        nick, frame.get("type"), frame.get("command_id"))
+                    await ws.send(json.dumps(protocol.make_frame(
+                        "error", "server", time.time(),
+                        command_id=frame.get("command_id"),
+                        text="internal error")))
                     stop = False
                 if stop:
                     break
-        except (websockets.exceptions.ConnectionClosed, json.JSONDecodeError):
+        except websockets.exceptions.ConnectionClosed:
             pass
         finally:
             if nick and ws in self.conns.get(nick, set()):
@@ -795,32 +832,53 @@ class ChatServer:
         if self._offering is None or self._offering.done():
             self._offering = asyncio.ensure_future(self._offer_loop())
 
+    def _requeue_idle_if_connected(self, nick):
+        """Przywroc workera do round-robin bez ducha ani duplikatu."""
+        if self.conns.get(nick) and nick not in self.idle:
+            self.idle.append(nick)
+            return True
+        return False
+
     async def _offer_loop(self):
+        retry_delay = OFFER_IO_RETRY_MIN
         while True:
             task = self.queue.offerable()
             if task is None or not self.idle:
                 return
             nick = self.idle.pop(0)
-            # (4) wysylamy klientowi DOKLADNIE trwaly event (z seq), nie
-            # okrojona ramke — odbiorca widzi seq == seq zapisanego eventu.
-            offer_event = self._offer_event(nick, task)
-            await self._send(nick, offer_event)
-            await asyncio.sleep(self.offer_timeout)
-            fresh = self.queue.get(task["id"])
-            # (F4) sprawdzamy KTO faktycznie dostal taska, nie tylko czy
-            # przestal byc "open" — inny klient mogl go ukrasc bezposrednim
-            # task_claim (poza mechanizmem ofert) w trakcie sleep().
-            # (3) proba jest ROZSTRZYGNIETA — trwaly offer_resolved (i ewikcja
-            # z cache), zeby PONOWNA oferta tego samego taska/wersji temu
-            # samemu nickowi (po pelnym okrazeniu idle) byla NOWA proba/event.
-            outcome = "claimed" if fresh["assignee"] == nick else "timeout"
-            self._resolve_offer(nick, task["id"], task["version"], outcome)
+            try:
+                # (4) wysylamy klientowi DOKLADNIE trwaly event (z seq), nie
+                # okrojona ramke — odbiorca widzi seq == seq zapisanego eventu.
+                offer_event = self._offer_event(nick, task)
+                await self._send(nick, offer_event)
+                await asyncio.sleep(self.offer_timeout)
+                fresh = self.queue.get(task["id"])
+                # (F4) sprawdzamy KTO faktycznie dostal taska, nie tylko czy
+                # przestal byc "open" — inny klient mogl go ukrasc bezposrednim
+                # task_claim (poza mechanizmem ofert) w trakcie sleep().
+                # (3) proba jest ROZSTRZYGNIETA — trwaly offer_resolved (i
+                # ewikcja z cache), zeby PONOWNA oferta tego samego taska/
+                # wersji temu samemu nickowi byla NOWA proba/event.
+                outcome = "claimed" if fresh["assignee"] == nick else "timeout"
+                self._resolve_offer(nick, task["id"], task["version"], outcome)
+            except OSError:
+                # Storage moze wrocic bez zadnego nowego eventu, ktory ponownie
+                # wywolalby _trigger_offer. Pojedynczy OSError nie moze wiec
+                # zabic jedynego future ani zgubic workera wyjetego z idle.
+                # Pending offer pozostaje w cache (durable-first), dlatego
+                # retry publikuje ten sam seq/activation_id i dopiero ponawia
+                # offer_resolved. Backoff jest ograniczony, a CancelledError
+                # nie jest polykany.
+                self._requeue_idle_if_connected(nick)
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, OFFER_IO_RETRY_MAX)
+                continue
+            retry_delay = OFFER_IO_RETRY_MIN
             if fresh["assignee"] != nick:
                 # (5) reinsert do idle TYLKO gdy nick ma zywy socket — inaczej
                 # rozlaczony w oknie oferty zostawialby "ducha" w idle i kolejna
                 # oferta szlaby w prozne (nikt jej nie odbierze).
-                if self.conns.get(nick):
-                    self.idle.append(nick)      # na koniec kolejki
+                if self._requeue_idle_if_connected(nick):
                     if len(self.idle) == 1:
                         return                  # nikt inny nie czeka
 
@@ -834,15 +892,29 @@ def main():
         port=int(os.environ.get("CHAT_PORT", 8765)))
 
     async def run():
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        sigterm_installed = False
+        try:
+            loop.add_signal_handler(signal.SIGTERM, stop_event.set)
+            sigterm_installed = True
+        except (NotImplementedError, RuntimeError):
+            # add_signal_handler nie jest dostepny na kazdym loopie/platformie;
+            # na wspieranym produkcyjnym Unixie SIGTERM idzie ta sciezka.
+            pass
         await server.start()
         print(f"chat server on ws://localhost:{server.port}", flush=True)
         try:
-            await asyncio.Future()
+            await stop_event.wait()
         finally:
-            # (I) Ctrl+C / SIGTERM -> asyncio.run() anuluje to zadanie
-            # (CancelledError) — finally gwarantuje clean snapshot zawsze,
-            # nie tylko przy programowym wywolaniu stop()
-            await server.stop()
+            try:
+                # SIGTERM ustawia event i schodzi kontrolowanie tutaj; SIGINT
+                # nadal anuluje run() przez asyncio.Runner. Obie sciezki musza
+                # poczekac na stop(), a wiec i atomowy snapshot.
+                await server.stop()
+            finally:
+                if sigterm_installed:
+                    loop.remove_signal_handler(signal.SIGTERM)
 
     asyncio.run(run())
 

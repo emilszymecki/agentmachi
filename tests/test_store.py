@@ -156,3 +156,31 @@ def test_snapshot_persists_and_replay_after_restart(tmp_path):
     log2 = EventLog(tmp_path)
     assert log2.snapshot_seq == 3 and log2.last_seq == 4
     assert [e["text"] for e in log2.replay()] == ["x"]
+
+
+def test_append_rejects_nan_without_advancing_or_touching_log(tmp_path):
+    log = EventLog(tmp_path)
+    assert log.append({"type": "chat", "text": "dobry"}) == 1
+    before = log.events_path.read_bytes()
+
+    with pytest.raises(ValueError):
+        log.append({"type": "chat", "nested": {"value": float("nan")}})
+
+    assert log.last_seq == 1
+    assert log.events_path.read_bytes() == before
+    assert [e["seq"] for e in log.replay()] == [1]
+
+
+def test_snapshot_rejects_nan_without_replacing_previous_snapshot(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "text": "dobry"})
+    log.save_snapshot({"queue": {"ok": True}})
+    before = log.snapshot_path.read_bytes()
+    before_seq = log.snapshot_seq
+
+    with pytest.raises(ValueError):
+        log.save_snapshot({"queue": {"bad": float("inf")}})
+
+    assert log.snapshot_path.read_bytes() == before
+    assert log.snapshot_seq == before_seq
+    assert log.load_snapshot() == ({"queue": {"ok": True}}, before_seq)

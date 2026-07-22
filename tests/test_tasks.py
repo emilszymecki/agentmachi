@@ -93,6 +93,14 @@ def test_card_mutation_after_add_has_no_effect():
     assert q.get(t["id"])["card"]["goal"] != "ZMIENIONE"
 
 
+def test_card_rejects_nonstandard_json_constants():
+    q = TaskQueue()
+    bad = dict(CARD, goal=float("nan"))
+    with pytest.raises(TaskError):
+        q.add(bad, command_id="nan-card", now=0.0)
+    assert q.dump()["tasks"] == []
+
+
 def test_add_reuse_with_different_card_conflicts():
     q = TaskQueue()
     q.add(CARD, "c1", 0)

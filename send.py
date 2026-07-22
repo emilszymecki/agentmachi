@@ -49,11 +49,26 @@ async def do_hello(ws, nick, role="agent"):
 
 
 def _print_event(data):
+    if not isinstance(data, dict):
+        print(json.dumps(data, ensure_ascii=False), flush=True)
+        return
     text = data.get("text")
     if text is not None:
         print(f"{data.get('from', '?')}: {text}", flush=True)
     else:
         print(json.dumps(data, ensure_ascii=False), flush=True)
+
+
+def _print_message(message):
+    """Best-effort listener: zla ramka jest widoczna, ale nie zabija socketu."""
+    try:
+        data = json.loads(message)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        if isinstance(message, bytes):
+            message = message.decode("utf-8", errors="replace")
+        print(message, flush=True)
+        return
+    _print_event(data)
 
 
 def _print_hello_backlog(reply):
@@ -80,7 +95,7 @@ async def listen(nick):
         reply = await do_hello(ws, nick, role="human")
         _print_hello_backlog(reply)
         async for message in ws:
-            _print_event(json.loads(message))
+            _print_message(message)
 
 
 # --- tryb legacy: stary PoC-hub (czysty broadcast {from,text}, bez hello) ---
@@ -93,7 +108,7 @@ async def legacy_send_once(nick, text):
 async def legacy_listen():
     async with websockets.connect(URI) as ws:
         async for message in ws:
-            _print_event(json.loads(message))
+            _print_message(message)
 
 
 def main():

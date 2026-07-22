@@ -112,8 +112,8 @@ class TaskQueue:
         if missing:
             raise TaskError(f"invalid card: missing fields {missing}")
         try:
-            return json.dumps(card, sort_keys=True)
-        except TypeError as e:
+            return json.dumps(card, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as e:
             raise TaskError(f"invalid card: not JSON-serializable: {e}")
 
     # Wspolny guard pol klienckich w mutacjach. Kazdy parametr domyslnie
