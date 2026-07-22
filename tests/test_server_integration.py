@@ -429,3 +429,45 @@ def test_scalar_json_after_hello_does_not_kill_handler(srv, payload):
         assert got["text"] == "@beta wciaz zyje"
         await a.close(); await b.close()
     asyncio.run(srv(scenario))
+
+
+# -- D: pola autorytatywne wszedzie (seq/generation/groups/from/role) -------
+
+def test_forged_authoritative_fields_stripped_from_chat_frame(srv):
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        b, _ = await hello("beta", "tb")
+        await a.send(json.dumps({"type": "chat", "from": "mallory", "ts": 1.0,
+                                 "text": "@beta hej", "generation": 999,
+                                 "groups": ["forged"], "seq": 999, "role": "human"}))
+        got = await recv(b)
+        assert got["from"] == "alfa"           # nie mallory — tozsamosc z hello
+        assert got["seq"] != 999 and got["seq"] >= 1
+        assert "generation" not in got
+        assert "groups" not in got
+        assert "role" not in got
+        logged = server.log.events_after(0)[-1]
+        assert logged["from"] == "alfa"
+        assert "generation" not in logged
+        assert "groups" not in logged
+        assert "role" not in logged
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_forged_authoritative_fields_stripped_from_task_frame(srv):
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "mallory", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD,
+                                 "generation": 999, "groups": ["forged"],
+                                 "seq": 999}))
+        ok = await recv(a)
+        assert ok["type"] == "ok"
+        logged = server.log.events_after(0)[-1]
+        assert logged["type"] == "task_new"
+        assert logged["from"] == "alfa"
+        assert "generation" not in logged
+        assert "groups" not in logged
+        await a.close()
+    asyncio.run(srv(scenario))

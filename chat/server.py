@@ -269,6 +269,11 @@ class ChatServer:
             await ws.send(json.dumps(protocol.make_frame(
                 "error", "server", time.time(), text=err)))
             return False
+        # niezmiennik D: pola autorytatywne (seq/generation/groups/role) nadaje
+        # WYLACZNIE serwer — kazda ramka klienta jest tu oczyszczana zanim
+        # dotknie logu/kolejki/odbiorcow, niezaleznie od typu ramki
+        for field in ("seq", "generation", "groups", "role"):
+            frame.pop(field, None)
         frame["from"] = nick  # tozsamosc z hello, nie z ramki (pole autorytatywne)
         ftype = frame["type"]
         if ftype == "chat":
