@@ -99,6 +99,18 @@ def test_validate_ts_must_be_finite():
                               "text": "x"}) is None
 
 
+def test_validate_huge_int_ts_rejected_no_overflow():
+    # (Runda 6 #3) math.isfinite(10**400) rzuca OverflowError (legalny JSON int
+    # za duzy na float) — wysypywalo CALA walidacje zamiast zwrocic blad. int
+    # poza zakresem float odrzucony KOMUNIKATEM (bez OverflowError); normalny
+    # int ts nadal przechodzi (isfinite wolane tylko dla float).
+    frame = {"type": "chat", "from": "a", "ts": 10**400, "text": "x"}
+    msg = protocol.validate(frame)                 # NIE moze rzucic OverflowError
+    assert isinstance(msg, str) and msg            # ramka odrzucona komunikatem
+    assert protocol.validate({"type": "chat", "from": "a", "ts": 1,
+                              "text": "x"}) is None  # zwykly int nadal ok
+
+
 def test_envelope_deterministic_activation_id():
     frames = [protocol.make_frame("chat", "beta", ts=1.0, text="@alfa hej")]
     e1 = protocol.make_envelope("alfa", frames, seq_from=5, seq_to=9)

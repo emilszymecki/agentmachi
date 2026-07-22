@@ -1,6 +1,7 @@
 """Ramki, wzmianki i activation envelope. Zero I/O."""
 import math
 import re
+import sys
 
 # (Runda 4 #5) Rozdzial typow: INBOUND to jedyne typy, ktore klient moze
 # przyslac. OUTBOUND to typy WYLACZNIE serwerowe — albo generowane w locie
@@ -68,8 +69,17 @@ def validate(frame):
     ts = frame["ts"]
     # (Runda 5 C2) ts musi byc liczba SKONCZONA — NaN/inf przechodzily
     # (isinstance float True) i trafialy do logu jako niestandardowy JSON.
-    if (isinstance(ts, bool) or not isinstance(ts, (int, float))
-            or not math.isfinite(ts)):
+    # (Runda 6 #3) math.isfinite wolamy TYLKO dla float: math.isfinite(10**400)
+    # rzuca OverflowError (int za duzy na konwersje do float) i wysypywal cala
+    # walidacje. int sprawdzamy zakresowo BEZ konwersji (porownanie int<->float
+    # jest w Pythonie dokladne, nie przepelnia): int poza zakresem float to
+    # bezsensowny timestamp — odrzucony komunikatem, nie wyjatkiem.
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return "ts wymagany (liczba skonczona)"
+    if isinstance(ts, float):
+        if not math.isfinite(ts):
+            return "ts wymagany (liczba skonczona)"
+    elif abs(ts) > sys.float_info.max:
         return "ts wymagany (liczba skonczona)"
     return _validate_body(frame, ftype)
 
