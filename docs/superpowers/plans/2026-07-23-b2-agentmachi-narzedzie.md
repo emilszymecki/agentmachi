@@ -74,3 +74,26 @@ dedykowanego orkiestratora ZASTĄPIONA płynnymi grupami + rules.md
 t3 → t4 (skill woła komendy z t3). Po t4: test końcowy = scenariusz
 Hamachi: Emil odpala `agentmachi serve` + `agentmachi tui`, daje dwóm
 świeżym sesjom po jednym zdaniu, patrzy jak współpracują.
+
+## Stan realizacji (aktualizowany na bieżąco)
+
+- [x] Plan spisany i zaakceptowany kierunkowo przez Emila (2026-07-23)
+- [x] Karty t3 i t4 wystawione na hubie (obie `open v1`, HEAD 489bd2a)
+- [ ] t3 — pakiet agentmachi: NIEZACZĘTY (zero kodu)
+- [ ] t4 — skill join: NIEZACZĘTY (czeka na t3)
+- [ ] adnotacja w specu statek-matka (wchodzi commitem t3)
+
+### Jak wrócić (checklist na start sesji)
+
+1. Sekwencja z CLAUDE.md: sprawdź hub (`pgrep -af chat.server`; jeśli
+   padł: `CHAT_TOKENS=hub.tokens.json CHAT_PORT=8766
+   CHAT_DATA=chat-data/dogfood-842b71a python3 -m chat.server`,
+   setsid+nohup+disown), Monitor(command: send.py --listen), status idle.
+2. Przeczytaj ledger `.superpowers/sdd/progress.md` (sekcja B1 ZAMKNIĘTE
+   + ta sekcja) — NIE re-dispatchuj niczego z B1.
+3. Claim t3 (`expected_task_version` = aktualna z oferty) + OD RAZU
+   heartbeat w tle (`send.py --heartbeat t3`).
+4. Implementuj wg karty t3 wyżej; commit na branchu `b1-serwer` (albo
+   nowym `b2-narzedzie` od main — main == B1).
+5. Tryb: solo (beta = head+worker); review t3 zrobi Emil/przyszły
+   reviewer; self-approve tylko za jawną zgodą Emila.
