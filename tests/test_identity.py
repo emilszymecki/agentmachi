@@ -116,3 +116,47 @@ def test_external_token_map_mutation_has_no_effect():
     t["intruz"] = "x"
     with pytest.raises(AuthError):
         r.hello("intruz", "i1", "x")
+
+
+# -- H: role/grupy z configu serwera (decyzja tercetu) -----------------------
+
+def test_old_flat_format_normalizes_to_agent_no_groups():
+    r = Registry({"alfa": "tok-a"})
+    assert r.role_of("alfa") == "agent"
+    assert r.groups_of("alfa") == []
+    assert r.hello("alfa", "i1", "tok-a") == 1  # konstruktor dalej dziala
+
+
+def test_dict_format_configures_role_and_groups():
+    r = Registry({
+        "alfa": "tok-a",                                             # stary format
+        "beta": {"token": "tok-b", "role": "human", "groups": ["ops", "admin"]},
+    })
+    assert r.role_of("beta") == "human"
+    assert r.groups_of("beta") == ["ops", "admin"]
+    assert r.hello("beta", "i1", "tok-b") == 1  # token dalej dziala
+
+
+def test_dict_format_missing_token_fails_fast():
+    with pytest.raises(ValueError):
+        Registry({"alfa": {"role": "agent"}})
+
+
+def test_dict_format_rejects_bad_role():
+    with pytest.raises(ValueError):
+        Registry({"alfa": {"token": "tok-a", "role": "superadmin"}})
+
+
+def test_dict_format_rejects_non_list_groups():
+    with pytest.raises(ValueError):
+        Registry({"alfa": {"token": "tok-a", "groups": "not-a-list"}})
+
+
+def test_dict_format_rejects_non_str_group_items():
+    with pytest.raises(ValueError):
+        Registry({"alfa": {"token": "tok-a", "groups": [123]}})
+
+
+def test_bad_token_entry_shape_fails_fast():
+    with pytest.raises(ValueError):
+        Registry({"alfa": 123})  # ani str, ani dict

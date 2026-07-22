@@ -13,8 +13,13 @@ import websockets
 
 from chat.server import ChatServer
 
-TOKENS = {"alfa": "ta", "beta": "tb", "emil": "te", "gamma": "tg",
-          "delta": "td"}
+TOKENS = {
+    "alfa": "ta",                                                     # stary format (kompat)
+    "beta": {"token": "tb", "role": "agent", "groups": ["workers"]},   # H: grupy z configu
+    "emil": {"token": "te", "role": "human", "groups": []},            # H: rola z configu
+    "gamma": {"token": "tg", "role": "agent", "groups": ["workers"]},
+    "delta": "td",                                                    # nie w zadnej grupie
+}
 PORT = 8891
 
 
@@ -470,4 +475,37 @@ def test_forged_authoritative_fields_stripped_from_task_frame(srv):
         assert "generation" not in logged
         assert "groups" not in logged
         await a.close()
+    asyncio.run(srv(scenario))
+
+
+# -- H: role/grupy z configu serwera (decyzja tercetu) -----------------------
+
+def test_declared_role_human_in_hello_is_ignored_no_live_feed(srv):
+    async def scenario(server):
+        # alfa jest w TOKENS starym formatem -> role serwerowa "agent",
+        # mimo ze w hello deklaruje "human"
+        a, _ = await hello("alfa", "ta", role="human")
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "chat", "from": "beta", "ts": 1.0,
+                                 "text": "bez wzmianki o alfie"}))
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(a, timeout=0.4)
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_declared_groups_in_hello_are_ignored_not_member_of_declared_group(srv):
+    async def scenario(server):
+        # alfa (stary format, bez skonfigurowanych grup) deklaruje w hello
+        # przynaleznosc do $admin — deklaracja jest tylko do walidacji,
+        # nie rejestruje alfy w zadnej grupie
+        a, _ = await hello("alfa", "ta", groups=["admin"])
+        c, _ = await hello("delta", "td")
+        await c.send(json.dumps({"type": "chat", "from": "delta", "ts": 1.0,
+                                 "text": "$admin hej"}))
+        err = await recv(c)                     # nieznana grupa (nikt jej realnie nie ma)
+        assert err["type"] == "error"
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(a, timeout=0.4)
+        await a.close(); await c.close()
     asyncio.run(srv(scenario))

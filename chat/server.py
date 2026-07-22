@@ -197,7 +197,10 @@ class ChatServer:
                 return
             try:
                 last_seq = self._validate_last_seq(frame.get("last_seq"))
-                groups = self._validate_groups(frame.get("groups"))
+                # niezmiennik H: groups/role w hello sa TYLKO walidowane —
+                # przypisanie faktyczne pochodzi WYLACZNIE z configu serwera
+                # (registry.role_of/groups_of), nigdy z deklaracji klienta.
+                self._validate_groups(frame.get("groups"))
                 generation = self.registry.hello(
                     frame.get("from"), frame.get("instance_id"), frame.get("token"))
             except AuthError as e:
@@ -205,8 +208,10 @@ class ChatServer:
                     "error", "server", time.time(), text=str(e))))
                 return
             nick = frame["from"]
+            role = self.registry.role_of(nick)
+            groups = self.registry.groups_of(nick)
             self.conns.setdefault(nick, set()).add(ws)
-            self.roles[nick] = frame.get("role", "agent")
+            self.roles[nick] = role
             self.groups[nick] = set(groups)
             backlog = self.log.events_after(last_seq)
             rules_text, rules_hash = self._load_rules()
