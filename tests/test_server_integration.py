@@ -1064,6 +1064,20 @@ def test_hello_role_must_be_str(srv):
     asyncio.run(srv(scenario))
 
 
+def test_hello_role_empty_string_rejected(srv):
+    # (Runda 6 #4) _validate_role akceptowal pusty string ("" jest str) — a
+    # AGENTS.md wymaga typu I niepustosci. role="" -> error do nadawcy.
+    async def scenario(server):
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
+                                  "instance_id": "i1", "token": "ta",
+                                  "last_seq": 0, "role": ""}))   # pusty role
+        err = json.loads(await asyncio.wait_for(ws.recv(), 2.0))
+        assert err["type"] == "error"
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
 def test_chat_without_text_errors_not_logged_not_delivered(srv):
     async def scenario(server):
         h, _ = await hello("emil", "te", role="human")

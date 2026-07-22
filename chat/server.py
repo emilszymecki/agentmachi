@@ -322,8 +322,10 @@ class ChatServer:
     def _validate_role(value):
         # (7) role deklarowana w hello jest tylko WALIDOWANA (przypisanie
         # pochodzi z configu serwera — niezmiennik e/H) — ale jesli podana,
-        # musi byc stringiem; role=[] itp. to blad wejscia do nadawcy.
-        if value is not None and not isinstance(value, str):
+        # musi byc NIEPUSTYM stringiem (AGENTS.md: typ + niepustosc). role=[]
+        # oraz role="" to blad wejscia do nadawcy. (Runda 6 #4: "" przechodzil,
+        # bo "" jest str — teraz jawnie odrzucony.)
+        if value is not None and (not isinstance(value, str) or not value):
             raise AuthError(f"invalid role: {value!r}")
         return value
 
