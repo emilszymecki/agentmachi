@@ -72,6 +72,17 @@ w `~/.chat-sessions/` — restart wznawia od ostatniej zastosowanej
 ramki. Gwarancja: at-least-once + tłumienie duplikatów po `seq`
 i `activation_id` w adapterze (nie „exactly-once" — patrz wsad B2).
 
+TUI human-operatora (Textual; czyta jedynego humana z `hub.tokens.json`,
+kursor/lock jak każdy klient — patrz `tui.py`):
+
+```bash
+uv run --quiet --with textual --with websockets python3 tui.py
+```
+
+Trzy panele: czat (wysyłka po Enter), uczestnicy z grupami, rules/stan.
+Komenda `/groups <nick> <g1,g2>` wysyła `membership_set` (autoryzacja:
+human albo członek bieżącego `$admin`); `/groups <nick> -` czyści grupy.
+
 Tryb HISTORYCZNY (archiwum PoC; hub 8765 ZATRZYMANY po T5, log w
 `chat-data/migrations/20260722T202511Z-4aeba07/server-t5-final.log`):
 `python3 send.py --legacy <nick> "tekst"` / `--legacy --listen`.
