@@ -179,11 +179,25 @@ class ChatServer:
         self._events_since_snapshot = 0
 
     def _append(self, frame):
+        seq = self._append_durable(frame)
+        self._maybe_snapshot()
+        return seq
+
+    def _append_durable(self, frame):
+        # (Runda 5 A) trwaly append ROZDZIELONY od auto-snapshotu: seq
+        # przydzielony i event NA DYSKU, ale snapshot jeszcze NIE odpalony.
+        # Mutacje wymagajace domkniecia stanu MIEDZY (trwaly event) a
+        # (ewentualny snapshot) — patrz _offer_event — wstawiaja swoj efekt PO
+        # udanym appendzie, a PRZED snapshotem. Nieudany append (wyjatek z
+        # log.append) rzuca zanim cokolwiek zmutujemy — brak dziury w numeracji
+        # i brak przedwczesnej mutacji stanu zaleznego od trwalosci.
         seq = self.log.append(frame)
         self._events_since_snapshot += 1
+        return seq
+
+    def _maybe_snapshot(self):
         if self._events_since_snapshot >= SNAPSHOT_EVERY:
             self.snapshot()
-        return seq
 
     async def _expiry_loop(self):
         while True:
@@ -580,17 +594,20 @@ class ChatServer:
         frame = protocol.make_frame(
             "task_offer", "server", time.time(), task=task, target=nick,
             activation_id=activation_id)
-        # (Runda 4 #2) DOMKNIJ STAN (offer w cache) PRZED _append — bo _append
-        # moze strzelic auto-snapshotem (gdy to event #100). Snapshot dumpuje
-        # _dump_offers(); gdyby oferta trafiala do cache DOPIERO po _append,
-        # snapshot #100 zapisalby stan BEZ niej, a kompakcja usunelaby event
-        # task_offer -> po restarcie pending offer przepada. Seq jest
-        # przewidywalny (jednowatkowy event loop), wiec stored z predicted_seq
-        # jest juz kompletny; append tylko potwierdza numer (assert nizej).
-        stored = {**frame, "seq": predicted_seq}  # dokladnie ten trwaly event (z seq)
-        self._offer_cache[key] = stored
-        seq = self._append(frame)
+        # (Runda 5 A) DURABILITY-BEFORE-PUBLICATION: trwaly append NAJPIERW.
+        # Gdy append rzuci (np. OSError/dysk pelny), _offer_cache pozostaje
+        # NIETKNIETY — a to cache steruje publikacja w _offer_loop, wiec zaden
+        # niedurable offer nie moze pojsc do klienta ani zwrocic sie jako cached
+        # przy kolejnej probie. Dopiero PO udanym, trwalym appendzie domykamy
+        # stan (offer -> cache), a snapshot (dumpuje _dump_offers) odpalamy na
+        # KONCU: oferta jest juz w cache, wiec auto-snapshot #100 ja obejmuje
+        # (utrzymuje fix Rundy 4 #2 — pending offer przezywa kompakcje). Seq
+        # przewidywalny (jednowatkowy event loop), append tylko potwierdza numer.
+        seq = self._append_durable(frame)
         assert seq == predicted_seq  # jednowatkowy event loop — brak wyscigu
+        stored = {**frame, "seq": seq}  # dokladnie ten trwaly event (z seq)
+        self._offer_cache[key] = stored
+        self._maybe_snapshot()
         return stored
 
     def _resolve_offer(self, nick, task_id, task_version, outcome):

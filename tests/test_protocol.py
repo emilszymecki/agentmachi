@@ -75,6 +75,30 @@ def test_validate_rejects_outbound_only_types_inbound_but_known():
         assert "unknown type" not in msg          # ale to ZNANE typy (nie nieznane)
 
 
+# -- Runda 5: walidacja inbound pelna (type nie-str, ts skonczone) ----------
+
+def test_validate_nonstring_type_does_not_raise_unhashable():
+    # (C1) type=[] / {} to unhashable — membership `in FRAME_TYPES` PRZED
+    # sprawdzeniem ze type to str rzucalo TypeError. Musi zwrocic error, nie rzucic.
+    assert protocol.validate({"type": [], "from": "a", "ts": 1.0}) is not None
+    assert protocol.validate({"type": {}, "from": "a", "ts": 1.0}) is not None
+    assert protocol.validate({"type": "", "from": "a", "ts": 1.0}) is not None
+    # znany zly typ (str) nadal daje czytelne "unknown type: ..."
+    assert protocol.validate({"type": "nope", "from": "a", "ts": 1.0}) == "unknown type: nope"
+
+
+def test_validate_ts_must_be_finite():
+    # (C2) NaN/inf przechodzily (validate=None) -> logowany niestandardowy JSON
+    assert protocol.validate({"type": "chat", "from": "a", "ts": float("nan"),
+                              "text": "x"}) is not None
+    assert protocol.validate({"type": "chat", "from": "a", "ts": float("inf"),
+                              "text": "x"}) is not None
+    assert protocol.validate({"type": "chat", "from": "a", "ts": float("-inf"),
+                              "text": "x"}) is not None
+    assert protocol.validate({"type": "chat", "from": "a", "ts": 1.5,
+                              "text": "x"}) is None
+
+
 def test_envelope_deterministic_activation_id():
     frames = [protocol.make_frame("chat", "beta", ts=1.0, text="@alfa hej")]
     e1 = protocol.make_envelope("alfa", frames, seq_from=5, seq_to=9)

@@ -1356,3 +1356,182 @@ def test_malformed_task_frame_rejected_by_schema_keeps_command_id(srv):
         assert (await recv(b))["text"] == "@beta wciaz zyje"
         await a.close(); await b.close()
     asyncio.run(srv(scenario))
+
+
+# == RUNDA 5 — durability ofert, atomowa resolution, pelna walidacja inbound ==
+
+# -- A: DURABILITY-BEFORE-PUBLICATION — blad appendu oferty NIE moze wlozyc
+#       niedurable oferty do cache (ktore steruje publikacja w _offer_loop) ----
+
+def test_offer_append_failure_does_not_cache_nondurable_offer(srv):
+    # (A) _offer_event wkladal oferte do _offer_cache PRZED log.append. Gdy
+    # pierwszy append rzuca (OSError, np. dysk pelny): cache=True, ale nic na
+    # dysku (last_seq bez zmian). Kolejna proba zwracala cached seq bez
+    # appendu -> _offer_loop publikowal NIEDURABLE oferte. Fix: durable append
+    # NAJPIERW (moze rzucic -> cache nietkniety), cache PO udanym appendzie,
+    # snapshot na koncu.
+    async def scenario(server):
+        task = server.queue.add(CARD, "c1", 0.0)
+        key = ("beta", task["id"], task["version"])
+        seq_before = server.log.last_seq
+
+        orig_append = server.log.append
+        calls = {"n": 0}
+
+        def flaky_append(frame):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError("dysk pelny — pierwszy append oferty pada")
+            return orig_append(frame)
+
+        server.log.append = flaky_append
+        with pytest.raises(OSError):
+            server._offer_event("beta", task)
+        # niedurable oferta NIE moze wejsc do cache: zero publikacji czegos,
+        # czego nie ma na dysku
+        assert key not in server._offer_cache
+        assert server.log.last_seq == seq_before
+
+        # po naprawie appendu kolejna proba dziala normalnie: trwaly event + cache
+        offer = server._offer_event("beta", task)
+        assert key in server._offer_cache
+        assert offer["seq"] == server.log.last_seq
+        offer_events = [e for e in server.log.events_after(seq_before)
+                        if e["type"] == "task_offer"]
+        assert len(offer_events) == 1
+        assert offer_events[0]["seq"] == offer["seq"]
+    asyncio.run(srv(scenario))
+
+
+# -- B: RESOLUTION OFERTY atomowa i niezalezna od targetu — udany claim (od
+#       KOGOKOLWIEK) rozstrzyga pending oferty taska; replay wywodzi to z
+#       samego claim, bez zaleznosci od offer_resolved -----------------------
+
+def test_steal_claim_resolves_pending_offer_of_other_target_live(srv):
+    # (B live) oferta -> beta (pending); GAMMA robi poprawny bezposredni claim
+    # tego samego taska. Klucz oferty to (TARGET=beta, task_id, wersja), wiec
+    # resolve tylko po claimerze (gamma) nie trafial klucza bety -> oferta bety
+    # zostawala pending. Fix: udany claim usuwa WSZYSTKIE pending offers
+    # (task_id, wersja-open) niezaleznie od targetu.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        task = (await recv(a))["task"]
+        tid = task["id"]
+        server._offer_activation_id("beta", task)          # pending offer dla bety
+        assert ("beta", tid, 1) in server._offer_cache
+
+        g, _ = await hello("gamma", "tg")
+        await g.send(json.dumps({"type": "task_claim", "from": "gamma", "ts": 0.0,
+                                 "task_id": tid, "command_id": "steal1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(g)
+        assert claimed["task"]["assignee"] == "gamma"
+        # pending bety zniknieta LIVE mimo ze claimowala gamma (inny target)
+        assert ("beta", tid, 1) not in server._offer_cache
+        await a.close(); await g.close()
+    asyncio.run(srv(scenario))
+
+
+def test_replay_claim_resolves_pending_offer_without_offer_resolved(tmp_path):
+    # (B replay) crash-prefix [task_new, task_offer, task_claim] BEZ
+    # offer_resolved (symulacja okna nieatomowosci: claim persisted, resolve
+    # nie zdazyl) -> restart: task claimed ORAZ ZERO pending offers. Poprawnosc
+    # replay NIE moze zalezec od osobnego offer_resolved — claim SAM jest
+    # faktem resolution.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        task = (await recv(a))["task"]
+        tid = task["id"]
+        s1._offer_activation_id("beta", task)              # task_offer + pending (beta,tid,1)
+        # zbuduj recznie ogon [task_claim] BEZ offer_resolved (crash-window)
+        result = s1.queue.claim(tid, "gamma", 1, "c1", 1, 0.0)
+        s1._append({"type": "task_claim", "from": "gamma", "ts": 0.0,
+                    "task_id": tid, "command_id": "c1", "expected_task_version": 1,
+                    "task_state": result,
+                    "fingerprint": s1.queue.fingerprint_for("c1")})
+        assert [e for e in s1.log.events_after(0)
+                if e["type"] == "offer_resolved"] == []     # brak offer_resolved w logu
+        await a.close()
+        await _crash_stop(s1)                               # BEZ snapshotu
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        assert s2.queue.get(tid)["status"] == "claimed"
+        assert ("beta", tid, 1) not in s2._offer_cache      # replay wywiodl resolution z claim
+        assert s2._offer_cache == {}                        # ZERO pending offers
+    asyncio.run(scenario())
+
+
+# -- C: walidacja inbound pelna — type nie-str, ts NaN, pierwsze hello przez
+#       wspolny schemat ------------------------------------------------------
+
+def test_first_hello_without_ts_rejected_not_logged(srv):
+    # (C3) pierwsze hello NIGDY nie przechodzilo przez protocol.validate —
+    # hello bez ts dostawalo ok i bylo logowane. Fix: hello przez wspolny
+    # schemat (type/from/ts) PRZED auth.
+    async def scenario(server):
+        before = server.log.last_seq
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": "alfa",
+                                  "instance_id": "i1", "token": "ta",
+                                  "last_seq": 0}))          # brak ts
+        err = json.loads(await asyncio.wait_for(ws.recv(), 2.0))
+        assert err["type"] == "error"
+        assert server.log.last_seq == before                # NIE zalogowane
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_first_hello_with_nonstring_from_rejected(srv):
+    # (C3) hello z from=[] przez wspolny schemat -> error, zero zapisu
+    async def scenario(server):
+        before = server.log.last_seq
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": [], "ts": 0.0,
+                                  "instance_id": "i1", "token": "ta",
+                                  "last_seq": 0}))
+        err = json.loads(await asyncio.wait_for(ws.recv(), 2.0))
+        assert err["type"] == "error"
+        assert server.log.last_seq == before
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_nonstring_type_frame_after_hello_errors_not_crash(srv):
+    # (C1) type=[] / {} rzucalo TypeError (unhashable) w validate przy
+    # membership PRZED sprawdzeniem ze type to str. Fix: najpierw niepusty str,
+    # potem membership. Handler zyje.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        for bad_type in ([], {}):
+            await a.send(json.dumps({"type": bad_type, "from": "alfa", "ts": 0.0}))
+            err = await recv(a)
+            assert err["type"] == "error"
+        b, _ = await hello("beta", "tb")
+        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
+                                 "text": "@beta wciaz zyje"}))
+        assert (await recv(b))["text"] == "@beta wciaz zyje"
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_nan_ts_frame_rejected_not_logged(srv):
+    # (C2) ts=NaN przechodzilo (validate=None) i bylo logowane jako
+    # niestandardowy JSON. Fix: ts musi byc liczba SKONCZONA.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+        await a.send(json.dumps({"type": "chat", "from": "alfa",
+                                 "ts": float("nan"), "text": "x"}))
+        err = await recv(a)
+        assert err["type"] == "error"
+        assert server.log.last_seq == before                # NIE zalogowane
+        await a.close()
+    asyncio.run(srv(scenario))
