@@ -1815,3 +1815,170 @@ def test_offer_resolved_at_snapshot_boundary_no_resurrection(tmp_path):
                         lease_ttl=5.0, offer_timeout=30.0)
         assert ("beta", task["id"], task["version"]) not in s2._offer_cache
     asyncio.run(scenario())
+
+
+# -- Runda 7: Registry durability w hello (provisional-then-commit) ----------
+
+def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path):
+    # (Runda 7) hello mutowal Registry (bump generacji) PRZED durable appendem.
+    # Injekcja: pierwszy log.append typu "hello" rzuca OSError -> registry
+    # NIETKNIETY (generation_of == 0, klon wyrzucony), ZERO eventow hello na
+    # dysku, polaczenie pada bez ok. Po naprawie retry tego samego hello ->
+    # generation podbita DOKLADNIE raz (==1). Na starym kodzie registry.hello
+    # szlo LIVE przed appendem: append-fail zostawial gen=1 NIEDURABLE (rozjazd
+    # live vs replay).
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+
+        orig = s1.log.append
+        calls = {"n": 0}
+
+        def flaky(frame):
+            if frame.get("type") == "hello":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise OSError("dysk pelny na pierwszym hello append")
+            return orig(frame)
+
+        s1.log.append = flaky
+        seq_before = s1.log.last_seq
+
+        bad = await websockets.connect(f"ws://localhost:{PORT}")
+        await bad.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
+                                   "instance_id": "i1", "token": "ta",
+                                   "last_seq": 0}))
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(bad.recv(), timeout=2.0)
+        # registry NIETKNIETY, zero eventow hello na dysku
+        assert s1.registry.generation_of("alfa") == 0
+        assert s1.log.last_seq == seq_before
+        assert [e for e in s1.log.events_after(0) if e["type"] == "hello"] == []
+
+        # retry (append juz sprawny) -> generation podbita DOKLADNIE raz
+        s1.log.append = orig
+        good, reply = await hello("alfa", "ta", instance="i1")
+        assert reply["type"] == "ok" and reply["generation"] == 1
+        assert s1.registry.generation_of("alfa") == 1
+        assert len([e for e in s1.log.events_after(0)
+                    if e["type"] == "hello"]) == 1
+        await good.close()
+        await _crash_stop(s1)
+    asyncio.run(scenario())
+
+
+def test_takeover_hello_append_failure_keeps_old_socket_and_generation(tmp_path):
+    # (Runda 7) TAKEOVER: hello innego instance_id zamykal stary socket i
+    # bumpowal generacje PRZED durable appendem. Injekcja: append drugiego hello
+    # rzuca -> gen NADAL 1, stary socket A NADAL zywy (takeover NIE wykonany),
+    # zero eventow hello #2. Po naprawie retry -> gen=2, socket A zamkniety, nowy
+    # socket aktywny. Na starym kodzie takeover zamykal A i bumpowal gen PRZED
+    # appendem -> append-fail rozjezdzal tozsamosc (gen=2 niedurable, A martwy).
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        a1, reply1 = await hello("alfa", "ta", instance="i1")
+        assert reply1["generation"] == 1
+
+        orig = s1.log.append
+        calls = {"n": 0}
+
+        def flaky(frame):
+            if frame.get("type") == "hello":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise OSError("dysk pelny na hello takeover")
+            return orig(frame)
+
+        s1.log.append = flaky
+        seq_before = s1.log.last_seq
+
+        bad = await websockets.connect(f"ws://localhost:{PORT}")
+        await bad.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
+                                   "instance_id": "i2", "token": "ta",
+                                   "last_seq": 0}))
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(bad.recv(), timeout=2.0)
+        # takeover NIE wykonany: gen nadal 1, zero eventow hello #2, A zywy
+        assert s1.registry.generation_of("alfa") == 1
+        assert s1.log.last_seq == seq_before
+        # A NADAL zarejestrowany po stronie serwera (dokladnie jeden socket alfy;
+        # gdyby takeover sie wykonal, _close_stale_sockets wypielby A -> 0)
+        assert len(s1.conns.get("alfa", set())) == 1
+        with pytest.raises(asyncio.TimeoutError):    # A nie dostal error/close
+            await recv(a1, timeout=0.4)
+
+        # retry (append sprawny) -> gen=2, A zamkniety, nowy socket aktywny
+        s1.log.append = orig
+        a2, reply2 = await hello("alfa", "ta", instance="i2")
+        assert reply2["generation"] == 2
+        err = await recv(a1, timeout=1.0)            # A dostaje error teraz
+        assert err["type"] == "error"
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(a1.recv(), timeout=1.0)   # A faktycznie zamkniety
+        assert s1.registry.generation_of("alfa") == 2
+        await a2.close()
+        await _crash_stop(s1)
+    asyncio.run(scenario())
+
+
+def test_hello_at_snapshot_boundary_restores_registry_generation(tmp_path):
+    # (Runda 7) hello jako event #100: durable append hello bez auto-snapshotu,
+    # potem swap live=klon, na koncu _maybe_snapshot -> snapshot #100 lapie NOWA
+    # generacje (i queue). Restart odtwarza registry generation z tego snapshotu.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        a, _ = await hello("alfa", "ta", instance="i1")     # hello #1 + task nizej
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        tid = (await recv(a))["task"]["id"]
+        while s1._events_since_snapshot < 99:               # kolejny append = #100
+            s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
+        assert s1._events_since_snapshot == 99
+        b, reply = await hello("beta", "tb", instance="ib")  # hello bety = event #100
+        assert reply["generation"] == 1
+        assert s1._events_since_snapshot == 0                # snapshot #100 strzelil
+        snap = json.loads((Path(tmp_path) / "snapshot.json").read_text())
+        assert snap["state"]["registry"]["gen"]["beta"] == 1
+        assert any(t["id"] == tid for t in snap["state"]["queue"]["tasks"])
+        await a.close(); await b.close()
+        await _crash_stop(s1)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        assert s2.registry.generation_of("beta") == 1
+        assert s2.registry.generation_of("alfa") == 1
+        assert s2.queue.get(tid) is not None
+    asyncio.run(scenario())
+
+
+def test_auth_fail_hello_no_registry_mutation_no_event(tmp_path):
+    # (Runda 7) hello ze zlym tokenem: AuthError leci z KLONA registry -> error
+    # do klienta, ZERO mutacji rejestru (generation bez zmiany), ZERO eventu na
+    # dysku. Guard provisional-then-commit: auth-fail nie moze nic utrwalic ani
+    # zbumpowac.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        seq_before = s1.log.last_seq
+        bad = await websockets.connect(f"ws://localhost:{PORT}")
+        await bad.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
+                                   "instance_id": "i1", "token": "ZLY",
+                                   "last_seq": 0}))
+        err = json.loads(await bad.recv())
+        assert err["type"] == "error"
+        assert s1.registry.generation_of("alfa") == 0
+        assert s1.log.last_seq == seq_before
+        assert [e for e in s1.log.events_after(0) if e["type"] == "hello"] == []
+        await bad.close()
+        await _crash_stop(s1)
+    asyncio.run(scenario())
