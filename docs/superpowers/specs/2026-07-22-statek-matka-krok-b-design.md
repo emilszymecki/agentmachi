@@ -44,8 +44,9 @@ i robi resume zamiast ponownej inicjalizacji. Długowieczna sesja matki
 to optymalizacja, nie wymóg — kompaktacja kontekstu nie może niczego
 zgubić, bo prawda leży na dysku.
 
-`/statekmatka:init` robi wszystko i zostawia sesję w trybie orkiestratora:
-1. odpala serwer WS + graphify serve, tworzy pokój,
+Hub (serwer WS + graphify serve) odpala CZŁOWIEK jako osobny proces
+(sekcja "Role i autoryzacja"). `/statekmatka:init` robi resztę:
+1. enrolluje sesję jako admin (kod z ukrytego promptu → agent_id + token),
 2. wypluwa kartę wejściową dla roju: adres, pokój, repo, instrukcja dołączenia,
 3. tworzy/aktualizuje `hub/BRIEF.md`,
 4. zbroi Monitor ws (persistent) i przechodzi w pętlę zdarzeń.
@@ -110,7 +111,55 @@ wysyła `task_offer` do JEDNEJ idle wyrobnicy (round-robin). Brak
   komenda nie może stać się "nowa" po wygaśnięciu dedupu);
   `expected_task_version` stanowi drugą barierę.
 - **Auth agenta**: token per agent (tailscale ogranicza sieć, ale nie
-  chroni nicku przed innym peerem w tailnecie).
+  chroni nicku przed innym peerem w tailnecie). Szczegóły wydawania —
+  sekcja "Role i autoryzacja".
+
+### Role i autoryzacja — config-first (decyzja @Emil + tercet)
+
+**Hub jest osobnym bytem odpalanym przez człowieka** (`cowork_agents_4_all
+<sesja> --continue`), nie przez sesję matki. Matka staje się zwykłym,
+restartowalnym klientem z rolą admin. Człowiek/TUI to operator
+control-plane PONAD rolami sieciowymi: tylko on zmienia plik auth,
+mintuje role i może odebrać kontrolę agentom.
+
+**Config huba (`hub.toml`)** — źródło prawdy, pisane ręcznie przez usera:
+- kody ról (enrollment): przechowywane jako VERIFIER (scrypt), nigdy
+  plaintext; opcjonalne max_uses/expiry/disable per kod,
+- `rules` — konstytucja pokoju SŁOWNIE, naturalnym językiem; serwer jej
+  nie interpretuje, agent przyjmuje empirycznie przez tekst,
+- plik: chmod 600, w .gitignore; w repo tylko `hub.toml.example`.
+
+**Enrollment → tożsamość**: kod roli działa wyłącznie jako bootstrap.
+Sekret podawany przez stdin/ukryty prompt — NIGDY jako argument CLI
+(historia shella, lista procesów) i nigdy nie trafia do room-logu.
+Udane pierwsze hello: tworzy stabilne `agent_id`, binduje role+nick,
+wydaje osobny token agenta (zapis 0600 u klienta). Kolejne
+sockety/reconnecty używają tokenu agenta; instance_id/generation dalej
+rozwiązują takeover. Nick jest etykietą, `agent_id` tożsamością.
+Rotacja kodu enrollment nie unieważnia wydanych tokenów (osobny
+mechanizm revocation/role_epoch).
+
+**Macierz uprawnień B1** (serwer waliduje KAŻDĄ komendę; nie ufa polu
+role z ramki): admin-agent — task_new/przydział/anulowanie, merge-gate;
+moderator — worker + review (approve/changes_requested, kolejka review),
+bez zmian auth/ról; worker — claim/heartbeat/blocked/done; wszyscy —
+chat/status. Kontrakt ról wchodzi w B1 (retrofitting RBAC po
+implementacji endpointów jest droższy); workflow peer-review — B2.
+
+**Rules w obiegu**: rules + `rules_hash`/`rules_version` (+
+`effective_at_seq`) idą w hello i activation envelope; edycja configu →
+typowane `rules_changed`, a komenda mutująca ze starym rules_hash może
+dostać `rules_stale` + świeży envelope (serwer nie interpretuje treści —
+gwarantuje tylko, że nikt świadomie nie pracuje na starej konstytucji).
+
+**Granice (codex)**: hub.toml NIE przechowuje wydanych tokenów ani żywego
+stanu kolejki (osobny trwały registry/state). Rules zmienia wyłącznie
+lokalny człowiek przez config — agent-admin ani wiadomość na czacie nie
+mogą ich nadpisać; adapter podaje je modelowi jako instrukcję operatora,
+zawsze PONIŻEJ hierarchii system/safety harnessa (protokół nie obiecuje
+jej obejścia). BRIEF nie jest drugim źródłem rules — co najwyżej
+read-only projekcja z hashem. Reload configu atomowy, last-known-good:
+błąd TOML nie zeruje uprawnień, tylko odrzuca reload i alarmuje TUI.
 - Świadomie przesunięte: jeden trwały socket na klienta (B2), pełne
   fencing tokeny i per-frame ACK (dopiero gdy skala/bugi zażądają — YAGNI).
 
