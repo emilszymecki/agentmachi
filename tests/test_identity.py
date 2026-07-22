@@ -100,6 +100,16 @@ def test_empty_instance_id_rejected():
         r.hello("alfa", "", "tok-a")
 
 
+def test_non_str_nick_rejected():
+    r = Registry(TOKENS)
+    with pytest.raises(AuthError):
+        r.hello([], "i1", "tok-a")
+    with pytest.raises(AuthError):
+        r.hello({}, "i1", "tok-a")
+    with pytest.raises(AuthError):
+        r.hello("", "i1", "tok-a")
+
+
 def test_external_token_map_mutation_has_no_effect():
     t = {"alfa": "tok"}
     r = Registry(t)

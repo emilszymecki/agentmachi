@@ -19,6 +19,8 @@ class Registry:
         self._instance = {}           # nick -> aktualny instance_id
 
     def hello(self, nick, instance_id, token):
+        if not isinstance(nick, str) or not nick:
+            raise AuthError("invalid nick")
         if nick not in self.tokens:
             raise AuthError(f"bad token for {nick}")
         expected = self.tokens[nick]
