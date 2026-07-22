@@ -355,6 +355,8 @@ def test_restart_restores_queue_and_registry_after_snapshot(tmp_path):
 # -- G: brakujace przejscia w protokole — task_approve, task_unblock --------
 
 def test_task_approve_completes_review_cycle_via_frames(srv):
+    # (8) ZMIANA KONTRAKTU B1 (swiadoma): approve wysyla KTOKOLWIEK POZA
+    # assignee — tu approve idzie od gammy (nie od bety, ktora wykonala task).
     async def scenario(server):
         a, _ = await hello("alfa", "ta")
         await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
@@ -376,12 +378,53 @@ def test_task_approve_completes_review_cycle_via_frames(srv):
         assert reviewed["task"]["status"] == "review"
         v = reviewed["task"]["version"]
 
-        await b.send(json.dumps({"type": "task_approve", "from": "beta", "ts": 0.0,
+        g, _ = await hello("gamma", "tg")          # inny nick niz assignee
+        await g.send(json.dumps({"type": "task_approve", "from": "gamma", "ts": 0.0,
                                  "task_id": task_id, "command_id": "ap1",
                                  "expected_task_version": v}))
-        approved = await recv(b)
+        approved = await recv(g)
         assert approved["type"] == "ok" and approved["task"]["status"] == "done"
-        await a.close(); await b.close()
+        await a.close(); await b.close(); await g.close()
+    asyncio.run(srv(scenario))
+
+
+def test_task_approve_by_assignee_rejected_other_nick_approves(srv):
+    # (8) assignee -> error (samo-approve zabronione w B1); inny nick -> done.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        ok = await recv(a)
+        task_id = ok["task"]["id"]
+
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(b)
+        v = claimed["task"]["version"]
+        await b.send(json.dumps({"type": "task_done", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "d1",
+                                 "expected_task_version": v}))
+        reviewed = await recv(b)
+        v = reviewed["task"]["version"]
+
+        # assignee (beta) probuje samo-approve -> error, task zostaje w review
+        await b.send(json.dumps({"type": "task_approve", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "ap-self",
+                                 "expected_task_version": v}))
+        err = await recv(b)
+        assert err["type"] == "error" and err["command_id"] == "ap-self"
+        assert server.queue.get(task_id)["status"] == "review"  # bez mutacji
+
+        # inny nick (gamma) approve -> done
+        g, _ = await hello("gamma", "tg")
+        await g.send(json.dumps({"type": "task_approve", "from": "gamma", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "ap-other",
+                                 "expected_task_version": v}))
+        approved = await recv(g)
+        assert approved["type"] == "ok" and approved["task"]["status"] == "done"
+        await a.close(); await b.close(); await g.close()
     asyncio.run(srv(scenario))
 
 
@@ -765,3 +808,276 @@ def test_pending_offer_cache_restored_after_restart(tmp_path):
         assert again == activation_id
         assert s2.log.last_seq == before
     asyncio.run(scenario())
+
+
+# == RUNDA 3 — result-based replay ==========================================
+
+# -- (2) SEDNO: replay result-based, niezalezny od biezacej polityki --------
+
+def test_replay_ignores_current_wip_policy(tmp_path):
+    # (2a) dwa claimy przy wip_limit=2, restart z wip_limit=1 -> konstruktor
+    # NIE crashuje (replay result-based nie re-waliduje WIP), oba claimed.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         wip_limit=2, lease_ttl=5.0, offer_timeout=0.3)
+        await s1.start()
+        a, _ = await hello("alfa", "ta")
+        b, _ = await hello("beta", "tb")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        t1 = (await recv(a))["task"]["id"]
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n2", "card": {**CARD, "goal": "y"}}))
+        t2 = (await recv(a))["task"]["id"]
+        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                 "task_id": t1, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        assert (await recv(a))["task"]["status"] == "claimed"
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": t2, "command_id": "c2",
+                                 "expected_task_version": 1}))
+        assert (await recv(b))["task"]["status"] == "claimed"
+        await a.close(); await b.close()
+        await _crash_stop(s1)                       # BEZ snapshotu
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         wip_limit=1, lease_ttl=5.0, offer_timeout=0.3)  # ciasniejsza polityka
+        assert s2.queue.get(t1)["status"] == "claimed"
+        assert s2.queue.get(t2)["status"] == "claimed"
+    asyncio.run(scenario())
+
+
+def test_replay_preserves_historical_lease_until(tmp_path):
+    # (2b) claim przy lease_ttl=10, restart z lease_ttl=100 -> lease_until
+    # odtworzone HISTORYCZNE (z task_state), nie przeliczone wg nowej polityki.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=10.0, offer_timeout=0.3)
+        await s1.start()
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        tid = (await recv(a))["task"]["id"]
+        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                 "task_id": tid, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        lease_hist = (await recv(a))["task"]["lease_until"]
+        await a.close()
+        await _crash_stop(s1)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=100.0, offer_timeout=0.3)  # inna polityka lease
+        assert s2.queue.get(tid)["lease_until"] == lease_hist
+    asyncio.run(scenario())
+
+
+# -- (1) expiry jako trwaly, replayowalny event -----------------------------
+
+def test_expiry_event_replays_result_based_no_conflict(tmp_path):
+    # (1) claim(v2) -> expire(v3, open) -> drugi claim(expected=3, v4) ->
+    # crash/restart: konstruktor NIE rzuca Conflict, stan = v4 claimed.
+    # Na starym kodzie expiry byl fyi (nie-replayowalny) -> replay drugiego
+    # claima (expected=3) trafial na v2 claimed -> Conflict w __init__.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=0.5, offer_timeout=0.3)   # krotki lease -> szybki expire
+        await s1.start()
+        ws, _ = await hello("alfa", "ta")
+        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                  "command_id": "n1", "card": CARD}))
+        tid = (await recv(ws))["task"]["id"]
+        await ws.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                  "task_id": tid, "command_id": "c1",
+                                  "expected_task_version": 1}))
+        assert (await recv(ws))["task"]["version"] == 2       # v2 claimed
+        await asyncio.sleep(1.6)      # petla expiry (co 1.0s) reopenuje po lease 0.5
+        await ws.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                  "task_id": tid, "command_id": "c2",
+                                  "expected_task_version": 3}))  # open v3 -> claimed v4
+        reclaimed = await recv(ws)
+        assert reclaimed["task"]["status"] == "claimed" and reclaimed["task"]["version"] == 4
+        await ws.close()
+        await _crash_stop(s1)                 # BEZ snapshotu
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=0.5, offer_timeout=0.3)      # konstruktor NIE rzuca
+        t = s2.queue.get(tid)
+        assert t["status"] == "claimed" and t["version"] == 4 and t["assignee"] == "alfa"
+    asyncio.run(scenario())
+
+
+# -- (3) trwaly lifecycle ofert (pending przezywa, resolved nie odzywa) ------
+
+def test_pending_offer_survives_clean_stop_and_restart(tmp_path):
+    # (3) pending oferta przezywa CLEAN stop->restart (ten sam activation_id,
+    # ZERO nowego eventu) — odtworzona ze snapshotu (offers w state).
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        await s1.start()
+        ws, _ = await hello("alfa", "ta")
+        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                  "command_id": "n1", "card": CARD}))
+        task = (await recv(ws))["task"]
+        activation_id = s1._offer_activation_id("beta", task)     # pending offer
+        await ws.close()
+        await s1.stop()                          # CLEAN stop -> snapshot (z offers)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        before = s2.log.last_seq
+        again = s2._offer_activation_id("beta", task)
+        assert again == activation_id            # ten sam activation_id
+        assert s2.log.last_seq == before         # ZERO nowego eventu
+    asyncio.run(scenario())
+
+
+def test_resolved_offer_does_not_revive_after_replay(tmp_path):
+    # (3) oferta rozstrzygnieta PRZED crashem (offer_resolved) NIE odzywa po
+    # replay — kolejna proba to NOWY event/activation_id.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        await s1.start()
+        ws, _ = await hello("alfa", "ta")
+        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                  "command_id": "n1", "card": CARD}))
+        task = (await recv(ws))["task"]
+        aid1 = s1._offer_activation_id("beta", task)              # task_offer event
+        s1._resolve_offer("beta", task["id"], task["version"], "timeout")  # offer_resolved
+        await ws.close()
+        await _crash_stop(s1)                     # BEZ snapshotu -> replay z eventow
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        assert ("beta", task["id"], task["version"]) not in s2._offer_cache
+        before = s2.log.last_seq
+        aid2 = s2._offer_activation_id("beta", task)              # NOWA proba
+        assert aid2 != aid1
+        assert s2.log.last_seq == before + 1      # nowy task_offer event
+    asyncio.run(scenario())
+
+
+# -- (4) live task_offer = trwaly event z seq -------------------------------
+
+def test_live_task_offer_carries_persistent_event_seq(srv):
+    async def scenario(server):
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        await recv(a)
+        offer = await recv(b, timeout=2.0)
+        assert offer["type"] == "task_offer"
+        # (4) odbiorca widzi DOKLADNIE trwaly event: seq == seq zapisanego eventu
+        offer_events = [e for e in server.log.events_after(0) if e["type"] == "task_offer"]
+        assert "seq" in offer
+        assert offer["seq"] == offer_events[-1]["seq"]
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
+
+
+# -- (5) brak ducha w idle przy disconnect w oknie oferty --------------------
+
+def test_disconnect_in_offer_window_leaves_no_ghost_in_idle(srv):
+    async def scenario(server):
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
+        await asyncio.sleep(0.1)
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        await recv(a)
+        offer = await recv(b, timeout=2.0)          # beta dostaje oferte (popped z idle)
+        assert offer["type"] == "task_offer"
+        await b.close()                              # disconnect W OKNIE oferty
+        await asyncio.sleep(0.6)                     # przeczekaj offer_timeout (0.3) + margines
+        # (5) beta nie wraca do idle jako "duch" — brak zywego socketu
+        assert "beta" not in server.idle
+        # kolejna oferta idzie do ZYWEGO nicka (task wciaz open)
+        g, _ = await hello("gamma", "tg")
+        await g.send(json.dumps({"type": "status", "from": "gamma", "ts": 0.0, "state": "idle"}))
+        offer_g = await recv(g, timeout=2.0)
+        assert offer_g["type"] == "task_offer"
+        await a.close(); await g.close()
+    asyncio.run(srv(scenario))
+
+
+# -- (6) brak okna wycieku przy takeover (_close_stale_sockets) --------------
+
+def test_close_stale_sockets_evicts_from_conns_before_first_await(tmp_path):
+    async def scenario():
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                            lease_ttl=5.0, offer_timeout=0.3)
+
+        class FakeWS:
+            def __init__(self):
+                self.sent = []
+                self.gate = asyncio.Event()
+
+            async def send(self, data):
+                await self.gate.wait()              # blokuje w oknie takeover
+                self.sent.append(data)
+
+            async def close(self, code=None, reason=None):
+                pass
+
+        fake = FakeWS()
+        server.conns["beta"] = {fake}
+        task = asyncio.ensure_future(server._close_stale_sockets("beta"))
+        await asyncio.sleep(0.05)                    # dojdz do pierwszego await (send)
+        # (6) synchroniczny discard juz sie wykonal — stale socket NIE jest w conns
+        assert fake not in server.conns.get("beta", set())
+        # rownolegly _send w oknie NIE dostarcza staremu socketowi
+        await server._send("beta", {"type": "chat", "text": "x"})
+        assert fake.sent == []                       # gate wciaz zamknieta, nic nie doszlo
+        fake.gate.set()
+        await task
+    asyncio.run(scenario())
+
+
+# -- (7) domkniecie kontraktu wejscia ---------------------------------------
+
+def test_hello_role_must_be_str(srv):
+    async def scenario(server):
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
+                                  "instance_id": "i1", "token": "ta",
+                                  "last_seq": 0, "role": []}))   # role nie-string
+        err = json.loads(await asyncio.wait_for(ws.recv(), 2.0))
+        assert err["type"] == "error"
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_chat_without_text_errors_not_logged_not_delivered(srv):
+    async def scenario(server):
+        h, _ = await hello("emil", "te", role="human")
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0}))  # brak text
+        err = await recv(a)
+        assert err["type"] == "error"
+        with pytest.raises(asyncio.TimeoutError):    # human NIE dostaje
+            await recv(h, timeout=0.4)
+        assert server.log.last_seq == before         # NIE trafil do logu
+        await h.close(); await a.close()
+    asyncio.run(srv(scenario))
+
+
+def test_hello_last_seq_beyond_server_errors(srv):
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        for i in range(3):
+            await a.send(json.dumps({"type": "chat", "from": "alfa",
+                                     "ts": float(i), "text": f"@beta {i}"}))
+        await asyncio.sleep(0.2)
+        bad = await websockets.connect(f"ws://localhost:{PORT}")
+        await bad.send(json.dumps({"type": "hello", "from": "beta", "ts": 0.0,
+                                   "instance_id": "i1", "token": "tb",
+                                   "last_seq": 999}))   # >> serwerowy last_seq
+        err = json.loads(await asyncio.wait_for(bad.recv(), 2.0))
+        assert err["type"] == "error"
+        await a.close(); await bad.close()
+    asyncio.run(srv(scenario))

@@ -8,10 +8,14 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      z innym instance_id) serwer zamyka stare sockety NATYCHMIAST (przy
      samym hello, nie dopiero przy ich kolejnej ramce); per-ramkowy check
      generacji zostaje jako druga linia obrony.
-  b) snapshot niesie {"queue": ..., "registry": ...} — restart odtwarza
-     oba (Registry.restore) i DODATKOWO replay'uje kazdy event > snapshot_seq
-     (ten sam kod mutujacy co live, bez side-effectow sieciowych) — trwalosc
-     nie konczy sie na ostatnim snapshocie. resync_required robi swiezy,
+  b) snapshot niesie {"queue": ..., "registry": ..., "offers": ...} —
+     restart odtwarza je i DODATKOWO replay'uje kazdy event > snapshot_seq.
+     Replay jest RESULT-BASED (nie re-execution): kazdy event mutacji taska
+     niesie serwerowy wynik (task_state) i jest APLIKOWANY wprost przez
+     queue.apply_replayed — bez ponownej walidacji WIP/lease/CAS i bez
+     zaleznosci od biezacej polityki (wip_limit/lease_ttl moga sie zmienic
+     miedzy restartami; lease_until odtwarzany HISTORYCZNY). Expiry to tez
+     trwaly event (task_expired), nie fyi. resync_required robi swiezy,
      atomowy snapshot() PRZED odpowiedzia, zeby zwracany snapshot_seq
      zawsze etykietowal dokladnie ten state.
   c) snapshot po kazdych SNAPSHOT_EVERY=100 eventach (licznik zasiany przy
@@ -20,10 +24,14 @@ Kluczowe niezmienniki (review tercetu, wiazace):
   d) activation_id kotwiczony w TRWALYM evencie: seq jest przewidywalny
      (log.last_seq+1, event loop jednowatkowy), wiec activation_id jest
      wliczany do ramki PRZED jej zapisem — trwaly event ma i seq, i
-     activation_id. Retry TEJ SAMEJ proby (ten sam nick+task+wersja) zwraca
-     ten sam id bez nowego eventu; po rozstrzygnieciu oferty (timeout minal)
-     wpis jest ewikowany, wiec kolejna proba tego samego nicka/taska/wersji
-     (po pelnym okrazeniu idle) to NOWY event/id.
+     activation_id. Cache pending ofert (_offer_cache) trzyma PELNY event
+     (z seq) i przezywa restart: snapshot ("offers") + replay (task_offer =
+     pending, offer_resolved = rozstrzygnieta). Retry TEJ SAMEJ proby (ten
+     sam nick+task+wersja) zwraca ten sam event bez nowego zapisu; po
+     rozstrzygnieciu (timeout/claim/ewikcja) appendujemy TRWALY offer_resolved
+     i ewikujemy z cache, wiec kolejna proba (po pelnym okrazeniu idle) to
+     NOWY event/id. Reinsert do idle po timeoucie tylko dla nicka z ZYWYM
+     socketem (brak ducha w idle).
   e) grupy adresowe ($group) — patrz protocol.parse_groups; nieznana
      grupa = error do nadawcy, zero publikacji do niej (inne wzmianki w
      tej samej ramce dzialaja normalnie). role/groups faktycznie przypisane
@@ -63,6 +71,12 @@ _TASK_REQUIRED_FIELDS = {
     "task_unblock": ("task_id", "command_id", "expected_task_version"),
 }
 
+# Eventy niosace SERWEROWY WYNIK mutacji (task_state) — replay stosuje ten
+# stan WPROST przez queue.apply_replayed (result-based), bez re-execution.
+# task_expired to trwaly, server-generowany event (nie fyi): reopen po
+# wygasnieciu lease jest tak samo odtwarzalny jak kazda inna mutacja.
+_TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"task_expired"}
+
 
 class ChatServer:
     def __init__(self, data_dir, tokens, port, wip_limit=3,
@@ -77,14 +91,20 @@ class ChatServer:
                 state.get("queue", {"next_id": 0, "tasks": []}),
                 wip_limit=wip_limit, lease_ttl=lease_ttl)
             self.registry = Registry.restore(tokens, state.get("registry", {}))
+            offers = state.get("offers", [])
         else:
             self.queue = TaskQueue(wip_limit=wip_limit, lease_ttl=lease_ttl)
             self.registry = Registry(tokens)
+            offers = []
         self.conns = {}        # nick -> set[ws]
         self.roles = {}        # nick -> role
         self.groups = {}       # nick -> set[group] (przezywa reconnect, nie restart)
         self.idle = []         # nicki wyrobnic zglaszajacych idle (round-robin)
-        self._offer_cache = {}  # (nick, task_id, version) -> activation_id
+        # (3) trwaly lifecycle ofert: _offer_cache trzyma PELNY event task_offer
+        # (z seq+activation_id) per (nick, task_id, version). Pending oferty sa
+        # w snapshocie (odtwarzane z niego) i dodatkowo rekonstruowane z replay
+        # (task_offer dodaje, offer_resolved usuwa).
+        self._offer_cache = self._restore_offers(offers)  # (nick,task_id,ver) -> event
         self._offering = None
         self._server = None
         self._expiry_task = None
@@ -99,43 +119,39 @@ class ChatServer:
         self._events_since_snapshot = len(self.log.replay())
 
     def _replay_events(self):
+        # Replay result-based: eventy > snapshot_seq odtwarzaja stan BEZ
+        # re-execution i BEZ zaleznosci od biezacej polityki (wip_limit/
+        # lease_ttl mogly sie zmienic miedzy restartami). Kazdy event mutacji
+        # niesie serwerowy wynik (task_state) — apply_replayed wstawia go
+        # wprost. Rejestr (hello) i lifecycle ofert (task_offer/offer_resolved)
+        # odtwarzane osobno.
         for event in self.log.replay():
             etype = event.get("type")
             if etype == "hello":
                 self.registry.replay_hello(event["from"], event["instance_id"])
             elif etype == "task_offer":
                 key = (event["target"], event["task"]["id"], event["task"]["version"])
-                self._offer_cache[key] = event["activation_id"]
-            elif etype in _TASK_REQUIRED_FIELDS:
-                self._replay_task_event(event)
+                self._offer_cache[key] = event  # pending: pelny event (z seq)
+            elif etype == "offer_resolved":
+                key = (event["nick"], event["task_id"], event["task_version"])
+                self._offer_cache.pop(key, None)  # rozstrzygnieta = nie pending
+            elif etype in _TASK_STATE_EVENTS:
+                self.queue.apply_replayed(event["task_state"],
+                                          event.get("command_id"),
+                                          event.get("fingerprint"))
             # chat/fyi/status/ok/error: bez mutacji stanu queue/registry
 
-    def _replay_task_event(self, event):
-        ftype = event["type"]
-        nick = event["from"]
-        command_id = event.get("command_id")
-        now = event.get("_now", 0.0)
-        gen = event.get("_generation")
-        if ftype == "task_new":
-            self.queue.add(event["card"], command_id, now)
-        elif ftype == "task_claim":
-            self.queue.claim(event["task_id"], nick, gen, command_id,
-                              event["expected_task_version"], now)
-        elif ftype == "task_done":
-            self.queue.to_review(event["task_id"], nick, gen, command_id,
-                                  event["expected_task_version"], now)
-        elif ftype == "task_blocked":
-            self.queue.block(event["task_id"], nick, gen, command_id,
-                              event["expected_task_version"], now)
-        elif ftype == "review_changes":
-            self.queue.request_changes(event["task_id"], command_id,
-                                        event["expected_task_version"], now)
-        elif ftype == "task_approve":
-            self.queue.done(event["task_id"], nick, gen, command_id,
-                             event["expected_task_version"], now)
-        elif ftype == "task_unblock":
-            self.queue.unblock(event["task_id"], nick, gen, command_id,
-                                event["expected_task_version"], now)
+    # -- pending oferty (trwaly lifecycle) ---------------------------------
+    @staticmethod
+    def _restore_offers(offer_events):
+        cache = {}
+        for e in offer_events:
+            key = (e["target"], e["task"]["id"], e["task"]["version"])
+            cache[key] = e
+        return cache
+
+    def _dump_offers(self):
+        return list(self._offer_cache.values())  # pelne eventy task_offer (z seq)
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
@@ -158,7 +174,8 @@ class ChatServer:
 
     def snapshot(self):
         self.log.save_snapshot({"queue": self.queue.dump(),
-                                 "registry": self.registry.dump()})
+                                 "registry": self.registry.dump(),
+                                 "offers": self._dump_offers()})
         self._events_since_snapshot = 0
 
     def _append(self, frame):
@@ -171,11 +188,21 @@ class ChatServer:
     async def _expiry_loop(self):
         while True:
             await asyncio.sleep(1.0)
-            for task in self.queue.expire(time.time()):
-                self._append(protocol.make_frame(
-                    "fyi", "server", time.time(),
-                    text=f"lease wygasl, task {task['id']} wraca do open"))
-                self._trigger_offer()
+            self._reap_expired(time.time())
+
+    def _reap_expired(self, now):
+        # (1) expiry jest TRWALYM, replayowalnym eventem — nie fyi. Kazdy
+        # reopen appenduje {type:"task_expired", task_id, task_state} niosacy
+        # pelny stan taska po powrocie do open, zeby replay odtworzyl reopen
+        # wprost (bez tego drugi claim po expire dawalby Conflict przy
+        # restarcie — patrz apply_replayed).
+        expired = self.queue.expire(now)
+        for task in expired:
+            self._append(protocol.make_frame(
+                "task_expired", "server", time.time(),
+                task_id=task["id"], task_state=task))
+        if expired:
+            self._trigger_offer()
 
     def _load_rules(self):
         path = self.log.dir / "rules.md"
@@ -196,8 +223,17 @@ class ChatServer:
     async def _close_stale_sockets(self, nick):
         # niezmiennik C: wywolywane w momencie takeover (bump generacji przy
         # nowym hello) — zamyka KAZDY dotychczasowy socket tego nicka zanim
-        # dolaczy nowy, zeby nic wiecej do nich nie trafilo (routing/_send)
+        # dolaczy nowy, zeby nic wiecej do nich nie trafilo (routing/_send).
+        # (6) usuniecie z conns MUSI byc SYNCHRONICZNE — przed pierwszym await.
+        # Inaczej rownolegly _send (np. broadcast humanowi) w oknie miedzy
+        # await send a discard dostarczylby jeszcze staremu socketowi. Najpierw
+        # wypinamy z routingu (synchronicznie), dopiero potem best-effort
+        # error+close (na wypietych juz socketach — _send ich nie widzi).
         stale = list(self.conns.get(nick, ()))
+        bucket = self.conns.get(nick)
+        if bucket is not None:
+            for old_ws in stale:
+                bucket.discard(old_ws)
         for old_ws in stale:
             try:
                 await old_ws.send(json.dumps(protocol.make_frame(
@@ -209,7 +245,6 @@ class ChatServer:
                 await old_ws.close(code=4001, reason="takeover")
             except websockets.exceptions.ConnectionClosed:
                 pass
-            self.conns[nick].discard(old_ws)
 
     async def _publish_chat(self, event, mentions, groups_mentioned, unknown_groups):
         sender = event["from"]
@@ -258,6 +293,15 @@ class ChatServer:
             raise AuthError(f"invalid groups: {value!r}")
         return value
 
+    @staticmethod
+    def _validate_role(value):
+        # (7) role deklarowana w hello jest tylko WALIDOWANA (przypisanie
+        # pochodzi z configu serwera — niezmiennik e/H) — ale jesli podana,
+        # musi byc stringiem; role=[] itp. to blad wejscia do nadawcy.
+        if value is not None and not isinstance(value, str):
+            raise AuthError(f"invalid role: {value!r}")
+        return value
+
     # -- handler -----------------------------------------------------------
     async def _handler(self, ws):
         nick = None
@@ -285,10 +329,18 @@ class ChatServer:
                        if isinstance(nick_candidate, str) else 0)
             try:
                 last_seq = self._validate_last_seq(frame.get("last_seq"))
+                # (7) kursor spoza logu (last_seq > serwerowy last_seq) to
+                # jawny blad — klient nie mogl widziec eventow, ktorych serwer
+                # nie ma; bez tego dostawalby ciche ok+pusty backlog.
+                if last_seq > self.log.last_seq:
+                    raise AuthError(
+                        f"last_seq {last_seq} > serwerowy last_seq "
+                        f"{self.log.last_seq}")
                 # niezmiennik H: groups/role w hello sa TYLKO walidowane —
                 # przypisanie faktyczne pochodzi WYLACZNIE z configu serwera
                 # (registry.role_of/groups_of), nigdy z deklaracji klienta.
                 self._validate_groups(frame.get("groups"))
+                self._validate_role(frame.get("role"))
                 generation = self.registry.hello(
                     frame.get("from"), frame.get("instance_id"), frame.get("token"))
             except AuthError as e:
@@ -427,52 +479,46 @@ class ChatServer:
         try:
             if ftype == "task_new":
                 result = self.queue.add(frame["card"], frame["command_id"], now)
-                self._append({**frame, "result_version": result["version"],
-                              "_generation": sock_gen, "_now": now})
-                self._trigger_offer()
             elif ftype == "task_claim":
                 result = self.queue.claim(frame["task_id"], nick, sock_gen,
                                           frame["command_id"],
                                           frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"],
-                              "_generation": sock_gen, "_now": now})
-                if nick in self.idle:
-                    self.idle.remove(nick)
             elif ftype == "task_done":
                 result = self.queue.to_review(frame["task_id"], nick, sock_gen,
                                               frame["command_id"],
                                               frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"],
-                              "_generation": sock_gen, "_now": now})
             elif ftype == "task_blocked":
                 result = self.queue.block(frame["task_id"], nick, sock_gen,
                                           frame["command_id"],
                                           frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"],
-                              "_generation": sock_gen, "_now": now})
             elif ftype == "review_changes":  # od matki, bez ownera
                 result = self.queue.request_changes(frame["task_id"],
                                                     frame["command_id"],
                                                     frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"],
-                              "_generation": sock_gen, "_now": now})
-            elif ftype == "task_approve":  # happy-end review: review -> done
-                result = self.queue.done(frame["task_id"], nick, sock_gen,
-                                         frame["command_id"],
-                                         frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"],
-                              "_generation": sock_gen, "_now": now})
+            elif ftype == "task_approve":  # (8) B1: approve = KTOKOLWIEK POZA
+                # assignee (namiastka bramki review; docelowo bramka matki).
+                result = self.queue.approve(frame["task_id"], nick,
+                                            frame["command_id"],
+                                            frame["expected_task_version"], now)
             else:  # task_unblock: blocked -> claimed
                 result = self.queue.unblock(frame["task_id"], nick, sock_gen,
                                             frame["command_id"],
                                             frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"],
-                              "_generation": sock_gen, "_now": now})
         except TaskError as e:  # Conflict/StaleGeneration sa jego podklasami
             await ws.send(json.dumps(protocol.make_frame(
                 "error", "server", now, command_id=command_id,
                 text=f"{type(e).__name__}: {e}")))
             return
+        # (2) trwaly event result-based: niesie PELNY stan taska po mutacji
+        # (task_state) + fingerprint dedup — replay stosuje stan WPROST przez
+        # apply_replayed (bez re-walidacji WIP/lease/CAS ani zaleznosci od
+        # biezacej polityki) i odtwarza wpis dedup.
+        self._append({**frame, "task_state": result,
+                      "fingerprint": self.queue.fingerprint_for(frame["command_id"])})
+        if ftype == "task_new":
+            self._trigger_offer()
+        elif ftype == "task_claim" and nick in self.idle:
+            self.idle.remove(nick)
         await ws.send(json.dumps(protocol.make_frame(
             "ok", "server", now, command_id=command_id, task=result)))
         if ftype == "review_changes":
@@ -481,6 +527,9 @@ class ChatServer:
 
     # -- oferty (round-robin + timeout) -------------------------------------
     def _offer_activation_id(self, nick, task):
+        return self._offer_event(nick, task)["activation_id"]
+
+    def _offer_event(self, nick, task):
         # niezmiennik d)/F1: activation_id kotwiczony w TRWALYM evencie —
         # event NA DYSKU musi sam zawierac activation_id (i seq). Seq
         # przydzielany przez log.append() jest deterministyczny (petla
@@ -489,20 +538,38 @@ class ChatServer:
         # activation_id do ramki PRZED jej zapisem, zamiast dopisywac
         # cos do juz zapisanej linii (store.py nie pozwala na to).
         # Retry TEJ SAMEJ proby (ten sam nick+task_id+wersja taska) zwraca
-        # ten sam id BEZ nowego eventu; zmiana ktoregokolwiek pola to
-        # nowa proba -> nowy event.
+        # ten sam event BEZ nowego zapisu; zmiana ktoregokolwiek pola to
+        # nowa proba -> nowy event. (4) cache trzyma PELNY event (z seq),
+        # zeby _offer_loop wyslal klientowi dokladnie ten trwaly event.
         key = (nick, task["id"], task["version"])
         cached = self._offer_cache.get(key)
         if cached is not None:
             return cached
         predicted_seq = self.log.last_seq + 1
         activation_id = f"{nick}:{predicted_seq}"
-        seq = self._append(protocol.make_frame(
+        frame = protocol.make_frame(
             "task_offer", "server", time.time(), task=task, target=nick,
-            activation_id=activation_id))
+            activation_id=activation_id)
+        seq = self._append(frame)
         assert seq == predicted_seq  # jednowatkowy event loop — brak wyscigu
-        self._offer_cache[key] = activation_id
-        return activation_id
+        stored = {**frame, "seq": seq}  # dokladnie ten trwaly event (z seq)
+        self._offer_cache[key] = stored
+        return stored
+
+    def _resolve_offer(self, nick, task_id, task_version, outcome):
+        # (3) rozstrzygniecie pending oferty (claim oferowanego taska / timeout
+        # / ewikcja) appenduje TRWALY event offer_resolved — dzieki niemu
+        # replay wie, ze ta oferta NIE jest juz pending (task_offer bez
+        # pozniejszego offer_resolved = pending; z resolved = nie). Idempotentne:
+        # appendujemy tylko jesli byla faktycznie pending.
+        key = (nick, task_id, task_version)
+        if key not in self._offer_cache:
+            return
+        self._offer_cache.pop(key, None)
+        self._append(protocol.make_frame(
+            "offer_resolved", "server", time.time(),
+            nick=nick, task_id=task_id, task_version=task_version,
+            outcome=outcome))
 
     def _trigger_offer(self):
         if self._offering is None or self._offering.done():
@@ -514,27 +581,28 @@ class ChatServer:
             if task is None or not self.idle:
                 return
             nick = self.idle.pop(0)
-            key = (nick, task["id"], task["version"])
-            activation_id = self._offer_activation_id(nick, task)
-            await self._send(nick, protocol.make_frame(
-                "task_offer", "server", time.time(), task=task,
-                activation_id=activation_id))
+            # (4) wysylamy klientowi DOKLADNIE trwaly event (z seq), nie
+            # okrojona ramke — odbiorca widzi seq == seq zapisanego eventu.
+            offer_event = self._offer_event(nick, task)
+            await self._send(nick, offer_event)
             await asyncio.sleep(self.offer_timeout)
-            # (F2) proba dla (nick, task_id, wersja) jest teraz ROZSTRZYGNIETA
-            # — ewikcja z cache, zeby ewentualna PONOWNA oferta tego samego
-            # taska/wersji temu samemu nickowi (po pelnym okrazeniu idle) byla
-            # NOWA proba/event, a nie sklejona z ta, ktora wlasnie minela
-            self._offer_cache.pop(key, None)
             fresh = self.queue.get(task["id"])
             # (F4) sprawdzamy KTO faktycznie dostal taska, nie tylko czy
             # przestal byc "open" — inny klient mogl go ukrasc bezposrednim
-            # task_claim (poza mechanizmem ofert) w trakcie sleep(); w takim
-            # wypadku oferowany nick TEZ nie wzial i musi wrocic do idle,
-            # zamiast zostac na zawsze utracony z puli
+            # task_claim (poza mechanizmem ofert) w trakcie sleep().
+            # (3) proba jest ROZSTRZYGNIETA — trwaly offer_resolved (i ewikcja
+            # z cache), zeby PONOWNA oferta tego samego taska/wersji temu
+            # samemu nickowi (po pelnym okrazeniu idle) byla NOWA proba/event.
+            outcome = "claimed" if fresh["assignee"] == nick else "timeout"
+            self._resolve_offer(nick, task["id"], task["version"], outcome)
             if fresh["assignee"] != nick:
-                self.idle.append(nick)          # na koniec kolejki
-                if len(self.idle) == 1:
-                    return                      # nikt inny nie czeka
+                # (5) reinsert do idle TYLKO gdy nick ma zywy socket — inaczej
+                # rozlaczony w oknie oferty zostawialby "ducha" w idle i kolejna
+                # oferta szlaby w prozne (nikt jej nie odbierze).
+                if self.conns.get(nick):
+                    self.idle.append(nick)      # na koniec kolejki
+                    if len(self.idle) == 1:
+                        return                  # nikt inny nie czeka
 
 
 def main():
