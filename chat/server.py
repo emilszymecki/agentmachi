@@ -406,35 +406,56 @@ class ChatServer:
                 # (registry.role_of/groups_of), nigdy z deklaracji klienta.
                 self._validate_groups(frame.get("groups"))
                 self._validate_role(frame.get("role"))
-                generation = self.registry.hello(
+                # (Runda 7) PROVISIONAL-THEN-COMMIT dla Registry (wzorzec R6 dla
+                # TaskQueue): hello mutuje tozsamosc (bump generacji + zapis
+                # instance) na KLONIE, nie na live. AuthError leci Z KLONA ZANIM
+                # cokolwiek trwalego/live sie zmieni (auth-fail => error, zero
+                # mutacji, zero appendu). generation to na razie PREVIEW —
+                # commit dopiero po udanym durable appendzie. Registry to male
+                # dicty (nick->gen, nick->instance), wiec deepcopy-per-hello to
+                # swiadomy, tani trade-off — hello nie jest hot-path jak retry
+                # mutacji taskow.
+                trial_registry = copy.deepcopy(self.registry)
+                generation = trial_registry.hello(
                     frame.get("from"), frame.get("instance_id"), frame.get("token"))
             except AuthError as e:
                 await ws.send(json.dumps(protocol.make_frame(
                     "error", "server", time.time(), text=str(e))))
                 return
             nick = frame["from"]
+            # role/groups pochodza z configu serwera (niezmienne, hello ich nie
+            # dotyka) — klon i live daja to samo, wiec czytamy z live.
             role = self.registry.role_of(nick)
             groups = self.registry.groups_of(nick)
-            if generation != old_gen:
-                # niezmiennik C: takeover — odetnij stare sockety TERAZ, nie
-                # dopiero przy ich kolejnej (moze nigdy nie nadejsc) ramce
-                await self._close_stale_sockets(nick)
-            self.conns.setdefault(nick, set()).add(ws)
-            self.roles[nick] = role
-            self.groups[nick] = set(groups)
             # backlog liczony PRZED zalogowaniem WLASNEGO hello — inaczej
             # klient zawsze widzialby wlasna ramke hello w swoim backlogu i
             # "last_seq == biezacy cursor" po reconnnekcie nigdy by nie
             # dawalo pustego backlogu (por. test_reconnect_resumes_from_last_seq)
             backlog = self.log.events_after(last_seq)
-            # niezmiennik A: KAZDA mutacja stanu (hello -> registry) jest
-            # logowana PRZED odpowiedzia klientowi — bez tokenu (nie ma czego
-            # ukrywac przy replay, ale sekret nie powinien nigdy trafic na
-            # dysk); instance_id jest juz zwalidowany przez registry.hello.
-            self._append(protocol.make_frame(
+            # niezmiennik A + (Runda 7) DURABLE-FIRST: mutacja tozsamosci jest
+            # TRWALA PRZED live-swapem i JAKIMKOLWIEK side-effectem. Durable
+            # append NAJPIERW (bez tokenu — sekret nigdy na dysk; bez auto-
+            # snapshotu, patrz _maybe_snapshot na koncu). Gdy rzuci (np. OSError/
+            # dysk pelny): self.registry NIETKNIETY (klon wyrzucony), ZADEN stary
+            # socket nie zamkniety, conns bez zmian — klient dostaje
+            # error/rozlaczenie, a retry moze legalnie powtorzyc (kolejny bump
+            # idzie znow na swiezym klonie, wiec generacja podbija sie DOKLADNIE
+            # raz). instance_id jest juz zwalidowany przez trial_registry.hello.
+            self._append_durable(protocol.make_frame(
                 "hello", nick, time.time(),
                 instance_id=frame.get("instance_id"),
                 groups=list(groups), role=role))
+            # COMMIT: dopiero po udanym durable appendzie swap live=klon, a
+            # POTEM side-effects (takeover close + rejestracja socketu).
+            self.registry = trial_registry
+            if generation != old_gen:
+                # niezmiennik C: takeover — odetnij stare sockety TERAZ (po
+                # trwalym fakcie), nie dopiero przy ich kolejnej (moze nigdy nie
+                # nadejsc) ramce
+                await self._close_stale_sockets(nick)
+            self.conns.setdefault(nick, set()).add(ws)
+            self.roles[nick] = role
+            self.groups[nick] = set(groups)
             rules_text, rules_hash = self._load_rules()
             extra = {}
             if rules_text is not None:
@@ -467,6 +488,11 @@ class ChatServer:
                     generation=generation, backlog=backlog,
                     last_seq=self.log.last_seq, **extra)
             await ws.send(json.dumps(reply))
+            # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
+            # domykamy polityke snapshot-co-100 tutaj, PO swapie live=klon, zeby
+            # ewentualny snapshot #100 zlapal juz NOWA generacje. resync-branch
+            # zrobil pelny snapshot() wyzej (licznik=0), wiec to wtedy no-op.
+            self._maybe_snapshot()
             async for raw in ws:
                 try:
                     frame = json.loads(raw)
