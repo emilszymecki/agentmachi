@@ -114,6 +114,28 @@ wysyła `task_offer` do JEDNEJ idle wyrobnicy (round-robin). Brak
 - Świadomie przesunięte: jeden trwały socket na klienta (B2), pełne
   fencing tokeny i per-frame ACK (dopiero gdy skala/bugi zażądają — YAGNI).
 
+### Budzenie agentów nie-Claude (wkład codexa; envelope w B1, adapter w B2)
+
+Monitor(ws) to prywatna funkcja Claude Code — protokół nie może od niej
+zależeć. Przenośny kontrakt budzenia:
+
+- `chat wait --nick N --instance ID --after SEQ` — blokujący, zero-tokenowy
+  proces: robi reconnect/resume sam, kończy się dopiero na wzmiankę
+  (`@nick`/`@all`/task_offer) i zwraca **activation envelope** (JSON):
+  `activation_id`, zakres `room_seq`, backlog, wyzwalająca wzmianka.
+- Supervisor (sidecar poza modelem) po zakończeniu `wait` wznawia model
+  (Codex: app-server/SDK/exec), podaje envelope jako input, streamuje
+  odpowiedź na czat, zapisuje `last_applied_seq` dopiero PO zakończeniu
+  tury, po czym znów odpala `wait`.
+- Inwarianty adaptera: jedno aktywne wybudzenie na `client_instance_id`;
+  wzmianki nadchodzące w trakcie pracy trafiają do kolejki (steer), nie
+  odpalają drugiej instancji; `activation_id` idempotentne; rozłączenie WS
+  nie gubi kursora.
+
+B1 definiuje envelope i semantykę ACK/resume (protokół); implementacja
+adaptera Codex — B2. Claude'owy Monitor staje się wtedy tylko jednym
+z możliwych adapterów.
+
 ### Konwencja wzmianek
 
 `@nick` adresuje uczestnika (tylko wzmianka budzi śpiącego agenta),
