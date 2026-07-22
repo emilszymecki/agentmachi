@@ -95,3 +95,74 @@ def test_add_reuse_with_different_card_conflicts():
     q.add(CARD, "c1", 0)
     with pytest.raises(Conflict):
         q.add(dict(CARD, goal="INNY"), "c1", 0)
+
+
+def test_lease_expiry_reopens_exactly_once():
+    q = TaskQueue(lease_ttl=10.0)
+    c = make_claimed(q, now=0.0)
+    assert q.expire(now=5.0) == []            # jeszcze zyje
+    expired = q.expire(now=11.0)
+    assert [t["id"] for t in expired] == [c["id"]]
+    t = q.get(c["id"])
+    assert t["status"] == "open" and t["assignee"] is None
+    assert q.expire(now=12.0) == []           # DOKLADNIE raz
+
+
+def test_blocked_freezes_lease():
+    q = TaskQueue(lease_ttl=10.0)
+    c = make_claimed(q, now=0.0)
+    q.block(c["id"], "beta", 1, "c-blk", expected_version=c["version"], now=1.0)
+    assert q.expire(now=100.0) == []          # zamrozony nie wygasa
+    t = q.get(c["id"])
+    q.unblock(t["id"], "beta", 1, "c-unblk", expected_version=t["version"], now=100.0)
+    assert q.get(c["id"])["status"] == "claimed"
+    assert q.expire(now=105.0) == []          # swiezy lease po odmrozeniu
+    assert len(q.expire(now=111.0)) == 1      # i normalnie wygasa
+
+
+def test_review_cycle_changes_requested_keeps_assignee():
+    q = TaskQueue(lease_ttl=10.0)
+    c = make_claimed(q, now=0.0)
+    q.to_review(c["id"], "beta", 1, "c-rev", expected_version=c["version"], now=1.0)
+    assert q.expire(now=100.0) == []          # w review lease nie tyka
+    t = q.get(c["id"])
+    q.request_changes(t["id"], "c-chg", expected_version=t["version"], now=100.0)
+    t = q.get(c["id"])
+    assert t["status"] == "claimed" and t["assignee"] == "beta"
+    t2 = q.get(c["id"])
+    q.to_review(t2["id"], "beta", 1, "c-rev2", expected_version=t2["version"], now=101.0)
+    t3 = q.get(c["id"])
+    q.done(t3["id"], "beta", 1, "c-done", expected_version=t3["version"], now=102.0)
+    assert q.get(c["id"])["status"] == "done"
+
+
+def test_done_after_changes_not_deduped_with_first_done():
+    # rozne command_id => rozne komendy; dedup nie sklei ich w jedno
+    q = TaskQueue()
+    c = make_claimed(q, now=0.0)
+    q.to_review(c["id"], "beta", 1, "r1", expected_version=2, now=0.0)
+    q.request_changes(c["id"], "chg", expected_version=3, now=0.0)
+    q.to_review(c["id"], "beta", 1, "r2", expected_version=4, now=0.0)
+    q.done(c["id"], "beta", 1, "d2", expected_version=5, now=0.0)
+    assert q.get(c["id"])["status"] == "done"
+
+
+def test_wip_limit_gates_offerable():
+    q = TaskQueue(wip_limit=1)
+    t1 = q.add(CARD, "a1", now=0.0)
+    q.add(dict(CARD, goal="drugi"), "a2", now=0.0)
+    assert q.offerable()["id"] == t1["id"]
+    q.claim(t1["id"], "beta", 1, "cl", expected_version=1, now=0.0)
+    assert q.offerable() is None              # WIP pelny
+    # blocked parkuje POZA limitem WIP
+    t1c = q.get(t1["id"])
+    q.block(t1["id"], "beta", 1, "blk", expected_version=t1c["version"], now=0.0)
+    assert q.offerable() is not None
+
+
+def test_dump_restore_roundtrip():
+    q = TaskQueue(lease_ttl=10.0)
+    c = make_claimed(q, now=0.0)
+    q2 = TaskQueue.restore(q.dump(), lease_ttl=10.0)
+    assert q2.get(c["id"])["status"] == "claimed"
+    assert len(q2.expire(now=11.0)) == 1      # lease przezyl podroz

@@ -109,3 +109,80 @@ class TaskQueue:
         self._check_owner(task, nick, generation)
         if not task["frozen"]:
             task["lease_until"] = now + self.lease_ttl
+
+    def _mutate(self, op, task_id, command_id, expected_version, now,
+                owner=None, from_status=None, **updates):
+        self._check_command_id(command_id)
+        nick, generation = owner if owner is not None else (None, None)
+        fingerprint = (op, task_id, nick, generation, expected_version)
+        cached = self._dedup_get(command_id, fingerprint, now)
+        if cached is not None:
+            return cached
+        task = self._get_task(task_id)
+        self._check(task, expected_version)
+        if owner is not None:
+            self._check_owner(task, nick, generation)
+        if from_status and task["status"] not in from_status:
+            raise Conflict(
+                f"{task_id}: status {task['status']}, oczekiwano {from_status}")
+        task.update(version=task["version"] + 1, **updates)
+        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task), now)
+
+    def block(self, task_id, nick, generation, command_id, expected_version, now):
+        return self._mutate("block", task_id, command_id, expected_version, now,
+                             owner=(nick, generation), from_status=("claimed",),
+                             status="blocked", frozen=True)
+
+    def unblock(self, task_id, nick, generation, command_id, expected_version, now):
+        return self._mutate("unblock", task_id, command_id, expected_version, now,
+                             owner=(nick, generation), from_status=("blocked",),
+                             status="claimed", frozen=False,
+                             lease_until=now + self.lease_ttl)
+
+    def to_review(self, task_id, nick, generation, command_id, expected_version, now):
+        return self._mutate("to_review", task_id, command_id, expected_version, now,
+                             owner=(nick, generation), from_status=("claimed",),
+                             status="review", frozen=True)
+
+    def request_changes(self, task_id, command_id, expected_version, now):
+        return self._mutate("request_changes", task_id, command_id, expected_version, now,
+                             from_status=("review",),
+                             status="claimed", frozen=False,
+                             lease_until=now + self.lease_ttl)
+
+    def done(self, task_id, nick, generation, command_id, expected_version, now):
+        return self._mutate("done", task_id, command_id, expected_version, now,
+                             owner=(nick, generation), from_status=("review",),
+                             status="done", frozen=False, lease_until=None)
+
+    def expire(self, now):
+        reopened = []
+        for task in self._tasks.values():
+            if (task["status"] == "claimed" and not task["frozen"]
+                    and task["lease_until"] is not None
+                    and task["lease_until"] <= now):
+                task.update(status="open", assignee=None, generation=None,
+                            lease_until=None, version=task["version"] + 1)
+                reopened.append(copy.deepcopy(task))
+        return reopened
+
+    def offerable(self):
+        wip = sum(1 for t in self._tasks.values()
+                  if t["status"] in ("claimed", "review"))
+        if wip >= self.wip_limit:
+            return None
+        for task in self._tasks.values():  # dict zachowuje kolejnosc wstawien
+            if task["status"] == "open":
+                return copy.deepcopy(task)
+        return None
+
+    def dump(self):
+        return {"next_id": self._next_id,
+                "tasks": copy.deepcopy(list(self._tasks.values()))}
+
+    @classmethod
+    def restore(cls, data, **kwargs):
+        q = cls(**kwargs)
+        q._next_id = data["next_id"]
+        q._tasks = {t["id"]: t for t in copy.deepcopy(data["tasks"])}
+        return q
