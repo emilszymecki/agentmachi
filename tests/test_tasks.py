@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 import pytest
 from chat.tasks import TaskQueue, Conflict, StaleGeneration, TaskError
@@ -324,3 +325,50 @@ def test_to_review_on_expired_claim_conflicts():
     c = make_claimed(q, now=0.0)
     with pytest.raises(Conflict):
         q.to_review(c["id"], "beta", 1, "c-rev", expected_version=c["version"], now=11.0)
+
+
+# -- fix po re-review: WIP gate w unblock ------------------------------------
+
+def test_unblock_respects_wip_limit():
+    q = TaskQueue(wip_limit=1)
+    t1 = q.add(CARD, "a1", now=0.0)
+    t2 = q.add(dict(CARD, goal="drugi"), "a2", now=0.0)
+    c1 = q.claim(t1["id"], "beta", 1, "cl1", expected_version=1, now=0.0)
+    q.block(t1["id"], "beta", 1, "blk", expected_version=c1["version"], now=0.0)
+    # t1 blocked jest poza WIP -> slot wolny, t2 moze byc zaklejmowany
+    q.claim(t2["id"], "beta", 1, "cl2", expected_version=1, now=0.0)
+    t1b = q.get(t1["id"])
+    with pytest.raises(Conflict, match="WIP"):
+        q.unblock(t1["id"], "beta", 1, "unblk", expected_version=t1b["version"], now=0.0)
+    assert q.get(t1["id"])["status"] == "blocked"  # bez mutacji po Conflict
+    # dopiero po zwolnieniu t2 unblock odzyskuje slot atomowo
+    t2r = q.get(t2["id"])
+    r = q.to_review(t2["id"], "beta", 1, "rev", expected_version=t2r["version"], now=0.0)
+    q.done(t2["id"], "beta", 1, "done", expected_version=r["version"], now=0.0)
+    unblocked = q.unblock(t1["id"], "beta", 1, "unblk2",
+                          expected_version=t1b["version"], now=0.0)
+    assert unblocked["status"] == "claimed"
+
+
+# -- fix po re-review: now musi byc jawnie int|float -------------------------
+
+def test_claim_rejects_decimal_now():
+    q = TaskQueue()
+    t = q.add(CARD, command_id="c1", now=0.0)
+    with pytest.raises(TaskError):
+        q.claim(t["id"], "beta", 1, "c2", expected_version=1, now=Decimal("1"))
+
+
+def test_add_rejects_decimal_now():
+    q = TaskQueue()
+    with pytest.raises(TaskError):
+        q.add(CARD, "c1", Decimal("1"))
+
+
+# -- fix po re-review: dedup_ttl przyjmowany dla kompatybilnosci -------------
+
+def test_dedup_ttl_param_accepted_for_compat_and_ignored():
+    q = TaskQueue(dedup_ttl=3600.0)  # stare API — nie moze rzucic TypeError
+    t = q.add(CARD, "c1", now=0.0)
+    much_later = q.add(CARD, "c1", now=10**9)  # dawno po "starym" dedup_ttl
+    assert much_later == t
