@@ -3,9 +3,10 @@
 Tokens map (decyzja tercetu, H): kazda wartosc to albo string (STARY
 format, kompatybilnosc — normalizowany do role="agent", groups=[]),
 albo dict {"token": str, "role": "agent"|"human", "groups": [str, ...]}.
-role/groups sa tu KONFIGURACJA SERWERA — jedyne zrodlo prawdy dla
-routingu; to co agent deklaruje we wlasnym hello jest tylko walidowane,
-nigdy nie nadpisuje tego przypisania (patrz server.py).
+role jest stala KONFIGURACJA SERWERA. groups startuja z konfiguracji, ale
+moga byc pozniej zmieniane przez trwaly event membership_set. To co agent
+deklaruje we wlasnym hello jest tylko walidowane i nigdy nie nadpisuje
+przypisania serwera (patrz server.py).
 """
 
 import hmac
@@ -52,6 +53,17 @@ class Registry:
     def groups_of(self, nick):
         return self.groups.get(nick, [])
 
+    def set_groups(self, nick, groups):
+        """Ustaw plynna funkcje operacyjna; role agent/human pozostaje stala."""
+        if not isinstance(nick, str) or not nick or nick not in self.tokens:
+            raise AuthError(f"unknown target: {nick!r}")
+        if not isinstance(groups, list) or not all(
+                isinstance(group, str) and group for group in groups):
+            raise AuthError(f"invalid groups: {groups!r}")
+        normalized = list(dict.fromkeys(groups))
+        self.groups[nick] = normalized
+        return list(normalized)
+
     def hello(self, nick, instance_id, token):
         if not isinstance(nick, str) or not nick:
             raise AuthError("invalid nick")
@@ -90,11 +102,23 @@ class Registry:
         return self._gen.get(nick) == generation
 
     def dump(self):
-        return {"gen": dict(self._gen), "instance": dict(self._instance)}
+        return {"gen": dict(self._gen), "instance": dict(self._instance),
+                "groups": {nick: list(groups)
+                           for nick, groups in self.groups.items()}}
 
     @classmethod
     def restore(cls, tokens, data):
         registry = cls(tokens)
         registry._gen = dict(data.get("gen", {}))
         registry._instance = dict(data.get("instance", {}))
+        saved_groups = data.get("groups")
+        if saved_groups is not None:
+            if not isinstance(saved_groups, dict):
+                raise ValueError(f"bad groups in registry snapshot: {saved_groups!r}")
+            # Biezaca mapa tokenow wyznacza istniejace tozsamosci. Usuniecie
+            # tokenu usuwa tez historyczne czlonkostwo; nowy nick bierze grupy
+            # z aktualnej konfiguracji.
+            for nick in registry.tokens:
+                if nick in saved_groups:
+                    registry.set_groups(nick, saved_groups[nick])
         return registry

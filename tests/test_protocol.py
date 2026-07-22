@@ -67,6 +67,16 @@ def test_validate_heartbeat_requires_nonempty_task_id_only():
     }) is not None
 
 
+def test_validate_membership_set_requires_target_and_group_list():
+    base = {"type": "membership_set", "from": "emil", "ts": 1.0}
+    assert protocol.validate({**base, "target": "beta", "groups": []}) is None
+    assert protocol.validate({**base, "target": "beta",
+                              "groups": ["head", "admin"]}) is None
+    assert protocol.validate({**base, "target": "", "groups": []}) is not None
+    assert protocol.validate({**base, "target": "beta", "groups": "admin"}) is not None
+    assert protocol.validate({**base, "target": "beta", "groups": [""]}) is not None
+
+
 def test_validate_task_frames_require_command_id_and_task_id_where_relevant():
     # task_new: tylko command_id (task_id jeszcze nie istnieje)
     assert protocol.validate({"type": "task_new", "from": "a", "ts": 1.0}) is not None

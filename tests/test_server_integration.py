@@ -2215,3 +2215,106 @@ def test_auth_fail_hello_no_registry_mutation_no_event(tmp_path):
         await bad.close()
         await _crash_stop(s1)
     asyncio.run(scenario())
+
+
+# -- Plynne funkcje operacyjne: minimalne membership_set --------------------
+
+def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        human, _ = await hello("emil", "te", role="human")
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        alfa, _ = await hello("alfa", "ta")
+
+        original_append = s1.log.append
+        failed = {"once": False}
+
+        def fail_first_membership(frame):
+            if frame.get("type") == "membership_set" and not failed["once"]:
+                failed["once"] = True
+                raise OSError("disk unavailable")
+            return original_append(frame)
+
+        s1.log.append = fail_first_membership
+        seq_before = s1.log.last_seq
+        await human.send(json.dumps({
+            "type": "membership_set", "from": "forged", "ts": 0.0,
+            "target": "beta", "groups": ["workers", "admin"],
+        }))
+        error = await recv(human)
+        assert error["type"] == "error" and error["text"] == "storage unavailable; retry"
+        assert s1.registry.groups_of("beta") == ["workers"]
+        assert s1.log.last_seq == seq_before
+
+        s1.log.append = original_append
+        await human.send(json.dumps({
+            "type": "membership_set", "from": "forged", "ts": 0.0,
+            "target": "beta", "groups": ["workers", "admin", "admin"],
+        }))
+        promoted = await recv(human)
+        notice_beta = await recv(beta)
+        assert promoted["type"] == "ok" and promoted["groups"] == ["workers", "admin"]
+        assert notice_beta["type"] == "membership_set"
+        assert notice_beta["from"] == "emil"  # socket jest autorytatywny
+
+        # Nowy admin przekazuje funkcje dalej, a potem sam schodzi do workera.
+        await beta.send(json.dumps({
+            "type": "membership_set", "from": "beta", "ts": 0.0,
+            "target": "gamma", "groups": ["head", "admin"],
+        }))
+        assert (await recv(beta))["type"] == "ok"
+        notice_gamma = await recv(gamma)
+        assert notice_gamma["groups"] == ["head", "admin"]
+        await gamma.close()
+        gamma, gamma_reply = await hello(
+            "gamma", "tg", instance="i2", groups=["forged"])
+        assert gamma_reply["role"] == "agent"
+        assert gamma_reply["groups"] == ["head", "admin"]
+
+        await beta.send(json.dumps({
+            "type": "membership_set", "from": "beta", "ts": 0.0,
+            "target": "beta", "groups": ["workers"],
+        }))
+        assert (await recv(beta))["type"] == "ok"
+        assert s1.registry.role_of("beta") == "agent"  # tozsamosc stala
+
+        # Byly admin traci prawo natychmiast; odrzucenie nie trafia do logu.
+        seq_before_forbidden = s1.log.last_seq
+        await beta.send(json.dumps({
+            "type": "membership_set", "from": "beta", "ts": 0.0,
+            "target": "alfa", "groups": ["admin"],
+        }))
+        forbidden = await recv(beta)
+        assert forbidden["type"] == "error" and "forbidden" in forbidden["text"]
+        assert s1.log.last_seq == seq_before_forbidden
+
+        # Routing korzysta z nowego czlonkostwa od razu.
+        await alfa.send(json.dumps({
+            "type": "chat", "from": "alfa", "ts": 0.0,
+            "text": "$head ping",
+        }))
+        assert (await recv(gamma))["text"] == "$head ping"
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(beta, timeout=0.2)
+
+        events = [event for event in s1.log.events_after(0)
+                  if event["type"] == "membership_set"]
+        assert len(events) == 3
+        assert events[-1]["target"] == "beta" and events[-1]["groups"] == ["workers"]
+        for ws in (human, beta, gamma, alfa):
+            await ws.close()
+        await _crash_stop(s1)
+
+        # Bez clean snapshotu: replay eventow zachowuje przekazanie funkcji.
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        assert s2.registry.groups_of("beta") == ["workers"]
+        assert s2.registry.groups_of("gamma") == ["head", "admin"]
+        assert s2.groups["gamma"] == {"head", "admin"}
+        assert s2.registry.role_of("beta") == "agent"
+
+    asyncio.run(scenario())

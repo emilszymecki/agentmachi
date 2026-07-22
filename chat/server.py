@@ -116,7 +116,7 @@ class ChatServer:
             offers = []
         self.conns = {}        # nick -> set[ws]
         self.roles = {}        # nick -> role
-        self.groups = {}       # nick -> set[group] (przezywa reconnect, nie restart)
+        self.groups = {}       # nick -> set[group], lustro trwalego Registry
         self.idle = []         # nicki wyrobnic zglaszajacych idle (round-robin)
         # (3) trwaly lifecycle ofert: _offer_cache trzyma PELNY event task_offer
         # (z seq+activation_id) per (nick, task_id, version). Pending oferty sa
@@ -131,6 +131,8 @@ class ChatServer:
         # (queue/registry) co live, bez zadnych side-effectow sieciowych
         # (bez _send/_append — eventy juz sa na dysku).
         self._replay_events()
+        self.groups = {nick: set(self.registry.groups_of(nick))
+                       for nick in self.registry.tokens}
         # (A3) licznik snapshot-co-100 liczy DALEJ od tego, co juz jest w
         # logu po snapshot_seq — nie od zera (inaczej po restarcie trzeba by
         # 100 nowych eventow, zanim serwer w ogole rozwazy snapshot).
@@ -147,6 +149,10 @@ class ChatServer:
             etype = event.get("type")
             if etype == "hello":
                 self.registry.replay_hello(event["from"], event["instance_id"])
+            elif etype == "membership_set":
+                # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
+                if event["target"] in self.registry.tokens:
+                    self.registry.set_groups(event["target"], event["groups"])
             elif etype == "task_offer":
                 key = (event["target"], event["task"]["id"], event["task"]["version"])
                 self._offer_cache[key] = event  # pending: pelny event (z seq)
@@ -445,8 +451,8 @@ class ChatServer:
                     "error", "server", time.time(), text=str(e))))
                 return
             nick = frame["from"]
-            # role/groups pochodza z configu serwera (niezmienne, hello ich nie
-            # dotyka) — klon i live daja to samo, wiec czytamy z live.
+            # role jest stala z configu; groups to aktualny, trwaly stan
+            # serwera. Deklaracja hello zadnego z nich nie nadpisuje.
             role = self.registry.role_of(nick)
             groups = self.registry.groups_of(nick)
             # backlog liczony PRZED zalogowaniem WLASNEGO hello — inaczej
@@ -517,12 +523,12 @@ class ChatServer:
                     state={"queue": self.queue.dump(),
                            "registry": self.registry.dump(),
                            "offers": self._dump_offers()},
-                    generation=generation, **extra)
+                    generation=generation, role=role, groups=list(groups), **extra)
             else:
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
-                    generation=generation, backlog=backlog,
-                    last_seq=self.log.last_seq, **extra)
+                    generation=generation, role=role, groups=list(groups),
+                    backlog=backlog, last_seq=self.log.last_seq, **extra)
             await ws.send(json.dumps(reply))
             # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
             # domykamy polityke snapshot-co-100 tutaj, PO swapie live=klon, zeby
@@ -596,12 +602,13 @@ class ChatServer:
                 command_id=frame.get("command_id"), text=err)))
             return False
         # niezmiennik D: pola autorytatywne (seq/generation/groups/role) nadaje
-        # WYLACZNIE serwer — kazda ramka klienta jest tu oczyszczana zanim
-        # dotknie logu/kolejki/odbiorcow, niezaleznie od typu ramki
+        # WYLACZNIE serwer. membership_set.groups jest tylko zwalidowanym
+        # zadaniem zmiany; handler zapisze znormalizowany wynik serwera.
+        ftype = frame["type"]
+        requested_groups = frame.get("groups") if ftype == "membership_set" else None
         for field in ("seq", "generation", "groups", "role"):
             frame.pop(field, None)
         frame["from"] = nick  # tozsamosc z hello, nie z ramki (pole autorytatywne)
-        ftype = frame["type"]
         if ftype == "chat":
             await self._handle_chat(frame, nick)
         elif ftype == "fyi":
@@ -613,6 +620,8 @@ class ChatServer:
                 self._trigger_offer()
         elif ftype == "heartbeat":
             await self._on_heartbeat(frame, nick, sock_gen, ws)
+        elif ftype == "membership_set":
+            await self._on_membership_set(frame, requested_groups, nick, ws)
         elif ftype in _TASK_REQUIRED_FIELDS:
             await self._on_task_frame(frame, nick, sock_gen, ws)
         else:
@@ -620,6 +629,36 @@ class ChatServer:
                 "error", "server", time.time(),
                 text=f"nieoczekiwany typ ramki od klienta: {ftype}")))
         return False
+
+    async def _on_membership_set(self, frame, requested_groups, nick, ws):
+        """Przekaz funkcje przez grupy; bez RBAC, elekcji i CAS."""
+        now = time.time()
+        if (self.registry.role_of(nick) != "human"
+                and "admin" not in self.registry.groups_of(nick)):
+            await ws.send(json.dumps(protocol.make_frame(
+                "error", "server", now,
+                text="forbidden: membership_set wymaga human albo grupy admin")))
+            return
+        trial = copy.deepcopy(self.registry)
+        try:
+            groups = trial.set_groups(frame["target"], requested_groups)
+        except AuthError as e:
+            await ws.send(json.dumps(protocol.make_frame(
+                "error", "server", now, text=str(e))))
+            return
+        event = {**frame, "groups": groups}
+        seq = self._append_durable(event)
+        event["seq"] = seq
+        self.registry = trial
+        self.groups[frame["target"]] = set(groups)
+        self._maybe_snapshot()
+        await ws.send(json.dumps(protocol.make_frame(
+            "ok", "server", now, target=frame["target"], groups=groups)))
+        if frame["target"] != nick:
+            await self._send(frame["target"], event)
+        for observer, role in list(self.roles.items()):
+            if role == "human" and observer not in {nick, frame["target"]}:
+                await self._send(observer, event)
 
     async def _on_heartbeat(self, frame, nick, sock_gen, ws):
         """Minimalny durable heartbeat: task_id + identity przypieta do socketu.

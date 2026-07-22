@@ -137,6 +137,29 @@ def test_dict_format_configures_role_and_groups():
     assert r.hello("beta", "i1", "tok-b") == 1  # token dalej dziala
 
 
+def test_groups_can_change_without_changing_stable_role_and_survive_snapshot():
+    tokens = {
+        "beta": {"token": "tb", "role": "agent", "groups": ["workers"]},
+        "emil": {"token": "te", "role": "human", "groups": []},
+    }
+    registry = Registry(tokens)
+    assert registry.set_groups("beta", ["head", "admin", "admin"]) == [
+        "head", "admin"]
+    assert registry.role_of("beta") == "agent"
+
+    restored = Registry.restore(tokens, registry.dump())
+    assert restored.groups_of("beta") == ["head", "admin"]
+    assert restored.role_of("beta") == "agent"
+
+
+def test_set_groups_rejects_unknown_target_and_bad_groups():
+    registry = Registry(TOKENS)
+    with pytest.raises(AuthError):
+        registry.set_groups("unknown", ["admin"])
+    with pytest.raises(AuthError):
+        registry.set_groups("beta", [""])
+
+
 def test_dict_format_missing_token_fails_fast():
     with pytest.raises(ValueError):
         Registry({"alfa": {"role": "agent"}})

@@ -10,7 +10,7 @@ import sys
 # task_expired singular pozostaje znanym outbound-only tylko po to, by validate
 # jawnie odrzucal go inbound-em; serwer go juz nie generuje ani nie replayuje.
 INBOUND_FRAME_TYPES = {
-    "hello", "chat", "fyi", "status", "heartbeat",
+    "hello", "chat", "fyi", "status", "heartbeat", "membership_set",
     "task_new", "task_claim", "task_done", "task_blocked",
     "review_changes", "task_approve", "task_unblock",
 }
@@ -101,6 +101,15 @@ def _validate_body(frame, ftype):
         task_id = frame.get("task_id")
         if not isinstance(task_id, str) or not task_id:
             return "heartbeat: task_id wymagany (niepusty string)"
+        return None
+    if ftype == "membership_set":
+        target = frame.get("target")
+        groups = frame.get("groups")
+        if not isinstance(target, str) or not target:
+            return "membership_set: target wymagany (niepusty string)"
+        if not isinstance(groups, list) or not all(
+                isinstance(group, str) and group for group in groups):
+            return "membership_set: groups wymagane (lista niepustych stringow)"
         return None
     if ftype in _TASK_INBOUND:
         command_id = frame.get("command_id")
