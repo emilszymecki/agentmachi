@@ -139,6 +139,17 @@ class ChatServer:
                 self.queue.apply_replayed(event["task_state"],
                                           event.get("command_id"),
                                           event.get("fingerprint"))
+                if etype == "task_claim":
+                    # (Runda 5 B) claim SAM JEST faktem resolution: usun pending
+                    # offers dla (task_id, wersja-open) z odtwarzanego cache —
+                    # poprawnosc replay NIE moze zalezec od osobnego
+                    # offer_resolved (moze go nie byc: crash w oknie miedzy
+                    # zapisem task_claim a offer_resolved, albo steal-claim,
+                    # ktory przed Runda 5 nie trafial klucza cudzej oferty).
+                    # offer_resolved zostaje wylacznie jako audyt.
+                    for key in self._pending_offer_keys_for(
+                            event.get("task_id"), event.get("expected_task_version")):
+                        self._offer_cache.pop(key, None)
             # chat/fyi/status/ok/error: bez mutacji stanu queue/registry
 
     # -- pending oferty (trwaly lifecycle) ---------------------------------
@@ -553,16 +564,19 @@ class ChatServer:
             elif ftype == "task_claim":
                 if nick in self.idle:
                     self.idle.remove(nick)
-                # (Runda 4 #3) sukces claim oferowanego taska ROZSTRZYGA jego
-                # pending offer TRWALE i NATYCHMIAST — nie czekajac na
-                # sleep-timeout w _offer_loop. Bez tego crash/clean-stop przed
-                # uplywem offer_timeout zostawialby po restarcie task=claimed
-                # ORAZ oferte nadal pending. Klucz oferty to (nick, task_id,
-                # WERSJA OPEN), a claim CAS-uje wlasnie ta wersje
-                # (expected_task_version) -> pasuje. Idempotentne: _offer_loop
-                # przy pozniejszym przebudzeniu zobaczy juz brak wpisu (no-op).
-                self._resolve_offer(nick, frame["task_id"],
-                                    frame["expected_task_version"], "claimed")
+                # (Runda 4 #3 + Runda 5 B) sukces claim oferowanego taska
+                # ROZSTRZYGA pending offer TRWALE i NATYCHMIAST — nie czekajac
+                # na sleep-timeout w _offer_loop. Bez tego crash/clean-stop
+                # przed uplywem offer_timeout zostawialby task=claimed ORAZ
+                # oferte pending. Runda 5 B: rozstrzygamy WSZYSTKIE pending
+                # offers dla (task_id, wersja-open) niezaleznie od tego kto byl
+                # TARGET oferty — steal-claim (gamma bierze taska oferowanego
+                # becie) tez czysci oferte bety, ktorej klucz (beta,...) claimer
+                # gamma sam nigdy by nie trafil. CAS gwarantuje ze
+                # expected_task_version == wersja-open oferty. Idempotentne:
+                # _offer_loop przy przebudzeniu zobaczy juz brak wpisu (no-op).
+                self._resolve_offers_for_task(
+                    frame["task_id"], frame["expected_task_version"], "claimed")
         await ws.send(json.dumps(protocol.make_frame(
             "ok", "server", now, command_id=command_id, task=result)))
         if not cached and ftype == "review_changes":
@@ -610,12 +624,28 @@ class ChatServer:
         self._maybe_snapshot()
         return stored
 
+    def _pending_offer_keys_for(self, task_id, task_version):
+        # (Runda 5 B) wszystkie klucze pending ofert dla danego (task_id,
+        # wersja) niezaleznie od targetu. Zwraca LISTE (kopie) — wolajacy
+        # mutuje _offer_cache w petli.
+        return [k for k in self._offer_cache
+                if k[1] == task_id and k[2] == task_version]
+
+    def _resolve_offers_for_task(self, task_id, task_version, outcome):
+        # (Runda 5 B) rozstrzygniecie WSZYSTKICH pending ofert taska (dowolny
+        # target) — udany claim jest faktem resolution niezaleznie od tego,
+        # komu task byl oferowany. Kazda pasujaca oferta dostaje trwaly
+        # offer_resolved (audyt) i wypada z cache live.
+        for offer_nick, tid, ver in self._pending_offer_keys_for(task_id, task_version):
+            self._resolve_offer(offer_nick, tid, ver, outcome)
+
     def _resolve_offer(self, nick, task_id, task_version, outcome):
         # (3) rozstrzygniecie pending oferty (claim oferowanego taska / timeout
-        # / ewikcja) appenduje TRWALY event offer_resolved — dzieki niemu
-        # replay wie, ze ta oferta NIE jest juz pending (task_offer bez
-        # pozniejszego offer_resolved = pending; z resolved = nie). Idempotentne:
-        # appendujemy tylko jesli byla faktycznie pending.
+        # / ewikcja) appenduje TRWALY event offer_resolved — AUDYT. Poprawnosc
+        # replay NIE zalezy juz od niego (Runda 5 B: replay wywodzi resolution
+        # z samego task_claim); offer_resolved czysci pending w cache live i
+        # daje slad, ale jego brak w logu (crash-window) nie psuje replay.
+        # Idempotentne: appendujemy tylko jesli byla faktycznie pending.
         key = (nick, task_id, task_version)
         if key not in self._offer_cache:
             return
