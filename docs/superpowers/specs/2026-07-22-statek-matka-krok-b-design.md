@@ -100,6 +100,11 @@ wysyła `task_offer` do JEDNEJ idle wyrobnicy (round-robin). Brak
 
 ### Tożsamość i niezawodność (ustalenia tercetu alfa+beta+codex, do B1)
 
+**Inwariant ogólny (beta)**: pola autorytatywne (`seq`, `generation`,
+`groups`, `from`) nadaje wyłącznie serwer; wartości z ramek klienta są
+wejściem do walidacji, nigdy źródłem prawdy. Generation jest przypinana
+do SOCKETU po hello — nigdy czytana z `frame.get()`.
+
 - **Tożsamość logiczna ≠ socket**: `hello` niesie nick + trwałe
   `client_instance_id` (plik sesji obok mechaniki heartbeatu; send.py
   czyta z niego). Wiele socketów tego samego nick+instance współdzieli
