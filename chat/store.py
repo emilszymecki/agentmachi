@@ -34,7 +34,7 @@ class EventLog:
 
     def append(self, frame):
         self.last_seq += 1
-        event = {"seq": self.last_seq, **frame}
+        event = {**frame, "seq": self.last_seq}
         with self.events_path.open("a") as f:
             f.write(json.dumps(event) + "\n")
             f.flush()
@@ -50,13 +50,18 @@ class EventLog:
     def save_snapshot(self, state):
         seq = self.last_seq
         tmp = self.dir / "snapshot.json.tmp"
-        tmp.write_text(json.dumps({"snapshot_seq": seq, "state": state}))
+        with tmp.open("w") as f:
+            f.write(json.dumps({"snapshot_seq": seq, "state": state}))
+            f.flush()
+            os.fsync(f.fileno())
         tmp.rename(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
         self.snapshot_seq = seq
         self._events = [e for e in self._events if e["seq"] > seq]
         with self.events_path.open("w") as f:
             for e in self._events:
                 f.write(json.dumps(e) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     def load_snapshot(self):
         if not self.snapshot_path.exists():

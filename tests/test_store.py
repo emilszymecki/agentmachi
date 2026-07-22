@@ -19,6 +19,14 @@ def test_events_after(tmp_path):
     assert log.events_after(3) == []
 
 
+def test_append_ignores_seq_in_frame(tmp_path):
+    log = EventLog(tmp_path)
+    assert log.append({"type": "chat", "seq": 999}) == 1
+    assert log.events_after(0)[0]["seq"] == 1
+    log2 = EventLog(tmp_path)  # nowy obiekt, ten sam katalog
+    assert log2.last_seq == 1
+
+
 def test_survives_restart(tmp_path):
     log = EventLog(tmp_path)
     log.append({"type": "chat", "text": "a"})
