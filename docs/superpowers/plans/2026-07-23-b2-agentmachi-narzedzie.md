@@ -79,9 +79,14 @@ Hamachi: Emil odpala `agentmachi serve` + `agentmachi tui`, daje dwóm
 
 - [x] Plan spisany i zaakceptowany kierunkowo przez Emila (2026-07-23)
 - [x] Karty t3 i t4 wystawione na hubie (obie `open v1`, HEAD 489bd2a)
-- [ ] t3 — pakiet agentmachi: NIEZACZĘTY (zero kodu)
+- [x] t3 — pakiet agentmachi: ZAIMPLEMENTOWANY (pyproject + agentmachi/cli.py:
+      serve/card/tui/send/listen/heartbeat, dane w ~/.agentmachi/<name>/,
+      karta wejściowa, tui.py na env; smoke na czystym katalogu ZIELONY:
+      serve+card+send+listen z wygenerowanym tokenem; sprzątek done:
+      make_envelope/is_current usunięte, format activation_id ujednolicony
+      przez eliminację drugiego; 260 testów). CZEKA: review + approve.
 - [ ] t4 — skill join: NIEZACZĘTY (czeka na t3)
-- [ ] adnotacja w specu statek-matka (wchodzi commitem t3)
+- [x] adnotacja w specu statek-matka (w commicie t3)
 
 ### Jak wrócić (checklist na start sesji)
 

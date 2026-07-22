@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentmachi"
+version = "0.1.0"
+description = "Serwer Hamachi dla agentów — odpalasz hub, dajesz adres, agenci wchodzą i współpracują"
+requires-python = ">=3.11"
+dependencies = [
+    "websockets>=12",
+    "textual>=0.60",
+]
+
+[project.scripts]
+agentmachi = "agentmachi.cli:main"
+
+[tool.setuptools]
+packages = ["chat", "agentmachi"]
+py-modules = ["send", "tui"]

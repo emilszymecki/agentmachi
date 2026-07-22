@@ -1,0 +1,258 @@
+"""CLI agentmachi: serve / tui / send / listen / heartbeat / card.
+
+Zasada (plan B2): dane huba mieszkaja w ~/.agentmachi/<name>/ —
+NIGDY w repo projektu. Repo projektu to rzecz, nad ktora pracuja agenci;
+hub to infrastruktura obok (jak Hamachi obok CS-a).
+
+Uklad ~/.agentmachi/<name>/:
+  tokens.json  (0600)  nick -> {token, role, groups}
+  config.json          {port}
+  data/                event-log + snapshot huba (chat.store)
+  data/rules.md        konstytucja kanalu (edytuje human, plikiem)
+"""
+import argparse
+import asyncio
+import json
+import os
+import secrets
+import sys
+from pathlib import Path
+
+DEFAULT_PORT = 8766
+DEFAULT_HUB = "hub"
+
+DEFAULT_RULES = """\
+1. Zanim wezmiesz taska, sprawdz czy nikt inny juz go nie robi.
+2. Decyzje i pytania architektoniczne przez `@all` albo `$workers`.
+3. Blokera zglaszaj (`task_blocked`) od razu.
+4. Nie zatwierdzaj (`task_approve`) wlasnej pracy — review robi ktos inny.
+5. Statusy: idle/working/blocked/review — deklaruj przy zmianie fazy.
+"""
+
+
+class CliError(Exception):
+    pass
+
+
+def hub_home():
+    return Path(os.environ.get("AGENTMACHI_HOME",
+                               Path.home() / ".agentmachi"))
+
+
+def hub_dir(name):
+    if not name or "/" in name or name.startswith("."):
+        raise CliError(f"zla nazwa huba: {name!r}")
+    return hub_home() / name
+
+
+def _write_0600(path, text):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+
+
+def ensure_hub(name, port):
+    """Utworz strukture huba przy pierwszym uzyciu; istniejacej NIE ruszaj."""
+    d = hub_dir(name)
+    (d / "data").mkdir(parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
+    tokens_path = d / "tokens.json"
+    if not tokens_path.exists():
+        tokens = {
+            "human": {"token": secrets.token_urlsafe(16), "role": "human",
+                      "groups": []},
+            "worker1": {"token": secrets.token_urlsafe(16), "role": "agent",
+                        "groups": ["workers"]},
+            "worker2": {"token": secrets.token_urlsafe(16), "role": "agent",
+                        "groups": ["workers"]},
+        }
+        _write_0600(tokens_path, json.dumps(tokens, indent=2))
+    rules_path = d / "data" / "rules.md"
+    if not rules_path.exists():
+        rules_path.write_text(DEFAULT_RULES)
+    config_path = d / "config.json"
+    if config_path.exists():
+        port = json.loads(config_path.read_text()).get("port", port)
+    else:
+        config_path.write_text(json.dumps({"port": port}))
+    return d, port
+
+
+def load_tokens(name):
+    d = hub_dir(name)
+    tokens_path = d / "tokens.json"
+    if not tokens_path.exists():
+        raise CliError(f"hub {name!r} nie istnieje (brak {tokens_path}); "
+                       f"najpierw: agentmachi serve --name {name}")
+    return json.loads(tokens_path.read_text()), d
+
+
+def hub_port(name, fallback=DEFAULT_PORT):
+    config = hub_dir(name) / "config.json"
+    if config.exists():
+        return json.loads(config.read_text()).get("port", fallback)
+    return fallback
+
+
+def print_card(name, port, tokens, participants=None):
+    """Karta wejsciowa: wszystko, czego potrzebuje czlowiek i agenci."""
+    d = hub_dir(name)
+    print(f"""
+=== agentmachi: hub '{name}' ===
+adres:   ws://localhost:{port}
+tokeny:  {d / 'tokens.json'}  (0600 — nie commituj!)
+rules:   {d / 'data' / 'rules.md'}
+dane:    {d / 'data'}
+""")
+    print("uczestnicy (config):")
+    for nick, entry in tokens.items():
+        role = entry.get("role", "agent")
+        groups = ",".join(entry.get("groups", [])) or "-"
+        line = f"  {nick}  {role}  [{groups}]"
+        if participants:
+            live = {p["nick"]: p for p in participants}
+            if live.get(nick, {}).get("connected"):
+                status = (live[nick].get("status") or {}).get("state", "")
+                line += f"  ONLINE {status}".rstrip()
+        print(line)
+    print(f"""
+czlowiek (TUI):
+  agentmachi tui --name {name}
+
+agent dolacza (nasluch + wysylka; wklej agentowi jedno z ponizszych):
+  AGENTMACHI_HUB={name} CHAT_NICK=worker1 agentmachi listen
+  AGENTMACHI_HUB={name} agentmachi send worker1 "czesc"
+
+zdanie dla agenta (skill join):
+  "dolacz do agentmachi '{name}' (ws://localhost:{port}) jako worker1"
+""")
+
+
+def _agent_env(args):
+    """Zloz srodowisko klienta: hub z --name/AGENTMACHI_HUB, nick+token
+    z tokens.json huba (CHAT_TOKEN z env wygrywa — nie wymuszamy pliku)."""
+    name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
+    nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK")
+    port = hub_port(name)
+    token = os.environ.get("CHAT_TOKEN", "")
+    if not token:
+        tokens, _ = load_tokens(name)
+        if not nick or nick not in tokens:
+            raise CliError(
+                f"podaj nick z {hub_dir(name) / 'tokens.json'} "
+                f"(--nick albo CHAT_NICK); znane: {', '.join(tokens)}")
+        token = tokens[nick]["token"]
+    os.environ["CHAT_PORT"] = str(port)
+    os.environ["CHAT_TOKEN"] = token
+    os.environ["CHAT_NICK"] = nick or "listener"
+    return nick
+
+
+def _import_send():
+    # send.py liczy URI z env przy imporcie — env MUSI byc ustawione wczesniej
+    import send
+    return send
+
+
+def cmd_serve(args):
+    d, port = ensure_hub(args.name, args.port)
+    tokens = json.loads((d / "tokens.json").read_text())
+    print_card(args.name, port, tokens)
+    os.environ["CHAT_TOKENS"] = str(d / "tokens.json")
+    os.environ["CHAT_DATA"] = str(d / "data")
+    os.environ["CHAT_PORT"] = str(port)
+    from chat.server import main as server_main
+    server_main()
+    return 0
+
+
+def cmd_card(args):
+    tokens, d = load_tokens(args.name or
+                            os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB))
+    name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
+    print_card(name, hub_port(name), tokens)
+    return 0
+
+
+def cmd_tui(args):
+    name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
+    tokens_path = hub_dir(name) / "tokens.json"
+    if not tokens_path.exists():
+        raise CliError(f"hub {name!r} nie istnieje; najpierw: "
+                       f"agentmachi serve --name {name}")
+    os.environ["AGENTMACHI_TOKENS"] = str(tokens_path)
+    os.environ["CHAT_PORT"] = str(hub_port(name))
+    import tui
+    return tui.main()
+
+
+def cmd_send(args):
+    _agent_env(args)
+    send = _import_send()
+    asyncio.run(send.send_once(args.nick, args.text))
+    return 0
+
+
+def cmd_listen(args):
+    nick = _agent_env(args)
+    send = _import_send()
+    asyncio.run(send.listen(nick or "listener"))
+    return 0
+
+
+def cmd_heartbeat(args):
+    nick = _agent_env(args)
+    send = _import_send()
+    return asyncio.run(send.heartbeat_loop(nick or "listener",
+                                           args.task_id, args.interval)) or 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="agentmachi",
+        description="serwer Hamachi dla agentow — hub czatu i taskow")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("serve", help="odpal hub (tworzy ~/.agentmachi/<name>)")
+    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.set_defaults(fn=cmd_serve)
+
+    p = sub.add_parser("card", help="pokaz karte wejsciowa huba")
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_card)
+
+    p = sub.add_parser("tui", help="TUI human-operatora")
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_tui)
+
+    p = sub.add_parser("send", help="wyslij wiadomosc jako <nick>")
+    p.add_argument("nick")
+    p.add_argument("text")
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_send)
+
+    p = sub.add_parser("listen", help="resumowalny nasluch (kursor+lock)")
+    p.add_argument("--nick", default=None)
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_listen)
+
+    p = sub.add_parser("heartbeat", help="procesik lease dla taska")
+    p.add_argument("task_id")
+    p.add_argument("interval", nargs="?", type=float, default=45.0)
+    p.add_argument("--nick", default=None)
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_heartbeat)
+
+    args = parser.parse_args(argv)
+    try:
+        return args.fn(args)
+    except CliError as e:
+        print(f"agentmachi: {e}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

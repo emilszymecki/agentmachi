@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,9 +26,12 @@ from textual.widgets import Input, Label, RichLog, Static
 from chat.client_session import ListenerLockHeld, Session, SessionError
 
 
-HUB_URI = "ws://localhost:8766"
-HUB_ID = "localhost:8766"
-TOKENS_PATH = Path("hub.tokens.json")
+# CLI agentmachi ustawia CHAT_PORT i AGENTMACHI_TOKENS; gołe `python3
+# tui.py` w repo zachowuje stare defaulty (hub.tokens.json + 8766)
+_PORT = os.environ.get("CHAT_PORT", "8766")
+HUB_URI = f"ws://localhost:{_PORT}"
+HUB_ID = f"localhost:{_PORT}"
+TOKENS_PATH = Path(os.environ.get("AGENTMACHI_TOKENS", "hub.tokens.json"))
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
 HELLO_TIMEOUT = 10.0
 BACKOFF_START = 1.0
