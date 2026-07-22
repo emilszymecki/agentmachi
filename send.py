@@ -132,19 +132,36 @@ def apply_frame(session, data):
     return True
 
 
+def _emit_session_metadata(reply):
+    """Jedna ramka metadanych sesji (rules/role/groups/generation) PRZED
+    backlogiem/stanem — adapter/harness widzi kontekst zanim poplyna eventy.
+    Bez cache — kazde hello emituje aktualny stan z serwera."""
+    meta = {k: reply[k] for k in ("rules", "rules_hash", "role", "groups",
+                                  "generation") if k in reply}
+    if meta:
+        _print_event({"type": "session_metadata", **meta})
+
+
 def _apply_hello_reply(session, reply):
     if reply["type"] == "ok":
+        _emit_session_metadata(reply)
         for frame in reply.get("backlog", []):
             apply_frame(session, frame)
     elif reply["type"] == "resync_required":
+        _emit_session_metadata(reply)
         snapshot_seq = reply.get("snapshot_seq")
         print(f"[resync] historia skompaktowana do seq={snapshot_seq}, "
               "stosuje snapshot stanu", file=sys.stderr)
         state = reply.get("state")
-        if state is not None:
-            # APPLY stanu PRZED przesunieciem kursora — advance bez emisji
-            # stanu to deklaracja "zastosowane" przy realnej utracie danych
-            _print_event({"type": "resync_state", "state": state})
+        if not isinstance(state, dict):
+            # advance bez zastosowanego stanu = deklaracja "mam" przy
+            # realnej utracie — fail-closed zamiast cichego przeskoku
+            raise SessionError(
+                f"resync_required bez poprawnego state (dostalem: "
+                f"{type(state).__name__}) — kursor NIE przesuniety; "
+                "sprawdz wersje huba albo ponow polaczenie")
+        # APPLY stanu PRZED przesunieciem kursora
+        _print_event({"type": "resync_state", "state": state})
         if (not isinstance(snapshot_seq, bool)
                 and isinstance(snapshot_seq, int) and snapshot_seq >= 1):
             session.advance(snapshot_seq)
@@ -188,10 +205,35 @@ async def listen(nick):
         session.release_listener_lock()
 
 
+def _check_heartbeat_interval(interval):
+    import math
+    if (isinstance(interval, bool) or not isinstance(interval, (int, float))
+            or not math.isfinite(interval) or interval <= 0):
+        raise SessionError(f"invalid heartbeat interval: {interval!r} "
+                           "(wymagane skonczone > 0)")
+    return float(interval)
+
+
+async def _await_heartbeat_ok(ws, task_id):
+    """Czekaj na WLASCIWE ok (kontrakt serwera: ok z task.id) — inne ramki
+    (chat/backlog itd.) pomijamy. Timeout/blad = sygnal dla petli."""
+    while True:
+        reply = json.loads(await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
+        if not isinstance(reply, dict):
+            continue
+        if reply.get("type") == "error":
+            return reply
+        if (reply.get("type") == "ok"
+                and reply.get("task", {}).get("id") == task_id):
+            return reply
+
+
 async def heartbeat_loop(nick, task_id, interval):
     """Procesik lease (mechanika ze specu): odnawiaj heartbeat co interval,
     az do kill (worker ubija przy done). Blad serwera = koniec (nie odnawiaj
-    lease taska, ktorego juz nie posiadasz); reconnect przy padzie sieci."""
+    lease taska, ktorego juz nie posiadasz); timeout na ok ORAZ pad sieci =
+    reconnect z backoffem."""
+    interval = _check_heartbeat_interval(interval)
     token = _require_token()
     session = _session(nick)  # kursora NIE ruszamy (to nie listener)
     backoff = BACKOFF_START
@@ -204,16 +246,17 @@ async def heartbeat_loop(nick, task_id, interval):
                     await ws.send(json.dumps({
                         "type": "heartbeat", "from": nick, "ts": 0.0,
                         "task_id": task_id}))
-                    try:
-                        reply = json.loads(
-                            await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
-                    except asyncio.TimeoutError:
-                        reply = None  # serwer moze nie odsylac ok — jedziemy
-                    if isinstance(reply, dict) and reply.get("type") == "error":
+                    reply = await _await_heartbeat_ok(ws, task_id)
+                    if reply.get("type") == "error":
                         print(f"heartbeat odrzucony: {reply.get('text')}",
                               file=sys.stderr)
                         return 1
                     await asyncio.sleep(interval)
+        except asyncio.TimeoutError:
+            print("[heartbeat-reconnect] brak ok w terminie — ponawiam "
+                  f"polaczenie za {backoff:.0f}s", file=sys.stderr)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, BACKOFF_MAX)
         except (websockets.exceptions.ConnectionClosed, OSError) as e:
             print(f"[heartbeat-reconnect] {e}; ponawiam za {backoff:.0f}s",
                   file=sys.stderr)
@@ -250,7 +293,12 @@ def main():
         elif args == ["--listen"]:
             asyncio.run(listen(os.environ.get("CHAT_NICK", "listener")))
         elif args and args[0] == "--heartbeat" and len(args) in (2, 3):
-            interval = float(args[2]) if len(args) == 3 else 45.0
+            try:
+                interval = float(args[2]) if len(args) == 3 else 45.0
+            except ValueError:
+                print(f"zly interval: {args[2]!r} (liczba sekund > 0)",
+                      file=sys.stderr)
+                sys.exit(1)
             code = asyncio.run(heartbeat_loop(
                 os.environ.get("CHAT_NICK", "listener"), args[1], interval))
             sys.exit(code or 0)

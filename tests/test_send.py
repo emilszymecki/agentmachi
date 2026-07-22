@@ -123,10 +123,45 @@ def test_apply_hello_resync_emits_state_before_cursor(session, capsys):
     assert session.last_applied_seq == 42
 
 
-def test_apply_hello_resync_without_state_still_moves_cursor(session, capsys):
-    send._apply_hello_reply(session, {"type": "resync_required",
-                                      "snapshot_seq": 42})
-    assert session.last_applied_seq == 42
+def test_apply_hello_resync_without_state_fails_closed(session, capsys):
+    """Finisz codexa (1): resync BEZ dict state = SessionError, kursor STOI —
+    advance bez zastosowanego stanu deklarowalby posiadanie utraconego."""
+    from chat.client_session import SessionError
+    with pytest.raises(SessionError):
+        send._apply_hello_reply(session, {"type": "resync_required",
+                                          "snapshot_seq": 42})
+    assert session.last_applied_seq == 0
+
+
+def test_hello_ok_emits_session_metadata_before_backlog(session, capsys):
+    """Finisz codexa (2): rules/role/groups/generation emitowane jako JEDNA
+    ramka session_metadata PRZED backlogiem."""
+    send._apply_hello_reply(session, {
+        "type": "ok", "generation": 2, "role": "agent",
+        "groups": ["workers"], "rules": "tekst", "rules_hash": "abc",
+        "backlog": [{"from": "a", "text": "x", "seq": 1}]})
+    lines = capsys.readouterr().out.splitlines()
+    assert "session_metadata" in lines[0] and '"abc"' in lines[0]
+    assert lines[1] == "a: x"
+    assert session.last_applied_seq == 1
+
+
+def test_hello_ok_without_metadata_emits_nothing_extra(session, capsys):
+    send._apply_hello_reply(session, {"type": "ok", "backlog": []})
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("bad", [0, -1, float("nan"), float("inf"), True])
+def test_heartbeat_interval_validated(bad):
+    """Finisz codexa (3): interval musi byc skonczony i > 0."""
+    from chat.client_session import SessionError
+    with pytest.raises(SessionError):
+        send._check_heartbeat_interval(bad)
+
+
+def test_heartbeat_interval_valid_passes():
+    assert send._check_heartbeat_interval(45) == 45.0
+    assert send._check_heartbeat_interval(0.5) == 0.5
 
 
 def test_require_token_fails_fast(monkeypatch):
