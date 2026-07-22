@@ -27,33 +27,34 @@ _UNSET = object()  # odroznia "pole nie dotyczy tej operacji" od realnego None
 class TaskQueue:
     CARD_REQUIRED_FIELDS = ("goal", "acceptance", "verify", "files", "head", "brief")
 
-    def __init__(self, wip_limit=3, lease_ttl=120.0, dedup_ttl=3600.0):
+    def __init__(self, wip_limit=3, lease_ttl=120.0):
         self.wip_limit = wip_limit
         self.lease_ttl = lease_ttl
-        self.dedup_ttl = dedup_ttl
         self._tasks = {}      # id -> task dict
-        self._results = {}    # command_id -> (expires_at, deepcopy wyniku)
+        self._results = {}    # command_id -> (fingerprint, deepcopy wyniku)
         self._next_id = 0
 
     # -- dedup ------------------------------------------------------------
-    # Wpis dedup to (expires_at, fingerprint, deepcopy wyniku). Fingerprint
-    # identyfikuje operacje+argumenty (bez `now`) — ten sam command_id
-    # uzyty ponownie dla innej operacji/innych argumentow to bug klienta,
-    # nie cichy zwrot poprzedniego wyniku.
-    def _dedup_get(self, command_id, fingerprint, now):
+    # Wpis dedup to (fingerprint, deepcopy wyniku). Bez TTL w B1: retencja
+    # command_id musi zyc co najmniej tyle co task wg speca, a stala TTL
+    # tego nie gwarantuje — wpisy zyja do kontrolowanej kompakcji (poza
+    # zakresem tego pliku). Fingerprint identyfikuje operacje+argumenty
+    # (bez `now`) — ten sam command_id uzyty ponownie dla innej
+    # operacji/innych argumentow to bug klienta, nie cichy zwrot
+    # poprzedniego wyniku.
+    def _dedup_get(self, command_id, fingerprint):
         hit = self._results.get(command_id)
-        if hit is None or hit[0] <= now:
+        if hit is None:
             return None
-        cached_fingerprint, result = hit[1], hit[2]
+        cached_fingerprint, result = hit
         if cached_fingerprint != fingerprint:
             raise Conflict(
                 f"command_id {command_id!r} reuse z inna operacja: "
                 f"{cached_fingerprint} != {fingerprint}")
         return copy.deepcopy(result)
 
-    def _dedup_put(self, command_id, fingerprint, result, now):
-        self._results[command_id] = (
-            now + self.dedup_ttl, fingerprint, copy.deepcopy(result))
+    def _dedup_put(self, command_id, fingerprint, result):
+        self._results[command_id] = (fingerprint, copy.deepcopy(result))
         return result
 
     def _check_command_id(self, command_id):
@@ -73,9 +74,10 @@ class TaskQueue:
 
     # Wspolny guard pol klienckich w mutacjach. Kazdy parametr domyslnie
     # _UNSET -> pomijany (np. request_changes nie ma nick/generation).
-    # generation >= 0 (0 to legalny "brak generacji" jak w identity.Registry),
-    # expected_version >= 1 (wersje taska zaczynaja sie od 1) — rozne dolne
-    # granice, wiec nie da sie ich zlaczyc w jeden check.
+    # generation >= 1 (po hello() w identity.Registry generacja jest zawsze
+    # dodatnia — 0 wystepuje tylko przed pierwszym hello, wiec nie jest to
+    # legalna generacja klienta w tasks), expected_version >= 1 (wersje
+    # taska zaczynaja sie od 1) — ta sama dolna granica, dwa oddzielne pola.
     def _check_inputs(self, nick=_UNSET, generation=_UNSET,
                        expected_version=_UNSET, now=_UNSET):
         if nick is not _UNSET:
@@ -83,7 +85,7 @@ class TaskQueue:
                 raise TaskError(f"invalid nick: {nick!r}")
         if generation is not _UNSET:
             if (isinstance(generation, bool) or not isinstance(generation, int)
-                    or generation < 0):
+                    or generation < 1):
                 raise TaskError(f"invalid generation: {generation!r}")
         if expected_version is not _UNSET:
             if (isinstance(expected_version, bool)
@@ -91,6 +93,8 @@ class TaskQueue:
                     or expected_version < 1):
                 raise TaskError(f"invalid expected_version: {expected_version!r}")
         if now is not _UNSET:
+            if isinstance(now, bool):
+                raise TaskError(f"invalid now: {now!r}")
             try:
                 finite = math.isfinite(now)
             except TypeError:
@@ -109,9 +113,10 @@ class TaskQueue:
     # -- operacje ----------------------------------------------------------
     def add(self, card, command_id, now):
         self._check_command_id(command_id)
+        self._check_inputs(now=now)
         serialized_card = self._check_card(card)
         fingerprint = ("add", serialized_card, None, None, None)
-        cached = self._dedup_get(command_id, fingerprint, now)
+        cached = self._dedup_get(command_id, fingerprint)
         if cached is not None:
             return cached
         self._next_id += 1
@@ -119,7 +124,7 @@ class TaskQueue:
                 "status": "open", "assignee": None, "generation": None,
                 "version": 1, "lease_until": None, "frozen": False}
         self._tasks[task["id"]] = task
-        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task), now)
+        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task))
 
     def get(self, task_id):
         return copy.deepcopy(self._get_task(task_id))
@@ -139,24 +144,35 @@ class TaskQueue:
         self._check_inputs(nick=nick, generation=generation,
                             expected_version=expected_version, now=now)
         fingerprint = ("claim", task_id, nick, generation, expected_version)
-        cached = self._dedup_get(command_id, fingerprint, now)
+        cached = self._dedup_get(command_id, fingerprint)
         if cached is not None:
             return cached
         task = self._get_task(task_id)
         self._check(task, expected_version)
         if task["status"] != "open":
             raise Conflict(f"{task_id}: status {task['status']}, nie open")
+        wip = sum(1 for t in self._tasks.values()
+                  if t["status"] in ("claimed", "review"))
+        if wip >= self.wip_limit:
+            raise Conflict(f"{task_id}: WIP limit ({wip}/{self.wip_limit})")
         task.update(status="claimed", assignee=nick, generation=generation,
                     version=task["version"] + 1,
                     lease_until=now + self.lease_ttl)
-        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task), now)
+        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task))
 
     def heartbeat(self, task_id, nick, generation, now):
         self._check_inputs(nick=nick, generation=generation, now=now)
         task = self._get_task(task_id)
         self._check_owner(task, nick, generation)
-        if not task["frozen"]:
-            task["lease_until"] = now + self.lease_ttl
+        if task["status"] != "claimed":
+            raise TaskError(
+                f"{task_id}: status {task['status']}, nie claimed — "
+                "heartbeat niedozwolony")
+        if task["lease_until"] is not None and task["lease_until"] <= now:
+            raise TaskError(
+                f"{task_id}: lease wygasl ({task['lease_until']} <= {now}), "
+                "oczekuje na expire()")
+        task["lease_until"] = now + self.lease_ttl
 
     def _mutate(self, op, task_id, command_id, expected_version, now,
                 owner=None, from_status=None, **updates):
@@ -168,7 +184,7 @@ class TaskQueue:
         else:
             self._check_inputs(expected_version=expected_version, now=now)
         fingerprint = (op, task_id, nick, generation, expected_version)
-        cached = self._dedup_get(command_id, fingerprint, now)
+        cached = self._dedup_get(command_id, fingerprint)
         if cached is not None:
             return cached
         task = self._get_task(task_id)
@@ -178,8 +194,16 @@ class TaskQueue:
         if from_status and task["status"] not in from_status:
             raise Conflict(
                 f"{task_id}: status {task['status']}, oczekiwano {from_status}")
+        # task claimed z wygasla juz dzierzawa nie moze byc mutowany dalej
+        # (block/to_review) — musi najpierw przejsc przez expire() i wrocic
+        # do open. Sprawdzane atomowo tutaj, nie osobnym wywolaniem.
+        if (task["status"] == "claimed" and task["lease_until"] is not None
+                and task["lease_until"] <= now):
+            raise Conflict(
+                f"{task_id}: lease wygasl ({task['lease_until']} <= {now}), "
+                "wymagane expire()")
         task.update(version=task["version"] + 1, **updates)
-        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task), now)
+        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task))
 
     def block(self, task_id, nick, generation, command_id, expected_version, now):
         return self._mutate("block", task_id, command_id, expected_version, now,
@@ -232,11 +256,20 @@ class TaskQueue:
 
     def dump(self):
         return {"next_id": self._next_id,
-                "tasks": copy.deepcopy(list(self._tasks.values()))}
+                "tasks": copy.deepcopy(list(self._tasks.values())),
+                "results": [[command_id, list(fingerprint), copy.deepcopy(result)]
+                            for command_id, (fingerprint, result)
+                            in self._results.items()]}
 
     @classmethod
     def restore(cls, data, **kwargs):
         q = cls(**kwargs)
         q._next_id = data["next_id"]
         q._tasks = {t["id"]: t for t in copy.deepcopy(data["tasks"])}
+        # fingerprint po podrozy przez JSON to lista — normalizacja do
+        # krotki, bo _dedup_get porownuje go z fingerprintem budowanym w
+        # add/claim/_mutate (zawsze krotka).
+        q._results = {
+            command_id: (tuple(fingerprint), copy.deepcopy(result))
+            for command_id, fingerprint, result in data.get("results", [])}
         return q

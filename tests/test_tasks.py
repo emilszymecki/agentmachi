@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from chat.tasks import TaskQueue, Conflict, StaleGeneration, TaskError
 
@@ -43,9 +45,9 @@ def test_cas_conflict_without_mutation():
 
 def test_stale_generation_rejected():
     q = TaskQueue()
-    c = make_claimed(q)
+    c = make_claimed(q)  # generation=1
     with pytest.raises(StaleGeneration):
-        q.heartbeat(c["id"], "beta", generation=0, now=1.0)  # stara sesja
+        q.heartbeat(c["id"], "beta", generation=2, now=1.0)  # nowsza sesja
 
 
 def test_command_id_reuse_across_ops_conflicts():
@@ -231,3 +233,94 @@ def test_expire_rejects_non_finite_now():
     q = TaskQueue()
     with pytest.raises(TaskError):
         q.expire(now=float("nan"))
+
+
+# -- 1: add() waliduje now --------------------------------------------------
+
+def test_add_rejects_nan_now():
+    q = TaskQueue()
+    with pytest.raises(TaskError):
+        q.add(CARD, "c", float("nan"))
+
+
+def test_add_rejects_bool_now():
+    q = TaskQueue()
+    with pytest.raises(TaskError):
+        q.add(CARD, "c", True)
+
+
+# -- 2: generation >= 1 w mutacjach -----------------------------------------
+
+def test_heartbeat_rejects_zero_generation():
+    q = TaskQueue()
+    c = make_claimed(q)
+    with pytest.raises(TaskError) as exc_info:
+        q.heartbeat(c["id"], "beta", generation=0, now=1.0)
+    # to guard wejscia (generation < 1), nie StaleGeneration z _check_owner
+    assert not isinstance(exc_info.value, StaleGeneration)
+
+
+# -- 3 + 4: dedup w dump/restore, bez TTL ------------------------------------
+
+def test_dedup_survives_json_roundtrip_dump_restore():
+    q = TaskQueue()
+    t = q.add(CARD, "c1", 0)
+    dumped = json.loads(json.dumps(q.dump()))  # fingerprint krotki -> listy
+    q2 = TaskQueue.restore(dumped)
+    again = q2.add(CARD, "c1", 1)
+    assert again == t                          # dedup przezyl podroz przez JSON
+    with pytest.raises(Conflict):
+        q2.add(dict(CARD, goal="INNY"), "c1", 1)
+
+
+def test_dedup_never_expires():
+    q = TaskQueue()
+    t = q.add(CARD, "c1", now=0.0)
+    much_later = q.add(CARD, "c1", now=10**9)  # dawno po dawnym dedup_ttl=3600
+    assert much_later == t
+
+
+# -- 5: claim egzekwuje WIP --------------------------------------------------
+
+def test_claim_enforces_wip_limit():
+    q = TaskQueue(wip_limit=1)
+    t1 = q.add(CARD, "a1", now=0.0)
+    t2 = q.add(dict(CARD, goal="drugi"), "a2", now=0.0)
+    q.claim(t1["id"], "beta", 1, "cl1", expected_version=1, now=0.0)
+    with pytest.raises(Conflict):
+        q.claim(t2["id"], "beta", 1, "cl2", expected_version=1, now=0.0)
+    t1c = q.get(t1["id"])
+    q.to_review(t1["id"], "beta", 1, "c-rev", expected_version=t1c["version"], now=0.0)
+    with pytest.raises(Conflict):  # review tez liczy sie do WIP
+        q.claim(t2["id"], "beta", 1, "cl3", expected_version=1, now=0.0)
+    t1r = q.get(t1["id"])
+    q.done(t1["id"], "beta", 1, "c-done", expected_version=t1r["version"], now=0.0)
+    claimed2 = q.claim(t2["id"], "beta", 1, "cl4", expected_version=1, now=0.0)
+    assert claimed2["status"] == "claimed"
+
+
+# -- 6: heartbeat/mutacje vs status i zywosc lease ---------------------------
+
+def test_heartbeat_after_done_rejected():
+    q = TaskQueue()
+    c = make_claimed(q, now=0.0)
+    r = q.to_review(c["id"], "beta", 1, "r1", expected_version=c["version"], now=0.0)
+    q.done(c["id"], "beta", 1, "d1", expected_version=r["version"], now=0.0)
+    with pytest.raises(TaskError):
+        q.heartbeat(c["id"], "beta", 1, now=1.0)
+
+
+def test_heartbeat_on_expired_lease_rejects_and_expire_still_reopens():
+    q = TaskQueue(lease_ttl=10.0)
+    c = make_claimed(q, now=0.0)
+    with pytest.raises(TaskError):
+        q.heartbeat(c["id"], "beta", 1, now=11.0)   # lease wygasl, bez odnowienia
+    expired = q.expire(now=11.0)
+    assert [t["id"] for t in expired] == [c["id"]]
+
+
+def test_to_review_on_expired_claim_conflicts():
+    q = TaskQueue(lease_ttl=10.0)
+    c = make_claimed(q, now=0.0)
+    with pytest.raises(Conflict):
+        q.to_review(c["id"], "beta", 1, "c-rev", expected_version=c["version"], now=11.0)
