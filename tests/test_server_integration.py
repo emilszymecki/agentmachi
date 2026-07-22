@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import socket
+import time
 from pathlib import Path
 
 import pytest
@@ -1672,4 +1673,143 @@ def test_claim_at_snapshot_boundary_snapshot_internally_consistent(tmp_path):
                         lease_ttl=5.0, offer_timeout=30.0)
         assert s2.queue.get(tid)["status"] == "claimed"
         assert not any(k[1] == tid for k in s2._offer_cache)   # zero resurrekcji
+    asyncio.run(scenario())
+
+
+# -- expiry event-first: expire na klonie, durable append, potem swap --------
+
+def test_reap_expired_append_failure_leaves_live_untouched(tmp_path):
+    # (Runda 6) _reap_expired robil queue.expire() LIVE przed appendami
+    # task_expired — ten sam split-brain co mutacje: OSError na appendzie
+    # zostawial reopen w live bez trwalego faktu; blad w srodku paczki mieszal
+    # czesciowy log z live-stanem calej paczki. Fix (provisional-then-commit):
+    # expire na KLONIE, durable append task_expired, DOPIERO potem swap live=klon.
+    # Injekcja na 1. appendzie -> live NIETKNIETE (oba nadal claimed), zero
+    # eventow; po naprawie nastepny reap reopenuje oba, restart spojny.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        a, _ = await hello("alfa", "ta")
+        b, _ = await hello("beta", "tb")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        t1 = (await recv(a))["task"]["id"]
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n2", "card": {**CARD, "goal": "y"}}))
+        t2 = (await recv(a))["task"]["id"]
+        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                 "task_id": t1, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        assert (await recv(a))["task"]["status"] == "claimed"
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": t2, "command_id": "c2",
+                                 "expected_task_version": 1}))
+        assert (await recv(b))["task"]["status"] == "claimed"
+
+        future = time.time() + 1000    # oba lease dawno wygasle
+        orig = s1.log.append
+        calls = {"n": 0}
+
+        def flaky(frame):
+            if frame.get("type") == "task_expired":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise OSError("dysk pelny na pierwszym task_expired")
+            return orig(frame)
+
+        s1.log.append = flaky
+        seq_before = s1.log.last_seq
+        with pytest.raises(OSError):
+            s1._reap_expired(future)
+        # live NIETKNIETE: oba nadal claimed, zero eventow task_expired
+        assert s1.queue.get(t1)["status"] == "claimed"
+        assert s1.queue.get(t2)["status"] == "claimed"
+        assert s1.log.last_seq == seq_before
+
+        # po naprawie nastepny reap reopenuje OBA i appenduje
+        s1.log.append = orig
+        s1._reap_expired(future)
+        assert s1.queue.get(t1)["status"] == "open"
+        assert s1.queue.get(t2)["status"] == "open"
+        assert len([e for e in s1.log.events_after(seq_before)
+                    if e["type"] == "task_expired"]) == 2
+        await a.close(); await b.close()
+        await _crash_stop(s1)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        assert s2.queue.get(t1)["status"] == "open"
+        assert s2.queue.get(t2)["status"] == "open"
+    asyncio.run(scenario())
+
+
+# -- offer_resolved durable-first: append -> pop -> snapshot -----------------
+
+def test_resolve_offer_append_failure_keeps_offer_in_cache(srv):
+    # (Runda 6) _resolve_offer robil pop(_offer_cache) -> _append(offer_resolved).
+    # Append-fail usuwal oferte tylko LIVE (niedurable) -> restart resurrectowal
+    # pending; a offer_resolved na #100 snapshotowal PRZED popem (gdyby kolejnosc
+    # odwrocic naiwnie). Fix durable-first: _append_durable(offer_resolved)
+    # NAJPIERW, dopiero po sukcesie pop, na koncu _maybe_snapshot. Append-fail =>
+    # oferta zostaje w cache (spojnie z durable), retry dziala.
+    async def scenario(server):
+        await _kill_expiry(server)
+        task = server.queue.add(CARD, "c1", 0.0)
+        server._offer_activation_id("beta", task)
+        key = ("beta", task["id"], task["version"])
+        assert key in server._offer_cache
+        seq_before = server.log.last_seq
+
+        orig = server.log.append
+
+        def flaky(frame):
+            if frame.get("type") == "offer_resolved":
+                raise OSError("dysk pelny na offer_resolved")
+            return orig(frame)
+
+        server.log.append = flaky
+        with pytest.raises(OSError):
+            server._resolve_offer("beta", task["id"], task["version"], "timeout")
+        assert key in server._offer_cache          # oferta NADAL w cache
+        assert server.log.last_seq == seq_before    # zero eventu offer_resolved
+
+        server.log.append = orig                    # napraw
+        server._resolve_offer("beta", task["id"], task["version"], "timeout")
+        assert key not in server._offer_cache
+        assert [e for e in server.log.events_after(seq_before)
+                if e["type"] == "offer_resolved"]   # teraz trwaly
+    asyncio.run(srv(scenario))
+
+
+def test_offer_resolved_at_snapshot_boundary_no_resurrection(tmp_path):
+    # (Runda 6 — guard) offer_resolved dokladnie na granicy #100: durable-first
+    # (append -> pop -> snapshot) gwarantuje, ze snapshot #100 widzi cache JUZ
+    # bez oferty. restart: zero resurrekcji pending (chroni przed odwrotna,
+    # bledna kolejnoscia append->snapshot->pop).
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        await s1.start()
+        await _kill_expiry(s1)
+        ws, _ = await hello("alfa", "ta")
+        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                  "command_id": "n1", "card": CARD}))
+        task = (await recv(ws))["task"]
+        s1._offer_activation_id("beta", task)          # task_offer + pending
+        while s1._events_since_snapshot < 99:           # offer_resolved bedzie #100
+            s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
+        assert s1._events_since_snapshot == 99
+        s1._resolve_offer("beta", task["id"], task["version"], "timeout")
+        assert s1._events_since_snapshot == 0           # snapshot #100 strzelil
+        snap = json.loads((Path(tmp_path) / "snapshot.json").read_text())
+        assert [o for o in snap["state"]["offers"]
+                if o["task"]["id"] == task["id"]] == []  # oferta NIE w snapshocie
+        await ws.close()
+        await _crash_stop(s1)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        assert ("beta", task["id"], task["version"]) not in s2._offer_cache
     asyncio.run(scenario())

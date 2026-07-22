@@ -214,7 +214,14 @@ class ChatServer:
     async def _expiry_loop(self):
         while True:
             await asyncio.sleep(1.0)
-            self._reap_expired(time.time())
+            try:
+                self._reap_expired(time.time())
+            except Exception:
+                # (Runda 6) trwaly append task_expired moze paść (np. dysk
+                # pelny) — NIE zabijaj petli: provisional-then-commit gwarantuje
+                # ze live jest NIETKNIETE przy append-fail, wygasle taski
+                # zostaja claimed do nastepnej proby (bez utraty).
+                pass
 
     def _reap_expired(self, now):
         # (1) expiry jest TRWALYM, replayowalnym eventem — nie fyi. Kazdy
@@ -222,13 +229,24 @@ class ChatServer:
         # pelny stan taska po powrocie do open, zeby replay odtworzyl reopen
         # wprost (bez tego drugi claim po expire dawalby Conflict przy
         # restarcie — patrz apply_replayed).
-        expired = self.queue.expire(now)
+        # (Runda 6) event-first TEZ tutaj (provisional-then-commit): expire()
+        # LIVE przed appendem dawal ten sam split-brain co mutacje taskow —
+        # OSError na appendzie zostawial reopen w live bez trwalego faktu, a
+        # blad w srodku paczki mieszal czesciowy log z live-stanem calej paczki.
+        # Teraz: expire na KLONIE (walidacja + reopeny), durable append WSZYSTKICH
+        # task_expired, DOPIERO po sukcesie swap live=klon. Append-fail => live
+        # NIETKNIETE, cala paczka zostaje claimed do nastepnej petli (bez utraty).
+        trial = copy.deepcopy(self.queue)
+        expired = trial.expire(now)
+        if not expired:
+            return
         for task in expired:
-            self._append(protocol.make_frame(
+            self._append_durable(protocol.make_frame(
                 "task_expired", "server", time.time(),
                 task_id=task["id"], task_state=task))
-        if expired:
-            self._trigger_offer()
+        self.queue = trial       # commit: swap dopiero PO wszystkich appendach
+        self._maybe_snapshot()
+        self._trigger_offer()
 
     def _load_rules(self):
         path = self.log.dir / "rules.md"
@@ -708,14 +726,22 @@ class ChatServer:
         # appenduje TRWALY event offer_resolved — dla tych sciezek to JEDYNY
         # durable fakt resolution (nie ma task_claim). Sukces claim NIE idzie
         # tedy (patrz _drop_offers_for_task). Idempotentne: tylko jesli pending.
+        # (Runda 6) DURABLE-FIRST, ta sama kolejnosc co reszta transakcji:
+        # _append_durable(offer_resolved) NAJPIERW (bez snapshotu), DOPIERO po
+        # sukcesie pop z cache, na koncu _maybe_snapshot. Append-fail => oferta
+        # zostaje w cache (spojnie z durable-stanem), retry dziala. Bez tego
+        # pop-przed-appendem usuwal oferte tylko live (niedurable) -> restart
+        # resurrectowal pending; a snapshot na #100 miedzy popem a appendem
+        # kompaktowal task_offer przy nieutrwalonym offer_resolved.
         key = (nick, task_id, task_version)
         if key not in self._offer_cache:
             return
-        self._offer_cache.pop(key, None)
-        self._append(protocol.make_frame(
+        self._append_durable(protocol.make_frame(
             "offer_resolved", "server", time.time(),
             nick=nick, task_id=task_id, task_version=task_version,
             outcome=outcome))
+        self._offer_cache.pop(key, None)
+        self._maybe_snapshot()
 
     def _trigger_offer(self):
         if self._offering is None or self._offering.done():
