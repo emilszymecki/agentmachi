@@ -131,11 +131,13 @@ class ChatServer:
         # stanu — trwalosc byla teatrem. Replay stosuje te same mutacje
         # (queue/registry) co live, bez zadnych side-effectow sieciowych
         # (bez _send/_append — eventy juz sa na dysku).
-        self._replay_events()
+        # self.status MUSI istniec PRZED _replay_events() — replay eventow
+        # status nadpisuje stan przywrocony ze snapshotu (nowsze wygrywa)
         self.status = {}       # nick -> {state, task_id?, note?} (ostatnia deklaracja)
         if snap:
             self.status = {n: dict(v) for n, v in restored_status.items()
                            if isinstance(n, str) and isinstance(v, dict)}
+        self._replay_events()
         self.groups = {nick: set(self.registry.groups_of(nick))
                        for nick in self.registry.tokens}
         # (A3) licznik snapshot-co-100 liczy DALEJ od tego, co juz jest w

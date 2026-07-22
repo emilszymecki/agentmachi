@@ -2437,3 +2437,26 @@ def test_presence_pushed_to_human_on_connect_and_disconnect(srv):
         assert p_off["nick"] == "alfa" and p_off["connected"] is False
         await h.close()
     asyncio.run(srv(scenario))
+
+
+def test_status_survives_crash_restart_without_snapshot(srv):
+    """Regresja: replay eventow status PRZED init self.status crashowal
+    ChatServer przy restarcie bez snapshotu (AttributeError)."""
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 1.0, "state": "working",
+                                    "task_id": "t7"}))
+        await asyncio.sleep(0.1)
+        await ws_b.close()
+        # symulacja crasha: BEZ server.stop() (zero snapshotu) — kopiujemy
+        # data_dir zanim fixture zrobi clean stop
+        import shutil
+        crash_dir = server.log.dir.parent / "crash-copy"
+        shutil.copytree(server.log.dir, crash_dir)
+        return crash_dir
+
+    crash_dir = asyncio.run(srv(scenario))
+    reborn = ChatServer(data_dir=crash_dir, tokens=TOKENS, port=PORT + 2)
+    snap = {p["nick"]: p for p in reborn._participants_snapshot()}
+    assert snap["beta"]["status"] == {"state": "working", "task_id": "t7"}
