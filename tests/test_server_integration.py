@@ -334,3 +334,67 @@ def test_restart_restores_queue_and_registry_after_snapshot(tmp_path):
         finally:
             await s2.stop()
     asyncio.run(scenario())
+
+
+# -- G: brakujace przejscia w protokole — task_approve, task_unblock --------
+
+def test_task_approve_completes_review_cycle_via_frames(srv):
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        ok = await recv(a)
+        task_id = ok["task"]["id"]
+
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(b)
+        v = claimed["task"]["version"]
+
+        await b.send(json.dumps({"type": "task_done", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "d1",
+                                 "expected_task_version": v}))
+        reviewed = await recv(b)
+        assert reviewed["task"]["status"] == "review"
+        v = reviewed["task"]["version"]
+
+        await b.send(json.dumps({"type": "task_approve", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "ap1",
+                                 "expected_task_version": v}))
+        approved = await recv(b)
+        assert approved["type"] == "ok" and approved["task"]["status"] == "done"
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_task_unblock_frame_transitions_blocked_to_claimed(srv):
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        ok = await recv(a)
+        task_id = ok["task"]["id"]
+
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(b)
+        v = claimed["task"]["version"]
+
+        await b.send(json.dumps({"type": "task_blocked", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "bl1",
+                                 "expected_task_version": v}))
+        blocked = await recv(b)
+        assert blocked["task"]["status"] == "blocked"
+        v = blocked["task"]["version"]
+
+        await b.send(json.dumps({"type": "task_unblock", "from": "beta", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "ub1",
+                                 "expected_task_version": v}))
+        unblocked = await recv(b)
+        assert unblocked["type"] == "ok" and unblocked["task"]["status"] == "claimed"
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))

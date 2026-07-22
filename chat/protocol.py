@@ -4,7 +4,7 @@ import re
 FRAME_TYPES = {
     "hello", "chat", "fyi", "status", "backlog", "resync_required",
     "task_new", "task_offer", "task_claim", "task_done", "task_blocked",
-    "review_changes", "error", "ok",
+    "review_changes", "task_approve", "task_unblock", "error", "ok",
 }
 _MENTION = re.compile(r"(?:^|\s)@(\w+)")
 _GROUP = re.compile(r"(?:^|\s)\$(\w+)")

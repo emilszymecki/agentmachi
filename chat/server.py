@@ -43,6 +43,8 @@ _TASK_REQUIRED_FIELDS = {
     "task_done": ("task_id", "command_id", "expected_task_version"),
     "task_blocked": ("task_id", "command_id", "expected_task_version"),
     "review_changes": ("task_id", "command_id", "expected_task_version"),
+    "task_approve": ("task_id", "command_id", "expected_task_version"),
+    "task_unblock": ("task_id", "command_id", "expected_task_version"),
 }
 
 
@@ -304,10 +306,20 @@ class ChatServer:
                                           frame["command_id"],
                                           frame["expected_task_version"], now)
                 self._append({**frame, "result_version": result["version"]})
-            else:  # review_changes (od matki, bez ownera)
+            elif ftype == "review_changes":  # od matki, bez ownera
                 result = self.queue.request_changes(frame["task_id"],
                                                     frame["command_id"],
                                                     frame["expected_task_version"], now)
+                self._append({**frame, "result_version": result["version"]})
+            elif ftype == "task_approve":  # happy-end review: review -> done
+                result = self.queue.done(frame["task_id"], nick, sock_gen,
+                                         frame["command_id"],
+                                         frame["expected_task_version"], now)
+                self._append({**frame, "result_version": result["version"]})
+            else:  # task_unblock: blocked -> claimed
+                result = self.queue.unblock(frame["task_id"], nick, sock_gen,
+                                            frame["command_id"],
+                                            frame["expected_task_version"], now)
                 self._append({**frame, "result_version": result["version"]})
         except TaskError as e:  # Conflict/StaleGeneration sa jego podklasami
             await ws.send(json.dumps(protocol.make_frame(
