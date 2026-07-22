@@ -64,3 +64,32 @@ CLAUDE.md/AGENTS.md przy migracji docsów (po T4).
 - listener → msg1 → kill → msg2 (offline) → restart → msg2 zastosowane
   DOKŁADNIE raz, kursor monotoniczny.
 - osobno: duplikat tego samego `seq`/`activation_id` → suppress.
+
+## Delta z review klienta send.py (beta, f7ffb91)
+
+- **D2**: `do_hello` bez timeoutu na recv — zamrożony hub wiesza klienta
+  na zawsze (tryb awarii z incydentu 5f6fed9, wciąż otwarty). Fix:
+  `asyncio.wait_for` + czytelny błąd.
+- **D3**: `listen()` hardcoduje `role="human"`, `send_once` — `"agent"`;
+  ten sam nick przedstawia się różnie zależnie od trybu. Klient bierze
+  `CHAT_ROLE` (serwer i tak autorytatywnie nadaje z configu).
+- **D4 (motywacja-repro kontraktu sesji)**: wspólny `instance_id` dla
+  RÓŻNYCH nicków z jednego klona repo — to było dokładnie źródło
+  "tajemniczych hello" (wszystkie trzy miały ten sam instance_id).
+  Namespace sesji per hub+nick zamyka tę klasę.
+- **D5 (decyzja)**: po R7 każdy `send_once` appenduje trwały hello-event —
+  1 wiadomość = 2 eventy w logu. Hello-lite dla znanych (nick, instance)
+  albo świadoma akceptacja kosztu pod kompakcję.
+- **D6**: `CHAT_TOKEN` default `""` — czytelny lokalny błąd "brak
+  CHAT_TOKEN" przed połączeniem zamiast wysyłania pustego tokenu.
+- (D1 — listener ginie na malformed frame — wszedł do fix-packa B1.)
+
+## Delta z whole-branch review Opusa (do zrobienia W TYM zadaniu)
+
+- **ROZJAZD FORMATU `activation_id`**: `protocol.make_envelope` generuje
+  `nick:from-to` (nieużywane przez serwer), a `server._offer_event`
+  generuje `nick:seq` — DWA formaty. Ujednolicić na `nick:seq` (format
+  serwera, kotwiczony w trwałym evencie) ZANIM adapter podepnie envelope;
+  `make_envelope` przepisać albo usunąć.
+- **Dead code do sprzątnięcia przy okazji**: `identity.is_current` (:89)
+  i `protocol.make_envelope` — nieużywane; usunąć albo podpiąć świadomie.
