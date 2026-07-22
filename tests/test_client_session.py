@@ -92,12 +92,23 @@ def test_legacy_instance_migration(tmp_path):
     assert s2.instance_id and s2.instance_id != "stary-iid"
 
 
-def test_seen_activation_dedup_and_trim(tmp_path):
+def test_activation_check_does_not_mark(tmp_path):
+    """is_activation_applied to czysty odczyt — mark osobno, PO apply."""
     s = make(tmp_path)
-    assert s.seen_activation("beta:13") is False
-    assert s.seen_activation("beta:13") is True
+    assert s.is_activation_applied("beta:13") is False
+    assert s.is_activation_applied("beta:13") is False  # nadal nic nie zapisal
+    s.mark_activation("beta:13")
+    assert s.is_activation_applied("beta:13") is True
+    s.mark_activation("beta:13")  # idempotentne
+    state = json.loads(s.path.read_text())
+    assert state["applied_activations"].count("beta:13") == 1
+
+
+def test_mark_activation_trims_window(tmp_path):
+    s = make(tmp_path)
+    s.mark_activation("beta:13")
     for i in range(MAX_ACTIVATIONS + 10):
-        s.seen_activation(f"beta:{100 + i}")
+        s.mark_activation(f"beta:{100 + i}")
     state = json.loads(s.path.read_text())
     assert len(state["applied_activations"]) == MAX_ACTIVATIONS
     # najstarsze wypchniete z okna

@@ -92,7 +92,38 @@ def test_apply_frame_crash_between_apply_and_cursor_save(session, monkeypatch):
     assert session.last_applied_seq == 0
 
 
-def test_apply_hello_resync_moves_cursor_to_snapshot_seq(session):
+def test_apply_frame_crash_before_mark_does_not_lose_activation(
+        session, monkeypatch, capsys):
+    """Review-changes codexa (1): crash w apply ramki z activation_id NIE
+    zapisuje aktywacji — retry MUSI ja ponownie zastosowac, nie suppress."""
+    offer = {"from": "server", "type": "task_offer", "seq": 13,
+             "activation_id": "beta:13", "task": {}}
+    def boom(_):
+        raise RuntimeError("crash w apply")
+    monkeypatch.setattr(send, "_print_event", boom)
+    with pytest.raises(RuntimeError):
+        send.apply_frame(session, offer)
+    assert session.is_activation_applied("beta:13") is False
+    assert session.last_applied_seq == 0
+    monkeypatch.undo()
+    assert send.apply_frame(session, offer) is True  # retry APLIKUJE
+    assert "task_offer" in capsys.readouterr().out
+    assert session.is_activation_applied("beta:13") is True
+    assert session.last_applied_seq == 13
+
+
+def test_apply_hello_resync_emits_state_before_cursor(session, capsys):
+    """Review-changes codexa (2): resync APLIKUJE (emituje) stan, dopiero
+    potem przesuwa kursor — advance bez emisji = utrata stanu."""
+    send._apply_hello_reply(session, {"type": "resync_required",
+                                      "snapshot_seq": 42,
+                                      "state": {"queue": {"tasks": [1]}}})
+    out = capsys.readouterr().out
+    assert "resync_state" in out and '"tasks": [1]' in out
+    assert session.last_applied_seq == 42
+
+
+def test_apply_hello_resync_without_state_still_moves_cursor(session, capsys):
     send._apply_hello_reply(session, {"type": "resync_required",
                                       "snapshot_seq": 42})
     assert session.last_applied_seq == 42

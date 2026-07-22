@@ -175,21 +175,33 @@ class Session:
             self._state = disk
             return True
 
-    def seen_activation(self, activation_id):
-        """Trwaly klucz idempotencji wybudzen: True = duplikat (suppress).
-        Pierwsze wystapienie zapisuje i przycina okno do MAX_ACTIVATIONS."""
-        if not isinstance(activation_id, str) or not activation_id:
-            raise SessionError(f"invalid activation_id: {activation_id!r}")
+    def is_activation_applied(self, activation_id):
+        """Sam ODCZYT klucza idempotencji: True = juz zastosowana (suppress).
+        NICZEGO nie zapisuje — mark_activation() wolaj DOPIERO PO udanym
+        apply (crash miedzy apply a mark = retry ponowi apply, at-least-once;
+        odwrotna kolejnosc gubi aktywacje bezpowrotnie)."""
+        self._check_activation_id(activation_id)
         with self._state_lock():
             disk = self._reload_locked()
-            if activation_id in disk["applied_activations"]:
-                self._state = disk
-                return True
-            disk["applied_activations"].append(activation_id)
-            del disk["applied_activations"][:-MAX_ACTIVATIONS]
-            _atomic_write_0600(self.path, disk)
             self._state = disk
-            return False
+            return activation_id in disk["applied_activations"]
+
+    def mark_activation(self, activation_id):
+        """Zapisz aktywacje jako zastosowana (PO udanym apply); przycina
+        okno do MAX_ACTIVATIONS. Idempotentne."""
+        self._check_activation_id(activation_id)
+        with self._state_lock():
+            disk = self._reload_locked()
+            if activation_id not in disk["applied_activations"]:
+                disk["applied_activations"].append(activation_id)
+                del disk["applied_activations"][:-MAX_ACTIVATIONS]
+                _atomic_write_0600(self.path, disk)
+            self._state = disk
+
+    @staticmethod
+    def _check_activation_id(activation_id):
+        if not isinstance(activation_id, str) or not activation_id:
+            raise SessionError(f"invalid activation_id: {activation_id!r}")
 
     def _reload_locked(self):
         # pod lockiem: swiezy odczyt z dysku (inny proces mogl zapisac)

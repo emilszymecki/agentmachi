@@ -115,14 +115,18 @@ def apply_frame(session, data):
     if has_seq and seq <= session.last_applied_seq:
         return False  # duplikat/replay czegos juz zastosowanego
     activation_id = data.get("activation_id")
-    if (isinstance(activation_id, str) and activation_id
-            and session.seen_activation(activation_id)):
+    has_activation = isinstance(activation_id, str) and bool(activation_id)
+    if has_activation and session.is_activation_applied(activation_id):
         # duplikat wybudzenia (retransmisja tej samej proby) — suppress,
         # ale kursor przesuwamy, zeby nie odbierac go w kolko z backlogu
         if has_seq:
             session.advance(seq)
         return False
     _print_event(data)          # apply (dla CLI: emisja na stdout)
+    if has_activation:
+        session.mark_activation(activation_id)  # mark DOPIERO po apply —
+        # crash miedzy apply a mark = retry ponowi apply (at-least-once),
+        # odwrotna kolejnosc = suppress nigdy-nie-zastosowanej aktywacji
     if has_seq:
         session.advance(seq)    # kursor DOPIERO po apply
     return True
@@ -135,7 +139,12 @@ def _apply_hello_reply(session, reply):
     elif reply["type"] == "resync_required":
         snapshot_seq = reply.get("snapshot_seq")
         print(f"[resync] historia skompaktowana do seq={snapshot_seq}, "
-              "stosuje biezacy stan", file=sys.stderr)
+              "stosuje snapshot stanu", file=sys.stderr)
+        state = reply.get("state")
+        if state is not None:
+            # APPLY stanu PRZED przesunieciem kursora — advance bez emisji
+            # stanu to deklaracja "zastosowane" przy realnej utracie danych
+            _print_event({"type": "resync_state", "state": state})
         if (not isinstance(snapshot_seq, bool)
                 and isinstance(snapshot_seq, int) and snapshot_seq >= 1):
             session.advance(snapshot_seq)
@@ -179,6 +188,39 @@ async def listen(nick):
         session.release_listener_lock()
 
 
+async def heartbeat_loop(nick, task_id, interval):
+    """Procesik lease (mechanika ze specu): odnawiaj heartbeat co interval,
+    az do kill (worker ubija przy done). Blad serwera = koniec (nie odnawiaj
+    lease taska, ktorego juz nie posiadasz); reconnect przy padzie sieci."""
+    token = _require_token()
+    session = _session(nick)  # kursora NIE ruszamy (to nie listener)
+    backoff = BACKOFF_START
+    while True:
+        try:
+            async with websockets.connect(URI) as ws:
+                await do_hello(ws, nick, session, token)
+                backoff = BACKOFF_START
+                while True:
+                    await ws.send(json.dumps({
+                        "type": "heartbeat", "from": nick, "ts": 0.0,
+                        "task_id": task_id}))
+                    try:
+                        reply = json.loads(
+                            await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
+                    except asyncio.TimeoutError:
+                        reply = None  # serwer moze nie odsylac ok — jedziemy
+                    if isinstance(reply, dict) and reply.get("type") == "error":
+                        print(f"heartbeat odrzucony: {reply.get('text')}",
+                              file=sys.stderr)
+                        return 1
+                    await asyncio.sleep(interval)
+        except (websockets.exceptions.ConnectionClosed, OSError) as e:
+            print(f"[heartbeat-reconnect] {e}; ponawiam za {backoff:.0f}s",
+                  file=sys.stderr)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, BACKOFF_MAX)
+
+
 # --- tryb legacy: stary PoC-hub (czysty broadcast {from,text}, bez hello) ---
 
 async def legacy_send_once(nick, text):
@@ -207,10 +249,16 @@ def main():
                 sys.exit(1)
         elif args == ["--listen"]:
             asyncio.run(listen(os.environ.get("CHAT_NICK", "listener")))
+        elif args and args[0] == "--heartbeat" and len(args) in (2, 3):
+            interval = float(args[2]) if len(args) == 3 else 45.0
+            code = asyncio.run(heartbeat_loop(
+                os.environ.get("CHAT_NICK", "listener"), args[1], interval))
+            sys.exit(code or 0)
         elif len(args) == 2:
             asyncio.run(send_once(args[0], args[1]))
         else:
             print('usage: send.py <nick> "tekst"  |  send.py --listen  |  '
+                  'send.py --heartbeat <task_id> [interval]  |  '
                   'send.py --legacy ...', file=sys.stderr)
             sys.exit(1)
     except KeyboardInterrupt:
