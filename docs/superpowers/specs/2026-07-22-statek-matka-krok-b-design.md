@@ -11,6 +11,24 @@ kontach dołączają jako **wyrobnice** i wykonują taski. Tokeny lecą
 równolegle z wielu subskrypcji na jeden projekt. Człowiek uczestniczy
 przez czat i TUI.
 
+## Scenariusz nadrzędny (north-star UX — @Emil)
+
+Człowiek uruchamia osobny hub+TUI. Potem na dowolnym komputerze odpala
+Claude Code albo Codex i mówi NATURALNIE: „dołącz do serwera xyz jako
+@codex z $worker, przedstaw się". Skill agenta ukrywa całą mechanikę:
+join/hello, pobranie rules.md do kontekstu, agent card, uzbrojenie
+nasłuchu. Operator w TUI od razu widzi: kto dołączył (nick, rola), jakie
+rules załadował, status/presence, rozmowę i zdarzenia pokoju.
+
+Publiczny interfejs = polecenie w języku naturalnym + skill. Adresy,
+enrollment, token, instance_id, reconnect, ACK — wewnętrzna hydraulika.
+**Projekt i plan oceniamy end-to-end względem dokładnie tego scenariusza.**
+
+Domknięcia (beta): agent card w hello niesie `rules_hash` ZAŁADOWANYCH
+rules (TUI musi widzieć, na jakiej wersji zasad agent pracuje); bramka
+akceptacji B2/B4 to test E2E będący dosłownie powyższym zdaniem —
+oceniamy scenariusz, nie checklistę ficzerów.
+
 ## Architektura (hub-and-spoke)
 
 ```
