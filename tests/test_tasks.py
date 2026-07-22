@@ -166,3 +166,68 @@ def test_dump_restore_roundtrip():
     q2 = TaskQueue.restore(q.dump(), lease_ttl=10.0)
     assert q2.get(c["id"])["status"] == "claimed"
     assert len(q2.expire(now=11.0)) == 1      # lease przezyl podroz
+
+
+# -- walidacja karty w add ---------------------------------------------------
+
+def test_add_rejects_card_missing_required_fields():
+    q = TaskQueue()
+    with pytest.raises(TaskError):
+        q.add({"goal": "x"}, command_id="c1", now=0.0)
+
+
+def test_add_rejects_non_dict_card():
+    q = TaskQueue()
+    with pytest.raises(TaskError):
+        q.add({"x": object()}, command_id="c1", now=0.0)
+
+
+def test_add_rejects_unserializable_card_value_not_typeerror():
+    q = TaskQueue()
+    bad = dict(CARD, files=object())  # wszystkie pola obecne, jedna wartosc zla
+    with pytest.raises(TaskError):
+        q.add(bad, command_id="c1", now=0.0)
+
+
+def test_add_valid_card_still_works():
+    q = TaskQueue()
+    t = q.add(CARD, command_id="c1", now=0.0)
+    assert t["status"] == "open" and t["card"] == CARD
+
+
+# -- walidacja wejsc mutacji (_check_inputs) --------------------------------
+
+def test_claim_rejects_non_str_nick():
+    q = TaskQueue()
+    t = q.add(CARD, command_id="c1", now=0.0)
+    with pytest.raises(TaskError):
+        q.claim(t["id"], [], generation=1, command_id="c2",
+                expected_version=1, now=0.0)
+
+
+def test_claim_rejects_bool_generation():
+    q = TaskQueue()
+    t = q.add(CARD, command_id="c1", now=0.0)
+    with pytest.raises(TaskError):
+        q.claim(t["id"], "beta", generation=True, command_id="c2",
+                expected_version=1, now=0.0)
+
+
+def test_heartbeat_rejects_negative_generation():
+    q = TaskQueue()
+    c = make_claimed(q)
+    with pytest.raises(TaskError):
+        q.heartbeat(c["id"], "beta", generation=-1, now=1.0)
+
+
+def test_to_review_rejects_zero_expected_version():
+    q = TaskQueue()
+    c = make_claimed(q)
+    with pytest.raises(TaskError):
+        q.to_review(c["id"], "beta", 1, "c-rev", expected_version=0, now=1.0)
+
+
+def test_expire_rejects_non_finite_now():
+    q = TaskQueue()
+    with pytest.raises(TaskError):
+        q.expire(now=float("nan"))

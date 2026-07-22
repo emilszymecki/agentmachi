@@ -6,6 +6,7 @@ poza WIP). Zamrazanie egzekwuje serwer/kolejka, nie klient.
 """
 import copy
 import json
+import math
 
 
 class TaskError(Exception):
@@ -20,7 +21,12 @@ class StaleGeneration(TaskError):
     pass
 
 
+_UNSET = object()  # odroznia "pole nie dotyczy tej operacji" od realnego None
+
+
 class TaskQueue:
+    CARD_REQUIRED_FIELDS = ("goal", "acceptance", "verify", "files", "head", "brief")
+
     def __init__(self, wip_limit=3, lease_ttl=120.0, dedup_ttl=3600.0):
         self.wip_limit = wip_limit
         self.lease_ttl = lease_ttl
@@ -54,6 +60,44 @@ class TaskQueue:
         if not isinstance(command_id, str) or not command_id:
             raise TaskError(f"invalid command_id: {command_id!r}")
 
+    def _check_card(self, card):
+        if not isinstance(card, dict):
+            raise TaskError(f"invalid card: not a dict: {card!r}")
+        missing = [f for f in self.CARD_REQUIRED_FIELDS if f not in card]
+        if missing:
+            raise TaskError(f"invalid card: missing fields {missing}")
+        try:
+            return json.dumps(card, sort_keys=True)
+        except TypeError as e:
+            raise TaskError(f"invalid card: not JSON-serializable: {e}")
+
+    # Wspolny guard pol klienckich w mutacjach. Kazdy parametr domyslnie
+    # _UNSET -> pomijany (np. request_changes nie ma nick/generation).
+    # generation >= 0 (0 to legalny "brak generacji" jak w identity.Registry),
+    # expected_version >= 1 (wersje taska zaczynaja sie od 1) — rozne dolne
+    # granice, wiec nie da sie ich zlaczyc w jeden check.
+    def _check_inputs(self, nick=_UNSET, generation=_UNSET,
+                       expected_version=_UNSET, now=_UNSET):
+        if nick is not _UNSET:
+            if not isinstance(nick, str) or not nick:
+                raise TaskError(f"invalid nick: {nick!r}")
+        if generation is not _UNSET:
+            if (isinstance(generation, bool) or not isinstance(generation, int)
+                    or generation < 0):
+                raise TaskError(f"invalid generation: {generation!r}")
+        if expected_version is not _UNSET:
+            if (isinstance(expected_version, bool)
+                    or not isinstance(expected_version, int)
+                    or expected_version < 1):
+                raise TaskError(f"invalid expected_version: {expected_version!r}")
+        if now is not _UNSET:
+            try:
+                finite = math.isfinite(now)
+            except TypeError:
+                raise TaskError(f"invalid now: {now!r}")
+            if not finite:
+                raise TaskError(f"invalid now: {now!r}")
+
     def _get_task(self, task_id):
         if not isinstance(task_id, str) or not task_id:
             raise TaskError(f"invalid task_id: {task_id!r}")
@@ -65,7 +109,8 @@ class TaskQueue:
     # -- operacje ----------------------------------------------------------
     def add(self, card, command_id, now):
         self._check_command_id(command_id)
-        fingerprint = ("add", json.dumps(card, sort_keys=True), None, None, None)
+        serialized_card = self._check_card(card)
+        fingerprint = ("add", serialized_card, None, None, None)
         cached = self._dedup_get(command_id, fingerprint, now)
         if cached is not None:
             return cached
@@ -91,6 +136,8 @@ class TaskQueue:
 
     def claim(self, task_id, nick, generation, command_id, expected_version, now):
         self._check_command_id(command_id)
+        self._check_inputs(nick=nick, generation=generation,
+                            expected_version=expected_version, now=now)
         fingerprint = ("claim", task_id, nick, generation, expected_version)
         cached = self._dedup_get(command_id, fingerprint, now)
         if cached is not None:
@@ -105,6 +152,7 @@ class TaskQueue:
         return self._dedup_put(command_id, fingerprint, copy.deepcopy(task), now)
 
     def heartbeat(self, task_id, nick, generation, now):
+        self._check_inputs(nick=nick, generation=generation, now=now)
         task = self._get_task(task_id)
         self._check_owner(task, nick, generation)
         if not task["frozen"]:
@@ -114,6 +162,11 @@ class TaskQueue:
                 owner=None, from_status=None, **updates):
         self._check_command_id(command_id)
         nick, generation = owner if owner is not None else (None, None)
+        if owner is not None:
+            self._check_inputs(nick=nick, generation=generation,
+                                expected_version=expected_version, now=now)
+        else:
+            self._check_inputs(expected_version=expected_version, now=now)
         fingerprint = (op, task_id, nick, generation, expected_version)
         cached = self._dedup_get(command_id, fingerprint, now)
         if cached is not None:
@@ -156,6 +209,7 @@ class TaskQueue:
                              status="done", frozen=False, lease_until=None)
 
     def expire(self, now):
+        self._check_inputs(now=now)
         reopened = []
         for task in self._tasks.values():
             if (task["status"] == "claimed" and not task["frozen"]
