@@ -1126,3 +1126,46 @@ def test_offer_timeout_moves_to_next_worker(srv):
         for ws in (a, b, g):
             await ws.close()
     asyncio.run(srv(scenario))
+
+
+# == RUNDA 4 — spojnosc log/stan i walidacja inbound ========================
+
+# -- (1) cache-hit dedupu NIE moze tworzyc eventu mutacji -------------------
+
+def test_dedup_cache_hit_does_not_append_mutation_event(tmp_path):
+    # (1) task_new n1 -> open v1; claim c1 -> claimed v2; PONOW n1 (ten sam
+    # command_id) -> dedup cache-hit zwraca cached open v1. Cache-hit to
+    # ODPOWIEDZ dla klienta, NIE fakt do logu: gdyby serwer appendowal go
+    # jako nowy task_state event, replay po restarcie zaaplikowalby open v1
+    # PO claimed v2 i cofnal task. Test: retry po claim -> restart -> stan
+    # zostaje claimed v2, tail logu bez zdublowanego task_new.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=0.3)
+        await s1.start()
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        tid = (await recv(a))["task"]["id"]
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": tid, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(b)
+        assert claimed["task"]["status"] == "claimed" and claimed["task"]["version"] == 2
+
+        seq_before_retry = s1.log.last_seq
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))    # PONOW n1
+        retried = await recv(a)
+        assert retried["type"] == "ok"                 # klient dostaje odpowiedz (cached)
+        assert retried["task"]["status"] == "open"     # cached stary wynik
+        assert s1.log.last_seq == seq_before_retry     # cache-hit NIE dopisuje eventu
+        await a.close(); await b.close()
+        await _crash_stop(s1)                           # BEZ snapshotu
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=0.3)
+        t = s2.queue.get(tid)
+        assert t["status"] == "claimed" and t["version"] == 2  # NIE cofniete do open v1
+    asyncio.run(scenario())

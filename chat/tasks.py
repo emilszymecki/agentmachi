@@ -39,6 +39,13 @@ class TaskQueue:
         self._tasks = {}      # id -> task dict
         self._results = {}    # command_id -> (fingerprint, deepcopy wyniku)
         self._next_id = 0
+        # (Runda 4 #1) osobny sygnal dla serwera: czy OSTATNIA mutacja o danym
+        # command_id byla dedup cache-hitem (True) czy faktyczna mutacja
+        # (False). Cache-hit to ODPOWIEDZ dla klienta, NIE fakt do logu —
+        # serwer appenduje trwaly task_state event TYLKO gdy last_dedup_hit
+        # jest False (inaczej replay po restarcie cofalby stan). Ustawiany
+        # wylacznie w _dedup_get (jedyna brama hit/miss dla wszystkich mutacji).
+        self.last_dedup_hit = False
 
     # -- dedup ------------------------------------------------------------
     # Wpis dedup to (fingerprint, deepcopy wyniku). Bez TTL w B1: retencja
@@ -51,12 +58,16 @@ class TaskQueue:
     def _dedup_get(self, command_id, fingerprint):
         hit = self._results.get(command_id)
         if hit is None:
+            self.last_dedup_hit = False   # miss -> ta operacja bedzie mutacja
             return None
         cached_fingerprint, result = hit
         if cached_fingerprint != fingerprint:
+            # reuse command_id z INNA operacja to bug klienta — zostaw
+            # last_dedup_hit bez zmiany (i tak rzucamy, serwer nic nie appenduje)
             raise Conflict(
                 f"command_id {command_id!r} reuse z inna operacja: "
                 f"{cached_fingerprint} != {fingerprint}")
+        self.last_dedup_hit = True        # cache-hit -> odpowiedz, nie mutacja
         return copy.deepcopy(result)
 
     def _dedup_put(self, command_id, fingerprint, result):

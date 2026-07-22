@@ -509,19 +509,27 @@ class ChatServer:
                 "error", "server", now, command_id=command_id,
                 text=f"{type(e).__name__}: {e}")))
             return
-        # (2) trwaly event result-based: niesie PELNY stan taska po mutacji
-        # (task_state) + fingerprint dedup — replay stosuje stan WPROST przez
-        # apply_replayed (bez re-walidacji WIP/lease/CAS ani zaleznosci od
-        # biezacej polityki) i odtwarza wpis dedup.
-        self._append({**frame, "task_state": result,
-                      "fingerprint": self.queue.fingerprint_for(frame["command_id"])})
-        if ftype == "task_new":
-            self._trigger_offer()
-        elif ftype == "task_claim" and nick in self.idle:
-            self.idle.remove(nick)
+        # (Runda 4 #1) dedup cache-hit to ODPOWIEDZ dla klienta, NIE fakt do
+        # logu. Gdy queue zwrocila WYNIK Z CACHE (retry tego samego
+        # command_id), faktyczna mutacja NIE zaszla — appendowanie go jako
+        # nowego task_state eventu cofaloby stan przy replay (event z cached
+        # open v1 zaaplikowany PO claimed v2). Odsylamy idempotentne ok bez
+        # zadnego zapisu ani side-effectow (offer/idle/notify).
+        cached = self.queue.last_dedup_hit
+        if not cached:
+            # (2) trwaly event result-based: niesie PELNY stan taska po
+            # mutacji (task_state) + fingerprint dedup — replay stosuje stan
+            # WPROST przez apply_replayed (bez re-walidacji WIP/lease/CAS ani
+            # zaleznosci od biezacej polityki) i odtwarza wpis dedup.
+            self._append({**frame, "task_state": result,
+                          "fingerprint": self.queue.fingerprint_for(frame["command_id"])})
+            if ftype == "task_new":
+                self._trigger_offer()
+            elif ftype == "task_claim" and nick in self.idle:
+                self.idle.remove(nick)
         await ws.send(json.dumps(protocol.make_frame(
             "ok", "server", now, command_id=command_id, task=result)))
-        if ftype == "review_changes":
+        if not cached and ftype == "review_changes":
             await self._send(result["assignee"], protocol.make_frame(
                 "review_changes", "server", now, task=result))
 
