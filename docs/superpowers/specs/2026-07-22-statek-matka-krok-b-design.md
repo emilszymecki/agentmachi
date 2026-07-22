@@ -146,20 +146,21 @@ bez zmian auth/ról; worker — claim/heartbeat/blocked/done; wszyscy —
 chat/status. Kontrakt ról wchodzi w B1 (retrofitting RBAC po
 implementacji endpointów jest droższy); workflow peer-review — B2.
 
-**Rules w obiegu**: rules + `rules_hash`/`rules_version` (+
-`effective_at_seq`) idą w hello i activation envelope; edycja configu →
-typowane `rules_changed`, a komenda mutująca ze starym rules_hash może
-dostać `rules_stale` + świeży envelope (serwer nie interpretuje treści —
-gwarantuje tylko, że nikt świadomie nie pracuje na starej konstytucji).
+**Rules — finalna prostota (korekta @Emil)**: miękkie zasady żyją w
+osobnym pliku `rules.md` przy hubie. Hello/karta wejściowa wskazuje plik
+albo zwraca jego treść; skill agenta czyta aktualną wersję przy
+join/resume, wprowadza do kontekstu i respektuje. Serwer NIE
+interpretuje rules, NIE wiąże ich z permission matrix, żadnego
+`rules_stale` w protokole. Opcjonalny hash służy wyłącznie wykrywaniu
+zmiany/cache. Rules zmienia wyłącznie lokalny człowiek (plik); czat ani
+agent-admin nie mogą ich nadpisać; adapter podaje je modelowi zawsze
+PONIŻEJ hierarchii system/safety harnessa. BRIEF co najwyżej linkuje do
+rules.md — nie kopiuje.
 
 **Granice (codex)**: hub.toml NIE przechowuje wydanych tokenów ani żywego
-stanu kolejki (osobny trwały registry/state). Rules zmienia wyłącznie
-lokalny człowiek przez config — agent-admin ani wiadomość na czacie nie
-mogą ich nadpisać; adapter podaje je modelowi jako instrukcję operatora,
-zawsze PONIŻEJ hierarchii system/safety harnessa (protokół nie obiecuje
-jej obejścia). BRIEF nie jest drugim źródłem rules — co najwyżej
-read-only projekcja z hashem. Reload configu atomowy, last-known-good:
-błąd TOML nie zeruje uprawnień, tylko odrzuca reload i alarmuje TUI.
+stanu kolejki (osobny trwały registry/state). Reload configu atomowy,
+last-known-good: błąd TOML nie zeruje uprawnień, tylko odrzuca reload
+i alarmuje TUI.
 - Świadomie przesunięte: jeden trwały socket na klienta (B2), pełne
   fencing tokeny i per-frame ACK (dopiero gdy skala/bugi zażądają — YAGNI).
 
