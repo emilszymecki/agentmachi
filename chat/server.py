@@ -446,8 +446,12 @@ class ChatServer:
             return True  # zamknij petle tego (juz nieaktualnego) polaczenia
         err = protocol.validate(frame)
         if err:
+            # (Runda 4 #5) walidacja schematu per typ wyprzedza _on_task_frame,
+            # wiec error MUSI niesc command_id (dla task_*), by klient mogl
+            # skorelowac odrzucenie (None dla typow bez command_id — nieszkodliwe).
             await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", time.time(), text=err)))
+                "error", "server", time.time(),
+                command_id=frame.get("command_id"), text=err)))
             return False
         # niezmiennik D: pola autorytatywne (seq/generation/groups/role) nadaje
         # WYLACZNIE serwer — kazda ramka klienta jest tu oczyszczana zanim

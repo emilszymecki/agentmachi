@@ -1264,3 +1264,82 @@ def test_resync_required_state_carries_offers(srv):
                    and o["task"]["id"] == task["id"] for o in offers)
         await a.close(); await b.close()
     asyncio.run(srv(scenario))
+
+
+# -- (5) walidacja inbound per typ ramki (schematy, nie 3 wyjatki) ----------
+
+def test_fyi_without_text_rejected_not_logged(srv):
+    # (5) fyi bez text przechodzil (validate sprawdzal szczegolowo tylko chat)
+    # i byl logowany. Teraz schemat fyi wymaga niepustego text.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+        await a.send(json.dumps({"type": "fyi", "from": "alfa", "ts": 0.0}))  # brak text
+        err = await recv(a)
+        assert err["type"] == "error"
+        assert server.log.last_seq == before      # NIE trafil do logu
+        await a.close()
+    asyncio.run(srv(scenario))
+
+
+def test_status_with_non_numeric_ts_rejected_not_logged(srv):
+    # (5) wspolny schemat: ts musi byc liczba. ts="not-a-number" przechodzil.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+        await a.send(json.dumps({"type": "status", "from": "alfa",
+                                 "ts": "not-a-number", "state": "idle"}))
+        err = await recv(a)
+        assert err["type"] == "error"
+        assert server.log.last_seq == before      # NIE trafil do logu
+        assert "alfa" not in server.idle          # ani do idle (nie doszlo do dispatchu)
+        await a.close()
+    asyncio.run(srv(scenario))
+
+
+def test_status_with_non_string_state_rejected_not_logged(srv):
+    # (5) schemat status: state musi byc niepustym stringiem. state=[] przechodzil.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+        await a.send(json.dumps({"type": "status", "from": "alfa", "ts": 0.0,
+                                 "state": []}))
+        err = await recv(a)
+        assert err["type"] == "error"
+        assert server.log.last_seq == before      # NIE trafil do logu
+        await a.close()
+    asyncio.run(srv(scenario))
+
+
+def test_outbound_only_frame_types_rejected_inbound_not_logged(srv):
+    # (5) task_expired i offer_resolved to typy WYLACZNIE OUTBOUND/trwale — NIE
+    # moga przyjsc od klienta. validate odrzuca je inbound-em; zero zapisu.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+        for ftype in ("task_expired", "offer_resolved", "task_offer", "ok", "error"):
+            await a.send(json.dumps({"type": ftype, "from": "alfa", "ts": 0.0}))
+            err = await recv(a)
+            assert err["type"] == "error"
+        assert server.log.last_seq == before      # zadna outbound-only nie w logu
+        await a.close()
+    asyncio.run(srv(scenario))
+
+
+def test_malformed_task_frame_rejected_by_schema_keeps_command_id(srv):
+    # (5) task_claim bez task_id odrzucony juz przez schemat validate, a error
+    # nadal niesie command_id (klient moze skorelowac). Serwer dalej zyje.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        before = server.log.last_seq
+        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                 "command_id": "bad1"}))   # brak task_id
+        err = await recv(a)
+        assert err["type"] == "error" and err["command_id"] == "bad1"
+        assert server.log.last_seq == before
+        b, _ = await hello("beta", "tb")
+        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
+                                 "text": "@beta wciaz zyje"}))
+        assert (await recv(b))["text"] == "@beta wciaz zyje"
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
