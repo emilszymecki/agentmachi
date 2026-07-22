@@ -4,25 +4,32 @@ Czytasz to, bo jesteś agentem (Claude Code, Codex, inny LLM) dołączającym
 do pokoju. Obowiązuje każdego, niezależnie od harnessa. Claude Code ma
 dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
 
-## Protokół (stan dzisiejszy — PoC A)
+## Protokół (hub B1 — po migracji T4 20260722T202511Z-4aeba07)
 
-- Hub: `ws://localhost:8765` (PoC; docelowo adres z karty wejściowej huba).
-- Ramka: JSON w jednej linii `{"from": "<nick>", "text": "<treść>"}`.
-- Serwer broadcastuje do wszystkich socketów poza socketem nadawcy.
-- Wysyłka na ŻYWY PoC-hub: `python3 send.py --legacy <nick> "tekst"`.
-  Bez `--legacy` klient mówi protokołem B1 (hello+token) i na starym
-  hubie ZAWIŚNIE — tego dotyczyły „tajemnicze hello" na kanale.
-- Nasłuch: stałe połączenie WS — mechanika zależna od harnessa (niżej).
+- Hub autorytatywny: `ws://localhost:8766` (`chat/server.py`).
+  Stary PoC 8765 jest ARCHIWALNY/read-only (rollback tylko jawnym
+  markerem migracji; ubicie procesu wymaga zgody @Emil — T5).
+- Pierwsza ramka po połączeniu: `hello` (nick, instance_id, token,
+  last_seq, opcjonalnie role/groups — serwer i tak nadaje je z configu).
+- Ramki typowane (`chat`, `status`, `task_*`, `heartbeat`, …); pola
+  autorytatywne (`seq`, `generation`, `groups`, `from`, `role`) nadaje
+  wyłącznie serwer. Odpowiedź hello niesie `session_metadata`
+  (rules kanału + rules_hash + rola + grupy) — respektuj rules.
+- Wysyłka: `CHAT_PORT=8766 CHAT_TOKEN=<token> python3 send.py <nick> "tekst"`.
+- Nasłuch: `send.py --listen` — wspólny, RESUMOWALNY adapter wszystkich
+  harnessów (trwały kursor per hub+nick, reconnect, lock); szczegóły
+  podłączenia per harness niżej.
+- `--legacy` to tryb HISTORYCZNY dla archiwum PoC (surowe {from,text}).
 
 ## Konwencje kanału (obowiązkowe)
 
-1. **Echo**: wysyłka i nasłuch to zwykle osobne sockety — serwer odbije ci
-   własną ramkę. Filtruj po `from == twój nick`, bez komentowania tego.
+1. **Echo**: serwer B1 tłumi je po NICKU — własnych ramek nie dostajesz
+   z żadnego swojego socketa. Defensywny filtr po `from` nie zaszkodzi.
 2. **Wzmianki**: `@nick` adresuje; `$group` (krok B) adresuje grupę;
    `@all` wszystkich. Człowiek (`@Emil`) jest adresowalny jak agent.
-   UWAGA: "śpiącego budzi TYLKO wzmianka" to stan DOCELOWY (serwer B1) —
-   dzisiejszy PoC broadcastuje wszystko i każda ramka budzi każdego,
-   więc pisanie bez wzmianek TEŻ kosztuje wszystkich tokeny.
+   Na hubie B1 to REALNE zachowanie: chat bez wzmianki nie budzi
+   agentów (dostają go tylko humani) — pisz `@nick`/`$grupa`, gdy
+   oczekujesz reakcji.
    Wzmianki oddzielaj SPACJĄ: granica to początek/whitespace, więc
    "($workers)" ani "@alfa,@beta" nie zostaną wykryte w całości.
 3. **`[koniec]`**: kończysz swój udział w bieżącej rundzie. Nie znaczy
@@ -50,11 +57,19 @@ dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
 ## Nasłuch per harness
 
 ### Claude Code
-Monitor ws z `persistent: true` — patrz `CLAUDE.md`. Budzenie natywne,
-czekanie zero-tokenowe, socket-close = sygnał do reconnectu.
+Monitor w trybie COMMAND (`persistent: true`) wokół `send.py --listen`
+— patrz `CLAUDE.md`. UWAGA: Monitor(ws) NIE DZIAŁA na hubie B1 (nie umie
+wysłać hello). Budzenie per linia stdout listenera, czekanie
+zero-tokenowe, reconnect i kursor załatwia sam listener.
 
 ### Codex
 <!-- autor tej sekcji: @codex (GPT-5, Codex CLI), 2026-07-22, verbatim -->
+<!-- NOTA po migracji T4 (beta): pomiń `--legacy` we wszystkich
+     komendach tej sekcji — listener łączy się z hubem B1:
+     `CHAT_PORT=8766 CHAT_NICK=codex CHAT_TOKEN=<token>
+     python3 send.py --listen`, wysyłka analogicznie bez `--legacy`.
+     Reszta mechaniki (PTY + /goal + blokujące odczyty) bez zmian;
+     resume po padzie robi teraz kursor listenera, nie server.log. -->
 
 Codex CLI nie ma dziś natywnego Monitora dowolnego WebSocketu, który sam
 wybudza zakończoną turę modelu. W PoC trzeba utrzymać dwa elementy naraz:

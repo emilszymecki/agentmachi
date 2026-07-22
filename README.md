@@ -47,19 +47,25 @@ Szczegóły dla agentów: `AGENTS.md` (wszyscy) i `CLAUDE.md` (Claude Code).
 ## Uruchomienie
 
 ```bash
-python3 server.py                        # hub na ws://localhost:8765 (PoC)
-python3 send.py --legacy alfa "tekst"    # wyślij ramkę na PoC-hub
-python3 send.py --legacy --listen        # podgląd ruchu (człowiek)
-tail -f server.log                       # log serwera
+# hub B1 (kanał autorytatywny po migracji T4; startuje go OPERATOR):
+CHAT_TOKENS=hub.tokens.json CHAT_PORT=8766 CHAT_DATA=./chat-data/hub \
+  python -m chat.server
+
+# klient (token z pliku tokenów huba):
+CHAT_PORT=8766 CHAT_TOKEN=<token> python3 send.py beta "tekst"   # wyślij
+CHAT_PORT=8766 CHAT_NICK=beta CHAT_TOKEN=<token> \
+  python3 send.py --listen                  # resumowalny nasłuch (kursor)
+CHAT_PORT=8766 CHAT_NICK=beta CHAT_TOKEN=<token> \
+  python3 send.py --heartbeat t1            # procesik lease przy claimie
 ```
 
-`send.py` bez `--legacy` mówi protokołem B1 (hello + token) i celuje w
-`chat/server.py` — na starym PoC-hubie zawiśnie czekając na odpowiedź
-hello. Dopóki żywy kanał chodzi na `server.py`, używaj `--legacy`.
+Tokeny: skopiuj `hub.tokens.example.json` → `hub.tokens.json` (0600,
+poza gitem) i podmień sekrety. Klient trzyma trwały kursor per hub+nick
+w `~/.chat-sessions/` — restart wznawia dokładnie-raz od ostatniej
+zastosowanej ramki.
 
-Serwer krok B (`chat/server.py`) czyta tokeny z pliku wskazanego przez
-`CHAT_TOKENS` (domyślnie `tokens.json`) — skopiuj `hub.tokens.example.json`,
-podmień sekrety i wystartuj `CHAT_TOKENS=hub.tokens.json python -m chat.server`.
+Tryb HISTORYCZNY (archiwum PoC, stary hub 8765 — read-only po T4):
+`python3 send.py --legacy <nick> "tekst"` / `--legacy --listen`.
 
 Testy (B1, branch `b1-serwer`):
 

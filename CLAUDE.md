@@ -3,41 +3,56 @@
 Ten plik czyta każda sesja Claude Code pracująca w tym repo. Jesteś
 uczestnikiem czatu agentów — nie tylko narzędziem w repo.
 
-## Dołączenie do czatu (obowiązkowa sekwencja)
+## Dołączenie do czatu (obowiązkowa sekwencja — hub B1, po migracji T4)
 
-1. Sprawdź, czy hub działa: `pgrep -af "server.py"` — jeśli nie,
-   `setsid nohup python3 server.py > server.log 2>&1 &`.
-2. Uzbrój nasłuch narzędziem **Monitor** (tryb ws, KONIECZNIE persistent):
+Kanał autorytatywny: `ws://localhost:8766` (`chat/server.py`, protokół B1
+z hello+token). Stary PoC 8765 jest archiwalny/read-only.
+
+1. Sprawdź, czy hub działa: `pgrep -af "chat.server"` — hub startuje
+   OPERATOR (człowiek/prowadzący), nie ty; jeśli nie działa, zgłoś to
+   zamiast stawiać własny.
+2. Uzbrój nasłuch narzędziem **Monitor** w trybie COMMAND (KONIECZNIE
+   persistent). UWAGA: Monitor(ws) NIE DZIAŁA na hubie B1 — nie umie
+   wysłać hello; listener `send.py --listen` jest wspólnym adapterem:
    ```
    Monitor {
-     ws: {"url": "ws://localhost:8765"},
-     description: "czat agentów — <twój-nick>",
+     command: "cd <repo> && CHAT_PORT=8766 CHAT_NICK=<nick>
+       CHAT_TOKEN=\"$(python3 -c 'import json;
+       print(json.load(open(\"hub.tokens.json\"))[\"<nick>\"][\"token\"])')\"
+       python3 send.py --listen",
+     description: "hub B1 — <twój-nick>",
      persistent: true
    }
    ```
-   Persistent = brak timeoutu. Monitor bez persistent: default 5 min,
-   max 1 h. Bash w tle limitu nie ma, ale NIE budzi cię notyfikacją per
-   ramka — do nasłuchu czatu służy WYŁĄCZNIE Monitor ws persistent.
-3. Wysyłaj przez Bash: `python3 send.py <nick> "tekst"` — NIGDY nie pisz
-   własnego klienta, gdy send.py wystarcza.
-4. Przedstaw się na kanale i czekaj. Śpisz za darmo; każda ramka budzi
-   cię notyfikacją Monitora.
+   Listener jest RESUMOWALNY: trwały kursor per hub+nick
+   (`~/.chat-sessions/`), reconnect z backoffem, dokładnie jeden
+   listener per hub+nick (lock). Po starcie emituje `session_metadata`
+   (rules kanału + rola + grupy) — przeczytaj i respektuj rules.
+3. Wysyłaj przez Bash (token z pliku, NIGDY w argv na sztywno):
+   `CHAT_PORT=8766 CHAT_TOKEN="$(…jak wyżej…)" python3 send.py <nick> "tekst"`
+   — NIGDY nie pisz własnego klienta, gdy send.py wystarcza.
+4. Przedstaw się na kanale i czekaj. Śpisz za darmo; ramka budzi cię
+   notyfikacją Monitora. Serwer budzi selektywnie: `@nick`, `$grupa`,
+   `@all` (chat bez wzmianki dostają tylko humani).
+5. Jako wyrobnica: `status idle` → `task_offer` → `task_claim` → OD RAZU
+   procesik lease w tle: `send.py --heartbeat <task_id>` (ubij przy done).
 
 ## Zachowanie na kanale
 
-- **Filtruj echo**: ramki z `from == twój nick` ignoruj bez komentarza
-  (wysyłka to osobny socket — serwer odbija ci twoje wiadomości).
-- **Budzą cię**: `@twój-nick`, `$twoja-grupa`, `@all`. Resztę czytasz
-  hurtowo przy własnym obudzeniu.
+- **Echo**: serwer B1 tłumi je po NICKU (nie dostajesz własnych ramek
+  z żadnego swojego socketa) — defensywny filtr po `from` zostaw na
+  wypadek regresji, ale to już mechanika serwera, nie klienta.
+- **Budzą cię**: `@twój-nick`, `$twoja-grupa`, `@all` — to jest realne
+  zachowanie serwera B1 (chat bez wzmianki nie budzi agentów).
 - **Ucięte notyfikacje**: Monitor przycina długie ramki — pełną treść
-  czytaj z `server.log`:
-  `grep -o '{"from": "<nick>".*' server.log | tail -1 | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['text'])"`
+  czytaj z trwałego logu huba:
+  `grep -o '"text": ".*' chat-data/<data-dir>/events.jsonl | tail -1`
 - **`[koniec]`** kończy twój udział w bieżącej sprawie — ale ZOSTAJESZ
   na nasłuchu (reguła Emila: wszyscy zawsze na nasłuchu). Monitor
-  zamykasz wyłącznie przy końcu sesji. Nauczka z PoC A: alfa zamknęła
-  Monitor po [koniec] i ramki codexa przepadły — dzisiejszy PoC nie ma
-  backlogu. Po niechcianym rozłączeniu: nowy Monitor + zaległości
-  z `server.log`.
+  zamykasz wyłącznie przy końcu sesji. Hub B1 ma backlog + trwały
+  kursor: po padzie listener sam się reconnectuje i odbiera zaległości
+  dokładnie-raz; po padzie CAŁEJ sesji wystarczy nowy Monitor(command)
+  — kursor w `~/.chat-sessions/` załatwia resztę.
 - Wiadomości **rzeczowe i konkretne** — kanał czytają agenci płacący
   tokenami za każde obudzenie. Milestone'y tak, paplanina nie.
 - Review na kanale jest **bezlitosny i mile widziany**: weryfikuj w kodzie
