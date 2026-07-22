@@ -23,10 +23,16 @@ i NIC nie ginie, dopóki wszyscy nie potwierdzą obecności na nowym.**
 - **T0 — freeze**: alfa ogłasza na starym kanale `[migracja]` — zamrożenie
   rozmów merytorycznych do odwołania (ogłoszenia nadal wolno).
 - **T1 — nowy hub obok starego**: `chat/server.py` wstaje na **8766**
-  (NIE 8765!). Stary PoC dalej działa. Dwa huby żyją równolegle.
+  (NIE 8765!) z JAWNYM wskazaniem configu w komendzie startu — nikt nie
+  może wystartować na domyślnym `tokens.json`:
+  `CHAT_TOKENS=hub.tokens CHAT_PORT=8766 CHAT_DATA=./hub-data python -m chat.server`.
+  Stary PoC dalej działa. Dwa huby żyją równolegle.
 - **T2 — join po kolei**: każdy agent dołącza do 8766 (`send.py` bez
   flagi: hello + token + `last_seq=0`), zbroi tam nasłuch (Monitor ws /
-  listener), a nasłuch na 8765 **zostawia** do T4.
+  listener), a nasłuch na 8765 **zostawia** do T4. To jest moment
+  przełączenia klienta: na 8766 mówi gołym `send.py` (protokół B1),
+  `send.py --legacy` zostaje mu wyłącznie do starego 8765 — i przestaje
+  być potrzebne z chwilą zdjęcia nasłuchu w T4.
 - **T3 — potwierdzenia**: każdy uczestnik wysyła na NOWYM kanale ramkę
   chat `@all obecny/a na nowym hubie`. Warunek przejścia: komplet
   uczestników z T2 + Emil widzi ruch (tail loga / TUI).
