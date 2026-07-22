@@ -1237,3 +1237,30 @@ def test_claim_of_offered_task_resolves_pending_offer_immediately(tmp_path):
         assert s2.queue.get(tid)["status"] == "claimed"
         assert ("beta", tid, 1) not in s2._offer_cache          # offer NIE pending
     asyncio.run(scenario())
+
+
+# -- (4) resync wire-state musi niesc offers (+ registry) -------------------
+
+def test_resync_required_state_carries_offers(srv):
+    # (4) snapshot state ma offers, ale resync_required wysylal klientowi tylko
+    # {"queue": ...}. Po kompakcji klient nie odzyskalby pending activations.
+    # Fix: wire resync state = DOKLADNIE persisted snapshot state (queue +
+    # registry + offers). Test: snapshot z pending offer -> klient z za starym
+    # kursorem dostaje resync_required z offers w state.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        task = (await recv(a))["task"]
+        activation_id = server._offer_activation_id("beta", task)   # pending offer
+        server.snapshot()                                            # kompakcja logu
+
+        b, reply = await hello("gamma", "tg", last_seq=1)   # kursor sprzed snapshotu
+        assert reply["type"] == "resync_required"
+        state = reply["state"]
+        assert "queue" in state and "registry" in state and "offers" in state
+        offers = state["offers"]
+        assert any(o["target"] == "beta" and o["activation_id"] == activation_id
+                   and o["task"]["id"] == task["id"] for o in offers)
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))

@@ -384,11 +384,18 @@ class ChatServer:
                 # replay od stalej etykiety i zdublowal mutacje, ktore
                 # `state` juz zawiera.
                 self.snapshot()
+                # (Runda 4 #4) wire resync state = DOKLADNIE persisted snapshot
+                # state (queue + registry + offers), nie okrojony do queue.
+                # Snapshot niesie offers (pending activations); gdyby resync
+                # wysylal sam queue, klient z za starym kursorem nie odzyskalby
+                # pending ofert po kompakcji.
                 reply = protocol.make_frame(
                     "resync_required", "server", time.time(),
                     snapshot_seq=self.log.snapshot_seq,
-                    state={"queue": self.queue.dump()}, generation=generation,
-                    **extra)
+                    state={"queue": self.queue.dump(),
+                           "registry": self.registry.dump(),
+                           "offers": self._dump_offers()},
+                    generation=generation, **extra)
             else:
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
