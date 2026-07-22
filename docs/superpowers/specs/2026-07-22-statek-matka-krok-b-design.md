@@ -221,8 +221,14 @@ statusami agentów, log zdarzeń. Człowiek jest zwykłym klientem WS
    ramki, zasady budzenia i wzmianek, tłumienie echa po nicku, kolejka
    tasków z lease + CAS (command_id, task_version) + zrzut JSON, room_seq
    z trwałym logiem i retencją, resume z last_seq, tokeny agentów.
-   Testy pytest (rozbudowa test_chat.py), w tym scenariusze
-   reconnect/restart/split-brain.
+   Testy pytest (rozbudowa test_chat.py) pisane RAZEM z kodem (warunek
+   bety i codexa). **Bramka akceptacji B1** (testy inwariantów, nie tylko
+   happy-path): stare generation odrzucone; command_id deduplikowane;
+   błędny expected_task_version → konflikt bez mutacji; reconnect
+   odtwarza od last_applied_seq; zbyt stary kursor → resync_required
+   ze spójnym snapshotem; duplikat activation_id nie uruchamia drugiej
+   pracy; task_offer timeout przechodzi do następnej wyrobnicy;
+   wygaśnięcie lease przywraca task dokładnie raz.
 2. **B2 — skill `statekmatka`**: tryby init i join; matka w pętli zdarzeń,
    wyrobnica w pętli task→branch→push→done. Test lokalny: matka + 2
    wyrobnice na jednym kompie.
