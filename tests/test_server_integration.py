@@ -645,3 +645,123 @@ def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
         # zanim serwer w ogole rozwazy pierwszy snapshot po starcie
         assert s2._events_since_snapshot == events_on_disk
     asyncio.run(scenario())
+
+
+# -- F: oferty — activation trwaly, poprawny cache, wyscig, sprzatanie idle -
+
+def test_task_offer_event_persists_activation_id_and_seq(srv):
+    async def scenario(server):
+        task = server.queue.add(CARD, "c1", 0.0)
+        activation_id = server._offer_activation_id("beta", task)
+        offer_events = [e for e in server.log.events_after(0) if e["type"] == "task_offer"]
+        assert len(offer_events) == 1
+        # (F1) trwaly event MUSI zawierac activation_id i seq — nie tylko
+        # zwrocona wartosc w pamieci
+        assert offer_events[0]["activation_id"] == activation_id
+        assert offer_events[0]["seq"] == offer_events[0]["seq"]  # obecne pole seq
+        assert "seq" in offer_events[0]
+    asyncio.run(srv(scenario))
+
+
+def test_offer_round_robin_new_attempt_after_full_cycle_gets_new_id(srv):
+    async def scenario(server):
+        b, _ = await hello("beta", "tb")
+        g, _ = await hello("gamma", "tg")
+        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
+        await g.send(json.dumps({"type": "status", "from": "gamma", "ts": 0.0, "state": "idle"}))
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        await recv(a)                              # ok ack dla task_new
+
+        offer_b1 = await recv(b, timeout=2.0)        # pierwsza oferta dla beta
+        id_b1 = offer_b1["activation_id"]
+        offer_g = await recv(g, timeout=2.0)         # beta nie wzieła -> gamma
+        offer_b2 = await recv(b, timeout=2.0)        # gamma tez nie -> NOWA proba dla beta
+        id_b2 = offer_b2["activation_id"]
+        # (F2) nowa proba (po pelnym okrazeniu beta->gamma->beta) to NOWY
+        # event/id, a nie sklejenie z pierwsza oferta dla bety
+        assert id_b2 != id_b1
+        await a.close(); await b.close(); await g.close()
+    asyncio.run(srv(scenario))
+
+
+def test_offer_timeout_race_does_not_lose_offered_nick_from_idle(srv):
+    async def scenario(server):
+        b, _ = await hello("beta", "tb")
+        g, _ = await hello("gamma", "tg")
+        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        ok1 = await recv(a)
+        task1_id = ok1["task"]["id"]
+        offer1 = await recv(b, timeout=2.0)
+        assert offer1["task"]["id"] == task1_id
+
+        # gamma krad task1 (bezposredni task_claim) zanim minie offer_timeout
+        # oferty dla bety — bez fixu bety nigdy nie wraca do self.idle
+        await g.send(json.dumps({"type": "task_claim", "from": "gamma", "ts": 0.0,
+                                 "task_id": task1_id, "command_id": "steal1",
+                                 "expected_task_version": 1}))
+        stolen = await recv(g)
+        assert stolen["task"]["assignee"] == "gamma"
+
+        await asyncio.sleep(0.6)     # przeczekaj offer_timeout (0.3 z fixture) + margines
+
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 1.0,
+                                 "command_id": "n2", "card": {**CARD, "goal": "drugi"}}))
+        ok2 = await recv(a)
+        task2_id = ok2["task"]["id"]
+        # (F4) beta MUSI dalej byc w idle i dostac oferte na drugi task
+        offer2 = await recv(b, timeout=2.0)
+        assert offer2["task"]["id"] == task2_id
+        await a.close(); await b.close(); await g.close()
+    asyncio.run(srv(scenario))
+
+
+def test_idle_nick_removed_on_disconnect_offer_goes_to_live_idle(srv):
+    async def scenario(server):
+        b, _ = await hello("beta", "tb")
+        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
+        await asyncio.sleep(0.1)
+        await b.close()
+        await asyncio.sleep(0.1)
+        # (F5) rozlaczony nick (bez zadnego socketu) wypada z self.idle
+        assert "beta" not in server.idle
+
+        g, _ = await hello("gamma", "tg")
+        await g.send(json.dumps({"type": "status", "from": "gamma", "ts": 0.0, "state": "idle"}))
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        await recv(a)
+        offer = await recv(g, timeout=2.0)          # oferta idzie do zywego gamma, nie w prozne
+        assert offer["type"] == "task_offer"
+        await a.close(); await g.close()
+    asyncio.run(srv(scenario))
+
+
+def test_pending_offer_cache_restored_after_restart(tmp_path):
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        await s1.start()
+        ws, _ = await hello("alfa", "ta")
+        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                  "command_id": "n1", "card": CARD}))
+        ack = await recv(ws)
+        task = ack["task"]
+        activation_id = s1._offer_activation_id("beta", task)
+        await ws.close()
+        await _crash_stop(s1)             # BEZ snapshotu
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        # (F3) retry TEJ SAMEJ proby po restarcie -> ten sam activation_id,
+        # BEZ nowego eventu — odtworzone z replay eventow (task_offer)
+        before = s2.log.last_seq
+        again = s2._offer_activation_id("beta", task)
+        assert again == activation_id
+        assert s2.log.last_seq == before
+    asyncio.run(scenario())

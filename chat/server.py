@@ -356,6 +356,10 @@ class ChatServer:
         finally:
             if nick and ws in self.conns.get(nick, set()):
                 self.conns[nick].discard(ws)
+                # (F5) nick bez zadnego zostalego socketu wypada z self.idle —
+                # inaczej oferta poszlaby w prozne (nikt jej nigdy nie odbierze)
+                if not self.conns[nick] and nick in self.idle:
+                    self.idle.remove(nick)
 
     async def _on_frame(self, frame, nick, sock_gen, ws):
         # niezmiennik a): generation przypieta do SOCKETU, nie frame.get(...)
@@ -461,17 +465,26 @@ class ChatServer:
 
     # -- oferty (round-robin + timeout) -------------------------------------
     def _offer_activation_id(self, nick, task):
-        # niezmiennik d): activation_id kotwiczony w TRWALYM evencie.
-        # Retry tej samej oferty (ten sam nick+task_id+wersja taska) zwraca
+        # niezmiennik d)/F1: activation_id kotwiczony w TRWALYM evencie —
+        # event NA DYSKU musi sam zawierac activation_id (i seq). Seq
+        # przydzielany przez log.append() jest deterministyczny (petla
+        # asyncio jednowatkowa, wiec kolejny append dostanie DOKLADNIE
+        # przewidywany numer) — liczymy go z gory, zeby moc wlozyc
+        # activation_id do ramki PRZED jej zapisem, zamiast dopisywac
+        # cos do juz zapisanej linii (store.py nie pozwala na to).
+        # Retry TEJ SAMEJ proby (ten sam nick+task_id+wersja taska) zwraca
         # ten sam id BEZ nowego eventu; zmiana ktoregokolwiek pola to
-        # nowa oferta -> nowy event.
+        # nowa proba -> nowy event.
         key = (nick, task["id"], task["version"])
         cached = self._offer_cache.get(key)
         if cached is not None:
             return cached
+        predicted_seq = self.log.last_seq + 1
+        activation_id = f"{nick}:{predicted_seq}"
         seq = self._append(protocol.make_frame(
-            "task_offer", "server", time.time(), task=task, target=nick))
-        activation_id = f"{nick}:{seq}"
+            "task_offer", "server", time.time(), task=task, target=nick,
+            activation_id=activation_id))
+        assert seq == predicted_seq  # jednowatkowy event loop — brak wyscigu
         self._offer_cache[key] = activation_id
         return activation_id
 
@@ -485,13 +498,24 @@ class ChatServer:
             if task is None or not self.idle:
                 return
             nick = self.idle.pop(0)
+            key = (nick, task["id"], task["version"])
             activation_id = self._offer_activation_id(nick, task)
             await self._send(nick, protocol.make_frame(
                 "task_offer", "server", time.time(), task=task,
                 activation_id=activation_id))
             await asyncio.sleep(self.offer_timeout)
+            # (F2) proba dla (nick, task_id, wersja) jest teraz ROZSTRZYGNIETA
+            # — ewikcja z cache, zeby ewentualna PONOWNA oferta tego samego
+            # taska/wersji temu samemu nickowi (po pelnym okrazeniu idle) byla
+            # NOWA proba/event, a nie sklejona z ta, ktora wlasnie minela
+            self._offer_cache.pop(key, None)
             fresh = self.queue.get(task["id"])
-            if fresh["status"] == "open":       # nie wzial — oferta dla innego
+            # (F4) sprawdzamy KTO faktycznie dostal taska, nie tylko czy
+            # przestal byc "open" — inny klient mogl go ukrasc bezposrednim
+            # task_claim (poza mechanizmem ofert) w trakcie sleep(); w takim
+            # wypadku oferowany nick TEZ nie wzial i musi wrocic do idle,
+            # zamiast zostac na zawsze utracony z puli
+            if fresh["assignee"] != nick:
                 self.idle.append(nick)          # na koniec kolejki
                 if len(self.idle) == 1:
                     return                      # nikt inny nie czeka
