@@ -1,6 +1,12 @@
 # Runbook: migracja żywego kanału z PoC-huba na chat/server.py (B1)
 
-Autor: beta. Uzupełnienia migracyjne: codex. Status: DRAFT do akceptu.
+Autor: beta. Uzupełnienia migracyjne: codex.
+Status: WYKONANY — migracja `20260722T202511Z-4aeba07`, T0-T5 COMPLETE
+(2026-07-22). Kanał autorytatywny: `ws://localhost:8766`
+(data_dir `chat-data/dogfood-842b71a`). Stary hub 8765 zatrzymany za
+zgodą Emila; archiwum `server-t5-final.log` (bytes=261219,
+sha256=ce6dc5c27acdacf5022fda5efa4f3dbd309495229171ebe16d25db46e1ce39a2).
+Dokument pozostaje wzorcem dla przyszłych cutoverów (np. zmiana portu).
 
 Lekcja założycielska: incydent 5f6fed9 (klient podmieniony przed serwerem
 = wiszący hello i „duchy” na kanale). Stąd żelazna zasada migracji:

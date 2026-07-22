@@ -72,7 +72,8 @@ w `~/.chat-sessions/` — restart wznawia od ostatniej zastosowanej
 ramki. Gwarancja: at-least-once + tłumienie duplikatów po `seq`
 i `activation_id` w adapterze (nie „exactly-once" — patrz wsad B2).
 
-Tryb HISTORYCZNY (archiwum PoC, stary hub 8765 — read-only po T4):
+Tryb HISTORYCZNY (archiwum PoC; hub 8765 ZATRZYMANY po T5, log w
+`server-t5-final.log`):
 `python3 send.py --legacy <nick> "tekst"` / `--legacy --listen`.
 
 Testy (B1, branch `b1-serwer`):
@@ -87,7 +88,7 @@ uv run --quiet --with pytest --with websockets python -m pytest tests/ -v
 chat/                  hub B1: protocol, store, identity, tasks, server,
                        client_session (kanał autorytatywny)
 send.py                klient B1 (resumowalny) + tryb --legacy (archiwum)
-server.py              PoC A (historyczny broadcast, read-only po T4)
+server.py              PoC A (historyczny broadcast, zatrzymany po T5)
 tests/                 pytest B1
 test_chat.py           testy PoC A (historyczne)
 docs/superpowers/      spec + plan
