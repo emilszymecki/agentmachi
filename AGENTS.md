@@ -13,8 +13,13 @@ dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
   last_seq, opcjonalnie role/groups — serwer i tak nadaje je z configu).
 - Ramki typowane (`chat`, `status`, `task_*`, `heartbeat`, …); pola
   autorytatywne (`seq`, `generation`, `groups`, `from`, `role`) nadaje
-  wyłącznie serwer. Odpowiedź hello niesie `session_metadata`
-  (rules kanału + rules_hash + rola + grupy) — respektuj rules.
+  wyłącznie serwer. Odpowiedź hello niesie rules kanału + rules_hash +
+  rolę + grupy; LISTENER emituje je jako ramkę `session_metadata`
+  (to artefakt adaptera, nie typ odpowiedzi serwera) — respektuj rules.
+- Funkcje są PŁYNNE: stabilny typ tożsamości to tylko `agent`/`human`;
+  admin/head/workers to dynamiczne grupy robocze. `membership_set`
+  (human albo członek bieżącego `$admin`) zmienia grupy uczestnika;
+  `groups=[]` = odejście z funkcji. Zero RBAC.
 - Wysyłka: `CHAT_PORT=8766 CHAT_TOKEN=<token> python3 send.py <nick> "tekst"`.
 - Nasłuch: `send.py --listen` — wspólny, RESUMOWALNY adapter wszystkich
   harnessów (trwały kursor per hub+nick, reconnect, lock); szczegóły
@@ -64,29 +69,25 @@ zero-tokenowe, reconnect i kursor załatwia sam listener.
 
 ### Codex
 <!-- autor tej sekcji: @codex (GPT-5, Codex CLI), 2026-07-22, verbatim -->
-<!-- NOTA po migracji T4 (beta): pomiń `--legacy` we wszystkich
-     komendach tej sekcji — listener łączy się z hubem B1:
-     `CHAT_PORT=8766 CHAT_NICK=codex CHAT_TOKEN=<token>
-     python3 send.py --listen`, wysyłka analogicznie bez `--legacy`.
-     Reszta mechaniki (PTY + /goal + blokujące odczyty) bez zmian;
-     resume po padzie robi teraz kursor listenera, nie server.log. -->
+
 
 Codex CLI nie ma dziś natywnego Monitora dowolnego WebSocketu, który sam
 wybudza zakończoną turę modelu. W PoC trzeba utrzymać dwa elementy naraz:
 
-1. Uruchom `python3 send.py --legacy --listen` jako długowieczny proces
-   w PTY/tle (na żywym PoC-hubie; bez `--legacy` klient zawiśnie na hello).
+1. Uruchom `CHAT_PORT=8766 CHAT_NICK=codex CHAT_TOKEN=<token>
+   python3 send.py --listen` jako długowieczny proces w PTY/tle
+   (resumowalny listener B1: kursor + reconnect + lock).
 2. Ustaw aktywny `/goal`, który nakazuje stale monitorować pokój. W każdej
    kontynuacji celu wykonuj blokujący odczyt stdout listenera i ponawiaj go
    po timeoutach. Sam proces w tle tylko trzyma socket i buforuje ramki —
    bez aktywnego celu/heartbeatów harnessa NIE wybudzi Codexa po finalu.
-3. Wysyłaj przez `python3 send.py --legacy <nick> "tekst"`; filtruj własne
-   echo po `from`. Dzisiejszy PoC broadcastuje każdą ramkę, więc czytaj wszystko,
-   ale reaguj przede wszystkim na `@nick`/`@all`; selektywne budzenie po
-   wzmiance jest własnością docelowego adaptera.
+3. Wysyłaj przez `CHAT_PORT=8766 CHAT_TOKEN=<token> python3 send.py
+   codex "tekst"`. Echo tłumi serwer po nicku; budzenie po wzmiance
+   (`@nick`/`$grupa`/`@all`) to realne zachowanie huba B1.
 4. `[koniec]` zamyka tylko udział w sprawie. Nie zatrzymuj listenera ani
-   nie czyść celu. Gdy proces lub socket padnie, uruchom go ponownie;
-   dziś odtwórz lukę z `server.log`, a w B1/B2 użyj `room_seq` i resume.
+   nie czyść celu. Gdy proces lub socket padnie, uruchom listener
+   ponownie — trwały kursor per hub+nick wznawia od ostatniej
+   zastosowanej ramki (at-least-once + suppress duplikatów).
 
 To rozwiązanie jest przejściowe: polling wymaga kolejnych tur, stdout może
 być buforowany lub przycięty, a sam background terminal nie daje

@@ -28,19 +28,23 @@ CZŁOWIEK: TUI (czat, tablica tasków, presence)
 Podział warstw: **czat/WS** = sygnalizacja, **graphify+BRIEF** = wiedza,
 **git** = dostawa kodu, **kolejka** = stan żywy.
 
-## Protokół (PoC A — działający dziś)
+## Protokół (hub B1 — kanał autorytatywny po migracji T4)
 
-Ramka = JSON w jednej linii: `{"from": "<nick>", "text": "<treść>"}`.
-Serwer broadcastuje do wszystkich klientów poza socketem nadawcy.
+Pierwsza ramka po połączeniu: `hello` (nick, instance_id, token,
+last_seq). Ramki typowane (`chat`, `status`, `task_*`, `heartbeat`);
+pola autorytatywne (`seq`, `generation`, `groups`, `from`, `role`)
+nadaje wyłącznie serwer.
 
 Konwencje kanału:
-- `@nick` — adresujesz uczestnika (docelowo tylko wzmianka budzi śpiącego
-  agenta; dzisiejszy PoC broadcastuje wszystko do wszystkich),
-- `$group` — budzisz grupę (np. `$workers`), krok B,
+- `@nick` — adresujesz uczestnika; TYLKO wzmianka budzi śpiącego agenta
+  (chat bez wzmianki dostają wyłącznie humani),
+- `$group` — budzisz grupę (np. `$workers`),
 - `@all` — budzisz wszystkich,
-- `[koniec]` — kończysz swój udział w rundzie rozmowy,
-- klient **filtruje własne echo** po `from` (wysyłka i nasłuch to osobne
-  sockety, więc serwer odbija ci twoje ramki).
+- `[koniec]` — kończysz swój udział w rundzie rozmowy (nasłuch zostaje),
+- echo tłumi SERWER po nicku — własnych ramek nie dostajesz.
+
+Protokół historyczny (PoC A, archiwum 8765): surowa ramka
+`{"from": "<nick>", "text": "<treść>"}`, czysty broadcast.
 
 Szczegóły dla agentów: `AGENTS.md` (wszyscy) i `CLAUDE.md` (Claude Code).
 
@@ -48,8 +52,11 @@ Szczegóły dla agentów: `AGENTS.md` (wszyscy) i `CLAUDE.md` (Claude Code).
 
 ```bash
 # hub B1 (kanał autorytatywny po migracji T4; startuje go OPERATOR):
-CHAT_TOKENS=hub.tokens.json CHAT_PORT=8766 CHAT_DATA=./chat-data/hub \
-  python -m chat.server
+CHAT_TOKENS=hub.tokens.json CHAT_PORT=8766 \
+  CHAT_DATA=chat-data/dogfood-842b71a python -m chat.server
+# UWAGA: CHAT_DATA musi wskazywać AKTYWNY data_dir huba (dziś:
+# chat-data/dogfood-842b71a — trwałe kursory klientów są z nim związane;
+# inny katalog = pusty split-brain hub odrzucający istniejące kursory)
 
 # klient (token z pliku tokenów huba):
 CHAT_PORT=8766 CHAT_TOKEN=<token> python3 send.py beta "tekst"   # wyślij
@@ -61,8 +68,9 @@ CHAT_PORT=8766 CHAT_NICK=beta CHAT_TOKEN=<token> \
 
 Tokeny: skopiuj `hub.tokens.example.json` → `hub.tokens.json` (0600,
 poza gitem) i podmień sekrety. Klient trzyma trwały kursor per hub+nick
-w `~/.chat-sessions/` — restart wznawia dokładnie-raz od ostatniej
-zastosowanej ramki.
+w `~/.chat-sessions/` — restart wznawia od ostatniej zastosowanej
+ramki. Gwarancja: at-least-once + tłumienie duplikatów po `seq`
+i `activation_id` w adapterze (nie „exactly-once" — patrz wsad B2).
 
 Tryb HISTORYCZNY (archiwum PoC, stary hub 8765 — read-only po T4):
 `python3 send.py --legacy <nick> "tekst"` / `--legacy --listen`.
@@ -76,9 +84,11 @@ uv run --quiet --with pytest --with websockets python -m pytest tests/ -v
 ## Struktura
 
 ```
-server.py, send.py     PoC A (broadcast, działa)
-chat/                  krok B1: protocol, store, identity, tasks (+server wkrótce)
+chat/                  hub B1: protocol, store, identity, tasks, server,
+                       client_session (kanał autorytatywny)
+send.py                klient B1 (resumowalny) + tryb --legacy (archiwum)
+server.py              PoC A (historyczny broadcast, read-only po T4)
 tests/                 pytest B1
-test_chat.py           testy PoC A
+test_chat.py           testy PoC A (historyczne)
 docs/superpowers/      spec + plan
 ```

@@ -25,8 +25,9 @@ z hello+token). Stary PoC 8765 jest archiwalny/read-only.
    }
    ```
    Listener jest RESUMOWALNY: trwały kursor per hub+nick
-   (`~/.chat-sessions/`), reconnect z backoffem, dokładnie jeden
-   listener per hub+nick (lock). Po starcie emituje `session_metadata`
+   (`~/.chat-sessions/`), reconnect z backoffem, jeden listener per
+   hub+nick (lock). Gwarancja: at-least-once + tłumienie duplikatów
+   po `seq`/`activation_id` (nie „exactly-once"). Po starcie emituje `session_metadata`
    (rules kanału + rola + grupy) — przeczytaj i respektuj rules.
 3. Wysyłaj przez Bash (token z pliku, NIGDY w argv na sztywno):
    `CHAT_PORT=8766 CHAT_TOKEN="$(…jak wyżej…)" python3 send.py <nick> "tekst"`
@@ -51,7 +52,7 @@ z hello+token). Stary PoC 8765 jest archiwalny/read-only.
   na nasłuchu (reguła Emila: wszyscy zawsze na nasłuchu). Monitor
   zamykasz wyłącznie przy końcu sesji. Hub B1 ma backlog + trwały
   kursor: po padzie listener sam się reconnectuje i odbiera zaległości
-  dokładnie-raz; po padzie CAŁEJ sesji wystarczy nowy Monitor(command)
+  (at-least-once, duplikaty tłumione); po padzie sesji nowy Monitor(command)
   — kursor w `~/.chat-sessions/` załatwia resztę.
 - Wiadomości **rzeczowe i konkretne** — kanał czytają agenci płacący
   tokenami za każde obudzenie. Milestone'y tak, paplanina nie.
