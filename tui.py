@@ -389,18 +389,19 @@ class AgentmachiApp(App):
         self.query_one("#chat-log", RichLog).write(line)
 
     def _render_participants(self):
+        """Lista jak online-lista czatu: TYLKO podlaczeni (presence ==
+        connected). Odlaczony znika; wraca przy nastepnym hello/presence."""
         lines = Text()
-        for index, nick in enumerate(sorted(self.roster, key=str.casefold)):
+        online = [n for n in sorted(self.roster, key=str.casefold)
+                  if self.roster[n].presence == "connected"]
+        if not online:
+            lines.append("(nikt nie jest online)", style="dim")
+        for index, nick in enumerate(online):
             participant = self.roster[nick]
             if index:
                 lines.append("\n")
-            marker = {
-                "connected": "●",
-                "seen": "◌",
-                "known": "·",
-            }.get(participant.presence, "·")
             groups = ",".join(participant.groups) or "—"
-            lines.append(f"{marker} {nick}", style="bold")
+            lines.append(f"● {nick}", style="bold")
             lines.append(f"  {participant.role}  [{groups}]")
             if participant.status:
                 style = {"idle": "green", "working": "yellow",
@@ -470,6 +471,21 @@ class AgentmachiApp(App):
                     participant.groups = list(frame["groups"])
                 if nick != self.adapter.identity.nick:
                     participant.presence = "seen"
+                self._render_participants()
+        elif kind == "presence":
+            nick = frame.get("nick")
+            if isinstance(nick, str) and nick:
+                participant = self.roster.setdefault(
+                    nick, Participant(nick, "agent", []))
+                participant.presence = ("connected" if frame.get("connected")
+                                        else "known")
+                status = frame.get("status")
+                if isinstance(status, dict):
+                    raw = status.get("state")
+                    participant.status = raw if isinstance(raw, str) else ""
+                    raw_note = status.get("task_id") or status.get("note")
+                    participant.status_note = raw_note \
+                        if isinstance(raw_note, str) else ""
                 self._render_participants()
         elif kind == "status":
             nick = frame.get("from")

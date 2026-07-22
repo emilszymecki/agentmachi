@@ -62,7 +62,13 @@ async def hello(nick, token, instance="i1", last_seq=0, role="agent", groups=Non
 
 
 async def recv(ws, timeout=2.0):
-    return json.loads(await asyncio.wait_for(ws.recv(), timeout))
+    """Odbierz nastepna ramke, POMIJAJAC efemeryczne presence (serwer pcha
+    je do humanow przy kazdym wejsciu/wyjsciu — to szum dla asercji)."""
+    while True:
+        frame = json.loads(await asyncio.wait_for(ws.recv(), timeout))
+        if isinstance(frame, dict) and frame.get("type") == "presence":
+            continue
+        return frame
 
 
 CARD = {"goal": "x", "acceptance": "y", "verify": "true", "files": [],
@@ -2406,3 +2412,28 @@ def test_status_survives_restart_via_replay(srv, tmp_path):
     assert snap["beta"]["status"] == {"state": "blocked",
                                        "note": "czekam na decyzje"}
     assert snap["beta"]["connected"] is False
+
+
+# -- presence: lista online jak na czacie -----------------------------------
+
+def test_presence_pushed_to_human_on_connect_and_disconnect(srv):
+    async def scenario(server):
+        h, _ = await hello("emil", "te", role="human")
+
+        async def next_presence():
+            while True:
+                frame = json.loads(
+                    await asyncio.wait_for(h.recv(), 2))
+                if frame.get("type") == "presence":
+                    return frame
+
+        a, _ = await hello("alfa", "ta")
+        p_on = await next_presence()
+        while p_on.get("nick") != "alfa":  # pomin wlasne presence emila
+            p_on = await next_presence()
+        assert p_on["connected"] is True
+        await a.close()
+        p_off = await next_presence()
+        assert p_off["nick"] == "alfa" and p_off["connected"] is False
+        await h.close()
+    asyncio.run(srv(scenario))

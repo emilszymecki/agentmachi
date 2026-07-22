@@ -338,3 +338,40 @@ def test_snapshot_carries_status_into_roster(tmp_path):
                 "task_id": "t2", "seq": 50})
             assert app.roster["beta"].status == "review"
     asyncio.run(scenario())
+
+
+# -- presence: lista online-only -------------------------------------------
+
+def test_roster_shows_only_connected_and_presence_updates(tmp_path):
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+        "beta": {"token": "tok-b", "role": "agent", "groups": ["workers"]},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # snapshot: beta offline -> NIE renderowana (lista jak na czacie)
+            await app.apply_hub_frame({
+                "type": "participants_snapshot",
+                "participants": [
+                    {"nick": "Emil", "role": "human", "groups": [],
+                     "connected": True},
+                    {"nick": "beta", "role": "agent", "groups": ["workers"],
+                     "connected": False}]})
+            rendered = str(app.query_one("#participants").render())
+            assert "Emil" in rendered and "beta" not in rendered
+            # presence online -> pojawia sie
+            await app.apply_hub_frame({"type": "presence", "nick": "beta",
+                                       "connected": True,
+                                       "status": {"state": "idle"}})
+            rendered = str(app.query_one("#participants").render())
+            assert "beta" in rendered and "idle" in rendered
+            # presence offline -> znika
+            await app.apply_hub_frame({"type": "presence", "nick": "beta",
+                                       "connected": False})
+            rendered = str(app.query_one("#participants").render())
+            assert "beta" not in rendered
+    asyncio.run(scenario())

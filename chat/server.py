@@ -290,6 +290,19 @@ class ChatServer:
         self._maybe_snapshot()
         self._trigger_offer()
 
+    async def _push_presence(self, nick, connected):
+        """Efemeryczna ramka presence do WSZYSTKICH podlaczonych humanow —
+        TUI aktualizuje liste online na zywo, bez czekania na kolejny hello.
+        Bez seq/persystencji: prawda autorytatywna i tak wraca w snapshocie
+        przy kazdym hello."""
+        frame = protocol.make_frame(
+            "presence", "server", time.time(), nick=nick,
+            connected=bool(connected),
+            status=self.status.get(nick))
+        for other, role in self.roles.items():
+            if role == "human" and self.conns.get(other):
+                await self._send(other, frame)
+
     def _participants_snapshot(self):
         """Autorytatywny roster dla TUI humana: KAZDY nick z configu
         (registry) + jego serwerowe role/groups + realne connected.
@@ -559,6 +572,7 @@ class ChatServer:
                     generation=generation, role=role, groups=list(groups),
                     backlog=backlog, last_seq=self.log.last_seq, **extra)
             await ws.send(json.dumps(reply))
+            await self._push_presence(nick, True)
             # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
             # domykamy polityke snapshot-co-100 tutaj, PO swapie live=klon, zeby
             # ewentualny snapshot #100 zlapal juz NOWA generacje. resync-branch
@@ -610,8 +624,16 @@ class ChatServer:
                 self.conns[nick].discard(ws)
                 # (F5) nick bez zadnego zostalego socketu wypada z self.idle —
                 # inaczej oferta poszlaby w prozne (nikt jej nigdy nie odbierze)
-                if not self.conns[nick] and nick in self.idle:
-                    self.idle.remove(nick)
+                if not self.conns[nick]:
+                    if nick in self.idle:
+                        self.idle.remove(nick)
+                    # lista online jak na czacie: znikasz gdy pada OSTATNIE
+                    # polaczenie (best-effort; sockety humanow moga juz byc
+                    # w trakcie zamykania)
+                    try:
+                        await self._push_presence(nick, False)
+                    except Exception:
+                        pass
 
     async def _on_frame(self, frame, nick, sock_gen, ws):
         # niezmiennik a): generation przypieta do SOCKETU, nie frame.get(...)
