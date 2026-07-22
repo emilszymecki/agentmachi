@@ -36,6 +36,14 @@ Podział warstw:
 
 ## Rola: statek matka
 
+Matka jest **restartowalna bezstratnie**: cały jej stan operacyjny żyje
+poza sesją (BRIEF.md, kolejka na serwerze, graf, git) — sesja matki może
+paść lub zostać ubita w dowolnym momencie, a świeża sesja po
+`/statekmatka:init` wykrywa istniejący hub (działający serwer, BRIEF)
+i robi resume zamiast ponownej inicjalizacji. Długowieczna sesja matki
+to optymalizacja, nie wymóg — kompaktacja kontekstu nie może niczego
+zgubić, bo prawda leży na dysku.
+
 `/statekmatka:init` robi wszystko i zostawia sesję w trybie orkiestratora:
 1. odpala serwer WS + graphify serve, tworzy pokój,
 2. wypluwa kartę wejściową dla roju: adres, pokój, repo, instrukcja dołączenia,
@@ -66,17 +74,33 @@ usuwa problem echa), `chat`, `task_new`, `task_claim`, `task_done`,
 waiting_review | offline), `fyi` (bez budzenia — tylko do loga).
 
 Zasady uwagi (ekonomia tokenów): serwer budzi agenta wyłącznie ramkami
-zaadresowanymi do niego (`to`), taskami z kolejki (gdy idle) i chatem
-w pokoju; `fyi` nigdy nie budzi. Wyrobnice nie mają DM między sobą
-(obserwowalność); DM tylko człowiek→agent.
+zaadresowanymi do niego (`to` lub `@nick` w treści chatu) oraz taskami
+z kolejki (gdy idle). Chat bez wzmianki i `fyi` nie budzą nikogo — lądują
+w logu pokoju, agent czyta zaległości hurtowo przy najbliższym własnym
+obudzeniu (serwer wysyła wtedy `backlog` z pominiętymi ramkami).
+Wyrobnice nie mają DM między sobą (obserwowalność); DM tylko człowiek→agent.
+
+Odporność połączenia: Monitor zgłasza zamknięcie socketa — klient MA
+OBOWIĄZEK wejść wtedy w pętlę reconnect (backoff), ponowić hello i pobrać
+backlog. Śpiący klient bez uzbrojonego Monitora to stan zabroniony.
 
 ## Kolejka tasków
 
 Na serwerze, w pamięci + zrzut do JSON (restart nie gubi kolejki).
-Task: id, opis, status (open → claimed → done/blocked), assignee,
-**lease z TTL** odnawiany heartbeatem — sesja wyrobnicy pada → lease wygasa
-→ task wraca do open. Semafor plikowy: task deklaruje pliki, serwer nie
-wyda dwóch tasków dotykających tych samych plików.
+Task: id, opis, status (open → claimed → review → done/blocked), assignee,
+**lease z TTL**. Heartbeat odnawia proces w tle odpalany przy claim
+(background bash u wyrobnicy), ubijany przy done — mechanika, nie
+dyscyplina modelu. Sesja wyrobnicy pada → procesik pada → lease wygasa
+→ task wraca do open.
+
+**WIP limit**: kolejka nie wydaje więcej tasków naraz, niż wynosi
+przepustowość review (konfigurowalne, default = 2× liczba wyrobnic
+w review + 1). Matka może delegować review wyrobnicy (peer review);
+bramka merge zawsze u matki.
+
+Semafor plikowy: best-effort — task może deklarować pliki i serwer nie
+wyda dwóch tasków z przecięciem, ale pliki często znane są dopiero
+w trakcie; ostatecznym rozjemcą konfliktów jest git na merge'u.
 
 ## Pamięć wspólna
 
