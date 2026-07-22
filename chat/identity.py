@@ -64,6 +64,20 @@ class Registry:
             raise AuthError(f"bad token for {nick}")
         if not isinstance(instance_id, str) or not instance_id:
             raise AuthError(f"bad instance_id for {nick}")
+        return self._bump(nick, instance_id)
+
+    def replay_hello(self, nick, instance_id):
+        # (A) replay zaufanej (juz raz zautoryzowanej) mutacji hello z logu
+        # eventow po crashu — token NIGDY nie trafia do logu (bezpieczenstwo),
+        # wiec replay nie moze i nie musi go ponownie weryfikowac; sama
+        # bump-generacji jest identyczna z hello().
+        if not isinstance(nick, str) or not nick:
+            raise AuthError("invalid nick")
+        if not isinstance(instance_id, str) or not instance_id:
+            raise AuthError(f"bad instance_id for {nick}")
+        return self._bump(nick, instance_id)
+
+    def _bump(self, nick, instance_id):
         if self._instance.get(nick) != instance_id:
             self._gen[nick] = self._gen.get(nick, 0) + 1
             self._instance[nick] = instance_id

@@ -69,10 +69,57 @@ class ChatServer:
         self.groups = {}       # nick -> set[group] (przezywa reconnect, nie restart)
         self.idle = []         # nicki wyrobnic zglaszajacych idle (round-robin)
         self._offer_cache = {}  # (nick, task_id, version) -> activation_id
-        self._events_since_snapshot = 0
         self._offering = None
         self._server = None
         self._expiry_task = None
+        # niezmiennik A: eventy > snapshot_seq NIGDY nie byly odtwarzane do
+        # stanu — trwalosc byla teatrem. Replay stosuje te same mutacje
+        # (queue/registry) co live, bez zadnych side-effectow sieciowych
+        # (bez _send/_append — eventy juz sa na dysku).
+        self._replay_events()
+        # (A3) licznik snapshot-co-100 liczy DALEJ od tego, co juz jest w
+        # logu po snapshot_seq — nie od zera (inaczej po restarcie trzeba by
+        # 100 nowych eventow, zanim serwer w ogole rozwazy snapshot).
+        self._events_since_snapshot = len(self.log.replay())
+
+    def _replay_events(self):
+        for event in self.log.replay():
+            etype = event.get("type")
+            if etype == "hello":
+                self.registry.replay_hello(event["from"], event["instance_id"])
+            elif etype == "task_offer":
+                key = (event["target"], event["task"]["id"], event["task"]["version"])
+                self._offer_cache[key] = event["activation_id"]
+            elif etype in _TASK_REQUIRED_FIELDS:
+                self._replay_task_event(event)
+            # chat/fyi/status/ok/error: bez mutacji stanu queue/registry
+
+    def _replay_task_event(self, event):
+        ftype = event["type"]
+        nick = event["from"]
+        command_id = event.get("command_id")
+        now = event.get("_now", 0.0)
+        gen = event.get("_generation")
+        if ftype == "task_new":
+            self.queue.add(event["card"], command_id, now)
+        elif ftype == "task_claim":
+            self.queue.claim(event["task_id"], nick, gen, command_id,
+                              event["expected_task_version"], now)
+        elif ftype == "task_done":
+            self.queue.to_review(event["task_id"], nick, gen, command_id,
+                                  event["expected_task_version"], now)
+        elif ftype == "task_blocked":
+            self.queue.block(event["task_id"], nick, gen, command_id,
+                              event["expected_task_version"], now)
+        elif ftype == "review_changes":
+            self.queue.request_changes(event["task_id"], command_id,
+                                        event["expected_task_version"], now)
+        elif ftype == "task_approve":
+            self.queue.done(event["task_id"], nick, gen, command_id,
+                             event["expected_task_version"], now)
+        elif ftype == "task_unblock":
+            self.queue.unblock(event["task_id"], nick, gen, command_id,
+                                event["expected_task_version"], now)
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
@@ -242,7 +289,19 @@ class ChatServer:
             self.conns.setdefault(nick, set()).add(ws)
             self.roles[nick] = role
             self.groups[nick] = set(groups)
+            # backlog liczony PRZED zalogowaniem WLASNEGO hello — inaczej
+            # klient zawsze widzialby wlasna ramke hello w swoim backlogu i
+            # "last_seq == biezacy cursor" po reconnnekcie nigdy by nie
+            # dawalo pustego backlogu (por. test_reconnect_resumes_from_last_seq)
             backlog = self.log.events_after(last_seq)
+            # niezmiennik A: KAZDA mutacja stanu (hello -> registry) jest
+            # logowana PRZED odpowiedzia klientowi — bez tokenu (nie ma czego
+            # ukrywac przy replay, ale sekret nie powinien nigdy trafic na
+            # dysk); instance_id jest juz zwalidowany przez registry.hello.
+            self._append(protocol.make_frame(
+                "hello", nick, time.time(),
+                instance_id=frame.get("instance_id"),
+                groups=list(groups), role=role))
             rules_text, rules_hash = self._load_rules()
             extra = {}
             if rules_text is not None:
@@ -348,40 +407,47 @@ class ChatServer:
         try:
             if ftype == "task_new":
                 result = self.queue.add(frame["card"], frame["command_id"], now)
-                self._append({**frame, "result_version": result["version"]})
+                self._append({**frame, "result_version": result["version"],
+                              "_generation": sock_gen, "_now": now})
                 self._trigger_offer()
             elif ftype == "task_claim":
                 result = self.queue.claim(frame["task_id"], nick, sock_gen,
                                           frame["command_id"],
                                           frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"]})
+                self._append({**frame, "result_version": result["version"],
+                              "_generation": sock_gen, "_now": now})
                 if nick in self.idle:
                     self.idle.remove(nick)
             elif ftype == "task_done":
                 result = self.queue.to_review(frame["task_id"], nick, sock_gen,
                                               frame["command_id"],
                                               frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"]})
+                self._append({**frame, "result_version": result["version"],
+                              "_generation": sock_gen, "_now": now})
             elif ftype == "task_blocked":
                 result = self.queue.block(frame["task_id"], nick, sock_gen,
                                           frame["command_id"],
                                           frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"]})
+                self._append({**frame, "result_version": result["version"],
+                              "_generation": sock_gen, "_now": now})
             elif ftype == "review_changes":  # od matki, bez ownera
                 result = self.queue.request_changes(frame["task_id"],
                                                     frame["command_id"],
                                                     frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"]})
+                self._append({**frame, "result_version": result["version"],
+                              "_generation": sock_gen, "_now": now})
             elif ftype == "task_approve":  # happy-end review: review -> done
                 result = self.queue.done(frame["task_id"], nick, sock_gen,
                                          frame["command_id"],
                                          frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"]})
+                self._append({**frame, "result_version": result["version"],
+                              "_generation": sock_gen, "_now": now})
             else:  # task_unblock: blocked -> claimed
                 result = self.queue.unblock(frame["task_id"], nick, sock_gen,
                                             frame["command_id"],
                                             frame["expected_task_version"], now)
-                self._append({**frame, "result_version": result["version"]})
+                self._append({**frame, "result_version": result["version"],
+                              "_generation": sock_gen, "_now": now})
         except TaskError as e:  # Conflict/StaleGeneration sa jego podklasami
             await ws.send(json.dumps(protocol.make_frame(
                 "error", "server", now, command_id=command_id,

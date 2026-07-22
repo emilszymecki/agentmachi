@@ -160,3 +160,34 @@ def test_dict_format_rejects_non_str_group_items():
 def test_bad_token_entry_shape_fails_fast():
     with pytest.raises(ValueError):
         Registry({"alfa": 123})  # ani str, ani dict
+
+
+# -- A: replay_hello (crash-recovery) — bump generacji bez tokenu -----------
+
+def test_replay_hello_bumps_generation_like_hello_without_token():
+    r = Registry(TOKENS)
+    assert r.replay_hello("alfa", "inst-1") == 1
+    assert r.replay_hello("alfa", "inst-1") == 1        # ten sam instance — bez bumpa
+    assert r.replay_hello("alfa", "inst-2") == 2        # inny instance — bump
+    assert r.is_current("alfa", 2)
+
+
+def test_replay_hello_matches_live_hello_sequence():
+    live = Registry(TOKENS)
+    g1 = live.hello("alfa", "i1", "tok-a")
+    g2 = live.hello("alfa", "i2", "tok-a")
+
+    replayed = Registry(TOKENS)   # symulacja: log ma tylko hello (bez tokenu)
+    r1 = replayed.replay_hello("alfa", "i1")
+    r2 = replayed.replay_hello("alfa", "i2")
+    assert (r1, r2) == (g1, g2)
+
+
+def test_replay_hello_rejects_invalid_nick_or_instance():
+    r = Registry(TOKENS)
+    with pytest.raises(AuthError):
+        r.replay_hello("", "i1")
+    with pytest.raises(AuthError):
+        r.replay_hello("alfa", "")
+    with pytest.raises(AuthError):
+        r.replay_hello("alfa", None)

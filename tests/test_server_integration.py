@@ -7,6 +7,7 @@ Serwer per-test na porcie 8891+ (nie 8765 — PoC A na roocie repo).
 import asyncio
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 import websockets
@@ -111,7 +112,12 @@ def test_reconnect_resumes_from_last_seq(srv):
         b, reply = await hello("beta", "tb", last_seq=0)
         texts = [f["text"] for f in reply["backlog"] if f["type"] == "chat"]
         assert texts == ["@beta jeden", "@beta dwa"]
-        last = reply["backlog"][-1]["seq"]
+        # (A) hello jest teraz sam logowanym eventem — wlasne hello nie jest
+        # widoczne we WLASNYM backlogu (liczonym przed jego zalogowaniem),
+        # wiec poprawny kursor do wznowienia to reply["last_seq"] podany
+        # przez serwer, nie ostatni wpis backlogu (ktory moze nie
+        # odzwierciedlac eventow "niewidocznych dla siebie samego")
+        last = reply["last_seq"]
         b2, reply2 = await hello("beta", "tb", last_seq=last)
         assert reply2["backlog"] == []                # nic nowego
         for ws in (a, b, b2):
@@ -568,3 +574,74 @@ def test_resync_snapshot_seq_matches_returned_fresh_state(srv):
         assert server.log.events_after(reply["snapshot_seq"]) == []
         await a.close(); await b.close()
     asyncio.run(srv(scenario))
+
+
+# -- A: crash-recovery — eventy po (ostatnim) snapshocie MUSZA sie odtworzyc
+
+async def _crash_stop(server):
+    """Symuluje crash: zamyka nasluch/petle serwera BEZ wywolania snapshot()
+    (w odroznieniu od server.stop(), ktory zawsze snapshotuje na koniec —
+    to jest wlasnie sciezka, ktora maskowalaby brak replay w __init__)."""
+    for task in (server._expiry_task, server._offering):
+        if task is None:
+            continue
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    server._server.close()
+    await server._server.wait_closed()
+
+
+def test_crash_recovery_replays_events_after_snapshot_without_manual_snapshot(tmp_path):
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        await s1.start()
+        ws, reply = await hello("alfa", "ta", instance="i1")
+        assert reply["generation"] == 1
+        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                  "command_id": "n1", "card": CARD}))
+        ack = await recv(ws)
+        task_id = ack["task"]["id"]
+        await ws.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                  "task_id": task_id, "command_id": "c1",
+                                  "expected_task_version": 1}))
+        claimed = await recv(ws)
+        assert claimed["task"]["status"] == "claimed"
+        await ws.close()
+        await _crash_stop(s1)          # BEZ recznego/automatycznego snapshotu
+
+        # "restart": nowy ChatServer nad tym samym data_dir, zero snapshotu
+        # na dysku — caly stan musi wrocic z samego logu eventow (replay)
+        assert not (Path(tmp_path) / "snapshot.json").exists()
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        t = s2.queue.get(task_id)
+        assert t["status"] == "claimed" and t["assignee"] == "alfa"
+        assert s2.registry.generation_of("alfa") == 1     # (hello -> registry odtworzone)
+    asyncio.run(scenario())
+
+
+def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        await s1.start()
+        ws, _ = await hello("alfa", "ta", instance="i1")
+        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                  "command_id": "n1", "card": CARD}))
+        await recv(ws)
+        events_on_disk = s1.log.last_seq
+        await ws.close()
+        await _crash_stop(s1)
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                         lease_ttl=5.0, offer_timeout=0.3)
+        # (A3) licznik snapshot-co-100 startuje od liczby eventow juz w logu,
+        # nie od zera — inaczej po restarcie trzeba by 100 NOWYCH eventow
+        # zanim serwer w ogole rozwazy pierwszy snapshot po starcie
+        assert s2._events_since_snapshot == events_on_disk
+    asyncio.run(scenario())
