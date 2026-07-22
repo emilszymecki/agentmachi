@@ -47,11 +47,15 @@ Szczegóły dla agentów: `AGENTS.md` (wszyscy) i `CLAUDE.md` (Claude Code).
 ## Uruchomienie
 
 ```bash
-python3 server.py                 # hub na ws://localhost:8765 (PoC)
-python3 send.py alfa "tekst"      # wyślij ramkę
-python3 send.py --listen          # podgląd ruchu (człowiek)
-tail -f server.log                # log serwera
+python3 server.py                        # hub na ws://localhost:8765 (PoC)
+python3 send.py --legacy alfa "tekst"    # wyślij ramkę na PoC-hub
+python3 send.py --legacy --listen        # podgląd ruchu (człowiek)
+tail -f server.log                       # log serwera
 ```
+
+`send.py` bez `--legacy` mówi protokołem B1 (hello + token) i celuje w
+`chat/server.py` — na starym PoC-hubie zawiśnie czekając na odpowiedź
+hello. Dopóki żywy kanał chodzi na `server.py`, używaj `--legacy`.
 
 Serwer krok B (`chat/server.py`) czyta tokeny z pliku wskazanego przez
 `CHAT_TOKENS` (domyślnie `tokens.json`) — skopiuj `hub.tokens.example.json`,

@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Klient CLI czatu agentow (B1: hello + instance_id).
+"""Klient CLI czatu agentow.
 
+Domyslnie protokol B1 (chat/server.py): hello + instance_id + token.
   python3 send.py <nick> "tekst"   -> hello, jedna ramka chat, wyjscie
   python3 send.py --listen         -> hello, wypisuj ruch az Ctrl+C
-Env: CHAT_PORT (8765), CHAT_TOKEN (wymagany), CHAT_NICK (dla --listen).
-Plik sesji .chat-session.json trzyma instance_id.
+
+Tryb --legacy dla starego PoC-huba (root server.py, czysty broadcast
+{from,text}, bez hello/auth) — uzywaj na zywym kanale 8765 dopoki hub
+nie zostanie zmigrowany na chat/server.py:
+  python3 send.py --legacy <nick> "tekst"
+  python3 send.py --legacy --listen
+
+Env: CHAT_PORT (8765), CHAT_TOKEN (B1, wymagany przez chat/server.py),
+CHAT_NICK (dla --listen). Plik sesji .chat-session.json trzyma instance_id.
 """
 import asyncio
 import json
@@ -75,16 +83,39 @@ async def listen(nick):
             _print_event(json.loads(message))
 
 
+# --- tryb legacy: stary PoC-hub (czysty broadcast {from,text}, bez hello) ---
+
+async def legacy_send_once(nick, text):
+    async with websockets.connect(URI) as ws:
+        await ws.send(json.dumps({"from": nick, "text": text}))
+
+
+async def legacy_listen():
+    async with websockets.connect(URI) as ws:
+        async for message in ws:
+            _print_event(json.loads(message))
+
+
 def main():
     args = sys.argv[1:]
     try:
-        if args == ["--listen"]:
+        if args and args[0] == "--legacy":
+            rest = args[1:]
+            if rest == ["--listen"]:
+                asyncio.run(legacy_listen())
+            elif len(rest) == 2:
+                asyncio.run(legacy_send_once(rest[0], rest[1]))
+            else:
+                print('usage: send.py --legacy <nick> "tekst"  |  '
+                      'send.py --legacy --listen', file=sys.stderr)
+                sys.exit(1)
+        elif args == ["--listen"]:
             asyncio.run(listen(os.environ.get("CHAT_NICK", "listener")))
         elif len(args) == 2:
             asyncio.run(send_once(args[0], args[1]))
         else:
-            print('usage: send.py <nick> "tekst"  |  send.py --listen',
-                  file=sys.stderr)
+            print('usage: send.py <nick> "tekst"  |  send.py --listen  |  '
+                  'send.py --legacy ...', file=sys.stderr)
             sys.exit(1)
     except KeyboardInterrupt:
         pass

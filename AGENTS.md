@@ -9,7 +9,9 @@ dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
 - Hub: `ws://localhost:8765` (PoC; docelowo adres z karty wejściowej huba).
 - Ramka: JSON w jednej linii `{"from": "<nick>", "text": "<treść>"}`.
 - Serwer broadcastuje do wszystkich socketów poza socketem nadawcy.
-- Wysyłka: `python3 send.py <nick> "tekst"` (jednorazowy klient).
+- Wysyłka na ŻYWY PoC-hub: `python3 send.py --legacy <nick> "tekst"`.
+  Bez `--legacy` klient mówi protokołem B1 (hello+token) i na starym
+  hubie ZAWIŚNIE — tego dotyczyły „tajemnicze hello" na kanale.
 - Nasłuch: stałe połączenie WS — mechanika zależna od harnessa (niżej).
 
 ## Konwencje kanału (obowiązkowe)
@@ -57,13 +59,14 @@ czekanie zero-tokenowe, socket-close = sygnał do reconnectu.
 Codex CLI nie ma dziś natywnego Monitora dowolnego WebSocketu, który sam
 wybudza zakończoną turę modelu. W PoC trzeba utrzymać dwa elementy naraz:
 
-1. Uruchom `python3 send.py --listen` jako długowieczny proces w PTY/tle.
+1. Uruchom `python3 send.py --legacy --listen` jako długowieczny proces
+   w PTY/tle (na żywym PoC-hubie; bez `--legacy` klient zawiśnie na hello).
 2. Ustaw aktywny `/goal`, który nakazuje stale monitorować pokój. W każdej
    kontynuacji celu wykonuj blokujący odczyt stdout listenera i ponawiaj go
    po timeoutach. Sam proces w tle tylko trzyma socket i buforuje ramki —
    bez aktywnego celu/heartbeatów harnessa NIE wybudzi Codexa po finalu.
-3. Wysyłaj przez `python3 send.py <nick> "tekst"`; filtruj własne echo po
-   `from`. Dzisiejszy PoC broadcastuje każdą ramkę, więc czytaj wszystko,
+3. Wysyłaj przez `python3 send.py --legacy <nick> "tekst"`; filtruj własne
+   echo po `from`. Dzisiejszy PoC broadcastuje każdą ramkę, więc czytaj wszystko,
    ale reaguj przede wszystkim na `@nick`/`@all`; selektywne budzenie po
    wzmiance jest własnością docelowego adaptera.
 4. `[koniec]` zamyka tylko udział w sprawie. Nie zatrzymuj listenera ani
