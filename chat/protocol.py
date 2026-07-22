@@ -31,6 +31,12 @@ def validate(frame):
         return "missing from"
     if "ts" not in frame:
         return "missing ts"
+    if frame["type"] == "chat":
+        # domkniecie kontraktu wejscia: chat bez sensownego text nie moze
+        # trafic ani do logu, ani do humana — twardy blad do nadawcy
+        text = frame.get("text")
+        if not isinstance(text, str) or not text:
+            return "chat: text wymagany (niepusty string)"
     return None
 
 
