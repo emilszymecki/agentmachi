@@ -249,6 +249,14 @@ class ChatServer:
                 extra["rules"] = rules_text
                 extra["rules_hash"] = rules_hash
             if backlog is None:
+                # niezmiennik B: resync spojny — snapshot_seq zwracany
+                # klientowi musi etykietowac DOKLADNIE ten state, ktory
+                # wysylamy. Bez swiezego, atomowego snapshotu tutaj,
+                # self.log.snapshot_seq bylby STARA wartoscia (sprzed
+                # mutacji, ktore juz sa w queue.dump()) — klient wznowilby
+                # replay od stalej etykiety i zdublowal mutacje, ktore
+                # `state` juz zawiera.
+                self.snapshot()
                 reply = protocol.make_frame(
                     "resync_required", "server", time.time(),
                     snapshot_seq=self.log.snapshot_seq,

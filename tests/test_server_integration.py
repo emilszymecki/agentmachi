@@ -536,3 +536,35 @@ def test_takeover_closes_old_socket_immediately_before_it_sends_anything(srv):
         assert got["text"] == "@alfa hej"        # tylko nowy socket dostaje
         await a2.close(); await b.close()
     asyncio.run(srv(scenario))
+
+
+# -- B: resync spojny — snapshot_seq etykieta musi pasowac do zwroconego state
+
+def test_resync_snapshot_seq_matches_returned_fresh_state(srv):
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "fyi", "from": "alfa", "ts": 0.0,
+                                 "text": "seed"}))    # cokolwiek w logu przed snapshotem
+        await asyncio.sleep(0.1)
+        server.snapshot()                          # snapshot WCZESNIE (etykieta by byla stara)
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        ok = await recv(a)
+        task_id = ok["task"]["id"]
+        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
+                                 "task_id": task_id, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(a)
+        assert claimed["task"]["status"] == "claimed"
+        # kursor sprzed WSZYSTKICH powyzszych eventow -> resync_required
+        b, reply = await hello("beta", "tb", last_seq=0)
+        assert reply["type"] == "resync_required"
+        # (B) etykieta snapshot_seq MUSI odzwierciedlac faktyczny, swiezy
+        # stan (claim juz w srodku), nie stara wartosc sprzed claima
+        assert reply["snapshot_seq"] == server.log.last_seq
+        state_tasks = reply["state"]["queue"]["tasks"]
+        assert any(t["id"] == task_id and t["status"] == "claimed" for t in state_tasks)
+        # replay od zwroconego snapshot_seq nie dubluje niczego juz w state
+        assert server.log.events_after(reply["snapshot_seq"]) == []
+        await a.close(); await b.close()
+    asyncio.run(srv(scenario))
