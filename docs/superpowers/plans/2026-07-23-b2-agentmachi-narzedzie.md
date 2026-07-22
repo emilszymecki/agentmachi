@@ -88,8 +88,15 @@ Hamachi: Emil odpala `agentmachi serve` + `agentmachi tui`, daje dwóm
 - [x] t4 — skill join: ZAIMPLEMENTOWANY (skills/agentmachi-join/SKILL.md:
       sekcje CC/Codex, pętla wyrobnicy z AUTO-HEARTBEATEM przy claimie,
       one-shot na ramki status/claim, kanon statusów; AGENTS.md wskazuje
-      skill jako jedyną drogę wejścia). CZEKA: review + test na świeżej
-      sesji CC (akceptacja: jedno zdanie → na kanale w 2 min).
+      skill jako jedyną drogę wejścia).
+- [x] TEST AKCEPTACYJNY (2 subagentów jako świeże sesje, hub e2e przez
+      CLI): pełna pętla wyrobnicy + review/approve przez drugiego agenta
+      PRZESZŁY end-to-end (t1 done v6, plik byte-exact). Test złapał
+      KRYTYCZNY bug szablonu one-shot (instance_id ≠ sesja → ping-pong
+      generacji → utrata lease) — naprawiony subkomendą `agentmachi
+      frame` na tożsamości Sesji + przepisany skill (reviewer, wersje
+      do approve, AGENTMACHI_HOME, ACK-i) + test regresyjny. 261 testów.
+      CZEKA: review Emila (t3+t4 w review na hubie).
 - [x] adnotacja w specu statek-matka (w commicie t3)
 
 ### Jak wrócić (checklist na start sesji)

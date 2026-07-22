@@ -200,6 +200,25 @@ def cmd_listen(args):
     return 0
 
 
+def cmd_frame(args):
+    nick = _agent_env(args)
+    if not nick:
+        raise CliError("frame wymaga nicka (--nick albo CHAT_NICK)")
+    try:
+        frame = json.loads(args.json)
+    except json.JSONDecodeError as e:
+        raise CliError(f"zly JSON ramki: {e}")
+    if not isinstance(frame, dict) or not frame.get("type"):
+        raise CliError("ramka musi byc obiektem z polem type")
+    send = _import_send()
+    reply = asyncio.run(send.oneshot_frame(nick, frame))
+    if reply is None:
+        print("(wyslane; serwer nie odsyla ACK dla tego typu)")
+        return 0
+    print(json.dumps(reply, ensure_ascii=False))
+    return 1 if reply.get("type") == "error" else 0
+
+
 def cmd_heartbeat(args):
     nick = _agent_env(args)
     send = _import_send()
@@ -236,6 +255,13 @@ def main(argv=None):
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_listen)
+
+    p = sub.add_parser("frame", help="jednorazowa ramka status/task_* "
+                       "(tozsamosc sesji — zero takeoveru)")
+    p.add_argument("json", help='np. \'{"type":"status","state":"idle"}\'')
+    p.add_argument("--nick", default=None)
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_frame)
 
     p = sub.add_parser("heartbeat", help="procesik lease dla taska")
     p.add_argument("task_id")

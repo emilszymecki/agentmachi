@@ -273,3 +273,41 @@ def test_corrupt_session_fail_closed_exit_code(tmp_path):
                        timeout=10)
     assert p.returncode == 4
     assert "skasuj" in p.stderr
+
+
+def test_oneshot_frame_uses_session_identity(tmp_path, monkeypatch):
+    """Regresja bugu z testu skilla: one-shot MUSI współdzielić instance_id
+    z listenerem (zero takeoveru/ping-ponga generacji gubiącego lease)."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    tokens = {"beta": {"token": "tok-b", "role": "agent", "groups": []}}
+    monkeypatch.setenv("CHAT_TOKEN", "tok-b")
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens=tokens,
+                         port=port)
+        await srv.start()
+        try:
+            listener_session = send._session("beta")
+            # "listener" hello ustala generacje 1 dla instance sesji
+            import websockets
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await ws.send(json.dumps({
+                    "type": "hello", "from": "beta", "ts": 0.0,
+                    "instance_id": listener_session.instance_id,
+                    "token": "tok-b", "last_seq": 0}))
+                await ws.recv()
+                gen_before = srv.registry.generation_of("beta")
+                # one-shot status: TA SAMA tozsamosc -> zero bumpa
+                reply = await send.oneshot_frame(
+                    "beta", {"type": "status", "state": "idle"})
+                assert reply is None  # status bez ACK
+                assert srv.registry.generation_of("beta") == gen_before
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())

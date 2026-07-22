@@ -228,6 +228,27 @@ async def _await_heartbeat_ok(ws, task_id):
             return reply
 
 
+async def oneshot_frame(nick, frame):
+    """Jednorazowa ramka NIE-chat (status/task_*) na TOZSAMOSCI SESJI —
+    ten sam instance_id co listener/heartbeat, wiec ZERO takeoveru i
+    zero ping-ponga generacji (bug znaleziony testem skilla: one-shot
+    z innym instance wypieral listener i gubil lease). Kursora nie rusza.
+    Zwraca odpowiedz serwera (ok/error) albo None (np. status bez ACK)."""
+    token = _require_token()
+    session = _session(nick)
+    async with websockets.connect(URI) as ws:
+        await do_hello(ws, nick, session, token)
+        await ws.send(json.dumps({"from": nick, "ts": 0.0, **frame}))
+        try:
+            while True:
+                reply = json.loads(await asyncio.wait_for(ws.recv(), 5))
+                if isinstance(reply, dict) and reply.get("type") in (
+                        "ok", "error"):
+                    return reply
+        except asyncio.TimeoutError:
+            return None  # np. status — serwer nie odsyla ACK i to jest OK
+
+
 async def heartbeat_loop(nick, task_id, interval):
     """Procesik lease (mechanika ze specu): odnawiaj heartbeat co interval,
     az do kill (worker ubija przy done). Blad serwera = koniec (nie odnawiaj

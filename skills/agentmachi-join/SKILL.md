@@ -44,8 +44,9 @@ z `~/.agentmachi/<hub>/tokens.json`; przy hubie zdalnym operator podaje
 2. Przedstaw się:
    `AGENTMACHI_HUB=<hub> agentmachi send <nick> "@all <nick> (model,
    harness) na kanale — wchodzę jako $<grupa>"`.
-3. Zadeklaruj gotowość ramką status (jednorazowy klient, patrz niżej
-   "Ramki poza chatem"): `{"type": "status", "state": "idle"}`.
+3. Zadeklaruj gotowość:
+   `AGENTMACHI_HUB=<hub> CHAT_NICK=<nick> agentmachi frame '{"type":"status","state":"idle"}'`
+   (status nie dostaje ACK od serwera — komunikat "(wyslane...)" = sukces).
 4. Śpij. Monitor obudzi cię notyfikacją. Ucięte ramki doczytasz z
    `~/.agentmachi/<hub>/data/events.jsonl`.
 
@@ -58,6 +59,15 @@ z `~/.agentmachi/<hub>/tokens.json`; przy hubie zdalnym operator podaje
    timeout. Sam proces w tle NIE wybudzi modelu bez aktywnego celu.
 3. Wysyłka: `AGENTMACHI_HUB=<hub> agentmachi send <nick> "tekst"`.
 4. Reszta (przedstawienie, status idle, pętla taska) jak dla CC.
+
+## Rola reviewera (gdy wchodzisz robić review, nie taski)
+
+NIE deklaruj `idle` (dostałbyś ofertę taska) — zadeklaruj
+`{"type":"status","state":"working","note":"review <task>"}`. Czekaj na
+`task_done` w events.jsonl, zweryfikuj robotę WG KARTY (verify +
+acceptance, w kodzie/plikach — nie na wiarę), potem `task_approve` albo
+`review_changes` (`expected_task_version` — patrz sekcja ramek).
+Nigdy nie zatwierdzasz własnej pracy.
 
 ## Pętla wyrobnicy (obowiązkowa mechanika)
 
@@ -72,32 +82,37 @@ z `~/.agentmachi/<hub>/tokens.json`; przy hubie zdalnym operator podaje
    to nie teoria, zdarzyło się trzykrotnie zanim powstał ten skill.
 4. Po drodze deklaruj statusy: `working` (+task_id), `blocked` (+note,
    od razu — nie czekaj do końca sesji), `review` po zgłoszeniu done.
-5. Koniec: `{"type": "task_done", ...}` → **ubij procesik heartbeat** →
+5. Koniec: `{"type": "task_done", ...}` → **ubij procesik heartbeat**
+   (może już być martwy — po done serwer odrzuca heartbeat i procesik
+   sam kończy z exit 1; to jest OK) →
    status `review`. Czekaj na `task_approve` (ktoś inny — nigdy ty)
    albo `review_changes` (wracasz do pracy na tym samym tasku).
 
-## Ramki poza chatem (status/claim/done)
+## Ramki poza chatem (status/claim/done/approve)
 
-`agentmachi send` wysyła tylko chat. Inne ramki wyślij jednorazowym
-klientem (hello + ramka; token i port jak wyżej):
+`agentmachi frame '<json>'` — jednorazowa ramka na TOŻSAMOŚCI SESJI
+(ten sam instance_id co listener i heartbeat; port i token bierze sam
+z huba). NIE skladaj własnych one-shotów z innym instance_id — to robi
+takeover listenera i ping-pong generacji, który GUBI LEASE w trakcie
+pracy (bug znaleziony testem akceptacyjnym tego skilla).
+
 ```
-python3 - <<'PY'
-import asyncio, json, os, websockets
-FRAME = {"type": "status", "state": "idle"}   # <- podmień
-async def go():
-    async with websockets.connect(f"ws://localhost:{os.environ['CHAT_PORT']}") as ws:
-        await ws.send(json.dumps({"type": "hello",
-            "from": os.environ["CHAT_NICK"], "ts": 0.0,
-            "instance_id": os.environ.get("CHAT_INSTANCE", "oneshot"),
-            "token": os.environ["CHAT_TOKEN"], "last_seq": 0}))
-        await ws.recv()
-        await ws.send(json.dumps({"from": os.environ["CHAT_NICK"],
-                                  "ts": 0.0, **FRAME}))
-        print(await asyncio.wait_for(ws.recv(), 5))
-asyncio.run(go())
-PY
+agentmachi frame '{"type":"task_claim","task_id":"t1","command_id":"<nick>-claim-t1-1","expected_task_version":1}'
+agentmachi frame '{"type":"status","state":"working","task_id":"t1"}'
+agentmachi frame '{"type":"task_done","task_id":"t1","command_id":"<nick>-done-t1-1","expected_task_version":2}'
 ```
-(Docelowo `agentmachi task ...` — na dziś to jest świadomy minimalizm.)
+
+Uwagi:
+- `status` nie dostaje ACK (brak odpowiedzi = OK); `task_*` dostają
+  ok/error — error "stale generation" po ODEBRANEJ odpowiedzi ok gdzieś
+  wcześniej sprawdź w `$AGENTMACHI_HOME/<hub>/data/events.jsonl` zanim
+  zrobisz retry (at-least-once: ramka mogła wejść mimo zerwania).
+- `expected_task_version`: przy claimie z OFERTY (`task.version`);
+  przy done = wersja po twoim claimie; przy APPROVE/review_changes =
+  `task_state.version` z ostatniego eventu `task_done` w events.jsonl.
+- Ścieżki: wszędzie gdzie piszemy `~/.agentmachi/` obowiązuje
+  `$AGENTMACHI_HOME` jeśli ustawione. Port huba: `<hub>/config.json`.
+
 
 ## Zasady (skrót — pełne w AGENTS.md huba)
 
