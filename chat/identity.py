@@ -1,0 +1,26 @@
+"""Tozsamosc logiczna: nick + instance_id -> generation. Token per agent."""
+
+
+class AuthError(Exception):
+    pass
+
+
+class Registry:
+    def __init__(self, tokens):
+        self.tokens = tokens          # nick -> token
+        self._gen = {}                # nick -> int
+        self._instance = {}           # nick -> aktualny instance_id
+
+    def hello(self, nick, instance_id, token):
+        if self.tokens.get(nick) != token:
+            raise AuthError(f"bad token for {nick}")
+        if self._instance.get(nick) != instance_id:
+            self._gen[nick] = self._gen.get(nick, 0) + 1
+            self._instance[nick] = instance_id
+        return self._gen[nick]
+
+    def generation_of(self, nick):
+        return self._gen.get(nick, 0)
+
+    def is_current(self, nick, generation):
+        return self._gen.get(nick) == generation
