@@ -1850,8 +1850,10 @@ def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path):
         await bad.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
                                    "instance_id": "i1", "token": "ta",
                                    "last_seq": 0}))
-        with pytest.raises(websockets.exceptions.ConnectionClosed):
-            await asyncio.wait_for(bad.recv(), timeout=2.0)
+        # niezmiennik f: storage-fail daje czysta ramke error (spojnie z task_*),
+        # nie brutalne 1011 — dopiero POTEM graceful close
+        err = json.loads(await asyncio.wait_for(bad.recv(), timeout=2.0))
+        assert err["type"] == "error" and "storage" in err["text"]
         # registry NIETKNIETY, zero eventow hello na dysku
         assert s1.registry.generation_of("alfa") == 0
         assert s1.log.last_seq == seq_before
@@ -1901,8 +1903,9 @@ def test_takeover_hello_append_failure_keeps_old_socket_and_generation(tmp_path)
         await bad.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
                                    "instance_id": "i2", "token": "ta",
                                    "last_seq": 0}))
-        with pytest.raises(websockets.exceptions.ConnectionClosed):
-            await asyncio.wait_for(bad.recv(), timeout=2.0)
+        # storage-fail na takeover: czysta ramka error dla nowego socketu
+        err_bad = json.loads(await asyncio.wait_for(bad.recv(), timeout=2.0))
+        assert err_bad["type"] == "error" and "storage" in err_bad["text"]
         # takeover NIE wykonany: gen nadal 1, zero eventow hello #2, A zywy
         assert s1.registry.generation_of("alfa") == 1
         assert s1.log.last_seq == seq_before

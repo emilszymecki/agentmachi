@@ -441,10 +441,24 @@ class ChatServer:
             # error/rozlaczenie, a retry moze legalnie powtorzyc (kolejny bump
             # idzie znow na swiezym klonie, wiec generacja podbija sie DOKLADNIE
             # raz). instance_id jest juz zwalidowany przez trial_registry.hello.
-            self._append_durable(protocol.make_frame(
-                "hello", nick, time.time(),
-                instance_id=frame.get("instance_id"),
-                groups=list(groups), role=role))
+            try:
+                self._append_durable(protocol.make_frame(
+                    "hello", nick, time.time(),
+                    instance_id=frame.get("instance_id"),
+                    groups=list(groups), role=role))
+            except OSError as e:
+                # niezmiennik f: awaria storage (dysk pelny) na hello NIE moze
+                # zabic handlera brutalnym 1011 — to laczy sie z zachowaniem
+                # task_* (czysta ramka error + graceful close). Stan pozostaje
+                # czysty (klon wyrzucony, registry nietkniety, zero side-effektow
+                # bo sa PO tym appendzie), a klient odroznia storage-fail od padu
+                # sieci i moze legalnie retry. nick NIE zostal jeszcze dodany do
+                # conns (to nastepuje ponizej), wiec finally nic nie sprzata.
+                await ws.send(json.dumps(protocol.make_frame(
+                    "error", "server", time.time(),
+                    text=f"storage error: {e}")))
+                await ws.close(code=1011, reason="storage error")
+                return
             # COMMIT: dopiero po udanym durable appendzie swap live=klon, a
             # POTEM side-effects (takeover close + rejestracja socketu).
             self.registry = trial_registry
