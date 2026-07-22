@@ -7,6 +7,7 @@ Serwer per-test na porcie 8891+ (nie 8765 — PoC A na roocie repo).
 import asyncio
 import hashlib
 import json
+import socket
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,19 @@ TOKENS = {
     "gamma": {"token": "tg", "role": "agent", "groups": ["workers"]},
     "delta": "td",                                                    # nie w zadnej grupie
 }
-PORT = 8891
+
+
+def _free_port():
+    # Efemeryczny port per proces pytest — tercet review'uje rownolegle na
+    # jednym repo, staly port dawal falszywe "address already in use".
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("localhost", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+PORT = _free_port()
 
 
 @pytest.fixture()
