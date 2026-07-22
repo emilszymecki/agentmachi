@@ -525,8 +525,19 @@ class ChatServer:
                           "fingerprint": self.queue.fingerprint_for(frame["command_id"])})
             if ftype == "task_new":
                 self._trigger_offer()
-            elif ftype == "task_claim" and nick in self.idle:
-                self.idle.remove(nick)
+            elif ftype == "task_claim":
+                if nick in self.idle:
+                    self.idle.remove(nick)
+                # (Runda 4 #3) sukces claim oferowanego taska ROZSTRZYGA jego
+                # pending offer TRWALE i NATYCHMIAST — nie czekajac na
+                # sleep-timeout w _offer_loop. Bez tego crash/clean-stop przed
+                # uplywem offer_timeout zostawialby po restarcie task=claimed
+                # ORAZ oferte nadal pending. Klucz oferty to (nick, task_id,
+                # WERSJA OPEN), a claim CAS-uje wlasnie ta wersje
+                # (expected_task_version) -> pasuje. Idempotentne: _offer_loop
+                # przy pozniejszym przebudzeniu zobaczy juz brak wpisu (no-op).
+                self._resolve_offer(nick, frame["task_id"],
+                                    frame["expected_task_version"], "claimed")
         await ws.send(json.dumps(protocol.make_frame(
             "ok", "server", now, command_id=command_id, task=result)))
         if not cached and ftype == "review_changes":

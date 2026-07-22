@@ -1198,3 +1198,42 @@ def test_auto_snapshot_mid_offer_does_not_lose_pending_offer(tmp_path):
         assert again == activation_id            # pending offer odtworzone (ten sam id)
         assert s2.log.last_seq == before         # zero nowego eventu
     asyncio.run(scenario())
+
+
+# -- (3) claim oferowanego taska trwale rozstrzyga pending offer TERAZ ------
+
+def test_claim_of_offered_task_resolves_pending_offer_immediately(tmp_path):
+    # (3) task_offer->beta (pending); beta task_claim OK (task claimed);
+    # crash PRZED timeoutem oferty -> restart: task=claimed ORAZ offer nadal
+    # pending, bo offer_resolved bylo appendowane dopiero po sleep-timeout w
+    # _offer_loop. Fix: sukces claim oferowanego taska appenduje offer_resolved
+    # NATYCHMIAST w sciezce task_claim. Test: offer->claim->crash->restart:
+    # task claimed, offer NIE pending.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)   # dlugi timeout: loop nie zdazy
+        await s1.start()
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        task = (await recv(a))["task"]
+        tid = task["id"]
+        b, _ = await hello("beta", "tb")
+        activation_id = s1._offer_activation_id("beta", task)   # pending offer dla bety
+        assert ("beta", tid, 1) in s1._offer_cache
+        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
+                                 "task_id": tid, "command_id": "c1",
+                                 "expected_task_version": 1}))
+        claimed = await recv(b)
+        assert claimed["task"]["status"] == "claimed"
+        # claim juz rozstrzygnal oferte trwale (offer_resolved w logu), zanim
+        # jakikolwiek offer_timeout uplynal
+        assert ("beta", tid, 1) not in s1._offer_cache
+        await a.close(); await b.close()
+        await _crash_stop(s1)                                   # BEZ snapshotu
+
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
+                        lease_ttl=5.0, offer_timeout=30.0)
+        assert s2.queue.get(tid)["status"] == "claimed"
+        assert ("beta", tid, 1) not in s2._offer_cache          # offer NIE pending
+    asyncio.run(scenario())
