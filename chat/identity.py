@@ -12,7 +12,8 @@ class Registry:
         self._instance = {}           # nick -> aktualny instance_id
 
     def hello(self, nick, instance_id, token):
-        if self.tokens.get(nick) != token:
+        expected = self.tokens.get(nick)
+        if expected is None or token != expected:
             raise AuthError(f"bad token for {nick}")
         if self._instance.get(nick) != instance_id:
             self._gen[nick] = self._gen.get(nick, 0) + 1

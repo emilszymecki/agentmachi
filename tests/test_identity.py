@@ -28,3 +28,11 @@ def test_takeover_bumps_generation_and_invalidates_old():
     assert g2 == g1 + 1
     assert not r.is_current("alfa", g1)
     assert r.is_current("alfa", g2)
+
+
+def test_unknown_nick_with_none_token_rejected():
+    r = Registry({"alfa": "tok-a"})
+    with pytest.raises(AuthError):
+        r.hello("unknown", "i1", None)  # None != None auth-bypass
+    with pytest.raises(AuthError):
+        r.hello("alfa", "i1", None)  # znany nick, brak tokenu tez odrzucony
