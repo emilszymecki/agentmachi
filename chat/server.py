@@ -532,7 +532,13 @@ def main():
     async def run():
         await server.start()
         print(f"chat server on ws://localhost:{server.port}", flush=True)
-        await asyncio.Future()
+        try:
+            await asyncio.Future()
+        finally:
+            # (I) Ctrl+C / SIGTERM -> asyncio.run() anuluje to zadanie
+            # (CancelledError) — finally gwarantuje clean snapshot zawsze,
+            # nie tylko przy programowym wywolaniu stop()
+            await server.stop()
 
     asyncio.run(run())
 
