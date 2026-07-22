@@ -253,6 +253,31 @@ class TaskQueue:
                              owner=(nick, generation), from_status=("review",),
                              status="done", frozen=False, lease_until=None)
 
+    def approve(self, task_id, approver, command_id, expected_version, now):
+        # B1 (SWIADOMA DECYZJA KONTRAKTU): task_approve moze wyslac KTOKOLWIEK
+        # POZA assignee — namiastka bramki review przy braku rol uprawnien w
+        # B1. "Nie-autor zatwierdza prace autora" jest najblizej semantyce
+        # review-gate; docelowo (B2+) approve przejdzie przez bramke matki /
+        # uprawnienia. done() (owner-based) zostaje jako prymityw "wlasciciel
+        # zamyka" — approve to osobna, swiadoma sciezka.
+        self._check_command_id(command_id)
+        self._check_inputs(nick=approver, expected_version=expected_version, now=now)
+        fingerprint = ("approve", task_id, approver, None, expected_version)
+        cached = self._dedup_get(command_id, fingerprint)
+        if cached is not None:
+            return cached
+        task = self._get_task(task_id)
+        self._check(task, expected_version)
+        if task["status"] != "review":
+            raise Conflict(f"{task_id}: status {task['status']}, oczekiwano review")
+        if task["assignee"] == approver:
+            raise Conflict(
+                f"{task_id}: {approver} jest assignee — approve musi wyslac "
+                "ktos inny (B1: approve != assignee)")
+        task.update(status="done", version=task["version"] + 1,
+                    frozen=False, lease_until=None)
+        return self._dedup_put(command_id, fingerprint, copy.deepcopy(task))
+
     def expire(self, now):
         self._check_inputs(now=now)
         reopened = []
@@ -274,6 +299,28 @@ class TaskQueue:
             if task["status"] == "open":
                 return copy.deepcopy(task)
         return None
+
+    def fingerprint_for(self, command_id):
+        # Fingerprint dedup faktycznie uzyty przez ostatnia udana mutacje o
+        # tym command_id — serwer wklada go do trwalego eventu, zeby replay
+        # mogl bezwalidacyjnie odtworzyc wpis dedup (patrz apply_replayed).
+        hit = self._results.get(command_id)
+        return list(hit[0]) if hit is not None else None
+
+    def apply_replayed(self, task_state, command_id, fingerprint):
+        # SEDNO rundy 3 — replay RESULT-BASED, nie re-execution. Stan taska
+        # po mutacji jest zapisany w evencie (task_state) i tu APLIKOWANY
+        # WPROST: bez ponownej walidacji WIP/lease/CAS/polityk i bez
+        # przeliczania lease_until (odtwarzany HISTORYCZNY, dokladnie taki jak
+        # w chwili mutacji). Odtwarzamy tez wpis dedup, zeby retry tego samego
+        # command_id po restarcie zwrocil wynik z cache, a nie re-mutowal.
+        task = copy.deepcopy(task_state)
+        self._tasks[task["id"]] = task
+        tid = task.get("id")
+        if isinstance(tid, str) and tid.startswith("t") and tid[1:].isdigit():
+            self._next_id = max(self._next_id, int(tid[1:]))
+        if command_id is not None and fingerprint is not None:
+            self._results[command_id] = (tuple(fingerprint), copy.deepcopy(task))
 
     def dump(self):
         return {"next_id": self._next_id,
