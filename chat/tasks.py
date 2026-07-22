@@ -5,6 +5,7 @@ Stany: open -> claimed -> review -> done; odnogi: changes_requested
 poza WIP). Zamrazanie egzekwuje serwer/kolejka, nie klient.
 """
 import copy
+import json
 
 
 class TaskError(Exception):
@@ -64,7 +65,7 @@ class TaskQueue:
     # -- operacje ----------------------------------------------------------
     def add(self, card, command_id, now):
         self._check_command_id(command_id)
-        fingerprint = ("add", None, None, None, None)
+        fingerprint = ("add", json.dumps(card, sort_keys=True), None, None, None)
         cached = self._dedup_get(command_id, fingerprint, now)
         if cached is not None:
             return cached

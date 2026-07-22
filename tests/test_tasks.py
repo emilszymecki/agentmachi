@@ -88,3 +88,10 @@ def test_card_mutation_after_add_has_no_effect():
     t = q.add(card, command_id="c1", now=0.0)
     card["goal"] = "ZMIENIONE"
     assert q.get(t["id"])["card"]["goal"] != "ZMIENIONE"
+
+
+def test_add_reuse_with_different_card_conflicts():
+    q = TaskQueue()
+    q.add(CARD, "c1", 0)
+    with pytest.raises(Conflict):
+        q.add(dict(CARD, goal="INNY"), "c1", 0)
