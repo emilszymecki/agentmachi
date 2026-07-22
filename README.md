@@ -53,6 +53,10 @@ python3 send.py --listen          # podgląd ruchu (człowiek)
 tail -f server.log                # log serwera
 ```
 
+Serwer krok B (`chat/server.py`) czyta tokeny z pliku wskazanego przez
+`CHAT_TOKENS` (domyślnie `tokens.json`) — skopiuj `hub.tokens.example.json`,
+podmień sekrety i wystartuj `CHAT_TOKENS=hub.tokens.json python -m chat.server`.
+
 Testy (B1, branch `b1-serwer`):
 
 ```bash

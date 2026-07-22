@@ -1081,3 +1081,48 @@ def test_hello_last_seq_beyond_server_errors(srv):
         assert err["type"] == "error"
         await a.close(); await bad.close()
     asyncio.run(srv(scenario))
+
+
+# -- Task 7: oferty round-robin — warianty z briefu (nie pokryte przez F) ----
+
+async def send_status_idle(ws, nick):
+    await ws.send(json.dumps({"type": "status", "from": nick, "ts": 0.0,
+                              "state": "idle"}))
+
+
+def test_task_offer_goes_to_one_idle_worker(srv):
+    async def scenario(server):
+        b, _ = await hello("beta", "tb")
+        g, _ = await hello("gamma", "tg")
+        await send_status_idle(b, "beta")
+        await send_status_idle(g, "gamma")
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n1", "card": CARD}))
+        await recv(a)                                  # ok dla task_new
+        offer = await recv(b)                          # TYLKO beta (pierwsza idle)
+        assert offer["type"] == "task_offer"
+        assert "activation_id" in offer
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(g, timeout=0.2)                 # gamma spi — no herd
+        for ws in (a, b, g):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_offer_timeout_moves_to_next_worker(srv):
+    async def scenario(server):
+        b, _ = await hello("beta", "tb")
+        g, _ = await hello("gamma", "tg")
+        await send_status_idle(b, "beta")
+        await send_status_idle(g, "gamma")
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
+                                 "command_id": "n2", "card": CARD}))
+        await recv(a)
+        await recv(b)                                  # beta dostaje oferte...
+        offer_g = await recv(g, timeout=2.0)           # ...ignoruje -> gamma
+        assert offer_g["type"] == "task_offer"
+        for ws in (a, b, g):
+            await ws.close()
+    asyncio.run(srv(scenario))

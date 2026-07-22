@@ -7,6 +7,7 @@ chat-data/
 .superpowers/
 hub.toml
 tokens.json
+hub.tokens.json
 countdown.log
 countdown.json
 server.log
