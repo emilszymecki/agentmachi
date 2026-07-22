@@ -20,7 +20,7 @@ def test_reconnect_same_instance_keeps_generation():
     g1 = r.hello("alfa", "inst-1", "tok-a")
     g2 = r.hello("alfa", "inst-1", "tok-a")  # reconnect / drugi socket
     assert g1 == g2 == 1
-    assert r.is_current("alfa", g1)
+    assert r.generation_of("alfa") == g1
 
 
 def test_takeover_bumps_generation_and_invalidates_old():
@@ -28,8 +28,7 @@ def test_takeover_bumps_generation_and_invalidates_old():
     g1 = r.hello("alfa", "inst-1", "tok-a")
     g2 = r.hello("alfa", "inst-2", "tok-a")  # przejecie nicku
     assert g2 == g1 + 1
-    assert not r.is_current("alfa", g1)
-    assert r.is_current("alfa", g2)
+    assert r.generation_of("alfa") == g2
 
 
 def test_unknown_nick_with_none_token_rejected():
@@ -60,8 +59,7 @@ def test_dump_restore_preserves_takeover():
     r2 = Registry.restore(TOKENS, r.dump())
 
     assert r2.hello("alfa", "inst-2", "tok-a") == 2  # reconnect, nie podbija
-    assert r2.is_current("alfa", 2)
-    assert not r2.is_current("alfa", 1)
+    assert r2.generation_of("alfa") == 2
     assert r2.hello("alfa", "inst-3", "tok-a") == 3  # kolejne przejecie
 
 
@@ -192,7 +190,7 @@ def test_replay_hello_bumps_generation_like_hello_without_token():
     assert r.replay_hello("alfa", "inst-1") == 1
     assert r.replay_hello("alfa", "inst-1") == 1        # ten sam instance — bez bumpa
     assert r.replay_hello("alfa", "inst-2") == 2        # inny instance — bump
-    assert r.is_current("alfa", 2)
+    assert r.generation_of("alfa") == 2
 
 
 def test_replay_hello_matches_live_hello_sequence():

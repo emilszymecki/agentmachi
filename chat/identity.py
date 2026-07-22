@@ -98,9 +98,6 @@ class Registry:
     def generation_of(self, nick):
         return self._gen.get(nick, 0)
 
-    def is_current(self, nick, generation):
-        return self._gen.get(nick) == generation
-
     def dump(self):
         return {"gen": dict(self._gen), "instance": dict(self._instance),
                 "groups": {nick: list(groups)

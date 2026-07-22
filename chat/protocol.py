@@ -122,13 +122,3 @@ def _validate_body(frame, ftype):
         return None
     # hello: token/instance_id/last_seq/groups/role waliduje serwer (identity)
     return None
-
-
-def make_envelope(nick, frames, seq_from, seq_to):
-    return {
-        "activation_id": f"{nick}:{seq_from}-{seq_to}",
-        "nick": nick,
-        "seq_from": seq_from,
-        "seq_to": seq_to,
-        "backlog": frames,
-    }

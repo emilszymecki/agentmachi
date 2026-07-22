@@ -133,12 +133,3 @@ def test_validate_huge_int_ts_rejected_no_overflow():
     assert isinstance(msg, str) and msg            # ramka odrzucona komunikatem
     assert protocol.validate({"type": "chat", "from": "a", "ts": 1,
                               "text": "x"}) is None  # zwykly int nadal ok
-
-
-def test_envelope_deterministic_activation_id():
-    frames = [protocol.make_frame("chat", "beta", ts=1.0, text="@alfa hej")]
-    e1 = protocol.make_envelope("alfa", frames, seq_from=5, seq_to=9)
-    e2 = protocol.make_envelope("alfa", frames, seq_from=5, seq_to=9)
-    assert e1["activation_id"] == e2["activation_id"] == "alfa:5-9"
-    assert e1["backlog"] == frames
-    assert e1["seq_from"] == 5 and e1["seq_to"] == 9
