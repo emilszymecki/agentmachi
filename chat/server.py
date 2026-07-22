@@ -345,6 +345,17 @@ class ChatServer:
                 await ws.send(json.dumps(protocol.make_frame(
                     "error", "server", time.time(), text="pierwsza ramka musi byc hello")))
                 return
+            # (Runda 5 C3) pierwsze hello przez WSPOLNY schemat (type/from/ts)
+            # PRZED auth — dotad hello NIGDY nie przechodzilo przez
+            # protocol.validate, wiec hello bez ts / z from=[] dostawalo ok i
+            # bylo logowane (niestandardowy/niekompletny event). Gleboka
+            # walidacja hello (instance_id/token/last_seq/groups/role) zostaje w
+            # identity/serwerze ponizej.
+            hello_err = protocol.validate(frame)
+            if hello_err:
+                await ws.send(json.dumps(protocol.make_frame(
+                    "error", "server", time.time(), text=hello_err)))
+                return
             nick_candidate = frame.get("from")
             # niezmiennik C: generacja SPRZED tego hello — potrzebna zeby
             # odroznic zwykly reconnect (ten sam instance_id, bez bumpa) od

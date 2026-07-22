@@ -1,4 +1,5 @@
 """Ramki, wzmianki i activation envelope. Zero I/O."""
+import math
 import re
 
 # (Runda 4 #5) Rozdzial typow: INBOUND to jedyne typy, ktore klient moze
@@ -46,12 +47,18 @@ def validate(frame):
     if "type" not in frame:
         return "missing type"
     ftype = frame["type"]
+    # (Runda 5 C1) type MUSI byc niepustym stringiem ZANIM sprawdzimy
+    # przynaleznosc do FRAME_TYPES: type=[]/{} to unhashable, a `in FRAME_TYPES`
+    # (membership po secie) rzucalo TypeError, wywalajac cala walidacje zanim
+    # zdazyla zwrocic czytelny blad.
+    if not isinstance(ftype, str) or not ftype:
+        return "type wymagany (niepusty string)"
     if ftype not in FRAME_TYPES:
         return f"unknown type: {ftype}"
     if ftype not in INBOUND_FRAME_TYPES:
         # znany typ, ale wylacznie wyjsciowy/trwaly — klient nie moze go przyslac
         return f"{ftype}: typ wylacznie wyjsciowy/trwaly, nie moze przyjsc od klienta"
-    # wspolne: from niepusty string, ts liczba (bool wykluczony)
+    # wspolne: from niepusty string, ts liczba SKONCZONA (bool wykluczony)
     if "from" not in frame:
         return "missing from"
     if not isinstance(frame["from"], str) or not frame["from"]:
@@ -59,8 +66,11 @@ def validate(frame):
     if "ts" not in frame:
         return "missing ts"
     ts = frame["ts"]
-    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
-        return "ts wymagany (liczba)"
+    # (Runda 5 C2) ts musi byc liczba SKONCZONA — NaN/inf przechodzily
+    # (isinstance float True) i trafialy do logu jako niestandardowy JSON.
+    if (isinstance(ts, bool) or not isinstance(ts, (int, float))
+            or not math.isfinite(ts)):
+        return "ts wymagany (liczba skonczona)"
     return _validate_body(frame, ftype)
 
 
