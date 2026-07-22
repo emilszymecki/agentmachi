@@ -7,10 +7,15 @@ FRAME_TYPES = {
     "review_changes", "error", "ok",
 }
 _MENTION = re.compile(r"(?:^|\s)@(\w+)")
+_GROUP = re.compile(r"(?:^|\s)\$(\w+)")
 
 
 def parse_mentions(text):
     return set(_MENTION.findall(text or ""))
+
+
+def parse_groups(text):
+    return set(_GROUP.findall(text or ""))
 
 
 def make_frame(ftype, frm, ts, **fields):

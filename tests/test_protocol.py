@@ -8,6 +8,13 @@ def test_parse_mentions():
     assert protocol.parse_mentions("mail x@y.z to nie wzmianka") == set()
 
 
+def test_parse_groups():
+    assert protocol.parse_groups("hej $workers i $review, reszta nie") == {"workers", "review"}
+    assert protocol.parse_groups("bez grup") == set()
+    assert protocol.parse_groups("cena5$workers to nie grupa") == set()
+    assert protocol.parse_groups("") == set()
+
+
 def test_make_frame_and_validate_ok():
     f = protocol.make_frame("chat", "alfa", ts=123.0, text="siema")
     assert f == {"type": "chat", "from": "alfa", "ts": 123.0, "text": "siema"}
