@@ -209,6 +209,13 @@ class HubAdapter:
 
     async def _apply_hello(self, reply, on_frame, on_metadata):
         await _maybe_await(on_metadata(self._metadata(reply)))
+        participants = reply.get("participants")
+        if isinstance(participants, list):
+            # autorytatywny roster PRZED backlogiem/stanem — panel nie
+            # zgaduje z configu, tylko odzwierciedla serwer (cursor-coherent)
+            await _maybe_await(on_frame({
+                "type": "participants_snapshot",
+                "participants": participants}))
         if reply["type"] == "ok":
             backlog = reply.get("backlog", [])
             if not isinstance(backlog, list):
@@ -462,6 +469,8 @@ class AgentmachiApp(App):
             self._log("server", f"groups {frame.get('target')} = "
                       f"{','.join(frame.get('groups', [])) or '—'}",
                       style="bold green")
+        elif kind == "participants_snapshot":
+            self._apply_participants_snapshot(frame.get("participants"))
         elif kind == "resync_state":
             state = frame.get("state")
             if isinstance(state, dict):
@@ -469,6 +478,28 @@ class AgentmachiApp(App):
         elif kind == "error":
             self._log("server", frame.get("text", "blad"),
                       style="bold red")
+
+    def _apply_participants_snapshot(self, participants):
+        if not isinstance(participants, list):
+            return
+        fresh = {}
+        for item in participants:
+            if not isinstance(item, dict):
+                continue
+            nick = item.get("nick")
+            if not isinstance(nick, str) or not nick:
+                continue
+            role = item.get("role")
+            groups = item.get("groups")
+            fresh[nick] = Participant(
+                nick,
+                role if role in {"agent", "human"} else "agent",
+                [g for g in groups if isinstance(g, str) and g]
+                if isinstance(groups, list) else [],
+                "connected" if item.get("connected") else "known")
+        if fresh:
+            self.roster = fresh  # snapshot AUTORYTATYWNY — zastepuje zgadywanie
+            self._render_participants()
 
     def _apply_groups(self, target, groups):
         if not isinstance(target, str) or not isinstance(groups, list):

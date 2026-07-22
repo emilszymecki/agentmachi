@@ -191,6 +191,71 @@ def test_apply_hello_resync_applies_state_then_cursor(session):
     assert session.last_applied_seq == 9
 
 
+def test_apply_hello_participants_before_backlog(session):
+    """Snapshot uczestnikow (autorytatywny) laduje PRZED backlogiem —
+    roster jest cursor-coherent po kazdym hello, takze po restarcie."""
+    adapter = _adapter(session)
+    order = []
+
+    async def on_frame(frame):
+        order.append(frame["type"])
+
+    async def run():
+        await adapter._apply_hello(
+            {"type": "ok", "generation": 1,
+             "participants": [
+                 {"nick": "beta", "role": "agent",
+                  "groups": ["head", "admin"], "connected": True}],
+             "backlog": [{"type": "chat", "from": "beta", "text": "x",
+                          "seq": 11}]},
+            on_frame, lambda m: None)
+    asyncio.run(run())
+    assert order == ["participants_snapshot", "chat"]
+
+
+def test_app_participants_snapshot_overrides_stale_roster(tmp_path):
+    """Repro review: config mowi workers, serwerowy snapshot mowi
+    head+admin po restarcie z wysokim kursorem — panel MUSI wierzyc
+    snapshotowi, nie configowi."""
+    pytest.importorskip("textual")
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+        "beta": {"token": "tok-b", "role": "agent", "groups": ["workers"]},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.roster["beta"].groups == ["workers"]  # stan z configu
+            await app.apply_hub_frame({
+                "type": "participants_snapshot",
+                "participants": [
+                    {"nick": "Emil", "role": "human", "groups": [],
+                     "connected": True},
+                    {"nick": "beta", "role": "agent",
+                     "groups": ["head", "admin"], "connected": False}]})
+            assert app.roster["beta"].groups == ["head", "admin"]
+            assert app.roster["beta"].presence == "known"
+            assert app.roster["Emil"].presence == "connected"
+    asyncio.run(scenario())
+
+
+class _StubQuietAdapter:
+    def __init__(self, identity):
+        self.identity = identity
+
+    async def run(self, on_frame, on_metadata, on_status):
+        await on_status("stub", True)
+
+    async def send(self, frame):
+        pass
+
+    async def close(self):
+        pass
+
+
 # --- App headless (Textual Pilot) -----------------------------------------
 
 def test_app_renders_and_sends_chat(tmp_path):
@@ -232,9 +297,15 @@ def test_app_renders_and_sends_chat(tmp_path):
             assert inp.disabled is False
             inp.focus()
             await pilot.pause()
+            assert len(app.query(".panel")) == 3  # dokladnie trzy panele
+            inp.value = "czesc kanale"
+            await pilot.press("enter")
+            await pilot.pause()
             inp.value = "/groups beta head,admin"
             await pilot.press("enter")
             await pilot.pause()
     asyncio.run(scenario())
-    assert sent == [{"type": "membership_set", "target": "beta",
-                     "groups": ["head", "admin"]}]
+    assert sent == [
+        {"type": "chat", "text": "czesc kanale"},
+        {"type": "membership_set", "target": "beta",
+         "groups": ["head", "admin"]}]

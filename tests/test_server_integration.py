@@ -2318,3 +2318,46 @@ def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
         assert s2.registry.role_of("beta") == "agent"
 
     asyncio.run(scenario())
+
+
+# -- t2 review: participants snapshot dla humana ----------------------------
+
+def test_human_hello_gets_authoritative_participants(srv):
+    async def scenario(server):
+        # human dostaje snapshot; agent NIE
+        ws_h, rep_h = await hello("emil", "te", role="human")
+        assert isinstance(rep_h.get("participants"), list)
+        by_nick = {p["nick"]: p for p in rep_h["participants"]}
+        assert set(by_nick) == set(TOKENS)
+        assert by_nick["emil"]["connected"] is True
+        assert by_nick["emil"]["role"] == "human"
+        ws_a, rep_a = await hello("alfa", "ta", instance="ia")
+        assert "participants" not in rep_a
+        await ws_h.close()
+        await ws_a.close()
+    asyncio.run(srv(scenario))
+
+
+def test_participants_reflect_membership_after_reconnect(srv):
+    """Repro review t2: membership_set -> reconnect humana z wysokim
+    kursorem (pusty backlog) -> snapshot MUSI niesc nowe grupy."""
+    async def scenario(server):
+        ws_h, rep1 = await hello("emil", "te", role="human")
+        before = {p["nick"]: p["groups"] for p in rep1["participants"]}
+        await ws_h.send(json.dumps({
+            "type": "membership_set", "from": "emil", "ts": 1.0,
+            "target": "alfa", "groups": ["head", "admin"]}))
+        ok = await recv(ws_h)
+        while ok.get("type") != "ok":
+            ok = await recv(ws_h)
+        await ws_h.close()
+        # reconnect z kursorem = koniec loga (pusty backlog) — dokladnie
+        # scenariusz, w ktorym stary TUI klamal
+        ws_h2, rep2 = await hello("emil", "te", role="human",
+                                  last_seq=server.log.last_seq)
+        assert rep2.get("backlog") == []
+        by_nick = {p["nick"]: p for p in rep2["participants"]}
+        assert by_nick["alfa"]["groups"] == ["admin", "head"]  # sorted
+        assert before["alfa"] != by_nick["alfa"]["groups"]
+        await ws_h2.close()
+    asyncio.run(srv(scenario))

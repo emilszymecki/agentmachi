@@ -90,7 +90,7 @@ Tryb HISTORYCZNY (archiwum PoC; hub 8765 ZATRZYMANY po T5, log w
 Testy (B1, branch `b1-serwer`):
 
 ```bash
-uv run --quiet --with pytest --with websockets python -m pytest tests/ -v
+uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -v
 ```
 
 ## Struktura

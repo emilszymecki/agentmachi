@@ -278,6 +278,17 @@ class ChatServer:
         self._maybe_snapshot()
         self._trigger_offer()
 
+    def _participants_snapshot(self):
+        """Autorytatywny roster dla TUI humana: KAZDY nick z configu
+        (registry) + jego serwerowe role/groups + realne connected.
+        Zrodlo prawdy: registry (durable, replayowane) + conns (live) —
+        nigdy statyczny plik tokenow po stronie klienta."""
+        return [{"nick": nick,
+                 "role": self.registry.role_of(nick),
+                 "groups": sorted(self.registry.groups_of(nick)),
+                 "connected": bool(self.conns.get(nick))}
+                for nick in sorted(self.registry.tokens)]
+
     def _load_rules(self):
         path = self.log.dir / "rules.md"
         if not path.exists():
@@ -503,6 +514,11 @@ class ChatServer:
             if rules_text is not None:
                 extra["rules"] = rules_text
                 extra["rules_hash"] = rules_hash
+            if role == "human":
+                # (t2 review) roster musi byc cursor-coherent: panel TUI
+                # dostaje przy KAZDYM hello swiezy autorytatywny snapshot
+                # zamiast zgadywac z configu/backlogu.
+                extra["participants"] = self._participants_snapshot()
             if backlog is None:
                 # niezmiennik B: resync spojny — snapshot_seq zwracany
                 # klientowi musi etykietowac DOKLADNIE ten state, ktory
