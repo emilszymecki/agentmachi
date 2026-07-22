@@ -9,6 +9,11 @@ class AuthError(Exception):
 
 class Registry:
     def __init__(self, tokens):
+        for nick, token in tokens.items():
+            if not isinstance(nick, str) or not nick:
+                raise ValueError(f"bad nick in tokens map: {nick!r}")
+            if not isinstance(token, str) or not token:
+                raise ValueError(f"bad token for nick {nick!r}: {token!r}")
         self.tokens = tokens          # nick -> token
         self._gen = {}                # nick -> int
         self._instance = {}           # nick -> aktualny instance_id

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from chat.identity import Registry, AuthError
 
@@ -61,3 +63,26 @@ def test_dump_restore_preserves_takeover():
     assert r2.is_current("alfa", 2)
     assert not r2.is_current("alfa", 1)
     assert r2.hello("alfa", "inst-3", "tok-a") == 3  # kolejne przejecie
+
+
+def test_empty_configured_token_fails_fast():
+    with pytest.raises(ValueError):
+        Registry({"alfa": ""})
+
+
+def test_non_str_configured_token_fails_fast():
+    with pytest.raises(ValueError):
+        Registry({"alfa": 123})
+
+
+def test_empty_nick_fails_fast():
+    with pytest.raises(ValueError):
+        Registry({"": "tok"})
+
+
+def test_dump_contains_no_tokens():
+    r = Registry({"alfa": "tajny-tok"})
+    r.hello("alfa", "inst-1", "tajny-tok")
+    d = r.dump()
+    assert "tajny-tok" not in json.dumps(d)
+    assert "tokens" not in d
