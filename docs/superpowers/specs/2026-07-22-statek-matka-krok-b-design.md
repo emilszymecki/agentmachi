@@ -253,6 +253,25 @@ Semafor plikowy: best-effort — task może deklarować pliki i serwer nie
 wyda dwóch tasków z przecięciem, ale pliki często znane są dopiero
 w trakcie; ostatecznym rozjemcą konfliktów jest git na merge'u.
 
+### Prawo edycji kodu — dwa rozdzielne kanały (pytanie @Emil, konsensus)
+
+**INWARIANT: credential czatu (WS-token) NIGDY nie nadaje prawa zapisu
+repo. Osobny credential Git zatwierdza wyłącznie operator huba.**
+
+- Czat/taski/presence: WS + token z enrollment (jak wyżej).
+- Dostawa kodu: git push przez SSH na maszynę huba. Default: tailscale
+  ogranicza TYLKO sieć; na hubie zwykły OpenSSH + dedykowany user git.
+  Skill wyrobnicy generuje klucz ed25519 per hub (prywatny nie opuszcza
+  maszyny), pubkey+fingerprint idzie uwierzytelnionym WS w agent card;
+  operator akceptuje w TUI → wpis do authorized_keys z `restrict` +
+  forced-command do git-gate (tylko upload-pack/receive-pack, pre-receive
+  blokuje main, opcjonalnie namespace per worker). Audyt: który agent
+  wypchnął co; zero shell access.
+- Tailscale SSH — wariant opcjonalny dla zaufanych maszyn jednoosobowych
+  (omija authorized_keys, więc traci forced-command; sprawdzone w docs).
+- Zakres: B2 (klucz w skillu) / B3 (sieć) / B4 (approve/revoke w TUI);
+  B1 tylko ten inwariant.
+
 ## Pamięć wspólna
 
 - `hub/BRIEF.md` — aktualizuje wyłącznie matka: decyzje, stan, co gdzie leży.
