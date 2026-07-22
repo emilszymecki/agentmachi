@@ -5,21 +5,37 @@ Kluczowe niezmienniki (review tercetu, wiazace):
   a) generation przypieta do SOCKETU przy hello — kazda kolejna ramka z
      tego samego polaczenia jest mutowana TA generacja, nigdy
      frame.get("generation"). Po takeover (nowe hello tego samego nicka
-     z innym instance_id) stary socket dostaje error na kazdej ramce.
+     z innym instance_id) serwer zamyka stare sockety NATYCHMIAST (przy
+     samym hello, nie dopiero przy ich kolejnej ramce); per-ramkowy check
+     generacji zostaje jako druga linia obrony.
   b) snapshot niesie {"queue": ..., "registry": ...} — restart odtwarza
-     oba (Registry.restore).
-  c) snapshot po kazdych SNAPSHOT_EVERY=100 eventach ORAZ przy stop().
-  d) activation_id kotwiczony w TRWALYM evencie: task_offer najpierw
-     append (dostaje seq), potem activation_id = f"{nick}:{seq}"; retry
-     tej samej oferty (ten sam nick+task+wersja) zwraca ten sam id bez
-     nowego eventu.
+     oba (Registry.restore) i DODATKOWO replay'uje kazdy event > snapshot_seq
+     (ten sam kod mutujacy co live, bez side-effectow sieciowych) — trwalosc
+     nie konczy sie na ostatnim snapshocie. resync_required robi swiezy,
+     atomowy snapshot() PRZED odpowiedzia, zeby zwracany snapshot_seq
+     zawsze etykietowal dokladnie ten state.
+  c) snapshot po kazdych SNAPSHOT_EVERY=100 eventach (licznik zasiany przy
+     starcie liczba eventow juz w logu po snapshot_seq) ORAZ przy stop()
+     (w tym Ctrl+C/SIGTERM — patrz main()/finally).
+  d) activation_id kotwiczony w TRWALYM evencie: seq jest przewidywalny
+     (log.last_seq+1, event loop jednowatkowy), wiec activation_id jest
+     wliczany do ramki PRZED jej zapisem — trwaly event ma i seq, i
+     activation_id. Retry TEJ SAMEJ proby (ten sam nick+task+wersja) zwraca
+     ten sam id bez nowego eventu; po rozstrzygnieciu oferty (timeout minal)
+     wpis jest ewikowany, wiec kolejna proba tego samego nicka/taska/wersji
+     (po pelnym okrazeniu idle) to NOWY event/id.
   e) grupy adresowe ($group) — patrz protocol.parse_groups; nieznana
      grupa = error do nadawcy, zero publikacji do niej (inne wzmianki w
-     tej samej ramce dzialaja normalnie).
+     tej samej ramce dzialaja normalnie). role/groups faktycznie przypisane
+     nickowi pochodza WYLACZNIE z configu serwera (Registry.role_of/
+     groups_of) — to co klient deklaruje w hello jest tylko walidowane.
   f) wejscie klienckie walidowane zanim dotknie kolejki/rejestru; zaden
-     pojedynczy zly frame nie moze zabic handlera ani serwera.
-  g) trwalosc przed publikacja: chat najpierw append (dostaje seq),
-     potem dostarczenie.
+     pojedynczy zly frame (w tym JSON-skalar/lista zamiast obiektu) nie
+     moze zabic handlera ani serwera.
+  g) trwalosc przed publikacja: chat/task_*/hello najpierw append (dostaje
+     seq), potem dostarczenie/odpowiedz. Pola seq/generation/groups/role/
+     from sa nadpisywane przez serwer na KAZDEJ ramce klienta przed
+     zapisem — nigdy nie przechodza z ramki do logu/odbiorcow.
 """
 import asyncio
 import hashlib
