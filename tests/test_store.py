@@ -1,4 +1,6 @@
 # tests/test_store.py
+import pytest
+
 from chat.store import EventLog
 
 
@@ -48,6 +50,44 @@ def test_snapshot_then_old_cursor_requires_resync(tmp_path):
     assert [e["text"] for e in log.events_after(5)] == ["po-snapshocie"]
     state, seq = log.load_snapshot()
     assert state == {"queue": "stan"} and seq == 5
+
+
+def test_append_failure_does_not_advance_seq(tmp_path, monkeypatch):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "text": "a"})
+    assert log.last_seq == 1
+
+    with monkeypatch.context() as m:
+        # katalog zamiast pliku -> open(..., "a") rzuci przy probie zapisu
+        m.setattr(log, "events_path", log.dir)
+        with pytest.raises(OSError):
+            log.append({"type": "chat", "text": "b"})
+    assert log.last_seq == 1  # nieudany zapis nie podbil seq — brak dziury
+
+    # kolejny udany append dostaje wlasciwy numer, bez dziury po nieudanej probie
+    assert log.append({"type": "chat", "text": "c"}) == 2
+    assert log.last_seq == 2
+
+
+def test_torn_trailing_line_is_tolerated(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "text": "a"})
+    log.append({"type": "chat", "text": "b"})
+    assert log.last_seq == 2
+
+    # symulacja crashu w trakcie zapisu trzeciej linii: urwany ogon bez newline
+    with log.events_path.open("a") as f:
+        f.write('{"seq": 3, "type"')
+
+    log2 = EventLog(tmp_path)  # nie moze sie wywalic na starcie
+    assert log2.last_seq == 2
+    assert [e["text"] for e in log2.replay()] == ["a", "b"]
+
+    # plik na dysku przycięty do ostatniej poprawnej linii
+    assert len(log2.events_path.read_text().splitlines()) == 2
+
+    assert log2.append({"type": "chat", "text": "c"}) == 3
+    assert log2.last_seq == 3
 
 
 def test_snapshot_persists_and_replay_after_restart(tmp_path):
