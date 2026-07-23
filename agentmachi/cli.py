@@ -253,7 +253,29 @@ def cmd_heartbeat(args):
                                            args.task_id, args.interval)) or 0
 
 
-def main(argv=None):
+def cmd_node(args):
+    """Headless node: budzi/wznawia runtime agenta na wzmianke (Task 3).
+
+    Token/URL jak _agent_env (CHAT_TOKEN z env wygrywa nad tokens.json).
+    Stan w hub_dir(hub)/nodes/<nick>/state.json (katalog 0700). Adapter
+    Codexa swiadomie poza zakresem (po dogfoodzie jednego runtime'u)."""
+    args.name = args.hub
+    nick = _agent_env(args)
+    humans = {h.strip() for h in args.humans.split(",") if h.strip()}
+    state_dir = hub_dir(args.hub) / "nodes" / nick
+    state_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(state_dir, 0o700)
+    state_path = state_dir / "state.json"
+    from agentmachi.node import ClaudeRuntime, RateLimiter, node_loop
+    runtime = ClaudeRuntime(args.workspace, max_duration=args.max_wake_duration)
+    limiter = RateLimiter(max_wakes_per_hour=args.max_wakes_per_hour,
+                          cooldown_after_agent_wake=args.cooldown)
+    asyncio.run(node_loop(os.environ["CHAT_URL"], nick, os.environ["CHAT_TOKEN"],
+                         state_path, runtime, humans, limiter=limiter))
+    return 0
+
+
+def _build_parser():
     parser = argparse.ArgumentParser(
         prog="agentmachi",
         description="serwer Hamachi dla agentow — hub czatu i taskow")
@@ -300,6 +322,22 @@ def main(argv=None):
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_heartbeat)
 
+    p = sub.add_parser("node", help="headless node: budzi agenta na wzmianke")
+    p.add_argument("hub")
+    p.add_argument("--nick", required=True)
+    p.add_argument("--workspace", required=True)
+    p.add_argument("--humans", default="human",
+                   help="nicki ludzi (przecinki) — cooldown nie dotyczy ich wzmianek")
+    p.add_argument("--max-wakes-per-hour", type=int, default=6)
+    p.add_argument("--cooldown", type=float, default=60.0)
+    p.add_argument("--max-wake-duration", type=float, default=1200.0)
+    p.set_defaults(fn=cmd_node)
+
+    return parser
+
+
+def main(argv=None):
+    parser = _build_parser()
     args = parser.parse_args(argv)
     try:
         return args.fn(args)

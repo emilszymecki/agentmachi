@@ -131,3 +131,75 @@ def test_agent_env_upgrade_hub_without_bind_in_config_keeps_localhost(
     assert os.environ["CHAT_URL"] == "ws://localhost:8931"
     import send
     assert send.hub_id_from_url(os.environ["CHAT_URL"]) == "localhost:8931"
+
+
+# --- Task 3: subkomenda `agentmachi node` ----------------------------------
+
+def test_node_parser_defaults():
+    args = cli._build_parser().parse_args(
+        ["node", "alpha", "--nick", "worker1", "--workspace", "/tmp/w"])
+    assert args.hub == "alpha" and args.nick == "worker1"
+    assert args.workspace == "/tmp/w"
+    assert args.humans == "human"
+    assert args.max_wakes_per_hour == 6
+    assert args.cooldown == 60.0
+    assert args.max_wake_duration == 1200.0
+
+
+def test_node_cmd_wires_url_token_state_path_without_running_loop(
+        home, monkeypatch):
+    """cmd_node NIE odpala petli w tym tescie: node_loop podmieniony na
+    fake — sprawdzamy tylko okablowanie (URL/token/state_path/humans/
+    limiter) i katalog stanu 0700."""
+    # izolacja: CHAT_TOKEN/URL/NICK czyszczone jawnie — _agent_env muta
+    # os.environ WPROST (poza monkeypatch), wiec bez tego leak z innego
+    # testu w tym samym procesie ominalby walidacje nicka i realny (nie
+    # podmieniony) node_loop probowalby laczyc sie z nieistniejacym hubem
+    # w nieskonczonej petli reconnect (test wisi na 120s timeout).
+    monkeypatch.setenv("CHAT_TOKEN", "")
+    monkeypatch.setenv("CHAT_URL", "")
+    monkeypatch.setenv("CHAT_NICK", "")
+    cli.ensure_hub("alpha", 8931)
+    tokens, d = cli.load_tokens("alpha")
+
+    calls = []
+
+    async def fake_node_loop(url, nick, token, state_path, runtime, humans,
+                             limiter=None, now=None):
+        calls.append(dict(url=url, nick=nick, token=token,
+                          state_path=state_path, runtime=runtime,
+                          humans=humans, limiter=limiter))
+
+    monkeypatch.setattr("agentmachi.node.node_loop", fake_node_loop)
+    rc = cli.main(["node", "alpha", "--nick", "worker1",
+                  "--workspace", "/tmp/ws-test", "--humans", "emil,ola"])
+    assert rc == 0
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["url"] == f"ws://localhost:{cli.hub_port('alpha')}"
+    assert call["nick"] == "worker1"
+    assert call["token"] == tokens["worker1"]["token"]
+    assert call["humans"] == {"emil", "ola"}
+
+    state_path = d / "nodes" / "worker1" / "state.json"
+    assert call["state_path"] == state_path
+    assert stat.S_IMODE(os.stat(state_path.parent).st_mode) == 0o700
+
+    from agentmachi.node import RateLimiter
+    assert isinstance(call["limiter"], RateLimiter)
+    assert call["limiter"].max_wakes_per_hour == 6
+    assert call["limiter"].cooldown == 60.0
+
+    from agentmachi.node import ClaudeRuntime
+    assert isinstance(call["runtime"], ClaudeRuntime)
+    assert call["runtime"].workspace == "/tmp/ws-test"
+
+
+def test_node_cmd_rejects_unknown_nick(home, monkeypatch):
+    monkeypatch.setenv("CHAT_TOKEN", "")
+    monkeypatch.setenv("CHAT_URL", "")
+    monkeypatch.setenv("CHAT_NICK", "")
+    cli.ensure_hub("alpha", 8931)
+    rc = cli.main(["node", "alpha", "--nick", "nikt-taki",
+                  "--workspace", "/tmp/w"])
+    assert rc == 2
