@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,12 +23,16 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Input, Label, RichLog, Static
 
+from chat import protocol
 from chat.client_session import ListenerLockHeld, Session, SessionError
+from send import hub_id_from_url
 
-
-HUB_URI = "ws://localhost:8766"
-HUB_ID = "localhost:8766"
-TOKENS_PATH = Path("hub.tokens.json")
+# CLI agentmachi ustawia CHAT_PORT i AGENTMACHI_TOKENS; gołe `python3
+# tui.py` w repo zachowuje stare defaulty (hub.tokens.json + 8766)
+_PORT = os.environ.get("CHAT_PORT", "8766")
+HUB_URI = os.environ.get("CHAT_URL", f"ws://localhost:{_PORT}")
+HUB_ID = hub_id_from_url(HUB_URI)
+TOKENS_PATH = Path(os.environ.get("AGENTMACHI_TOKENS", "hub.tokens.json"))
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
 HELLO_TIMEOUT = 10.0
 BACKOFF_START = 1.0
@@ -56,7 +61,8 @@ class Participant:
     role: str
     groups: list[str]
     presence: str = "known"
-    status: str = ""      # idle | working | blocked | review ("" = nieznany)
+    status: str = ""      # wolny tekst umowny: sleeping|idle|working|blocked|
+                           # review|done, ale server nie waliduje enuma ("" = nieznany)
     status_note: str = ""  # task_id / note z ostatniej deklaracji
 
 
@@ -237,16 +243,27 @@ class HubAdapter:
         self.session.advance(snapshot_seq)
 
     async def run(self, on_frame, on_metadata, on_status):
-        try:
-            self.session.acquire_listener_lock()
-        except ListenerLockHeld as exc:
-            await _maybe_await(on_status(str(exc), False))
+        # Lock listenera moze byc chwilowo zajety (np. inny klient na tym
+        # samym nicku wlasnie pada) — TUI to fotel czlowieka, wiec zamiast
+        # fail-closed na stale ponawiamy z backoffem az do zwolnienia.
+        backoff = BACKOFF_START
+        while not self._closing:
+            try:
+                self.session.acquire_listener_lock()
+                break
+            except ListenerLockHeld as exc:
+                await _maybe_await(on_status(
+                    f"{exc} — ponawiam za {backoff:.0f}s", False))
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, BACKOFF_MAX)
+        if self._closing:
             return
         backoff = BACKOFF_START
         try:
             while not self._closing:
                 try:
-                    await _maybe_await(on_status("laczenie z hubem 8766...", False))
+                    await _maybe_await(on_status(
+                        f"laczenie z hubem {self.uri}...", False))
                     async with self._connector(self.uri) as ws:
                         self._ws = ws
                         reply = await self._hello(ws)
@@ -488,7 +505,11 @@ class AgentmachiApp(App):
                         if isinstance(raw_note, str) else ""
                 self._render_participants()
         elif kind == "status":
-            nick = frame.get("from")
+            # `target` jest autorytatywny (server-side default = nadawca);
+            # aktualizujemy WIERSZ target, nie koniecznie nadawce (orchestrator
+            # moze ustawiac cudzy status). Stan spoza znanych kolorow ma po
+            # prostu brak koloru w _render_participants — nie jest to blad.
+            nick = frame.get("target") or frame.get("from")
             state = frame.get("state")
             if (isinstance(nick, str) and nick
                     and isinstance(state, str) and state):
@@ -566,6 +587,14 @@ class AgentmachiApp(App):
         if frame["type"] == "chat":
             self._log(self.adapter.identity.nick, frame["text"],
                       style="bold green")
+            # Fizyka kanalu: chat bez wzmianki trafia wylacznie do humanow
+            # (sen agenta jest darmowy) — czlowiek piszacy do agentow bez
+            # @nicka dostalby cisze i nie wiedzialby dlaczego (dogfood B3).
+            if not (protocol.parse_mentions(frame["text"])
+                    or protocol.parse_groups(frame["text"])):
+                self._log("client",
+                          "(bez wzmianki — agenci tego nie dostana; "
+                          "uzyj @nick, $grupa albo @all)", style="dim")
         else:
             groups = ",".join(frame["groups"]) or "—"
             self._log("client", f"wyslano groups {frame['target']} = {groups}",

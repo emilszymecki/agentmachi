@@ -30,14 +30,33 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 import websockets
 
 from chat.client_session import ListenerLockHeld, Session, SessionError
 
 PORT = os.environ.get("CHAT_PORT", "8765")
-URI = f"ws://localhost:{PORT}"
-HUB_ID = f"localhost:{PORT}"
+
+
+def hub_id_from_url(url):
+    """Kursor jest per hub+nick; hub_id = host:port URL-a (port domyslny
+    schematu, gdy brak w URL — wss za tunelem publicznym nie niesie :443
+    jawnie). UWAGA: ten sam hub widziany pod dwoma nazwami hosta = dwa
+    kursory — at-least-once absorbuje ponowna dostawe: swiadomy koszt."""
+    p = urlparse(url)
+    if p.scheme not in ("ws", "wss") or not p.hostname:
+        raise ValueError(f"CHAT_URL musi byc ws://host[:port] lub wss://: {url!r}")
+    try:
+        port = p.port
+    except ValueError:
+        raise ValueError(f"CHAT_URL ma niepoprawny port: {url!r}")
+    port = port or (443 if p.scheme == "wss" else 80)
+    return f"{p.hostname}:{port}"
+
+
+URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")
+HUB_ID = hub_id_from_url(URI)
 HELLO_TIMEOUT = 10.0
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
@@ -133,11 +152,18 @@ def apply_frame(session, data):
 
 
 def _emit_session_metadata(reply):
-    """Jedna ramka metadanych sesji (rules/role/groups/generation) PRZED
-    backlogiem/stanem — adapter/harness widzi kontekst zanim poplyna eventy.
-    Bez cache — kazde hello emituje aktualny stan z serwera."""
+    """Jedna ramka metadanych sesji PRZED backlogiem/stanem — adapter/harness
+    widzi kontekst, zanim poplyna eventy. Bez cache: kazde hello emituje
+    aktualny stan z serwera.
+
+    F10 (B5): przekazujemy TAKZE `participants` (board — kto istnieje, kto
+    polaczony, co robi) i `howto` (instrukcja obslugi kanalu). Hub wysyla
+    oba od B4/F5, ale listener je gubil — agent wchodzacy jedyna
+    udokumentowana droga nie dostawal ani boardu, ani instrukcji. Obietnica
+    protokolu musi docierac do odbiorcy, nie tylko na drut."""
     meta = {k: reply[k] for k in ("rules", "rules_hash", "role", "groups",
-                                  "generation") if k in reply}
+                                  "generation", "participants", "howto")
+            if k in reply}
     if meta:
         _print_event({"type": "session_metadata", **meta})
 
@@ -162,6 +188,11 @@ def _apply_hello_reply(session, reply):
                 "sprawdz wersje huba albo ponow polaczenie")
         # APPLY stanu PRZED przesunieciem kursora
         _print_event({"type": "resync_state", "state": state})
+        # F1+F10: po kompakcji rozmowa wraca w `conversation`. Bez tego
+        # wracajacy agent widzi kanal, na ktorym "nic sie nie wydarzylo".
+        for frame in reply.get("conversation", []):
+            if isinstance(frame, dict):
+                _print_event(frame)
         if (not isinstance(snapshot_seq, bool)
                 and isinstance(snapshot_seq, int) and snapshot_seq >= 1):
             session.advance(snapshot_seq)
@@ -226,6 +257,27 @@ async def _await_heartbeat_ok(ws, task_id):
         if (reply.get("type") == "ok"
                 and reply.get("task", {}).get("id") == task_id):
             return reply
+
+
+async def oneshot_frame(nick, frame):
+    """Jednorazowa ramka NIE-chat (status/task_*) na TOZSAMOSCI SESJI —
+    ten sam instance_id co listener/heartbeat, wiec ZERO takeoveru i
+    zero ping-ponga generacji (bug znaleziony testem skilla: one-shot
+    z innym instance wypieral listener i gubil lease). Kursora nie rusza.
+    Zwraca odpowiedz serwera (ok/error) albo None (np. status bez ACK)."""
+    token = _require_token()
+    session = _session(nick)
+    async with websockets.connect(URI) as ws:
+        await do_hello(ws, nick, session, token)
+        await ws.send(json.dumps({"from": nick, "ts": 0.0, **frame}))
+        try:
+            while True:
+                reply = json.loads(await asyncio.wait_for(ws.recv(), 5))
+                if isinstance(reply, dict) and reply.get("type") in (
+                        "ok", "error"):
+                    return reply
+        except asyncio.TimeoutError:
+            return None  # np. status — serwer nie odsyla ACK i to jest OK
 
 
 async def heartbeat_loop(nick, task_id, interval):

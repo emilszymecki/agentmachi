@@ -18,16 +18,23 @@ OUTBOUND_FRAME_TYPES = {
     "task_offer", "backlog", "resync_required", "error", "ok",
     "task_expired", "task_expired_batch", "offer_resolved",
     "presence",  # efemeryczny (bez seq): nick wszedl/wypadl z polaczenia
+    "takeover",  # F3: TRWALY slad wyparcia nicka przez nowsze hello
 }
 FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 
 # Kanon statusow agenta (deklarowane ramka `status`; presence
-# connected/offline nadaje serwer z zywych polaczen, NIE deklaracja):
+# connected/offline nadaje serwer z zywych polaczen, NIE deklaracja).
+# Od tego zadania `state` to WOLNY TEKST (niepusty str, maks 32 znaki) —
+# ponizszy zbior to WYLACZNIE dokumentacja stanow umownych, walidacja
+# schematu juz go nie egzekwuje (patrz _validate_body):
+#   sleeping — smiem czekam na wzmianke (node/agent jeszcze nie obudzony)
 #   idle    — czekam na taska (serwer moze slac task_offer)
 #   working — robie taska (opcjonalnie task_id + note co dokladnie)
 #   blocked — stoje, czekam na odpowiedz/decyzje (task_id/note = na co)
 #   review  — skonczylem, czekam na review mojej pracy (task_id)
-STATUS_STATES = frozenset({"idle", "working", "blocked", "review"})
+#   done    — task zamkniety (deklaracja koncowa, opcjonalna)
+STATUS_STATES = frozenset(
+    {"sleeping", "idle", "working", "blocked", "review", "done"})
 
 # task_* inbound wymagaja command_id (wszystkie) i task_id (poza task_new,
 # ktory taska dopiero tworzy). Glebsza walidacja (card/expected_task_version/
@@ -103,13 +110,16 @@ def _validate_body(frame, ftype):
         return None
     if ftype == "status":
         state = frame.get("state")
-        if not isinstance(state, str) or state not in STATUS_STATES:
-            return ("status: state musi byc jednym z "
-                    f"{sorted(STATUS_STATES)}")
+        if not isinstance(state, str) or not state or len(state) > 32:
+            return ("status: state wymagany (niepusty string, "
+                    "maks 32 znaki)")
         for opt in ("task_id", "note"):
             if opt in frame and (not isinstance(frame[opt], str)
                                  or not frame[opt]):
                 return f"status: {opt} jesli podany musi byc niepustym stringiem"
+        if "target" in frame and (not isinstance(frame["target"], str)
+                                  or not frame["target"]):
+            return "status: target jesli podany musi byc niepustym stringiem"
         return None
     if ftype == "heartbeat":
         task_id = frame.get("task_id")

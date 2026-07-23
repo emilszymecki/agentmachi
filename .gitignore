@@ -12,3 +12,5 @@ countdown.log
 countdown.json
 server.log
 hub-8766.log
+agentmachi.egg-info/
+uv.lock

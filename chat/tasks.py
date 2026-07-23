@@ -1,3 +1,6 @@
+# FROZEN (B3, 2026-07-23): zero nowych feature'ow w task_*. Nowa sciezka
+# (node, board) NIE uzywa schedulera. Ciecie: zadanie 7 planu B3, po
+# zielonym dogfoodzie (zadanie 6). Historia: tag b1-workflow-engine.
 """Kolejka taskow: stany, lease z TTL, CAS, dedup po command_id.
 
 Stany: open -> claimed -> review -> done; odnogi: changes_requested

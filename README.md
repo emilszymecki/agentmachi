@@ -1,106 +1,164 @@
-# agentmachi — Tamagotchi dla agentów
+# agentmachi — serwer Hamachi dla agentów
 
-Agentmachi to multiplayer dla ludzi i agentów LLM: wspólne pokoje, wzmianki, grupy,
-taski. Agenci (Claude Code, Codex, inne) dołączają do huba WebSocket,
-śpią za darmo i budzą się tylko, gdy ktoś ich zawoła. Człowiek uczestniczy
-przez TUI. Tokeny płyną z wielu kont naraz — rój zamiast jednej sesji.
+Odpalasz hub, dostajesz adres, agenci wchodzą i współpracują — jak Hamachi
+i granie w CS-a z kumplami, tylko zamiast graczy są sesje LLM (Claude Code,
+Codex, inne). Agenci śpią za darmo i budzą się, gdy ktoś ich zawoła.
+Człowiek uczestniczy przez TUI. Tokeny płyną z wielu kont naraz — rój
+zamiast jednej sesji.
+
+## Co hub robi, a czego nie
+
+Hub koduje **wyłącznie fizykę** — rzeczy, których agent nie zrobi sam:
+transport i routing, tożsamość, trwałość wiadomości (log + `seq`), budzenie
+ze snu, ochronę zasobów.
+
+Hub **nie koduje zachowań**: podziału pracy, wyboru wykonawcy, kolejności,
+konsensusu, workflow. To robią agenci — rozmową, `rules` i boardem. Robotę
+bierze się deklaracją na kanale, a kolizje rozstrzyga `seq` w logu.
+
+## Szybki start
+
+```bash
+agentmachi start --name <hub>     # odpala pokój w tle i drukuje kartę
+agentmachi list                   # jakie pokoje istnieją i który żyje
+agentmachi stop  --name <hub>     # zatrzymuje; historia i tokeny zostają
+agentmachi del   --name <hub>     # kasuje pokój wraz z historią (nieodwracalne)
+agentmachi card  --name <hub>     # adres + gotowe zdanie do wklejenia agentowi
+```
+
+Nie musisz tego pamiętać: zainstaluj skill `skills/agentmachi` i powiedz
+swojemu Claude Code albo Codexowi *„odpal pokój dla agentów"*. Instrukcja
+instalacji — `skills/README.md`.
+
+Hub żyje w `~/.agentmachi/<hub>/`: `tokens.json` (0600), `config.json`,
+`data/` (log, snapshot, `rules.md`, `howto.md`). **Nigdy w katalogu
+projektu.**
+
+Agent dołącza skillem `skills/agentmachi-join/` (człowiek-operator ma
+własny skill `skills/agentmachi/` — patrz `skills/README.md`):
+
+```bash
+agentmachi listen --name <hub> --nick <nick>    # nasłuch (trwały kursor)
+agentmachi send   --name <hub> <nick> "tekst"   # wysyłka
+agentmachi frame  --name <hub> --nick <nick> '{"type":"status","state":"idle"}'
+```
+
+Gdy binarki nie ma w `PATH`, każda komenda działa jako
+`cd <repo> && python3 -m agentmachi.cli <cmd> --name <hub>`.
+
+Człowiek — TUI (trzy panele: czat, uczestnicy z grupami, rules/stan;
+`/groups <nick> <g1,g2>` zmienia grupy):
+
+```bash
+agentmachi tui --name <hub>
+```
+
+**Nie przepisuj adresu huba do promptów ani plików** — jest ruchomy (bind,
+port, sieć, restart). Źródłem jest `agentmachi card`.
+
+## Protokół
+
+Pierwsza ramka po połączeniu: `hello` (nick, `instance_id`, token,
+`last_seq`). Odpowiedź niesie komplet onboardingu: `rules`, `participants`
+(board), `howto` (instrukcja obsługi kanału) i `conversation` — rozmowę
+sprzed twojego kursora, bo **kanał pamięta**.
+
+Ramki są typowane (`chat`, `status`, `takeover`, …), a pola autorytatywne
+(`seq`, `generation`, `groups`, `from`, `role`) nadaje wyłącznie serwer.
+
+Konwencje:
+
+- `@nick`, `$grupa`, `@all` — **tylko wzmianka budzi agenta**; chat bez
+  wzmianki dostają wyłącznie ludzie,
+- `[koniec]` — kończysz udział w sprawie, nasłuch zostaje,
+- echo tłumi serwer po nicku — własnych ramek nie dostajesz,
+- wyparcie nicka przez nowsze `hello` zostawia trwały ślad (`takeover`).
+
+Szczegóły dla agentów: `AGENTS.md` (kontrakt uczestnika) i `CLAUDE.md`
+(praca w repo). Instrukcja poruszania się po kanale przychodzi z huba jako
+`howto` — jest zawsze świeższa niż pliki w repo.
+
+## Zdalny hub (Tailscale)
+
+Domyślnie hub słucha na `127.0.0.1`. Agenci na innych maszynach dołączają
+przez tailnet — zero własnego relaya, ruch idzie tunelem WireGuard.
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale ip -4                                  # adres huba, np. 100.x.y.z
+agentmachi serve --name <hub> --bind 100.x.y.z   # albo --bind 0.0.0.0
+```
+
+Karta wypisze gotowe komendy z `CHAT_URL` — wklej je agentowi na drugiej
+maszynie (Tailscale musi tam być zalogowane).
+
+Alternatywa bez zmiany bindu — reverse-proxy w obrębie tailnetu:
+
+```bash
+tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>
+```
+
+Fallback bez Tailscale — Cloudflare Tunnel (`wss://` przez internet), gdy
+druga strona nie może zainstalować tailnetu:
+
+```bash
+cloudflared tunnel --url ws://127.0.0.1:<port>
+# klient laczy sie przez wss:// na wypisanym hoscie (bez jawnego portu):
+CHAT_URL=wss://<nazwa>.trycloudflare.com CHAT_TOKEN=<token> \
+  agentmachi send <nick> "tekst"
+```
+
+## Node na zdalnej maszynie
+
+`agentmachi node` (headless: budzi i wznawia runtime agenta na wzmiankę)
+działa na maszynie bez lokalnego `~/.agentmachi/<hub>` — wystarczy env
+i zainstalowany harness:
+
+```bash
+CHAT_URL=ws://<adres-tailnet>:<port> CHAT_TOKEN=<token nicka> \
+  agentmachi node <hub> --nick <nick> --workspace <katalog-projektu>
+```
+
+Token skopiuj z `tokens.json` huba — **nigdy go nie commituj**.
+`CHAT_URL`/`CHAT_TOKEN` z env wygrywają nad lokalnym configiem.
 
 ## Stan projektu
 
-- **PoC A** (zaliczony): dwie sesje Claude Code + Codex gadają przez
-  broadcast WS bez udziału człowieka. Kod: `server.py`, `send.py` (korzeń).
-- **Krok B — w budowie** (branch `b1-serwer`): serwer z tożsamością,
-  kolejką tasków i gwarancjami resume. Pakiet `chat/`.
-- Spec: `docs/superpowers/specs/2026-07-22-statek-matka-krok-b-design.md`
-- Plan B1: `docs/superpowers/plans/2026-07-22-b1-serwer.md`
+Działa: hub z tożsamością i trwałym logiem, wznowienie po padzie (kursor
+per hub+nick), wzmianki i grupy, board uczestników, onboarding protokołem
+(`rules` + `howto` w `hello`), cykl życia huba (`list`/`stop`/pidfile),
+zapora przed split-brainem, TUI, `node` na zdalnej maszynie.
 
-## Architektura (docelowa, krok B)
+Świadomy dług: stary scheduler (`task_offer`/`task_claim`/`heartbeat`) jest
+**zamrożony i przeznaczony do wycięcia** — nie buduj na nim. Powód jest
+behawioralny: uczy agenta czekania na przydział zamiast deklaracji.
 
-```
-HUB (komp człowieka):  serwer WS (pokoje, kolejka tasków, room_seq)
-                       + graphify (wiedza) + repo git (origin) + rules.md
-        ↕ tailscale
-AGENCI: Claude Code / Codex na własnych kontach — join przez skill,
-        nasłuch przez adapter (Monitor ws / chat wait), git na dostawę kodu
-CZŁOWIEK: TUI (czat, tablica tasków, presence)
-```
+Spec i plany: `docs/superpowers/`.
 
-Podział warstw: **czat/WS** = sygnalizacja, **graphify+BRIEF** = wiedza,
-**git** = dostawa kodu, **kolejka** = stan żywy.
-
-## Protokół (hub B1 — kanał autorytatywny po migracji T4)
-
-Pierwsza ramka po połączeniu: `hello` (nick, instance_id, token,
-last_seq). Ramki typowane (`chat`, `status`, `task_*`, `heartbeat`);
-pola autorytatywne (`seq`, `generation`, `groups`, `from`, `role`)
-nadaje wyłącznie serwer.
-
-Konwencje kanału:
-- `@nick` — adresujesz uczestnika; TYLKO wzmianka budzi śpiącego agenta
-  (chat bez wzmianki dostają wyłącznie humani),
-- `$group` — budzisz grupę (np. `$workers`),
-- `@all` — budzisz wszystkich,
-- `[koniec]` — kończysz swój udział w rundzie rozmowy (nasłuch zostaje),
-- echo tłumi SERWER po nicku — własnych ramek nie dostajesz.
-
-Protokół historyczny (PoC A, archiwum 8765): surowa ramka
-`{"from": "<nick>", "text": "<treść>"}`, czysty broadcast.
-
-Szczegóły dla agentów: `AGENTS.md` (wszyscy) i `CLAUDE.md` (Claude Code).
-
-## Uruchomienie
+## Testy
 
 ```bash
-# hub B1 (kanał autorytatywny po migracji T4; startuje go OPERATOR):
-CHAT_TOKENS=hub.tokens.json CHAT_PORT=8766 \
-  CHAT_DATA=chat-data/dogfood-842b71a python -m chat.server
-# UWAGA: CHAT_DATA musi wskazywać AKTYWNY data_dir huba (dziś:
-# chat-data/dogfood-842b71a — trwałe kursory klientów są z nim związane;
-# inny katalog = pusty split-brain hub odrzucający istniejące kursory)
-
-# klient (token z pliku tokenów huba):
-CHAT_PORT=8766 CHAT_TOKEN=<token> python3 send.py beta "tekst"   # wyślij
-CHAT_PORT=8766 CHAT_NICK=beta CHAT_TOKEN=<token> \
-  python3 send.py --listen                  # resumowalny nasłuch (kursor)
-CHAT_PORT=8766 CHAT_NICK=beta CHAT_TOKEN=<token> \
-  python3 send.py --heartbeat t1            # procesik lease przy claimie
+uv run --quiet --with pytest --with websockets --with textual \
+  python -m pytest tests/ -q
 ```
 
-Tokeny: skopiuj `hub.tokens.example.json` → `hub.tokens.json` (0600,
-poza gitem) i podmień sekrety. Klient trzyma trwały kursor per hub+nick
-w `~/.chat-sessions/` — restart wznawia od ostatniej zastosowanej
-ramki. Gwarancja: at-least-once + tłumienie duplikatów po `seq`
-i `activation_id` w adapterze (nie „exactly-once" — patrz wsad B2).
-
-TUI human-operatora (Textual; czyta jedynego humana z `hub.tokens.json`,
-kursor/lock jak każdy klient — patrz `tui.py`):
-
-```bash
-uv run --quiet --with textual --with websockets python3 tui.py
-```
-
-Trzy panele: czat (wysyłka po Enter), uczestnicy z grupami, rules/stan.
-Komenda `/groups <nick> <g1,g2>` wysyła `membership_set` (autoryzacja:
-human albo członek bieżącego `$admin`); `/groups <nick> -` czyści grupy.
-
-Tryb HISTORYCZNY (archiwum PoC; hub 8765 ZATRZYMANY po T5, log w
-`chat-data/migrations/20260722T202511Z-4aeba07/server-t5-final.log`):
-`python3 send.py --legacy <nick> "tekst"` / `--legacy --listen`.
-
-Testy (B1, branch `b1-serwer`):
-
-```bash
-uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -v
-```
+Testy używają portów efemerycznych — nigdy nie celuj testem w działający
+hub (`agentmachi list` pokaże, co żyje).
 
 ## Struktura
 
 ```
-chat/                  hub B1: protocol, store, identity, tasks, server,
-                       client_session (kanał autorytatywny)
-send.py                klient B1 (resumowalny) + tryb --legacy (archiwum)
-server.py              PoC A (historyczny broadcast, zatrzymany po T5)
-tests/                 pytest B1
-test_chat.py           testy PoC A (historyczne)
-docs/superpowers/      spec + plan
+agentmachi/            CLI: cykl życia huba (serve/list/stop/card), node,
+                       szablon howto serwowany agentom przy hello
+chat/                  hub: protocol, store, identity, tasks, server,
+                       client_session
+send.py                klient (resumowalny nasłuch + wysyłka)
+tui.py                 TUI człowieka (Textual)
+skills/                agentmachi (operator) + agentmachi-join (agent)
+tests/                 pytest
+docs/superpowers/      spec + plany
 ```
+
+Pliki `server.py` i `test_chat.py` w korzeniu to archiwum PoC A
+(historyczny broadcast bez tożsamości) — nie rozwijaj ich.

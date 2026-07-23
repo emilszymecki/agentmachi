@@ -171,6 +171,23 @@ def test_require_token_fails_fast(monkeypatch):
     assert e.value.code == 2
 
 
+# --- hub_id_from_url (Task 1: CHAT_URL / zdalne hub-y) --------------------
+
+def test_hub_id_from_url():
+    import send
+    assert send.hub_id_from_url("ws://localhost:8766") == "localhost:8766"
+    assert send.hub_id_from_url("wss://hub.tailnet.ts.net:8766") == \
+        "hub.tailnet.ts.net:8766"
+    # default bez CHAT_URL == dotychczasowy HUB_ID -> kursory przezywaja
+    assert send.hub_id_from_url(f"ws://localhost:{send.PORT}") == send.HUB_ID
+    # porty domyslne schematu (tunel publiczny nie niesie :443 jawnie)
+    assert send.hub_id_from_url("wss://hub.trycloudflare.com") == \
+        "hub.trycloudflare.com:443"
+    assert send.hub_id_from_url("ws://hub.local") == "hub.local:80"
+    with pytest.raises(ValueError):
+        send.hub_id_from_url("ws://host:abc")   # zly port = czytelny ValueError
+
+
 # --- integracyjny smoke gate (wsad b2): kill / offline / restart ----------
 
 def test_listener_smoke_gate_kill_offline_restart(tmp_path):
@@ -273,3 +290,93 @@ def test_corrupt_session_fail_closed_exit_code(tmp_path):
                        timeout=10)
     assert p.returncode == 4
     assert "skasuj" in p.stderr
+
+
+def test_oneshot_frame_uses_session_identity(tmp_path, monkeypatch):
+    """Regresja bugu z testu skilla: one-shot MUSI współdzielić instance_id
+    z listenerem (zero takeoveru/ping-ponga generacji gubiącego lease)."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    tokens = {"beta": {"token": "tok-b", "role": "agent", "groups": []}}
+    monkeypatch.setenv("CHAT_TOKEN", "tok-b")
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens=tokens,
+                         port=port)
+        await srv.start()
+        try:
+            listener_session = send._session("beta")
+            # "listener" hello ustala generacje 1 dla instance sesji
+            import websockets
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await ws.send(json.dumps({
+                    "type": "hello", "from": "beta", "ts": 0.0,
+                    "instance_id": listener_session.instance_id,
+                    "token": "tok-b", "last_seq": 0}))
+                await ws.recv()
+                gen_before = srv.registry.generation_of("beta")
+                # one-shot status: TA SAMA tozsamosc -> zero bumpa
+                reply = await send.oneshot_frame(
+                    "beta", {"type": "status", "state": "idle"})
+                assert reply is None  # status bez ACK
+                assert srv.registry.generation_of("beta") == gen_before
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())
+
+
+# --- F10 (B5): klient nie moze gubic tego, co hub obiecuje --------------
+# Audyt docs znalazl bug w KODZIE: hub wysyla w hello `participants` (board,
+# B4) i `howto` (instrukcja obslugi, F5), a listener wyrzucal je do kosza —
+# agent uzywajacy jedynej udokumentowanej drogi wejscia nie dostawal ich
+# wcale. Obietnica protokolu musi docierac do odbiorcy.
+
+def test_session_metadata_carries_board_and_howto():
+    import send
+    printed = []
+    original = send._print_event
+    send._print_event = printed.append
+    try:
+        send._emit_session_metadata({
+            "type": "ok", "rules": "zasady", "role": "agent",
+            "groups": ["workers"], "generation": 3,
+            "participants": [{"nick": "w1", "connected": True,
+                              "status": {"state": "working"}}],
+            "howto": "jak sie poruszac po kanale",
+        })
+    finally:
+        send._print_event = original
+    meta = printed[0]
+    assert meta["type"] == "session_metadata"
+    assert meta["howto"] == "jak sie poruszac po kanale"
+    assert meta["participants"][0]["nick"] == "w1"
+    assert meta["rules"] == "zasady" and meta["generation"] == 3
+
+
+def test_resync_reply_also_carries_conversation():
+    """Po kompakcji rozmowa wraca w `conversation` (F1) — listener ma ja
+    pokazac, inaczej wracajacy agent widzi kanal, na ktorym 'nic sie nie
+    wydarzylo'."""
+    import send
+    from chat.client_session import Session
+    import tempfile
+    printed = []
+    original = send._print_event
+    send._print_event = printed.append
+    try:
+        session = Session("h:1", "w2", base_dir=tempfile.mkdtemp())
+        send._apply_hello_reply(session, {
+            "type": "resync_required", "snapshot_seq": 5,
+            "state": {"registry": {}},
+            "conversation": [{"type": "chat", "from": "w1", "seq": 3,
+                              "text": "ustalenie sprzed snapshotu"}],
+        })
+    finally:
+        send._print_event = original
+    teksty = [e.get("text") for e in printed if e.get("type") == "chat"]
+    assert "ustalenie sprzed snapshotu" in teksty

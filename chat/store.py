@@ -18,6 +18,31 @@ def _reject_json_constant(value):
     raise ValueError(f"invalid JSON constant in storage: {value}")
 
 
+class ForeignWriterError(RuntimeError):
+    """Ktos inny pisze do naszego events.jsonl — split-brain.
+
+    Zmierzone dwukrotnie na produkcji: `pkill` nie ubil starego huba, drugi
+    `serve` wstal obok i oba procesy trzymaly ten sam katalog danych. Gdy
+    starszy dostal SIGTERM, jego `stop()` zrobil snapshot ze SWOIM
+    (nieaktualnym) stanem i przepisal events.jsonl — kasujac wszystko, co
+    w miedzyczasie zapisal nowszy proces. Kompakcja jest jedyna operacja,
+    ktora przepisuje log w calosci, wiec to tutaj musi stanac zapora."""
+
+
+# F1 (B5): typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji.
+# Reszta (hello/status/task_*) ma swoj stan w snapshocie i moze zniknac.
+# F3 (B5): takeover jest czescia PAMIECI kanalu, nie stanem maszyny — stan
+# mowi "kto jest teraz", a slad odpowiada na pytanie "dlaczego kolega
+# zamilkl". Kompakcja go wiec nie rusza, tak jak rozmowy.
+CONVERSATION_TYPES = frozenset({"chat", "takeover"})
+CONVERSATION_LIMIT = 200      # ile ostatnich ramek rozmowy serwujemy
+# Ile ramek rozmowy przezywa kompakcje. Kanal to DYSKUSJA, nie archiwum:
+# trzymamy okno wznowienia (zeby wracajacy agent nie stracil watku), a nie
+# cala historie. Twarda wiedza mieszka w plikach .md pisanych swiadomie —
+# log ma byc buforem, nie baza wiedzy (korekta F1 po uwadze operatora).
+CONVERSATION_KEEP = 500
+
+
 def _strict_json_loads(data):
     return json.loads(data, parse_constant=_reject_json_constant)
 
@@ -121,7 +146,67 @@ class EventLog:
             return None  # resync_required
         return [e for e in self._events if e["seq"] > seq]
 
+    def conversation_after(self, seq, limit=CONVERSATION_LIMIT):
+        """F1 (B5): rozmowa o seq > podanym, prosto z dysku.
+
+        Kanal JEST pamiecia agenta — inaczej niz stan maszyny (queue,
+        registry), ktory da sie odtworzyc ze snapshotu, rozmowy nie da sie
+        odtworzyc z niczego. Dlatego kompakcja jej nie rusza (save_snapshot
+        nizej), a tu podajemy ja niezaleznie od kursora i snapshot_seq.
+        Czytamy z pliku, nie z RAM: log rozmowy rosnie liniowo z historia
+        projektu i nie ma powodu trzymac go w pamieci huba (zmierzone:
+        22 ms dla 10k ramek). limit=None oddaje calosc; domyslnie tniemy
+        NAJSTARSZE, bo agent potrzebuje swiezego kontekstu."""
+        if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+            raise ValueError(f"conversation_after: zly seq: {seq!r}")
+        if limit is not None and (not isinstance(limit, int) or limit <= 0):
+            raise ValueError(f"conversation_after: zly limit: {limit!r}")
+        out = []
+        if not self.events_path.exists():
+            return out
+        with self.events_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = _strict_json_loads(line)
+                except ValueError:
+                    # urwany ogon po crashu jest naprawiany w __init__;
+                    # tutaj pomijamy, zeby odczyt pamieci nigdy nie wywrocil
+                    # obslugi hello.
+                    continue
+                if e.get("type") in CONVERSATION_TYPES and e.get("seq", 0) > seq:
+                    out.append(e)
+        return out[-limit:] if limit is not None else out
+
+    def _max_seq_on_disk(self):
+        top = 0
+        if not self.events_path.exists():
+            return top
+        with self.events_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = _strict_json_loads(line)
+                except ValueError:
+                    continue
+                top = max(top, e.get("seq", 0))
+        return top
+
     def save_snapshot(self, state):
+        # F7: nie przepisuj logu, ktorego nie jestes jedynym autorem. Seq na
+        # dysku wyzszy niz nasz last_seq oznacza, ze pisal tam inny proces —
+        # kompakcja skasowalaby jego ramki. Fail-fast zostawia plik nietkniety.
+        disk_top = self._max_seq_on_disk()
+        if disk_top > self.last_seq:
+            raise ForeignWriterError(
+                f"events.jsonl ma seq {disk_top} > naszego {self.last_seq}: "
+                f"do katalogu {self.dir} pisze inny proces huba. Kompakcja "
+                f"przerwana, zeby nie skasowac cudzych ramek. Zatrzymaj "
+                f"nadmiarowy hub (agentmachi list / agentmachi stop).")
         seq = self.last_seq
         tmp = self.dir / "snapshot.json.tmp"
         # Najpierw zwaliduj/serializuj calosc. Blad (np. NaN w stanie) zostawia
@@ -134,10 +219,22 @@ class EventLog:
             os.fsync(f.fileno())
         tmp.rename(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
         self.snapshot_seq = seq
+        # F1 (B5): rozmowa NIE podlega kompakcji. Stan maszyny odtwarza sie
+        # ze snapshotu, rozmowy nie odtworzy nic — a to ona jest pamiecia
+        # agentow. Czytamy zachowana historie z dysku PRZED nadpisaniem
+        # pliku (poprzednie kompakcje juz ja tam zostawily) i skladamy z
+        # ogonem po snapshocie. Kompaktujemy wylacznie ramki sluzbowe.
+        conversation = self.conversation_after(0, limit=CONVERSATION_KEEP)
         self._events = [e for e in self._events if e["seq"] > seq]
+        tail_seqs = {e["seq"] for e in self._events}
+        # Ogon po snapshocie to stan biezacy — nigdy go nie przycinamy;
+        # okno dotyczy wylacznie HISTORII sprzed snapshot_seq.
+        keep = [e for e in conversation if e["seq"] not in tail_seqs]
+        keep.extend(self._events)
+        keep.sort(key=lambda e: e["seq"])
         events_tmp = self.dir / "events.jsonl.tmp"
         with events_tmp.open("w") as f:
-            for e in self._events:
+            for e in keep:
                 f.write(json.dumps(e, allow_nan=False) + "\n")
             f.flush()
             os.fsync(f.fileno())

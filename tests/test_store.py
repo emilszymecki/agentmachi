@@ -1,7 +1,9 @@
 # tests/test_store.py
+import json
+
 import pytest
 
-from chat.store import EventLog
+from chat.store import EventLog, ForeignWriterError
 
 
 def test_append_assigns_monotonic_seq(tmp_path):
@@ -184,3 +186,111 @@ def test_snapshot_rejects_nan_without_replacing_previous_snapshot(tmp_path):
     assert log.snapshot_path.read_bytes() == before
     assert log.snapshot_seq == before_seq
     assert log.load_snapshot() == ({"queue": {"ok": True}}, before_seq)
+
+
+# --- F1 (B5): pamiec kanalu przezywa kompakcje ---------------------------
+# Kanal JEST pamiecia agenta. Kompakcja projektowana pod odtworzenie
+# maszyny (queue/registry) kasowala rozmowe z DYSKU — zmierzone na
+# produkcji: snapshot_seq=105 zostawil 1 ramke ze 105. Ramki sluzbowe
+# (hello/status/task_*) nadal kompaktujemy: ich stan jest w snapshocie.
+
+def test_snapshot_preserves_conversation(tmp_path):
+    log = EventLog(tmp_path)
+    for i in range(3):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"ustalenie {i}"})
+        log.append({"type": "hello", "from": "w1", "ts": 0.0, "instance_id": "i1"})
+    log.save_snapshot({"registry": {}})
+
+    on_disk = [json.loads(line) for line in
+               (tmp_path / "events.jsonl").read_text().splitlines() if line.strip()]
+    typy = {e["type"] for e in on_disk}
+    assert typy == {"chat"}, "sluzbowe maja zniknac, rozmowa ma zostac"
+    assert [e["text"] for e in on_disk] == ["ustalenie 0", "ustalenie 1", "ustalenie 2"]
+
+
+def test_conversation_after_survives_restart(tmp_path):
+    log = EventLog(tmp_path)
+    for i in range(3):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"m{i}"})
+    log.save_snapshot({"registry": {}})
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "po snapshocie"})
+
+    revived = EventLog(tmp_path)   # restart procesu huba
+    conv = revived.conversation_after(0)
+    assert [e["text"] for e in conv] == ["m0", "m1", "m2", "po snapshocie"]
+    assert [e["seq"] for e in conv] == sorted(e["seq"] for e in conv)
+    # kursor w srodku: tylko nowsze
+    assert [e["text"] for e in revived.conversation_after(2)] == \
+        ["m2", "po snapshocie"]
+    # limit tnie NAJSTARSZE (agent chce swiezy kontekst)
+    assert [e["text"] for e in revived.conversation_after(0, limit=2)] == \
+        ["m2", "po snapshocie"]
+
+
+def test_conversation_after_does_not_break_events_after(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "a"})
+    log.save_snapshot({"registry": {}})
+    assert log.events_after(0) is None      # kontrakt resync bez zmian
+    assert log.conversation_after(0)        # ale pamiec jest dostepna
+
+
+# --- F7 (B5): ochrona przed split-brain ---------------------------------
+# Zmierzone DWUKROTNIE na produkcji: dwa procesy huba na jednym katalogu.
+# Przy zamykaniu starszy robil snapshot ze SWOIM (nieaktualnym) stanem i
+# nadpisywal events.jsonl, kasujac ramki zapisane przez nowszy proces.
+
+def test_save_snapshot_refuses_when_disk_has_newer_seq(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "moje"})
+    # inny proces dopisal nowsza ramke do TEGO SAMEGO pliku
+    with (tmp_path / "events.jsonl").open("a") as f:
+        f.write(json.dumps({"seq": 99, "type": "chat", "from": "w2",
+                            "ts": 0.0, "text": "z drugiego procesu"}) + "\n")
+    with pytest.raises(ForeignWriterError):
+        log.save_snapshot({"registry": {}})
+    on_disk = (tmp_path / "events.jsonl").read_text()
+    assert "z drugiego procesu" in on_disk, "cudze ramki maja przezyc"
+    assert "moje" in on_disk
+
+
+def test_save_snapshot_works_when_we_are_the_only_writer(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "moje"})
+    log.save_snapshot({"registry": {}})       # brak obcych zapisow = OK
+    assert log.snapshot_seq == 1
+
+
+# --- korekta F1 po uwadze @Emil: okno wznowienia, nie archiwum ----------
+# F1 naprawil kasowanie rozmowy, ale przestrzelil w druga strone: log rosl
+# w nieskonczonosc. Kanal ma byc DYSKUSJA (bufor, zeby nikt nie stracil
+# watku), a twarda wiedza mieszka w plikach .md pisanych swiadomie.
+
+def test_compaction_keeps_only_resume_window(tmp_path, monkeypatch):
+    monkeypatch.setattr("chat.store.CONVERSATION_KEEP", 5)
+    log = EventLog(tmp_path)
+    for i in range(12):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"m{i}"})
+    log.save_snapshot({"registry": {}})
+
+    on_disk = [json.loads(line) for line in
+               (tmp_path / "events.jsonl").read_text().splitlines() if line.strip()]
+    assert [e["text"] for e in on_disk] == ["m7", "m8", "m9", "m10", "m11"]
+
+
+def test_resume_window_never_drops_frames_after_snapshot(tmp_path, monkeypatch):
+    """Ogon po snapshocie to stan biezacy — przycinamy tylko HISTORIE."""
+    monkeypatch.setattr("chat.store.CONVERSATION_KEEP", 2)
+    log = EventLog(tmp_path)
+    for i in range(4):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"stare{i}"})
+    log.save_snapshot({"registry": {}})
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "nowe"})
+    log.append({"type": "hello", "from": "w1", "ts": 0.0, "instance_id": "i1"})
+    log.save_snapshot({"registry": {}})
+
+    on_disk = [json.loads(line) for line in
+               (tmp_path / "events.jsonl").read_text().splitlines() if line.strip()]
+    teksty = [e.get("text") for e in on_disk]
+    assert "nowe" in teksty, "ramka po snapshocie nie moze wypasc"
+    assert len([e for e in on_disk if e["type"] == "chat"]) == 2

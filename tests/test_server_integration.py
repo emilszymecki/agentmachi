@@ -183,6 +183,29 @@ def test_hello_no_rules_field_when_file_absent(srv):
     asyncio.run(srv(scenario))
 
 
+# -- F5 (B5): onboarding w PROTOKOLE. Agent na golym sockecie nie ma repo
+# ani plikow projektu — jedyne, co ma, to odpowiedz na hello. Howto musi
+# przyjsc ta sama droga co rules, inaczej kazdy nowy agent zaczyna od
+# zgadywania (zmierzone w dogfoodzie B5: godzina straty na nasluchu).
+
+def test_hello_returns_howto_when_present(srv):
+    async def scenario(server):
+        text = "adres: ws://host:8767\nnasluch: Monitor persistent\n"
+        (server.log.dir / "howto.md").write_text(text)
+        ws, reply = await hello("alfa", "ta")
+        assert reply["howto"] == text
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_hello_no_howto_field_when_file_absent(srv):
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert "howto" not in reply
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
 # -- Nowe: grupy adresowe (aneks v2, kontrakt codexa) ------------------------
 
 def test_group_mention_wakes_exact_members(srv):
@@ -251,6 +274,52 @@ def test_unknown_group_yields_error_no_silent_broadcast(srv):
 
 
 # -- Nowe: stary socket po takeover odrzucany --------------------------------
+
+def test_takeover_leaves_trace_for_human_and_survives_compaction(srv):
+    """F3 (B5): wyparcie nicka musi zostawic SLAD, nie ciche zniknięcie.
+
+    Repro z dogfoodu: agent zostal wyparty przez wlasne drugie polaczenie,
+    dla reszty kanalu nadal byl "connected", a jego nasluch juz nic nie
+    slyszal. Nikt nie wiedzial, dlaczego zamilkl. Slad idzie na zywo do
+    ludzi (jak presence — to oni reaguja) i ZOSTAJE w logu, bo pytanie
+    "dlaczego zamilkl" pada dopiero po fakcie, czesto po kompakcji.
+    """
+    async def scenario(server):
+        h, _ = await hello("emil", "te", role="human")
+        a1, r1 = await hello("alfa", "ta", instance="i1")
+        assert r1["generation"] == 1
+
+        a2, r2 = await hello("alfa", "ta", instance="i2")   # wyparcie
+        assert r2["generation"] == 2
+
+        mark = await recv(h)
+        assert mark["type"] == "takeover"
+        assert mark["nick"] == "alfa"
+        assert mark["previous_generation"] == 1 and mark["generation"] == 2
+        assert "wyparlo" in mark["text"]
+
+        # slad przezywa kompakcje i wraca agentowi w 'conversation'
+        server.snapshot()
+        _b, reply = await hello("beta", "tb", instance="swiezy", last_seq=0)
+        assert reply["type"] == "resync_required"
+        traces = [f for f in reply["conversation"] if f["type"] == "takeover"]
+        assert [t["nick"] for t in traces] == ["alfa"]
+        for ws in (h, a2, _b):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_first_hello_is_not_a_takeover(srv):
+    """Pierwsze polaczenie nikogo nie wypiera — zaden slad nie moze powstac
+    (inaczej kazde wejscie na kanal produkowaloby falszywy alarm)."""
+    async def scenario(server):
+        h, _ = await hello("emil", "te", role="human")
+        await hello("alfa", "ta", instance="i1")
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(h, timeout=0.4)
+        await h.close()
+    asyncio.run(srv(scenario))
+
 
 def test_stale_socket_rejected_after_takeover(srv):
     # (C) od tego fixu takeover zamyka stary socket NATYCHMIAST przy hello —
@@ -2326,11 +2395,11 @@ def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
     asyncio.run(scenario())
 
 
-# -- t2 review: participants snapshot dla humana ----------------------------
+# -- t2 review + B4 agent-first: participants snapshot dla kazdego ----------
 
 def test_human_hello_gets_authoritative_participants(srv):
     async def scenario(server):
-        # human dostaje snapshot; agent NIE
+        # human dostaje snapshot; agent (B4: agent-first) rowniez
         ws_h, rep_h = await hello("emil", "te", role="human")
         assert isinstance(rep_h.get("participants"), list)
         by_nick = {p["nick"]: p for p in rep_h["participants"]}
@@ -2338,7 +2407,7 @@ def test_human_hello_gets_authoritative_participants(srv):
         assert by_nick["emil"]["connected"] is True
         assert by_nick["emil"]["role"] == "human"
         ws_a, rep_a = await hello("alfa", "ta", instance="ia")
-        assert "participants" not in rep_a
+        assert isinstance(rep_a.get("participants"), list)
         await ws_h.close()
         await ws_a.close()
     asyncio.run(srv(scenario))
@@ -2369,7 +2438,22 @@ def test_participants_reflect_membership_after_reconnect(srv):
     asyncio.run(srv(scenario))
 
 
-# -- statusy agentow (kanon: idle/working/blocked/review) -------------------
+def test_agent_hello_receives_participants_snapshot(srv):
+    # Agent-first (B4): roster+board w hello to nie przywilej TUI.
+    # Agent bez tego jest slepy na "kto tu jest i kto co robi" —
+    # starsze ramki status sa PRZED jego oknem kontekstu.
+    async def scenario(server):
+        beta, reply = await hello("beta", "tb")
+        parts = {p["nick"]: p for p in reply["participants"]}
+        assert set(parts) == set(TOKENS)
+        assert parts["beta"]["connected"] is True
+        assert "status" in parts["beta"] and "groups" in parts["beta"]
+        await beta.close()
+    asyncio.run(srv(scenario))
+
+
+# -- statusy agentow (kanon: sleeping/idle/working/blocked/review/done,
+#    ale to WOLNY TEKST — hub nie waliduje przynaleznosci do enuma) --------
 
 def test_status_tracked_in_snapshot_and_idle_sync(srv):
     async def scenario(server):
@@ -2387,12 +2471,63 @@ def test_status_tracked_in_snapshot_and_idle_sync(srv):
         by_nick = {p["nick"]: p for p in snap}
         assert by_nick["beta"]["status"] == {"state": "working",
                                              "task_id": "t9"}
-        # zly status odrzucony
+        # dowolny wolny tekst (spoza kanonu) jest teraz akceptowany
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
-                                    "ts": 3.0, "state": "spie"}))
+                                    "ts": 2.5, "state": "spie"}))
+        await asyncio.sleep(0.1)
+        assert server.status["beta"]["state"] == "spie"
+        # ale schemat (niepusty string, maks 32 znaki) nadal jest twardy
+        before = server.log.last_seq
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 3.0, "state": "x" * 33}))
         err = await recv(ws_b)
         assert err["type"] == "error" and "status" in err["text"]
+        assert server.log.last_seq == before      # odrzucone, nie w logu
         await ws_b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_status_state_is_free_text(srv):
+    # hub nie waliduje przynaleznosci do slownika stanow — "sleeping" (spoza
+    # dotychczasowego idle/working/blocked/review) jest przyjmowane wprost.
+    async def scenario(server):
+        beta, _ = await hello("beta", "tb")
+        await beta.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 0.0, "state": "sleeping"}))
+        await asyncio.sleep(0.1)
+        assert server.status["beta"]["state"] == "sleeping"
+        await beta.close()
+    asyncio.run(srv(scenario))
+
+
+def test_orchestrator_sets_others_status_humans_see_live(srv):
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        # human nadaje grupe orchestrator becie (jedyna autoryzacja: human)
+        await emil.send(json.dumps({
+            "type": "membership_set", "from": "emil", "ts": 0.0,
+            "target": "beta", "groups": ["orchestrator"]}))
+        ack = await recv(emil)
+        assert ack["type"] == "ok"
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        await beta.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 0.0, "target": "gamma",
+                                    "state": "working", "task_id": "C"}))
+        await asyncio.sleep(0.1)
+        assert server.status["gamma"] == {"state": "working", "task_id": "C"}
+        ev = await recv(emil)                       # human widzi na zywo
+        assert ev["type"] == "status"
+        assert ev["target"] == "gamma" and ev["from"] == "beta"
+        # zwykly agent (bez grupy orchestrator) NIE ustawi cudzego statusu
+        await gamma.send(json.dumps({"type": "status", "from": "gamma",
+                                     "ts": 0.0, "target": "beta",
+                                     "state": "idle"}))
+        err = await recv(gamma)
+        assert err["type"] == "error" and "forbidden" in err["text"]
+        assert "beta" not in server.status  # odrzucone przed append/mutacja
+        for ws in (emil, beta, gamma):
+            await ws.close()
     asyncio.run(srv(scenario))
 
 
@@ -2460,3 +2595,177 @@ def test_status_survives_crash_restart_without_snapshot(srv):
     reborn = ChatServer(data_dir=crash_dir, tokens=TOKENS, port=PORT + 2)
     snap = {p["nick"]: p for p in reborn._participants_snapshot()}
     assert snap["beta"]["status"] == {"state": "working", "task_id": "t7"}
+
+
+# -- Task 1: bind jest parametrem serwera -----------------------------------
+
+def test_bind_all_interfaces(tmp_path):
+    async def run():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="0.0.0.0")
+        await server.start()
+        try:
+            ws = await websockets.connect(f"ws://127.0.0.1:{port}")
+            await ws.close()
+        finally:
+            await server.stop()
+    asyncio.run(run())
+
+
+# -- Task 2 (B3): kontrakt replayu — backlog bez filtra wzmianek ------------
+
+def test_replay_backlog_unfiltered_for_agents(srv):
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        # chat BEZ wzmianki — live push ominie agentow (fizyka: sen za darmo)
+        await emil.send(json.dumps({"type": "chat", "from": "emil",
+                                    "ts": 0.0, "text": "notatka bez wzmianki"}))
+        await asyncio.sleep(0.2)                      # niech serwer zapisze
+        # agent wstaje z kursorem 0 -> backlog MUSI zawierac te ramke
+        beta, reply = await hello("beta", "tb", last_seq=0)
+        texts = [f.get("text") for f in reply["backlog"]
+                 if f.get("type") == "chat"]
+        assert "notatka bez wzmianki" in texts
+        await beta.close(); await emil.close()
+    asyncio.run(srv(scenario))
+
+
+# -- F1 (B5): resync niesie PAMIEC, nie tylko stan maszyny ----------------
+# Zmierzone na produkcji: snapshot skasowal 105 ramek dogfoodu. Agent
+# wchodzacy po kompakcji dostawal {queue, registry, offers} i zero historii
+# — czyli stan maszyny przezywal, a pamiec agentow nie.
+
+def test_resync_carries_conversation(srv):
+    async def scenario(server):
+        ws, _ = await hello("alfa", "ta")
+        for i in range(3):
+            await ws.send(json.dumps({"type": "chat", "from": "alfa",
+                                      "ts": 0.0, "text": f"ustalenie {i}"}))
+        await asyncio.sleep(0.2)
+        server.snapshot()                      # kompakcja jak w produkcji
+        await ws.close()
+
+        ws2, reply = await hello("beta", "tb", instance="swiezy", last_seq=0)
+        assert reply["type"] == "resync_required"
+        conv = reply["conversation"]
+        assert [f["text"] for f in conv] == ["ustalenie 0", "ustalenie 1",
+                                             "ustalenie 2"]
+        assert [f["seq"] for f in conv] == sorted(f["seq"] for f in conv)
+        assert all(f["type"] == "chat" for f in conv)
+        await ws2.close()
+    asyncio.run(srv(scenario))
+
+
+def test_ok_reply_has_no_conversation_field(srv):
+    # kursor w zasiegu logu: backlog i tak niesie rozmowe, drugi raz
+    # wysylac jej nie ma po co
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        assert "conversation" not in reply
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+# -- F2 (B5): backlog na drucie bez ramek hello — agent placi kontekstem --
+# Zmierzone na produkcji: hello(last_seq=0) = 66 ramek/15159 B, z czego 36
+# (54%) to cudze ramki hello. Agent dostaje autorytatywny roster w
+# participants (B4) i tych ramek wcale nie potrzebuje — placi za czysty
+# szum. Log NADAL je trzyma (replay generacji przy restarcie), filtr
+# dotyczy wylacznie tego, co idzie na drut w gałęzi "ok".
+
+def test_backlog_wire_has_no_hello_frames(srv):
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")            # loguje hello#1
+        beta, _ = await hello("beta", "tb")             # loguje hello#2
+        await alfa.send(json.dumps({"type": "chat", "from": "alfa",
+                                    "ts": 1.0, "text": "ustalenie"}))
+        await beta.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 0.0, "state": "idle"}))
+        await asyncio.sleep(0.2)                       # niech serwer zapisze
+
+        # w logu na dysku hello sa (potrzebne do replayu generacji)
+        assert any(e["type"] == "hello" for e in server.log.replay())
+
+        gamma, reply = await hello("gamma", "tg", last_seq=0)
+        types = {f["type"] for f in reply["backlog"]}
+        assert "hello" not in types
+        assert "chat" in types and "status" in types
+        await alfa.close(); await beta.close(); await gamma.close()
+    asyncio.run(srv(scenario))
+
+
+def test_backlog_last_seq_is_true_log_end_not_last_filtered_frame(srv):
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        beta, reply = await hello("beta", "tb", last_seq=0)
+        # ostatnia ramka w logu jest hello bety (odfiltrowana z backlogu na
+        # drucie) — last_seq zwracany klientowi MUSI byc mimo to prawdziwym
+        # koncem logu, inaczej klient zapetli sie prosząc o ramki, ktorych
+        # nigdy nie dostanie (bo sa hello i zawsze beda odfiltrowane)
+        assert reply["last_seq"] == server.log.last_seq
+        assert server.log.replay()[-1]["type"] == "hello"
+        await alfa.close(); await beta.close()
+    asyncio.run(srv(scenario))
+
+
+def test_reconnect_with_wire_last_seq_gives_empty_backlog_no_loop(srv):
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        beta, reply = await hello("beta", "tb", last_seq=0)
+        last = reply["last_seq"]
+        # miedzy odpowiedzia a reconnectem dochodzi kolejny uczestnik — jego
+        # hello lezy w logu powyzej `last`, ale MUSI zostac odfiltrowane z
+        # backlogu tak samo jak przy pierwszym hello (inaczej klient
+        # zapetlalby sie prosząc o ramki, ktorych nigdy nie dostanie)
+        gamma, _ = await hello("gamma", "tg")
+        beta2, reply2 = await hello("beta", "tb", instance="i1", last_seq=last)
+        assert reply2["backlog"] == []
+        await alfa.close(); await beta.close(); await gamma.close()
+        await beta2.close()
+    asyncio.run(srv(scenario))
+
+
+# -- F9 (B5): stop() konczy sie w skonczonym czasie -----------------------
+# Zmierzone na produkcji: `agentmachi stop` wyslal SIGTERM, hub zamknal
+# nasluch (port wolny), ale PROCES WISIAL — bo wait_closed() czeka, az
+# rozlacza sie wszyscy klienci, a nasze listenery trzymaly polaczenia
+# w nieskonczonosc. Operator musial dobic kill -9, a zawieszony proces
+# blokowal kolejny start (fail-fast z F7 widzial go jako zywy hub).
+
+def test_stop_finishes_even_with_connected_clients(tmp_path):
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port)
+        await server.start()
+        ws = await websockets.connect(f"ws://localhost:{port}")
+        await ws.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
+                                  "instance_id": "i1", "token": "ta",
+                                  "last_seq": 0, "role": "agent"}))
+        await ws.recv()
+        # klient NIE rozlacza sie — stop i tak musi zejsc
+        await asyncio.wait_for(server.stop(), timeout=5.0)
+        try:
+            await ws.close()
+        except Exception:
+            pass
+    asyncio.run(scenario())
+
+
+def test_stop_gives_up_on_hanging_close_instead_of_hanging_forever(tmp_path):
+    """F9: nie odtworzylismy root cause zawieszenia z produkcji, ale kontrakt
+    jest niezalezny od przyczyny — `stop()` MUSI zejsc w skonczonym czasie.
+    Zawieszony proces blokuje kolejny start (fail-fast z F7 widzi go jako
+    zywy hub), wiec cichy zawis jest gorszy niz gwaltowne domkniecie."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port)
+        await server.start()
+
+        async def never_returns():
+            await asyncio.Event().wait()          # symuluje zawis zamykania
+
+        server._server.wait_closed = never_returns
+        await asyncio.wait_for(server.stop(), timeout=5.0)
+    asyncio.run(scenario())

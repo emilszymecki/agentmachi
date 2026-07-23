@@ -60,13 +60,14 @@ import websockets
 
 from . import protocol
 from .identity import AuthError, Registry
-from .store import EventLog
+from .store import EventLog, ForeignWriterError
 from .tasks import TaskError, TaskQueue
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
 OFFER_IO_RETRY_MIN = 0.05
 OFFER_IO_RETRY_MAX = 1.0
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
+STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
 
@@ -97,9 +98,10 @@ _TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"heartbeat"}
 
 
 class ChatServer:
-    def __init__(self, data_dir, tokens, port, wip_limit=3,
+    def __init__(self, data_dir, tokens, port, bind="127.0.0.1", wip_limit=3,
                  lease_ttl=120.0, offer_timeout=5.0):
         self.port = port
+        self.bind = bind
         self.offer_timeout = offer_timeout
         self.log = EventLog(Path(data_dir))
         snap = self.log.load_snapshot()
@@ -155,11 +157,11 @@ class ChatServer:
         for event in self.log.replay():
             etype = event.get("type")
             if etype == "status":
-                nick = event.get("from")
-                if isinstance(nick, str) and nick:
-                    self.status[nick] = {k: event[k] for k in
-                                         ("state", "task_id", "note")
-                                         if k in event}
+                key = event.get("target", event["from"])
+                if isinstance(key, str) and key:
+                    self.status[key] = {k: event[k] for k in
+                                        ("state", "task_id", "note")
+                                        if k in event}
             elif etype == "hello":
                 self.registry.replay_hello(event["from"], event["instance_id"])
             elif etype == "membership_set":
@@ -209,7 +211,7 @@ class ChatServer:
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
-        self._server = await websockets.serve(self._handler, "localhost", self.port)
+        self._server = await websockets.serve(self._handler, self.bind, self.port)
         self._expiry_task = asyncio.ensure_future(self._expiry_loop())
 
     async def stop(self):
@@ -223,15 +225,44 @@ class ChatServer:
             except asyncio.CancelledError:
                 pass
         self._server.close()
-        await self._server.wait_closed()
+        # F9: zamykanie serwera pod TWARDYM limitem czasu. Zmierzone na
+        # produkcji: hub dostal SIGTERM, zwolnil port, ale PROCES WISIAL —
+        # operator musial go dobic kill -9, a do tego czasu zawieszony proces
+        # blokowal kolejny start (fail-fast z F7 widzi go jako zywy hub).
+        # Root cause zawisu nie zostal odtworzony w tescie, ale kontrakt jest
+        # od niego niezalezny: `stop()` konczy sie zawsze, a snapshot (ponizej)
+        # MUSI sie wykonac, bo to on domyka trwalosc. Glosny log zamiast ciszy.
+        try:
+            await asyncio.wait_for(self._server.wait_closed(),
+                                   timeout=STOP_CLOSE_TIMEOUT)
+        except asyncio.TimeoutError:
+            LOGGER.warning(
+                "stop(): zamykanie serwera nie skonczylo sie w %.0fs — "
+                "porzucam czekanie i domykam trwalosc (snapshot). Port jest "
+                "juz zwolniony; wiszace polaczenia zamknie wyjscie procesu.",
+                STOP_CLOSE_TIMEOUT)
         self.snapshot()  # clean shutdown -> snapshot zawsze (polityka c)
 
     def snapshot(self):
-        self.log.save_snapshot({"queue": self.queue.dump(),
+        """F7: kompakcja jest jedyna operacja przepisujaca log w calosci.
+        Gdy w katalogu pisze inny proces huba (split-brain), store odmawia —
+        i DOBRZE: wolimy hub bez kompakcji niz skasowana rozmowe. Glosny log
+        operatora, zycie huba bez zmian."""
+        try:
+            self._save_snapshot_unchecked({"queue": self.queue.dump(),
                                  "registry": self.registry.dump(),
                                  "offers": self._dump_offers(),
                                  "status": dict(self.status)})
+        except ForeignWriterError:
+            LOGGER.error(
+                "SPLIT-BRAIN: do %s pisze inny proces huba — kompakcja "
+                "przerwana, dane nietkniete. Zatrzymaj nadmiarowy hub "
+                "(agentmachi list / agentmachi stop).", self.log.dir)
+            return
         self._events_since_snapshot = 0
+
+    def _save_snapshot_unchecked(self, state):
+        self.log.save_snapshot(state)
 
     def _append(self, frame):
         seq = self._append_durable(frame)
@@ -323,6 +354,17 @@ class ChatServer:
             return None, None
         text = path.read_text()
         return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def _load_howto(self):
+        """F5 (B5): instrukcja obslugi kanalu — dla agenta, ktory ma TYLKO
+        socket. Plik w repo jest bezuzyteczny dla klienta na golym ws (nie
+        ma repo), wiec onboarding musi isc ta sama droga co rules: w
+        odpowiedzi na hello. Rules mowia JAK sie zachowywac, howto — JAK sie
+        tu poruszac (adres, nicki, uzbrojenie nasluchu, pulapki)."""
+        path = self.log.dir / "howto.md"
+        if not path.exists():
+            return None
+        return path.read_text()
 
     # -- dostarczanie ------------------------------------------------------
     async def _send(self, nick, payload):
@@ -498,6 +540,11 @@ class ChatServer:
             # klient zawsze widzialby wlasna ramke hello w swoim backlogu i
             # "last_seq == biezacy cursor" po reconnnekcie nigdy by nie
             # dawalo pustego backlogu (por. test_reconnect_resumes_from_last_seq)
+            # KONTRAKT (B3, zadanie 2): backlog jest NIEFILTROWANY. Filtr wzmianek
+            # dotyczy wylacznie live push (_publish_chat) — spiacy agent nie placi
+            # za cudza rozmowe. Replay od kursora zwraca pelny log kazdemu
+            # uwierzytelnionemu: selekcje robi node/agent, nie hub. Node (wake)
+            # pobiera tedy kontekst — filtr tutaj = amnezja agentow tylnymi drzwiami.
             backlog = self.log.events_after(last_seq)
             # niezmiennik A + (Runda 7) DURABLE-FIRST: mutacja tozsamosci jest
             # TRWALA PRZED live-swapem i JAKIMKOLWIEK side-effectem. Durable
@@ -534,6 +581,35 @@ class ChatServer:
                 # trwalym fakcie), nie dopiero przy ich kolejnej (moze nigdy nie
                 # nadejsc) ramce
                 await self._close_stale_sockets(nick)
+            # F3 (B5): slad TYLKO dla faktycznego wyparcia. old_gen == 0 to
+            # pierwsze hello tego nicka — nikogo nie wypiera, wiec nie ma o
+            # czym meldowac (reconnect z tym samym instance_id nie bumpuje
+            # generacji, wiec tez tu nie wpada).
+            if generation != old_gen and old_gen:
+                # zostaw SLAD. Bez niego wyparty agent znika po cichu:
+                # dla reszty kanalu wciaz jest "connected", a jego nasluch juz
+                # nic nie slyszy — agent-widmo, ktory milczy i nikt nie wie
+                # dlaczego. Zdarzylo sie w dogfoodzie B5 i kosztowalo godzine
+                # szukania winy w kliencie. Trwale (nie efemerycznie jak
+                # presence), bo pytanie "dlaczego zamilkl" pada PO fakcie.
+                takeover = protocol.make_frame(
+                    "takeover", "server", time.time(), nick=nick,
+                    generation=generation, previous_generation=old_gen,
+                    text=(f"{nick}: nowe polaczenie wyparlo poprzednie "
+                          f"(generacja {old_gen} -> {generation}); "
+                          f"stare sockety zamkniete"))
+                # trwalosc PRZED publikacja (inwariant projektowy)
+                seq = self._append_durable(takeover)
+                event = {**takeover, "seq": seq}
+                # Push NA ZYWO tylko do ludzi — tak samo jak presence: to oni
+                # reaguja na widmo (restart, ubicie klienta), a agentow nie
+                # budzimy ramka bez wzmianki. Agenci dostana ten slad z logu
+                # przy swoim najblizszym hello: takeover jest w
+                # CONVERSATION_TYPES, wiec wraca w 'conversation' i przezywa
+                # kompakcje.
+                for other, role in self.roles.items():
+                    if role == "human" and other != nick and self.conns.get(other):
+                        await self._send(other, event)
             self.conns.setdefault(nick, set()).add(ws)
             self.roles[nick] = role
             self.groups[nick] = set(groups)
@@ -542,11 +618,16 @@ class ChatServer:
             if rules_text is not None:
                 extra["rules"] = rules_text
                 extra["rules_hash"] = rules_hash
-            if role == "human":
-                # (t2 review) roster musi byc cursor-coherent: panel TUI
-                # dostaje przy KAZDYM hello swiezy autorytatywny snapshot
-                # zamiast zgadywac z configu/backlogu.
-                extra["participants"] = self._participants_snapshot()
+            howto_text = self._load_howto()
+            if howto_text is not None:
+                extra["howto"] = howto_text
+            # (t2 review + B4 agent-first) roster musi byc cursor-coherent
+            # i JAWNY dla kazdego uczestnika: czlowiek renderuje z niego TUI,
+            # agent czyta board ("kto tu jest, kto co robi") — starsze ramki
+            # status leza przed oknem kontekstu agenta, wiec snapshot w hello
+            # to jedyne zrodlo pelnego stanu. Live push do agentow pozostaje
+            # wylacznie wzmiankowy — to jest odpowiedz na hello, nie budzenie.
+            extra["participants"] = self._participants_snapshot()
             if backlog is None:
                 # niezmiennik B: resync spojny — snapshot_seq zwracany
                 # klientowi musi etykietowac DOKLADNIE ten state, ktory
@@ -561,18 +642,36 @@ class ChatServer:
                 # Snapshot niesie offers (pending activations); gdyby resync
                 # wysylal sam queue, klient z za starym kursorem nie odzyskalby
                 # pending ofert po kompakcji.
+                # F1 (B5): resync niesie takze PAMIEC kanalu. `state` odtwarza
+                # maszyne (queue/registry/offers), ale rozmowy nie odtworzy
+                # nic — a to ona jest jedyna pamiecia agenta. Bez tego agent
+                # po kompakcji wchodzil na kanal, na ktorym "nic sie nigdy nie
+                # wydarzylo" (zmierzone na produkcji: 105 ramek dogfoodu).
                 reply = protocol.make_frame(
                     "resync_required", "server", time.time(),
                     snapshot_seq=self.log.snapshot_seq,
                     state={"queue": self.queue.dump(),
                            "registry": self.registry.dump(),
                            "offers": self._dump_offers()},
+                    conversation=self.log.conversation_after(last_seq),
                     generation=generation, role=role, groups=list(groups), **extra)
             else:
+                # F2 (B5): backlog NA DRUCIE pomija ramki hello (zmierzone na
+                # produkcji: 54% backlogu to cudze hello). Log na dysku je
+                # zachowuje (potrzebne do replayu generacji przy restarcie) —
+                # filtrujemy wylacznie to, co idzie do klienta. Roster i tak
+                # przychodzi autorytatywnie w participants (B4), wiec agent
+                # placi kontekstem za czysty szum bez tego filtra. last_seq
+                # PONIZEJ zostaje self.log.last_seq (prawdziwy koniec logu),
+                # NIGDY seq ostatniej ramki po filtrowaniu — inaczej klient
+                # zapetlalby sie prosząc w kolko o ramki, ktorych nigdy nie
+                # dostanie (por. test_reconnect_with_wire_last_seq_gives_
+                # empty_backlog_no_loop).
+                wire_backlog = [e for e in backlog if e.get("type") != "hello"]
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
                     generation=generation, role=role, groups=list(groups),
-                    backlog=backlog, last_seq=self.log.last_seq, **extra)
+                    backlog=wire_backlog, last_seq=self.log.last_seq, **extra)
             await ws.send(json.dumps(reply))
             await self._push_presence(nick, True)
             # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
@@ -667,16 +766,31 @@ class ChatServer:
         elif ftype == "fyi":
             self._append(frame)
         elif ftype == "status":
-            self._append(frame)
-            self.status[nick] = {k: frame[k] for k in
-                                 ("state", "task_id", "note") if k in frame}
+            target = frame.get("target") or nick
+            if target != nick and not (
+                    self.registry.role_of(nick) == "human"
+                    or "orchestrator" in self.registry.groups_of(nick)):
+                await ws.send(json.dumps(protocol.make_frame(
+                    "error", "server", time.time(),
+                    text="forbidden: cudzy status wymaga human albo "
+                         "grupy orchestrator")))
+                return False
+            frame["target"] = target  # pole autorytatywne: server-side default
+            seq = self._append(frame)
+            frame["seq"] = seq
+            self.status[target] = {k: frame[k] for k in
+                                   ("state", "task_id", "note") if k in frame}
             if frame.get("state") == "idle":
-                if nick not in self.idle:
+                if target == nick and nick not in self.idle:
                     self.idle.append(nick)
                     self._trigger_offer()
-            elif nick in self.idle:
+            elif target in self.idle:
                 # working/blocked/review = nie oferuj mi taskow
-                self.idle.remove(nick)
+                self.idle.remove(target)
+            for observer, role in list(self.roles.items()):
+                if role == "human" and observer != nick:
+                    # live board dla TUI; agenci dostaja tylko backlog/preambule
+                    await self._send(observer, frame)
         elif ftype == "heartbeat":
             await self._on_heartbeat(frame, nick, sock_gen, ws)
         elif ftype == "membership_set":
@@ -1011,7 +1125,8 @@ def main():
     server = ChatServer(
         data_dir=os.environ.get("CHAT_DATA", "./chat-data"),
         tokens=tokens,
-        port=int(os.environ.get("CHAT_PORT", 8765)))
+        port=int(os.environ.get("CHAT_PORT", 8765)),
+        bind=os.environ.get("CHAT_BIND", "127.0.0.1"))
 
     async def run():
         stop_event = asyncio.Event()
@@ -1025,7 +1140,7 @@ def main():
             # na wspieranym produkcyjnym Unixie SIGTERM idzie ta sciezka.
             pass
         await server.start()
-        print(f"chat server on ws://localhost:{server.port}", flush=True)
+        print(f"chat server on ws://{server.bind}:{server.port}", flush=True)
         try:
             await stop_event.wait()
         finally:
