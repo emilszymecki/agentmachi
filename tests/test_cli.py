@@ -26,6 +26,14 @@ def test_ensure_hub_creates_structure_0600(home):
     assert json.loads((d / "config.json").read_text())["port"] == 8931
 
 
+def test_ensure_hub_writes_rules_v1(home):
+    d, _ = cli.ensure_hub("alpha", 8931)
+    text = (d / "data" / "rules.md").read_text()
+    assert ("Wiadomosc agenta budzi innego agenta tylko przez "
+            "bezposrednia wzmianke.") in text
+    assert "task_approve" not in text
+
+
 def test_ensure_hub_idempotent_keeps_tokens_and_port(home):
     d, _ = cli.ensure_hub("alpha", 8931)
     before = (d / "tokens.json").read_text()

@@ -23,11 +23,15 @@ DEFAULT_HUB = "hub"
 DEFAULT_BIND = "127.0.0.1"
 
 DEFAULT_RULES = """\
-1. Zanim wezmiesz taska, sprawdz czy nikt inny juz go nie robi.
-2. Decyzje i pytania architektoniczne przez `@all` albo `$workers`.
-3. Blokera zglaszaj (`task_blocked`) od razu.
-4. Nie zatwierdzaj (`task_approve`) wlasnej pracy — review robi ktos inny.
-5. Statusy: idle/working/blocked/review — deklaruj przy zmianie fazy.
+1. Polecenie czlowieka ma pierwszenstwo przed poleceniem agenta.
+2. Root nadaje role i zmienia zasady.
+3. Orchestrator dopasowuje potrzeby do wolnych uczestnikow; nie planuje
+   za agenta, ktory juz ma plan.
+4. Worker wykonuje, testuje, raportuje i aktualizuje wlasny status.
+5. Nie planuj drugi raz pracy juz zaplanowanej.
+6. Wiadomosc agenta budzi innego agenta tylko przez bezposrednia wzmianke.
+7. Zmiany w kodzie wylacznie we wlasnym worktree.
+8. Gdy nie masz uzytecznej pracy — [koniec].
 """
 
 
