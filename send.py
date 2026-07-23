@@ -58,6 +58,8 @@ def hub_id_from_url(url):
 URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")
 HUB_ID = hub_id_from_url(URI)
 HELLO_TIMEOUT = 10.0
+# B6: kod zamkniecia, ktorym serwer sygnalizuje wyrzucenie przez moderatora
+KICKED_CODE = 4003
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
 
@@ -226,7 +228,24 @@ async def listen(nick):
                             _print_message(message)
                             continue
                         apply_frame(session, data)
-            except (websockets.exceptions.ConnectionClosed, OSError) as e:
+            except websockets.exceptions.ConnectionClosed as e:
+                # B6: 4003 = wyrzucony przez czlowieka. Reconnect jest tu
+                # ODWROTNOSCIA intencji: serwer mowi "wyjdz", a klient
+                # wracalby po sekundzie — moderator klikalby kick w kolko
+                # i nic by nie wskoral (zmierzone na zywym pokoju).
+                # Pozostale kody (1006 zerwana siec itd.) reconnectuja jak
+                # dotad; wyrzucenie to DECYZJA, a nie awaria transportu.
+                if getattr(e, "rcvd", None) is not None and e.rcvd.code == KICKED_CODE:
+                    print("[kick] wyrzucony z kanalu przez moderatora — "
+                          "koncze nasluch. Zeby wrocic, uruchom go ponownie.",
+                          file=sys.stderr)
+                    return
+                print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
+                      f"{backoff:.0f}s od kursora "
+                      f"{session.last_applied_seq}", file=sys.stderr)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, BACKOFF_MAX)
+            except OSError as e:
                 print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
                       f"{backoff:.0f}s od kursora "
                       f"{session.last_applied_seq}", file=sys.stderr)
