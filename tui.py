@@ -122,8 +122,16 @@ def parse_user_input(value):
         raise TuiError("pusta wiadomosc")
     if not text.startswith("/"):
         return {"type": "chat", "text": text}
+    if text.startswith("/kick"):
+        # B6: wyrzucenie uczestnika. Uprawnienie WYLACZNIE humana — serwer
+        # i tak to egzekwuje, ale nie udajemy tu, ze to zwykla komenda.
+        parts = text.split()
+        if len(parts) != 2 or not parts[1]:
+            raise TuiError("uzycie: /kick <nick>")
+        return {"type": "kick", "target": parts[1]}
     if not text.startswith("/groups"):
-        raise TuiError("nieznana komenda; dostepna: /groups <nick> <g1,g2>")
+        raise TuiError("nieznana komenda; dostepne: /groups <nick> <g1,g2>, "
+                       "/kick <nick>")
     parts = text.split(maxsplit=2)
     if len(parts) != 3 or parts[0] != "/groups":
         raise TuiError("uzycie: /groups <nick> <g1,g2>; '-' usuwa wszystkie")
@@ -520,8 +528,22 @@ class AgentmachiApp(App):
                 participant.status_note = raw_note \
                     if isinstance(raw_note, str) else ""
                 self._render_participants()
+        elif kind == "kick":
+            # Trwaly slad wyrzucenia — jedyna ramka poza wzmianka, ktora
+            # dochodzi do wszystkich: zmienia SKLAD zespolu, nie tresc
+            # rozmowy, wiec kazdy musi wiedziec bez pytania.
+            target = frame.get("target")
+            by = frame.get("by")
+            if isinstance(target, str) and target:
+                self.roster.pop(target, None)
+                self._render_participants()
+                self._log("server", f"{target} wyrzucony przez {by or '?'}",
+                          style="bold red")
         elif kind == "membership_set":
             self._apply_groups(frame.get("target"), frame.get("groups"))
+        elif kind == "ok" and "target" in frame and "groups" not in frame:
+            self._log("server", f"wyrzucam {frame.get('target')}...",
+                      style="yellow")
         elif kind == "ok" and "target" in frame and "groups" in frame:
             self._apply_groups(frame.get("target"), frame.get("groups"))
             self._log("server", f"groups {frame.get('target')} = "
