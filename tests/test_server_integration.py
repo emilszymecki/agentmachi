@@ -275,6 +275,52 @@ def test_unknown_group_yields_error_no_silent_broadcast(srv):
 
 # -- Nowe: stary socket po takeover odrzucany --------------------------------
 
+def test_takeover_leaves_trace_for_human_and_survives_compaction(srv):
+    """F3 (B5): wyparcie nicka musi zostawic SLAD, nie ciche zniknięcie.
+
+    Repro z dogfoodu: agent zostal wyparty przez wlasne drugie polaczenie,
+    dla reszty kanalu nadal byl "connected", a jego nasluch juz nic nie
+    slyszal. Nikt nie wiedzial, dlaczego zamilkl. Slad idzie na zywo do
+    ludzi (jak presence — to oni reaguja) i ZOSTAJE w logu, bo pytanie
+    "dlaczego zamilkl" pada dopiero po fakcie, czesto po kompakcji.
+    """
+    async def scenario(server):
+        h, _ = await hello("emil", "te", role="human")
+        a1, r1 = await hello("alfa", "ta", instance="i1")
+        assert r1["generation"] == 1
+
+        a2, r2 = await hello("alfa", "ta", instance="i2")   # wyparcie
+        assert r2["generation"] == 2
+
+        mark = await recv(h)
+        assert mark["type"] == "takeover"
+        assert mark["nick"] == "alfa"
+        assert mark["previous_generation"] == 1 and mark["generation"] == 2
+        assert "wyparlo" in mark["text"]
+
+        # slad przezywa kompakcje i wraca agentowi w 'conversation'
+        server.snapshot()
+        _b, reply = await hello("beta", "tb", instance="swiezy", last_seq=0)
+        assert reply["type"] == "resync_required"
+        traces = [f for f in reply["conversation"] if f["type"] == "takeover"]
+        assert [t["nick"] for t in traces] == ["alfa"]
+        for ws in (h, a2, _b):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_first_hello_is_not_a_takeover(srv):
+    """Pierwsze polaczenie nikogo nie wypiera — zaden slad nie moze powstac
+    (inaczej kazde wejscie na kanal produkowaloby falszywy alarm)."""
+    async def scenario(server):
+        h, _ = await hello("emil", "te", role="human")
+        await hello("alfa", "ta", instance="i1")
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(h, timeout=0.4)
+        await h.close()
+    asyncio.run(srv(scenario))
+
+
 def test_stale_socket_rejected_after_takeover(srv):
     # (C) od tego fixu takeover zamyka stary socket NATYCHMIAST przy hello —
     # a1 dostaje error+close, zanim zdazy cokolwiek wyslac (patrz tez
