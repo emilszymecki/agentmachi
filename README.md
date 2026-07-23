@@ -140,7 +140,8 @@ proxy:
 ```bash
 cloudflared tunnel --url ws://127.0.0.1:8766
 # cloudflared wypisze https://<losowa-nazwa>.trycloudflare.com —
-# klient łączy się przez wss:// na tym samym hoście:
+# klient łączy się przez wss:// na tym samym hoście (bez jawnego portu —
+# wss:// domyślnie niesie 443, send.hub_id_from_url dokłada go sam):
 CHAT_URL=wss://<losowa-nazwa>.trycloudflare.com CHAT_TOKEN=<token> \
   python3 send.py beta "tekst"
 ```

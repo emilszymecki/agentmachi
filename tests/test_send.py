@@ -180,6 +180,12 @@ def test_hub_id_from_url():
         "hub.tailnet.ts.net:8766"
     # default bez CHAT_URL == dotychczasowy HUB_ID -> kursory przezywaja
     assert send.hub_id_from_url(f"ws://localhost:{send.PORT}") == send.HUB_ID
+    # porty domyslne schematu (tunel publiczny nie niesie :443 jawnie)
+    assert send.hub_id_from_url("wss://hub.trycloudflare.com") == \
+        "hub.trycloudflare.com:443"
+    assert send.hub_id_from_url("ws://hub.local") == "hub.local:80"
+    with pytest.raises(ValueError):
+        send.hub_id_from_url("ws://host:abc")   # zly port = czytelny ValueError
 
 
 # --- integracyjny smoke gate (wsad b2): kill / offline / restart ----------

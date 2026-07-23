@@ -40,13 +40,19 @@ PORT = os.environ.get("CHAT_PORT", "8765")
 
 
 def hub_id_from_url(url):
-    """Kursor jest per hub+nick; hub_id = netloc URL-a. UWAGA: ten sam hub
-    widziany pod dwoma nazwami hosta = dwa kursory — at-least-once absorbuje
-    ponowna dostawe, wiec to swiadomy koszt, nie bug."""
+    """Kursor jest per hub+nick; hub_id = host:port URL-a (port domyslny
+    schematu, gdy brak w URL — wss za tunelem publicznym nie niesie :443
+    jawnie). UWAGA: ten sam hub widziany pod dwoma nazwami hosta = dwa
+    kursory — at-least-once absorbuje ponowna dostawe: swiadomy koszt."""
     p = urlparse(url)
-    if p.scheme not in ("ws", "wss") or not p.hostname or not p.port:
-        raise ValueError(f"CHAT_URL musi byc ws://host:port lub wss://: {url!r}")
-    return f"{p.hostname}:{p.port}"
+    if p.scheme not in ("ws", "wss") or not p.hostname:
+        raise ValueError(f"CHAT_URL musi byc ws://host[:port] lub wss://: {url!r}")
+    try:
+        port = p.port
+    except ValueError:
+        raise ValueError(f"CHAT_URL ma niepoprawny port: {url!r}")
+    port = port or (443 if p.scheme == "wss" else 80)
+    return f"{p.hostname}:{port}"
 
 
 URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")

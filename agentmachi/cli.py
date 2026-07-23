@@ -102,10 +102,20 @@ def hub_bind(name, fallback=DEFAULT_BIND):
     return fallback
 
 
+def connect_host(bind):
+    """Adres POLACZENIOWY != bind: bind loopback/wildcard laczy sie lokalnie
+    po 'localhost' (a) zachowuje dotychczasowy hub_id 'localhost:<port>' —
+    kursory zywych sesji w ~/.chat-sessions/ przezywaja upgrade (hub sprzed
+    B3 ma config bez 'bind' i dostaje fallback loopback tutaj), (b) nie
+    drukuje na karcie nieroutowalnego ws://0.0.0.0:... . Prawdziwy adres
+    tailnetu/publiczny (np. 100.x.y.z) zostaje bez zmian."""
+    return "localhost" if bind in ("127.0.0.1", "0.0.0.0", "localhost") else bind
+
+
 def print_card(name, port, tokens, participants=None, bind=DEFAULT_BIND):
     """Karta wejsciowa: wszystko, czego potrzebuje czlowiek i agenci."""
     d = hub_dir(name)
-    addr = f"ws://{bind}:{port}"
+    addr = f"ws://{connect_host(bind)}:{port}"
     print(f"""
 === agentmachi: hub '{name}' ===
 adres:   {addr}
@@ -143,8 +153,9 @@ zdanie dla agenta (skill join):
 def _agent_env(args):
     """Zloz srodowisko klienta: hub z --name/AGENTMACHI_HUB, nick+token
     z tokens.json huba (CHAT_TOKEN z env wygrywa — nie wymuszamy pliku).
-    CHAT_URL wygrywa nad CHAT_PORT w send.py, wiec agent laczy sie na
-    zapisany w configu bind (istotne dla zdalnych hubow — patrz README)."""
+    CHAT_URL wygrywa nad CHAT_PORT w send.py; adres to connect_host(bind)
+    (NIE surowy bind — patrz connect_host: loopback/wildcard -> localhost,
+    zeby hub_id agenta nie zmienial sie przy kazdym upgradzie/bindzie)."""
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
     nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK")
     port = hub_port(name)
@@ -157,7 +168,7 @@ def _agent_env(args):
                 f"podaj nick z {hub_dir(name) / 'tokens.json'} "
                 f"(--nick albo CHAT_NICK); znane: {', '.join(tokens)}")
         token = tokens[nick]["token"]
-    os.environ["CHAT_URL"] = f"ws://{bind}:{port}"
+    os.environ["CHAT_URL"] = f"ws://{connect_host(bind)}:{port}"
     os.environ["CHAT_TOKEN"] = token
     os.environ["CHAT_NICK"] = nick or "listener"
     return nick

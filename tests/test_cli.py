@@ -50,7 +50,7 @@ def test_card_lists_participants_and_join_commands(home, capsys):
     tokens, _ = cli.load_tokens("alpha")
     cli.print_card("alpha", 8931, tokens)
     out = capsys.readouterr().out
-    assert "ws://127.0.0.1:8931" in out
+    assert "ws://localhost:8931" in out  # connect_host: bind 127.0.0.1 -> localhost
     assert "worker1" in out and "agentmachi listen" in out
     assert "dolacz do agentmachi" in out
 
@@ -70,18 +70,34 @@ def test_ensure_hub_idempotent_keeps_bind(home):
 
 
 def test_card_shows_chat_url_and_remote_hint_for_0000(home, capsys):
+    """Review fix (CRITICAL 1 + Minor): adres POLACZENIOWY != bind — dla
+    0.0.0.0 karta drukuje localhost (routowalny), nie nieroutowalny
+    0.0.0.0, ale wiersz-podpowiedz o tailnecie zostaje."""
     cli.ensure_hub("alpha", 8931, bind="0.0.0.0")
     tokens, _ = cli.load_tokens("alpha")
     cli.print_card("alpha", 8931, tokens, bind="0.0.0.0")
     out = capsys.readouterr().out
-    assert "ws://0.0.0.0:8931" in out
-    assert "CHAT_URL=ws://0.0.0.0:8931" in out
+    assert "ws://localhost:8931" in out
+    assert "CHAT_URL=ws://localhost:8931" in out
+    assert "0.0.0.0" not in out.split("uwaga:")[0]  # adres sam nie niesie 0.0.0.0
     assert "tailnecie" in out  # wiersz podpowiedzi dla 0.0.0.0
 
 
+def test_connect_host_maps_loopback_and_wildcard_to_localhost():
+    """Review fix (CRITICAL 1): bind loopback/wildcard/localhost -> localhost;
+    prawdziwy adres tailnetu/publiczny zostaje bez zmian."""
+    assert cli.connect_host("127.0.0.1") == "localhost"
+    assert cli.connect_host("0.0.0.0") == "localhost"
+    assert cli.connect_host("localhost") == "localhost"
+    assert cli.connect_host("100.64.1.2") == "100.64.1.2"
+
+
 def test_agent_env_sets_chat_url(home, monkeypatch):
+    """Review fix (CRITICAL 1): _agent_env uzywa connect_host, nie surowego
+    bindu — inaczej hub_id agenta zmienialby sie z 'localhost:port' na
+    'X.X.X.X:port' i kasowal trwaly kursor po kazdym upgradzie huba."""
     cli.ensure_hub("alpha", 8931, bind="0.0.0.0")
-    # setenv (pas delenv) — _agent_env muta os.environ WPROST (poza
+    # setenv (nie delenv) — _agent_env muta os.environ WPROST (poza
     # monkeypatch), wiec monkeypatch musi miec zarejestrowana wartosc DO
     # przywrocenia; delenv na nieobecnej zmiennej (raising=False) nic nie
     # rejestruje i zostawilby wyciek do kolejnych testow w tym procesie.
@@ -93,4 +109,25 @@ def test_agent_env_sets_chat_url(home, monkeypatch):
         name = "alpha"
         nick = "worker1"
     cli._agent_env(Args())
-    assert os.environ["CHAT_URL"] == "ws://0.0.0.0:8931"
+    assert os.environ["CHAT_URL"] == "ws://localhost:8931"
+
+
+def test_agent_env_upgrade_hub_without_bind_in_config_keeps_localhost(
+        home, monkeypatch):
+    """IMPORTANT 1 (review): hub sprzed B3 ma config.json BEZ klucza 'bind'
+    (stary format {"port": N}) — _agent_env MUSI dac CHAT_URL z hostem
+    localhost, inaczej hub_id agenta ('127.0.0.1:port' zamiast
+    'localhost:port') kasuje trwaly kursor kazdego agenta po upgradzie."""
+    d, _ = cli.ensure_hub("alpha", 8931)
+    (d / "config.json").write_text(json.dumps({"port": 8931}))  # stary format
+    monkeypatch.setenv("CHAT_TOKEN", "")
+    monkeypatch.setenv("CHAT_URL", "")
+    monkeypatch.setenv("CHAT_NICK", "")
+
+    class Args:
+        name = "alpha"
+        nick = "worker1"
+    cli._agent_env(Args())
+    assert os.environ["CHAT_URL"] == "ws://localhost:8931"
+    import send
+    assert send.hub_id_from_url(os.environ["CHAT_URL"]) == "localhost:8931"
