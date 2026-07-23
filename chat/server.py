@@ -793,6 +793,8 @@ class ChatServer:
                     await self._send(observer, frame)
         elif ftype == "heartbeat":
             await self._on_heartbeat(frame, nick, sock_gen, ws)
+        elif ftype == "kick":
+            await self._on_kick(frame, nick, ws)
         elif ftype == "membership_set":
             await self._on_membership_set(frame, requested_groups, nick, ws)
         elif ftype in _TASK_REQUIRED_FIELDS:
@@ -802,6 +804,52 @@ class ChatServer:
                 "error", "server", time.time(),
                 text=f"nieoczekiwany typ ramki od klienta: {ftype}")))
         return False
+
+    async def _on_kick(self, frame, nick, ws):
+        """B6: moderacja czlowieka — jedyna odpowiedz na pytanie 'kim jestes'
+        w kanale bez tokenow dla agentow.
+
+        Uprawnienie ma WYLACZNIE rola human (a human zawsze ma token, wiec
+        to realne uprawnienie, nie umowa). Swiadomie WEZSZE niz przy
+        membership_set, gdzie wystarczy grupa admin: zmiana grup jest
+        odwracalna i wewnetrzna, a kick ODCINA uczestnika od kanalu.
+        """
+        now = time.time()
+        target = frame["target"]
+        if self.registry.role_of(nick) != "human":
+            await ws.send(json.dumps(protocol.make_frame(
+                "error", "server", now,
+                text="forbidden: kick wymaga roli human")))
+            return
+        if not self.conns.get(target):
+            await ws.send(json.dumps(protocol.make_frame(
+                "error", "server", now,
+                text=f"kick: {target} nie jest polaczony")))
+            return
+        event = protocol.make_frame("kick", "server", now,
+                                    target=target, by=nick)
+        seq = self._append(event)      # trwalosc PRZED publikacja
+        event["seq"] = seq
+        await ws.send(json.dumps(protocol.make_frame(
+            "ok", "server", now, target=target)))
+        # JEDYNY WYJATEK od reguly "agenta budzi tylko wzmianka" — i ma nim
+        # zostac. Uzasadnienie: kick zmienia SKLAD ZESPOLU, a nie tresc
+        # rozmowy. Agent, ktory wlasnie uzgodnil podzial pracy z wyrzuconym,
+        # musi wiedziec, ze partner zniknal, bo inaczej czeka na robote,
+        # ktorej nikt nie zrobi. Kazdy kolejny wyjatek zabija te regule
+        # przez tysiac drobnych ustepstw — nie dokladaj drugiego bez
+        # rownie mocnego powodu.
+        for other in list(self.conns):
+            if other != target:
+                await self._send(other, event)
+        await self._send(target, protocol.make_frame(
+            "error", "server", now,
+            text=f"wyrzucony z kanalu przez {nick}"))
+        for sock in list(self.conns.get(target, ())):
+            try:
+                await sock.close(code=4003, reason="kicked")
+            except websockets.exceptions.ConnectionClosed:
+                pass
 
     async def _on_membership_set(self, frame, requested_groups, nick, ws):
         """Przekaz funkcje przez grupy; bez RBAC, elekcji i CAS."""

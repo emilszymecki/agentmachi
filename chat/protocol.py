@@ -10,7 +10,7 @@ import sys
 # task_expired singular pozostaje znanym outbound-only tylko po to, by validate
 # jawnie odrzucal go inbound-em; serwer go juz nie generuje ani nie replayuje.
 INBOUND_FRAME_TYPES = {
-    "hello", "chat", "fyi", "status", "heartbeat", "membership_set",
+    "hello", "chat", "fyi", "status", "heartbeat", "membership_set", "kick",
     "task_new", "task_claim", "task_done", "task_blocked",
     "review_changes", "task_approve", "task_unblock",
 }
@@ -20,6 +20,9 @@ OUTBOUND_FRAME_TYPES = {
     "presence",  # efemeryczny (bez seq): nick wszedl/wypadl z polaczenia
     "takeover",  # F3: TRWALY slad wyparcia nicka przez nowsze hello
 }
+# `kick` jest jedynym typem, ktory wystepuje w OBU kierunkach: klient
+# (human) prosi o wyrzucenie, serwer publikuje TRWALY fakt z polami
+# target/by. Rozroznia je zrodlo — inbound niesie tylko `target`.
 FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 
 # Kanon statusow agenta (deklarowane ramka `status`; presence
@@ -125,6 +128,14 @@ def _validate_body(frame, ftype):
         task_id = frame.get("task_id")
         if not isinstance(task_id, str) or not task_id:
             return "heartbeat: task_id wymagany (niepusty string)"
+        return None
+    if ftype == "kick":
+        # B6: moderacja czlowieka. Zadnych pol poza target — powod, ban,
+        # czas trwania to stan, ktorego nie potrzebujemy (kick nie jest
+        # banem: wyrzucony moze wrocic, a moderator moze go wyrzucic znowu).
+        target = frame.get("target")
+        if not isinstance(target, str) or not target:
+            return "kick: target wymagany (niepusty string)"
         return None
     if ftype == "membership_set":
         target = frame.get("target")

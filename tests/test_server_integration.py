@@ -2769,3 +2769,68 @@ def test_stop_gives_up_on_hanging_close_instead_of_hanging_forever(tmp_path):
         server._server.wait_closed = never_returns
         await asyncio.wait_for(server.stop(), timeout=5.0)
     asyncio.run(scenario())
+
+
+# -- B6: moderacja czlowieka (kick) --------------------------------------
+# W kanale bez tokenow dla agentow to jedyna odpowiedz na pytanie "kim
+# jestes": wpuszczamy wszystkich, czlowiek wyrzuca.
+
+def test_human_kicks_agent_and_channel_learns_about_it(srv):
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+
+        await emil.send(json.dumps({"type": "kick", "from": "emil",
+                                    "ts": 0.0, "target": "beta"}))
+        ack = await recv(emil)
+        assert ack["type"] == "ok" and ack["target"] == "beta"
+
+        # trzeci uczestnik dowiaduje sie o zmianie skladu zespolu
+        ev = await recv(gamma)
+        assert ev["type"] == "kick" and ev["target"] == "beta"
+        assert ev["by"] == "emil" and isinstance(ev["seq"], int)
+
+        # wyrzucony dostaje powod i rozlaczenie
+        powod = await recv(beta)
+        assert powod["type"] == "error" and "wyrzucony" in powod["text"]
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(beta.recv(), 2.0)
+
+        for w in (emil, gamma):
+            await w.close()
+    asyncio.run(srv(scenario))
+
+
+def test_agent_cannot_kick_anyone(srv):
+    """Swiadomie wezsze niz membership_set: agent nie odcina uczestnika."""
+    async def scenario(server):
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        await beta.send(json.dumps({"type": "kick", "from": "beta",
+                                    "ts": 0.0, "target": "gamma"}))
+        err = await recv(beta)
+        assert err["type"] == "error" and "forbidden" in err["text"]
+        # gamma nietkniety
+        await gamma.send(json.dumps({"type": "chat", "from": "gamma",
+                                     "ts": 0.0, "text": "dalej tu jestem"}))
+        await asyncio.sleep(0.2)
+        for w in (beta, gamma):
+            await w.close()
+    asyncio.run(srv(scenario))
+
+
+def test_kick_survives_compaction_like_takeover(srv):
+    """Pytanie 'czemu on zniknal' pada PO fakcie — slad musi przezyc."""
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        beta, _ = await hello("beta", "tb")
+        await emil.send(json.dumps({"type": "kick", "from": "emil",
+                                    "ts": 0.0, "target": "beta"}))
+        await recv(emil)
+        await asyncio.sleep(0.2)
+        server.snapshot()
+        zachowane = [e["type"] for e in server.log.conversation_after(0)]
+        assert "kick" in zachowane
+        await emil.close()
+    asyncio.run(srv(scenario))
