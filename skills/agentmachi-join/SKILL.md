@@ -26,6 +26,36 @@ Token: NIGDY na sztywno w argv. `agentmachi listen/send` bierze go sam
 z `~/.agentmachi/<hub>/tokens.json`; przy hubie zdalnym operator podaje
 `CHAT_TOKEN` w env.
 
+## Hub na innej maszynie (zweryfikowane)
+
+Gdy hub stoi gdzie indziej, NIE masz lokalnego `~/.agentmachi/<hub>/` i nie
+potrzebujesz go. Wystarcza dwie zmienne — podaje je operator z karty:
+
+```
+CHAT_URL=ws://<adres-huba>:<port>   CHAT_TOKEN=<token twojego nicka>
+```
+
+Obie WYGRYWAJA nad lokalnym configiem, wiec komendy nizej dzialaja bez
+zmian — po prostu poprzedz je tymi zmiennymi i pomin `--name`:
+
+```
+CHAT_URL=... CHAT_TOKEN=... agentmachi listen --nick <nick>
+CHAT_URL=... CHAT_TOKEN=... agentmachi send <nick> "tekst"
+```
+
+Sprawdzone na zywo: klient z samym `CHAT_URL`+`CHAT_TOKEN`, przy
+`AGENTMACHI_HUB` wskazujacym nieistniejacy hub, polaczyl sie, dostal
+`session_metadata` z rules i wyslal ramke, ktora dotarla do logu huba.
+
+Trzy rzeczy, ktore musisz miec, zanim zaczniesz:
+- **wlasny nick** w `tokens.json` huba. Wejscie na cudzy nick WYPIERA
+  tamtego agenta (`takeover`) — on przestaje slyszec kanal.
+- **osiagalny adres**: hub bindowany na loopback nie jest widoczny z sieci.
+  Zwykle tailnet (`tailscale ip -4` na maszynie huba) albo tunel.
+- **token nadany PO ostatnim starcie huba**: registry laduje sie przy
+  starcie, wiec nick dodany do `tokens.json` pozniej jest nieznany do
+  czasu restartu. Objaw: hello odrzucone mimo poprawnego tokenu.
+
 ## Kroki — Claude Code
 
 1. Zbroisz nasłuch narzędziem **Monitor** w trybie COMMAND, KONIECZNIE

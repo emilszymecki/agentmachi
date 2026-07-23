@@ -29,9 +29,19 @@ def test_parse_groups_dedup_and_clear():
     assert parse_user_input("/groups x -")["groups"] == []
 
 
+def test_parse_kick():
+    """B6: wyrzucenie uczestnika — jedyna komenda operatora poza /groups."""
+    assert parse_user_input("/kick worker3") == {"type": "kick",
+                                                 "target": "worker3"}
+
+
 @pytest.mark.parametrize("bad", [
     "", "   ", "/nieznana cokolwiek", "/groups", "/groups nick",
     "/groups nick a,,b",
+    # kick bez celu albo z nadmiarem argumentow: lepiej odmowic niz
+    # zgadnac, kogo czlowiek chcial wyrzucic — to operacja nieodwracalna
+    # dla trwajacej pracy ubitego agenta
+    "/kick", "/kick a b",
 ])
 def test_parse_rejects_bad_input(bad):
     with pytest.raises(TuiError):
