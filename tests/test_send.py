@@ -328,3 +328,55 @@ def test_oneshot_frame_uses_session_identity(tmp_path, monkeypatch):
             await srv.stop()
 
     asyncio.run(scenario())
+
+
+# --- F10 (B5): klient nie moze gubic tego, co hub obiecuje --------------
+# Audyt docs znalazl bug w KODZIE: hub wysyla w hello `participants` (board,
+# B4) i `howto` (instrukcja obslugi, F5), a listener wyrzucal je do kosza —
+# agent uzywajacy jedynej udokumentowanej drogi wejscia nie dostawal ich
+# wcale. Obietnica protokolu musi docierac do odbiorcy.
+
+def test_session_metadata_carries_board_and_howto():
+    import send
+    printed = []
+    original = send._print_event
+    send._print_event = printed.append
+    try:
+        send._emit_session_metadata({
+            "type": "ok", "rules": "zasady", "role": "agent",
+            "groups": ["workers"], "generation": 3,
+            "participants": [{"nick": "w1", "connected": True,
+                              "status": {"state": "working"}}],
+            "howto": "jak sie poruszac po kanale",
+        })
+    finally:
+        send._print_event = original
+    meta = printed[0]
+    assert meta["type"] == "session_metadata"
+    assert meta["howto"] == "jak sie poruszac po kanale"
+    assert meta["participants"][0]["nick"] == "w1"
+    assert meta["rules"] == "zasady" and meta["generation"] == 3
+
+
+def test_resync_reply_also_carries_conversation():
+    """Po kompakcji rozmowa wraca w `conversation` (F1) — listener ma ja
+    pokazac, inaczej wracajacy agent widzi kanal, na ktorym 'nic sie nie
+    wydarzylo'."""
+    import send
+    from chat.client_session import Session
+    import tempfile
+    printed = []
+    original = send._print_event
+    send._print_event = printed.append
+    try:
+        session = Session("h:1", "w2", base_dir=tempfile.mkdtemp())
+        send._apply_hello_reply(session, {
+            "type": "resync_required", "snapshot_seq": 5,
+            "state": {"registry": {}},
+            "conversation": [{"type": "chat", "from": "w1", "seq": 3,
+                              "text": "ustalenie sprzed snapshotu"}],
+        })
+    finally:
+        send._print_event = original
+    teksty = [e.get("text") for e in printed if e.get("type") == "chat"]
+    assert "ustalenie sprzed snapshotu" in teksty

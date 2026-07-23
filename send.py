@@ -152,11 +152,18 @@ def apply_frame(session, data):
 
 
 def _emit_session_metadata(reply):
-    """Jedna ramka metadanych sesji (rules/role/groups/generation) PRZED
-    backlogiem/stanem — adapter/harness widzi kontekst zanim poplyna eventy.
-    Bez cache — kazde hello emituje aktualny stan z serwera."""
+    """Jedna ramka metadanych sesji PRZED backlogiem/stanem — adapter/harness
+    widzi kontekst, zanim poplyna eventy. Bez cache: kazde hello emituje
+    aktualny stan z serwera.
+
+    F10 (B5): przekazujemy TAKZE `participants` (board — kto istnieje, kto
+    polaczony, co robi) i `howto` (instrukcja obslugi kanalu). Hub wysyla
+    oba od B4/F5, ale listener je gubil — agent wchodzacy jedyna
+    udokumentowana droga nie dostawal ani boardu, ani instrukcji. Obietnica
+    protokolu musi docierac do odbiorcy, nie tylko na drut."""
     meta = {k: reply[k] for k in ("rules", "rules_hash", "role", "groups",
-                                  "generation") if k in reply}
+                                  "generation", "participants", "howto")
+            if k in reply}
     if meta:
         _print_event({"type": "session_metadata", **meta})
 
@@ -181,6 +188,11 @@ def _apply_hello_reply(session, reply):
                 "sprawdz wersje huba albo ponow polaczenie")
         # APPLY stanu PRZED przesunieciem kursora
         _print_event({"type": "resync_state", "state": state})
+        # F1+F10: po kompakcji rozmowa wraca w `conversation`. Bez tego
+        # wracajacy agent widzi kanal, na ktorym "nic sie nie wydarzylo".
+        for frame in reply.get("conversation", []):
+            if isinstance(frame, dict):
+                _print_event(frame)
         if (not isinstance(snapshot_seq, bool)
                 and isinstance(snapshot_seq, int) and snapshot_seq >= 1):
             session.advance(snapshot_seq)
