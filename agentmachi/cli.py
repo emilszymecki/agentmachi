@@ -142,20 +142,51 @@ def _pid_is_our_hub(pid, name):
     return ("agentmachi" in cmd or "chat.server" in cmd) and name in cmd
 
 
+def _scan_hub_pid(name):
+    """Znajdz zywy hub tego kanalu po procesach, bez pidfile.
+
+    F8 (B5): pidfile nie jest zrodlem prawdy o tym, czy hub zyje. Nie ma go
+    dla hubow wystartowanych przed F6, znika przy recznym sprzataniu katalogu
+    i nie powstaje, gdy ktos odpali serwer inaczej niz przez `serve`. Sam brak
+    pliku raportowany jako "zatrzymany" jest grozny w JEDNA strone: kusi, zeby
+    postawic drugi hub na tym samym katalogu — czyli split-brain z F7, ktory
+    16:05 zzarl nam rozmowe. Dlatego przy braku pidfile pytamy system.
+    """
+    proc = Path("/proc")
+    if not proc.is_dir():          # nie-Linux: zostajemy przy pidfile
+        return None
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        cmd = _cmdline_of(pid)
+        if not cmd or "serve" not in cmd:
+            continue
+        if _pid_is_our_hub(pid, name):
+            return pid
+    return None
+
+
 def hub_pid(name):
     """PID zywego huba albo None. Martwy pidfile sprzatamy od razu — inaczej
-    `list` klamie, ze kanal dziala."""
+    `list` klamie, ze kanal dziala. Gdy pidfile nie ma, a proces jest,
+    dowiadujemy sie tego ze skanu (patrz _scan_hub_pid): lepiej powiedziec
+    'dziala' bez pliku niz 'zatrzymany' o zywym hubie."""
     path = hub_dir(name) / "hub.pid"
     if not path.exists():
-        return None
+        return _scan_hub_pid(name)
     try:
         pid = int(path.read_text().strip())
     except (ValueError, OSError):
         path.unlink(missing_ok=True)
-        return None
+        return _scan_hub_pid(name)
     if _cmdline_of(pid) is None:
         path.unlink(missing_ok=True)
-        return None
+        return _scan_hub_pid(name)
+    # UWAGA (poza zakresem F8, zgloszone osobno): nie sprawdzamy tu, czy PID
+    # to NA PEWNO nasz hub. PID-y sa recyklowane, wiec nieaktualny pidfile
+    # wskazujacy na cudzy zywy proces daje falszywe "dziala". `stop` jest
+    # na to odporny (_pid_is_our_hub przed zabiciem), `list` jeszcze nie.
     return pid
 
 
@@ -181,8 +212,11 @@ def hub_rows():
             nicks = []
         rows.append({"name": name, "port": hub_port(name),
                      "bind": hub_bind(name), "pid": pid,
-                     "running": pid is not None, "nicks": nicks,
-                     "dir": d})
+                     "running": pid is not None,
+                     # hub bez pidfile dziala, ale `stop` nie zostawi po sobie
+                     # sladu w katalogu — user ma to widziec, a nie zgadywac
+                     "pidfile": (d / "hub.pid").exists(),
+                     "nicks": nicks, "dir": d})
     return rows
 
 
@@ -303,11 +337,16 @@ def cmd_list(args):
         print(f"brak kanalow w {hub_home()} — zaloz pierwszy: "
               f"agentmachi serve --name <nazwa>")
         return 0
-    print(f"{'KANAL':<16} {'ADRES':<28} {'STAN':<16} UCZESTNICY")
+    print(f"{'KANAL':<16} {'ADRES':<28} {'STAN':<24} UCZESTNICY")
     for r in rows:
         addr = f"ws://{connect_host(r['bind'])}:{r['port']}"
-        stan = f"dziala (PID {r['pid']})" if r["running"] else "zatrzymany"
-        print(f"{r['name']:<16} {addr:<28} {stan:<16} {', '.join(r['nicks'])}")
+        if not r["running"]:
+            stan = "zatrzymany"
+        elif r["pidfile"]:
+            stan = f"dziala (PID {r['pid']})"
+        else:
+            stan = f"dziala (PID {r['pid']}, bez pidfile)"
+        print(f"{r['name']:<16} {addr:<28} {stan:<24} {', '.join(r['nicks'])}")
     zatrzymane = [r["name"] for r in rows if not r["running"]]
     if zatrzymane:
         print(f"\nzatrzymane mozesz odpalic: agentmachi serve --name "

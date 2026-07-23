@@ -279,6 +279,32 @@ def test_start_writes_pidfile_and_list_sees_running(tmp_path, monkeypatch):
     assert row["port"] == 8910
 
 
+def test_list_sees_running_hub_without_pidfile(tmp_path, monkeypatch):
+    """F8 (B5): brak pidfile NIE znaczy 'zatrzymany'.
+
+    Huby sprzed F6 nie maja pliku, a `list` pokazywal je jako zatrzymane
+    i podpowiadal `serve` — czyli zachecal do postawienia drugiego huba na
+    tym samym katalogu. To droga prosto do split-brainu z F7, ktory raz juz
+    skasowal rozmowe. Przy braku pidfile pytamy wiec system o procesy.
+    """
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h3", 8912)
+    assert not (cli.hub_dir("h3") / "hub.pid").exists()
+
+    real = cli._cmdline_of
+
+    def fake(pid):
+        if pid == os.getpid():
+            return "python3 -m agentmachi.cli serve --name h3"
+        return real(pid)
+
+    monkeypatch.setattr(cli, "_cmdline_of", fake)
+    row = next(r for r in cli.hub_rows() if r["name"] == "h3")
+    assert row["running"] is True
+    assert row["pid"] == os.getpid()
+    assert row["pidfile"] is False   # `list` ma to pokazac, nie przemilczec
+
+
 def test_list_reports_dead_hub_and_cleans_stale_pidfile(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
     cli.ensure_hub("h2", 8911)
