@@ -1,3 +1,9 @@
+> **SUPERSEDED (2026-07-23):** koncepcję dedykowanego orkiestratora i
+> automatycznego schedulera tasków zastępuje plan
+> `docs/superpowers/plans/2026-07-23-b3-siec-dla-agentow.md`
+> (fizyka w hubie, zachowania w rules.md + rozmowie). Scheduler z B1
+> zamrożony pod tagiem `b1-workflow-engine`, cięcie w zadaniu 7.
+
 # agents_chat — krok B: statek matka i rój wyrobnic
 
 Data: 2026-07-22.
