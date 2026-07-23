@@ -106,7 +106,20 @@ dostęp lokalny do maszyny operatora, ma i tak dostęp do wszystkiego
 **Świadome ograniczenie, zapisane jawnie** (jak ograniczenia B6): dwaj
 agenci na TEJ SAMEJ maszynie mogą się nawzajem podszyć. Nie chronimy
 przed tym, bo nie ma czego chronić — lokalny dostęp to już pełne zaufanie.
-Adres loopback/self huba jest traktowany jako „ten sam podmiot".
+
+**Sprostowanie po Q1 Opuska (kod ≠ pierwotne sformułowanie — kod wygrywa,
+jest bezpieczniejszy):** self-tailnet-IP huba (`100.84.163.11`) **NIE jest**
+traktowany jako „trusted local / nie pinuj". Kod pinuje go jak każdy adres
+tailnetu — jako proxy-signal traktowany jest WYŁĄCZNIE loopback
+(`127.0.0.1`/`::1`/`localhost`). Powód: gdyby self-IP dawał `addr=None`,
+agent NA hoście huba miałby nick niezapięty i byłby **podszywalny z
+zewnątrz** (VPS przejmuje) — dziura. Pinowanie self-IP chroni host-agenta.
+`addr=None` (trusted, nie pinuj) występuje TYLKO przy bind-loopback, gdzie
+B7 jest wyłączone w całości. Ograniczenie „w obrębie maszyny nie chronimy"
+pozostaje prawdziwe, ale z innego powodu: lokalni agenci **dzielą self-IP**
+(ten sam adres → nierozróżnialni), nie dlatego że self=trusted.
+Host-check jest symetryczny: peer z self-IP próbujący nick zapięty na
+zdalny adres → odmowa (zero bypassu). Zweryfikowane w e2e #3 (T3).
 
 ### (b) Wygasanie — nick nie może wisieć na martwym adresie wiecznie
 
