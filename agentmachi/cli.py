@@ -588,7 +588,7 @@ def _tui_env(name):
     tokens_path = hub_dir(name) / "tokens.json"
     if not tokens_path.exists():
         raise CliError(f"hub {name!r} nie istnieje; najpierw: "
-                       f"agentmachi serve --name {name}")
+                       f"agentmachi start --name {name}")
     os.environ["AGENTMACHI_TOKENS"] = str(tokens_path)
     port = hub_port(name)
     os.environ["CHAT_PORT"] = str(port)
