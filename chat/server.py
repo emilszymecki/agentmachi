@@ -499,6 +499,11 @@ class ChatServer:
             # klient zawsze widzialby wlasna ramke hello w swoim backlogu i
             # "last_seq == biezacy cursor" po reconnnekcie nigdy by nie
             # dawalo pustego backlogu (por. test_reconnect_resumes_from_last_seq)
+            # KONTRAKT (B3, zadanie 2): backlog jest NIEFILTROWANY. Filtr wzmianek
+            # dotyczy wylacznie live push (_publish_chat) — spiacy agent nie placi
+            # za cudza rozmowe. Replay od kursora zwraca pelny log kazdemu
+            # uwierzytelnionemu: selekcje robi node/agent, nie hub. Node (wake)
+            # pobiera tedy kontekst — filtr tutaj = amnezja agentow tylnymi drzwiami.
             backlog = self.log.events_after(last_seq)
             # niezmiennik A + (Runda 7) DURABLE-FIRST: mutacja tozsamosci jest
             # TRWALA PRZED live-swapem i JAKIMKOLWIEK side-effectem. Durable

@@ -2476,3 +2476,21 @@ def test_bind_all_interfaces(tmp_path):
         finally:
             await server.stop()
     asyncio.run(run())
+
+
+# -- Task 2 (B3): kontrakt replayu — backlog bez filtra wzmianek ------------
+
+def test_replay_backlog_unfiltered_for_agents(srv):
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        # chat BEZ wzmianki — live push ominie agentow (fizyka: sen za darmo)
+        await emil.send(json.dumps({"type": "chat", "from": "emil",
+                                    "ts": 0.0, "text": "notatka bez wzmianki"}))
+        await asyncio.sleep(0.2)                      # niech serwer zapisze
+        # agent wstaje z kursorem 0 -> backlog MUSI zawierac te ramke
+        beta, reply = await hello("beta", "tb", last_seq=0)
+        texts = [f.get("text") for f in reply["backlog"]
+                 if f.get("type") == "chat"]
+        assert "notatka bez wzmianki" in texts
+        await beta.close(); await emil.close()
+    asyncio.run(srv(scenario))
