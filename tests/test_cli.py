@@ -50,6 +50,47 @@ def test_card_lists_participants_and_join_commands(home, capsys):
     tokens, _ = cli.load_tokens("alpha")
     cli.print_card("alpha", 8931, tokens)
     out = capsys.readouterr().out
-    assert "ws://localhost:8931" in out
+    assert "ws://127.0.0.1:8931" in out
     assert "worker1" in out and "agentmachi listen" in out
     assert "dolacz do agentmachi" in out
+
+
+# --- Task 1: CHAT_BIND / CHAT_URL ------------------------------------------
+
+def test_ensure_hub_stores_bind_in_config(home):
+    d, _ = cli.ensure_hub("alpha", 8931, bind="0.0.0.0")
+    config = json.loads((d / "config.json").read_text())
+    assert config["bind"] == "0.0.0.0"
+
+
+def test_ensure_hub_idempotent_keeps_bind(home):
+    cli.ensure_hub("alpha", 8931, bind="0.0.0.0")
+    d, _ = cli.ensure_hub("alpha", 8931, bind="127.0.0.1")  # inny bind NIE nadpisuje
+    assert cli.hub_bind("alpha") == "0.0.0.0"
+
+
+def test_card_shows_chat_url_and_remote_hint_for_0000(home, capsys):
+    cli.ensure_hub("alpha", 8931, bind="0.0.0.0")
+    tokens, _ = cli.load_tokens("alpha")
+    cli.print_card("alpha", 8931, tokens, bind="0.0.0.0")
+    out = capsys.readouterr().out
+    assert "ws://0.0.0.0:8931" in out
+    assert "CHAT_URL=ws://0.0.0.0:8931" in out
+    assert "tailnecie" in out  # wiersz podpowiedzi dla 0.0.0.0
+
+
+def test_agent_env_sets_chat_url(home, monkeypatch):
+    cli.ensure_hub("alpha", 8931, bind="0.0.0.0")
+    # setenv (pas delenv) — _agent_env muta os.environ WPROST (poza
+    # monkeypatch), wiec monkeypatch musi miec zarejestrowana wartosc DO
+    # przywrocenia; delenv na nieobecnej zmiennej (raising=False) nic nie
+    # rejestruje i zostawilby wyciek do kolejnych testow w tym procesie.
+    monkeypatch.setenv("CHAT_TOKEN", "")
+    monkeypatch.setenv("CHAT_URL", "")
+    monkeypatch.setenv("CHAT_NICK", "")
+
+    class Args:
+        name = "alpha"
+        nick = "worker1"
+    cli._agent_env(Args())
+    assert os.environ["CHAT_URL"] == "ws://0.0.0.0:8931"

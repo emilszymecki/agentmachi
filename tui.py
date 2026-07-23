@@ -24,13 +24,13 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Input, Label, RichLog, Static
 
 from chat.client_session import ListenerLockHeld, Session, SessionError
-
+from send import hub_id_from_url
 
 # CLI agentmachi ustawia CHAT_PORT i AGENTMACHI_TOKENS; gołe `python3
 # tui.py` w repo zachowuje stare defaulty (hub.tokens.json + 8766)
 _PORT = os.environ.get("CHAT_PORT", "8766")
-HUB_URI = f"ws://localhost:{_PORT}"
-HUB_ID = f"localhost:{_PORT}"
+HUB_URI = os.environ.get("CHAT_URL", f"ws://localhost:{_PORT}")
+HUB_ID = hub_id_from_url(HUB_URI)
 TOKENS_PATH = Path(os.environ.get("AGENTMACHI_TOKENS", "hub.tokens.json"))
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
 HELLO_TIMEOUT = 10.0

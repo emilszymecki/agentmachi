@@ -2460,3 +2460,19 @@ def test_status_survives_crash_restart_without_snapshot(srv):
     reborn = ChatServer(data_dir=crash_dir, tokens=TOKENS, port=PORT + 2)
     snap = {p["nick"]: p for p in reborn._participants_snapshot()}
     assert snap["beta"]["status"] == {"state": "working", "task_id": "t7"}
+
+
+# -- Task 1: bind jest parametrem serwera -----------------------------------
+
+def test_bind_all_interfaces(tmp_path):
+    async def run():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="0.0.0.0")
+        await server.start()
+        try:
+            ws = await websockets.connect(f"ws://127.0.0.1:{port}")
+            await ws.close()
+        finally:
+            await server.stop()
+    asyncio.run(run())

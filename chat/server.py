@@ -97,9 +97,10 @@ _TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"heartbeat"}
 
 
 class ChatServer:
-    def __init__(self, data_dir, tokens, port, wip_limit=3,
+    def __init__(self, data_dir, tokens, port, bind="127.0.0.1", wip_limit=3,
                  lease_ttl=120.0, offer_timeout=5.0):
         self.port = port
+        self.bind = bind
         self.offer_timeout = offer_timeout
         self.log = EventLog(Path(data_dir))
         snap = self.log.load_snapshot()
@@ -209,7 +210,7 @@ class ChatServer:
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
-        self._server = await websockets.serve(self._handler, "localhost", self.port)
+        self._server = await websockets.serve(self._handler, self.bind, self.port)
         self._expiry_task = asyncio.ensure_future(self._expiry_loop())
 
     async def stop(self):
@@ -1011,7 +1012,8 @@ def main():
     server = ChatServer(
         data_dir=os.environ.get("CHAT_DATA", "./chat-data"),
         tokens=tokens,
-        port=int(os.environ.get("CHAT_PORT", 8765)))
+        port=int(os.environ.get("CHAT_PORT", 8765)),
+        bind=os.environ.get("CHAT_BIND", "127.0.0.1"))
 
     async def run():
         stop_event = asyncio.Event()
@@ -1025,7 +1027,7 @@ def main():
             # na wspieranym produkcyjnym Unixie SIGTERM idzie ta sciezka.
             pass
         await server.start()
-        print(f"chat server on ws://localhost:{server.port}", flush=True)
+        print(f"chat server on ws://{server.bind}:{server.port}", flush=True)
         try:
             await stop_event.wait()
         finally:

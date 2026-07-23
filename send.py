@@ -30,14 +30,27 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 import websockets
 
 from chat.client_session import ListenerLockHeld, Session, SessionError
 
 PORT = os.environ.get("CHAT_PORT", "8765")
-URI = f"ws://localhost:{PORT}"
-HUB_ID = f"localhost:{PORT}"
+
+
+def hub_id_from_url(url):
+    """Kursor jest per hub+nick; hub_id = netloc URL-a. UWAGA: ten sam hub
+    widziany pod dwoma nazwami hosta = dwa kursory — at-least-once absorbuje
+    ponowna dostawe, wiec to swiadomy koszt, nie bug."""
+    p = urlparse(url)
+    if p.scheme not in ("ws", "wss") or not p.hostname or not p.port:
+        raise ValueError(f"CHAT_URL musi byc ws://host:port lub wss://: {url!r}")
+    return f"{p.hostname}:{p.port}"
+
+
+URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")
+HUB_ID = hub_id_from_url(URI)
 HELLO_TIMEOUT = 10.0
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")

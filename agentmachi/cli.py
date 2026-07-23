@@ -20,6 +20,7 @@ from pathlib import Path
 
 DEFAULT_PORT = 8766
 DEFAULT_HUB = "hub"
+DEFAULT_BIND = "127.0.0.1"
 
 DEFAULT_RULES = """\
 1. Zanim wezmiesz taska, sprawdz czy nikt inny juz go nie robi.
@@ -51,7 +52,7 @@ def _write_0600(path, text):
         f.write(text)
 
 
-def ensure_hub(name, port):
+def ensure_hub(name, port, bind="127.0.0.1"):
     """Utworz strukture huba przy pierwszym uzyciu; istniejacej NIE ruszaj."""
     d = hub_dir(name)
     (d / "data").mkdir(parents=True, exist_ok=True)
@@ -74,7 +75,7 @@ def ensure_hub(name, port):
     if config_path.exists():
         port = json.loads(config_path.read_text()).get("port", port)
     else:
-        config_path.write_text(json.dumps({"port": port}))
+        config_path.write_text(json.dumps({"port": port, "bind": bind}))
     return d, port
 
 
@@ -94,16 +95,27 @@ def hub_port(name, fallback=DEFAULT_PORT):
     return fallback
 
 
-def print_card(name, port, tokens, participants=None):
+def hub_bind(name, fallback=DEFAULT_BIND):
+    config = hub_dir(name) / "config.json"
+    if config.exists():
+        return json.loads(config.read_text()).get("bind", fallback)
+    return fallback
+
+
+def print_card(name, port, tokens, participants=None, bind=DEFAULT_BIND):
     """Karta wejsciowa: wszystko, czego potrzebuje czlowiek i agenci."""
     d = hub_dir(name)
+    addr = f"ws://{bind}:{port}"
     print(f"""
 === agentmachi: hub '{name}' ===
-adres:   ws://localhost:{port}
+adres:   {addr}
 tokeny:  {d / 'tokens.json'}  (0600 — nie commituj!)
 rules:   {d / 'data' / 'rules.md'}
 dane:    {d / 'data'}
 """)
+    if bind == "0.0.0.0":
+        print("uwaga: bind na wszystkie interfejsy — z innego hosta uzyj "
+              "adresu maszyny w tailnecie (patrz README: Zdalny hub)\n")
     print("uczestnicy (config):")
     for nick, entry in tokens.items():
         role = entry.get("role", "agent")
@@ -120,20 +132,23 @@ czlowiek (TUI):
   agentmachi tui --name {name}
 
 agent dolacza (nasluch + wysylka; wklej agentowi jedno z ponizszych):
-  AGENTMACHI_HUB={name} CHAT_NICK=worker1 agentmachi listen
-  AGENTMACHI_HUB={name} agentmachi send worker1 "czesc"
+  AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=worker1 agentmachi listen
+  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send worker1 "czesc"
 
 zdanie dla agenta (skill join):
-  "dolacz do agentmachi '{name}' (ws://localhost:{port}) jako worker1"
+  "dolacz do agentmachi '{name}' ({addr}) jako worker1"
 """)
 
 
 def _agent_env(args):
     """Zloz srodowisko klienta: hub z --name/AGENTMACHI_HUB, nick+token
-    z tokens.json huba (CHAT_TOKEN z env wygrywa — nie wymuszamy pliku)."""
+    z tokens.json huba (CHAT_TOKEN z env wygrywa — nie wymuszamy pliku).
+    CHAT_URL wygrywa nad CHAT_PORT w send.py, wiec agent laczy sie na
+    zapisany w configu bind (istotne dla zdalnych hubow — patrz README)."""
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
     nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK")
     port = hub_port(name)
+    bind = hub_bind(name)
     token = os.environ.get("CHAT_TOKEN", "")
     if not token:
         tokens, _ = load_tokens(name)
@@ -142,7 +157,7 @@ def _agent_env(args):
                 f"podaj nick z {hub_dir(name) / 'tokens.json'} "
                 f"(--nick albo CHAT_NICK); znane: {', '.join(tokens)}")
         token = tokens[nick]["token"]
-    os.environ["CHAT_PORT"] = str(port)
+    os.environ["CHAT_URL"] = f"ws://{bind}:{port}"
     os.environ["CHAT_TOKEN"] = token
     os.environ["CHAT_NICK"] = nick or "listener"
     return nick
@@ -155,22 +170,23 @@ def _import_send():
 
 
 def cmd_serve(args):
-    d, port = ensure_hub(args.name, args.port)
+    d, port = ensure_hub(args.name, args.port, bind=args.bind)
+    bind = hub_bind(args.name, fallback=args.bind)
     tokens = json.loads((d / "tokens.json").read_text())
-    print_card(args.name, port, tokens)
+    print_card(args.name, port, tokens, bind=bind)
     os.environ["CHAT_TOKENS"] = str(d / "tokens.json")
     os.environ["CHAT_DATA"] = str(d / "data")
     os.environ["CHAT_PORT"] = str(port)
+    os.environ["CHAT_BIND"] = bind
     from chat.server import main as server_main
     server_main()
     return 0
 
 
 def cmd_card(args):
-    tokens, d = load_tokens(args.name or
-                            os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB))
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
-    print_card(name, hub_port(name), tokens)
+    tokens, d = load_tokens(name)
+    print_card(name, hub_port(name), tokens, bind=hub_bind(name))
     return 0
 
 
@@ -235,6 +251,9 @@ def main(argv=None):
     p = sub.add_parser("serve", help="odpal hub (tworzy ~/.agentmachi/<name>)")
     p.add_argument("--name", default=DEFAULT_HUB)
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("--bind", default=DEFAULT_BIND,
+                  help="interfejs do bindowania (0.0.0.0 = wszystkie; "
+                       "domyslnie 127.0.0.1 — tylko lokalnie)")
     p.set_defaults(fn=cmd_serve)
 
     p = sub.add_parser("card", help="pokaz karte wejsciowa huba")

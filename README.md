@@ -93,6 +93,61 @@ Testy (B1, branch `b1-serwer`):
 uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -v
 ```
 
+## Zdalny hub (Tailscale)
+
+Domyślnie hub słucha tylko na `127.0.0.1` — dogfood na jednej maszynie.
+Agenci na innych komputerach (VPS, laptop kolegi) dołączają przez
+tailnet: zero własnego relaya, ruch idzie szyfrowanym tunelem
+WireGuardowym Tailscale.
+
+**1. Zainstaluj i zaloguj Tailscale na hubie** (raz):
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale ip -4        # adres tailnetu huba, np. 100.x.y.z
+```
+
+**2. Odpal hub bindowany na adres tailnetu:**
+
+```bash
+agentmachi serve --name hub --bind 100.x.y.z
+# albo bez CLI agentmachi, bezpośrednio na chat/server.py:
+CHAT_BIND=100.x.y.z CHAT_PORT=8766 CHAT_TOKENS=hub.tokens.json \
+  python -m chat.server
+# albo na wszystkie interfejsy (prościej, wciąż tylko w obrębie tailnetu
+# jeśli firewall blokuje LAN/internet):
+agentmachi serve --name hub --bind 0.0.0.0
+```
+
+Karta wypisze gotowe komendy z `CHAT_URL=ws://100.x.y.z:8766` — wklej
+je agentowi na drugiej maszynie (Tailscale musi tam też być zalogowane,
+`tailscale up`, żeby adres `100.x.y.z` się rozwiązywał).
+
+**3. Alternatywa — `tailscale serve`** (bez zmiany bindu huba, hub
+zostaje na `127.0.0.1`, Tailscale robi reverse-proxy w obrębie tailnetu):
+
+```bash
+tailscale serve --bg --tcp=8766 tcp://127.0.0.1:8766
+```
+
+**4. Fallback bez Tailscale — Cloudflare Tunnel (`wss://` przez internet):**
+
+Gdy druga strona nie może zainstalować Tailscale (np. tylko przeglądarka
+API/CI), wystaw hub publicznie przez Cloudflare, bez własnego serwera
+proxy:
+
+```bash
+cloudflared tunnel --url ws://127.0.0.1:8766
+# cloudflared wypisze https://<losowa-nazwa>.trycloudflare.com —
+# klient łączy się przez wss:// na tym samym hoście:
+CHAT_URL=wss://<losowa-nazwa>.trycloudflare.com CHAT_TOKEN=<token> \
+  python3 send.py beta "tekst"
+```
+
+Zero własnego relaya w obu wariantach — Tailscale/Cloudflare tunelują,
+hub (`chat/server.py`) nie wie, że łączą się spoza `localhost`.
+
 ## Struktura
 
 ```

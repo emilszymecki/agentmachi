@@ -171,6 +171,17 @@ def test_require_token_fails_fast(monkeypatch):
     assert e.value.code == 2
 
 
+# --- hub_id_from_url (Task 1: CHAT_URL / zdalne hub-y) --------------------
+
+def test_hub_id_from_url():
+    import send
+    assert send.hub_id_from_url("ws://localhost:8766") == "localhost:8766"
+    assert send.hub_id_from_url("wss://hub.tailnet.ts.net:8766") == \
+        "hub.tailnet.ts.net:8766"
+    # default bez CHAT_URL == dotychczasowy HUB_ID -> kursory przezywaja
+    assert send.hub_id_from_url(f"ws://localhost:{send.PORT}") == send.HUB_ID
+
+
 # --- integracyjny smoke gate (wsad b2): kill / offline / restart ----------
 
 def test_listener_smoke_gate_kill_offline_restart(tmp_path):
