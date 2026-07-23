@@ -565,6 +565,35 @@ class ChatServer:
                 # trwalym fakcie), nie dopiero przy ich kolejnej (moze nigdy nie
                 # nadejsc) ramce
                 await self._close_stale_sockets(nick)
+            # F3 (B5): slad TYLKO dla faktycznego wyparcia. old_gen == 0 to
+            # pierwsze hello tego nicka — nikogo nie wypiera, wiec nie ma o
+            # czym meldowac (reconnect z tym samym instance_id nie bumpuje
+            # generacji, wiec tez tu nie wpada).
+            if generation != old_gen and old_gen:
+                # zostaw SLAD. Bez niego wyparty agent znika po cichu:
+                # dla reszty kanalu wciaz jest "connected", a jego nasluch juz
+                # nic nie slyszy — agent-widmo, ktory milczy i nikt nie wie
+                # dlaczego. Zdarzylo sie w dogfoodzie B5 i kosztowalo godzine
+                # szukania winy w kliencie. Trwale (nie efemerycznie jak
+                # presence), bo pytanie "dlaczego zamilkl" pada PO fakcie.
+                takeover = protocol.make_frame(
+                    "takeover", "server", time.time(), nick=nick,
+                    generation=generation, previous_generation=old_gen,
+                    text=(f"{nick}: nowe polaczenie wyparlo poprzednie "
+                          f"(generacja {old_gen} -> {generation}); "
+                          f"stare sockety zamkniete"))
+                # trwalosc PRZED publikacja (inwariant projektowy)
+                seq = self._append_durable(takeover)
+                event = {**takeover, "seq": seq}
+                # Push NA ZYWO tylko do ludzi — tak samo jak presence: to oni
+                # reaguja na widmo (restart, ubicie klienta), a agentow nie
+                # budzimy ramka bez wzmianki. Agenci dostana ten slad z logu
+                # przy swoim najblizszym hello: takeover jest w
+                # CONVERSATION_TYPES, wiec wraca w 'conversation' i przezywa
+                # kompakcje.
+                for other, role in self.roles.items():
+                    if role == "human" and other != nick and self.conns.get(other):
+                        await self._send(other, event)
             self.conns.setdefault(nick, set()).add(ws)
             self.roles[nick] = role
             self.groups[nick] = set(groups)

@@ -31,7 +31,10 @@ class ForeignWriterError(RuntimeError):
 
 # F1 (B5): typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji.
 # Reszta (hello/status/task_*) ma swoj stan w snapshocie i moze zniknac.
-CONVERSATION_TYPES = frozenset({"chat"})
+# F3 (B5): takeover jest czescia PAMIECI kanalu, nie stanem maszyny — stan
+# mowi "kto jest teraz", a slad odpowiada na pytanie "dlaczego kolega
+# zamilkl". Kompakcja go wiec nie rusza, tak jak rozmowy.
+CONVERSATION_TYPES = frozenset({"chat", "takeover"})
 CONVERSATION_LIMIT = 200      # ile ostatnich ramek rozmowy serwujemy
 # Ile ramek rozmowy przezywa kompakcje. Kanal to DYSKUSJA, nie archiwum:
 # trzymamy okno wznowienia (zeby wracajacy agent nie stracil watku), a nie
