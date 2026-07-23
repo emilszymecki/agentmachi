@@ -375,3 +375,38 @@ def test_roster_shows_only_connected_and_presence_updates(tmp_path):
             rendered = str(app.query_one("#participants").render())
             assert "beta" not in rendered
     asyncio.run(scenario())
+
+
+# --- listener-lock: TUI ponawia zamiast fail-closed (dogfood B3) ----------
+
+def test_run_retries_until_listener_lock_released(session, tmp_path, monkeypatch):
+    """Fotel czlowieka: zajety lock (inny klient na tym samym nicku) nie
+    moze na stale ubic TUI — po zwolnieniu locka run() przechodzi do
+    laczenia. Regresja z dogfoodu B3 (listener beta siedzial na 'human')."""
+    monkeypatch.setattr(tui, "BACKOFF_START", 0.05)
+    other = Session("localhost:8766", "Emil", base_dir=tmp_path)
+    other.acquire_listener_lock()
+    adapter = _adapter(session)
+
+    def failing_connector(uri):
+        raise OSError("hub niedostepny (test)")
+    adapter._connector = failing_connector
+    statuses = []
+
+    async def on_status(msg, ok):
+        statuses.append(msg)
+
+    async def _noop(*a):
+        pass
+
+    async def scenario():
+        task = asyncio.ensure_future(adapter.run(_noop, _noop, on_status))
+        await asyncio.sleep(0.15)
+        assert any("ponawiam" in s for s in statuses), statuses
+        assert not any(s.startswith("laczenie") for s in statuses)
+        other.release_listener_lock()
+        await asyncio.sleep(0.3)
+        assert any(s.startswith("laczenie z hubem") for s in statuses), statuses
+        adapter._closing = True
+        await asyncio.wait_for(task, timeout=5)
+    asyncio.run(scenario())

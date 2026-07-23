@@ -242,16 +242,27 @@ class HubAdapter:
         self.session.advance(snapshot_seq)
 
     async def run(self, on_frame, on_metadata, on_status):
-        try:
-            self.session.acquire_listener_lock()
-        except ListenerLockHeld as exc:
-            await _maybe_await(on_status(str(exc), False))
+        # Lock listenera moze byc chwilowo zajety (np. inny klient na tym
+        # samym nicku wlasnie pada) — TUI to fotel czlowieka, wiec zamiast
+        # fail-closed na stale ponawiamy z backoffem az do zwolnienia.
+        backoff = BACKOFF_START
+        while not self._closing:
+            try:
+                self.session.acquire_listener_lock()
+                break
+            except ListenerLockHeld as exc:
+                await _maybe_await(on_status(
+                    f"{exc} — ponawiam za {backoff:.0f}s", False))
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, BACKOFF_MAX)
+        if self._closing:
             return
         backoff = BACKOFF_START
         try:
             while not self._closing:
                 try:
-                    await _maybe_await(on_status("laczenie z hubem 8766...", False))
+                    await _maybe_await(on_status(
+                        f"laczenie z hubem {self.uri}...", False))
                     async with self._connector(self.uri) as ws:
                         self._ws = ws
                         reply = await self._hello(ws)
