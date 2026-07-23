@@ -52,9 +52,14 @@ HELLO_TIMEOUT = 10.0
 WAKE_PREAMBLE = """\
 Jestes {nick} na kanale agentmachi (grupy: {groups}). Obowiazuja rules:
 {rules}
+BOARD (stan z chwili obudzenia):
+{board}
+
 Ponizej rozmowa od twojego ostatniego kontekstu (najstarsze pierwsze);
-ostatnia ramka to wzmianka, ktora cie obudzila. Odpowiadasz na kanale
-przez `agentmachi send`; prace konczysz ramka z [koniec].
+ostatnia ramka to wzmianka, ktora cie obudzila. Zanim wezmiesz robote,
+zadeklaruj ja na kanale — przy kolizji deklaracji wygrywa nizszy seq
+w logu. Odpowiadasz na kanale przez `agentmachi send`; prace konczysz
+ramka z [koniec].
 """
 
 
@@ -232,7 +237,7 @@ async def _hello(ws, nick, token, last_seq):
 
 
 async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
-                       limiter, now, groups, rules, backlog):
+                       limiter, now, groups, rules, participants, backlog):
     verdict = limiter.check(now(), state.wake_times, frame["from"] in humans)
     if verdict is not None:
         state.last_wake_seq = frame["seq"]
@@ -247,8 +252,10 @@ async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
     context = [f for f in backlog if _has_seq(f)
                and f["seq"] > state.last_context_seq
                and f["seq"] <= frame["seq"]]
+    board = "\n".join(json.dumps(p, ensure_ascii=False)
+                      for p in participants) or "(pusty)"
     prompt = WAKE_PREAMBLE.format(nick=nick, groups=",".join(sorted(groups)),
-                                  rules=rules or "(brak)") \
+                                  rules=rules or "(brak)", board=board) \
         + "\n".join(json.dumps(f, ensure_ascii=False) for f in context)
 
     def _persist_sid(sid):
@@ -301,6 +308,7 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
         reply = await _hello(ws, nick, token, state.last_context_seq)
         groups = reply.get("groups", [])
         rules = reply.get("rules")
+        participants = reply.get("participants", [])
         if reply.get("type") == "resync_required":
             # historia skompaktowana: kursor kontekstu = snapshot_seq,
             # stanu kolejki/rejestru node nie obchodzi (nie ma wlasnej
@@ -315,7 +323,7 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
                 if _should_wake(frame, nick, groups, state.last_wake_seq):
                     await _handle_wake(ws, nick, frame, state, state_path,
                                        runtime, humans, limiter, now, groups,
-                                       rules, backlog)
+                                       rules, participants, backlog)
 
         async for raw in ws:
             try:

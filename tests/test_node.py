@@ -293,6 +293,38 @@ def test_node_rate_limits_repeated_wakes(tmp_path, srv):
     asyncio.run(srv(run))
 
 
+# --- B4/T2: board z chwili obudzenia w preambule wake'a -------------------
+
+def test_wake_prompt_contains_fresh_board(tmp_path, srv):
+    # Agent-first (B4): budzony agent widzi board z chwili obudzenia
+    # (reconnect-on-wake => hello => participants sa swieze za darmo).
+    from agentmachi.node import node_loop
+
+    async def run(server):
+        state_path = tmp_path / "node-state.json"
+        prompts = tmp_path / "prompts.txt"
+        rt = RecordingRuntime(prompts)
+        node = asyncio.ensure_future(node_loop(
+            url=f"ws://localhost:{PORT}", nick="beta", token="tb",
+            state_path=state_path, runtime=rt, humans={"emil"}))
+        await asyncio.sleep(0.2)
+        gamma, _ = await hello("gamma", "tg")
+        await gamma.send(json.dumps({"type": "status", "from": "gamma",
+                                     "ts": 0.0, "state": "working",
+                                     "task_id": "C"}))
+        await asyncio.sleep(0.2)
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({"type": "chat", "from": "emil",
+                                    "ts": 0.0, "text": "@beta co robi gamma?"}))
+        await _wait_for(lambda: prompts.exists())
+        text = prompts.read_text()
+        assert "BOARD (stan z chwili obudzenia):" in text
+        board_part = text.split("BOARD", 1)[1]
+        assert '"gamma"' in board_part and '"working"' in board_part
+        node.cancel(); await emil.close(); await gamma.close()
+    asyncio.run(srv(run))
+
+
 # --- I2(a): runtime.run rzucajacy wyjatek nie moze wywalic node_loop ------
 
 class FailingOnceRuntime:
