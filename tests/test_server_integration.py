@@ -2929,3 +2929,46 @@ def test_open_mode_same_instance_self_send_allowed(tmp_path):
         finally:
             await server.stop()
     asyncio.run(scenario())
+
+
+def test_admin_agent_can_kick_after_human_grants_admin(srv):
+    """Orchestrator-agent w grupie admin moze wyrzucac (rozkaz roota, B6+).
+    Zwykly agent bez admina dalej NIE moze — lancuch zaufania trzyma, bo
+    admina nadaje wylacznie human przez membership_set."""
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        # zanim beta dostanie admina — kick odrzucony
+        await beta.send(json.dumps({"type": "kick", "from": "beta",
+                                    "ts": 0.0, "target": "gamma"}))
+        assert (await recv(beta))["type"] == "error"
+        # human nadaje becie grupe admin
+        await emil.send(json.dumps({"type": "membership_set", "from": "emil",
+                                    "ts": 0.0, "target": "beta",
+                                    "groups": ["workers", "admin"]}))
+        assert (await recv(emil))["type"] == "ok"
+        # teraz beta (admin-agent) wyrzuca gamme
+        await beta.send(json.dumps({"type": "kick", "from": "beta",
+                                    "ts": 0.0, "target": "gamma"}))
+        # beta dostaje ok (moze przyjsc po membership_set echo/kick event)
+        # beta moze najpierw dostac membership_set (o sobie) i kick-event —
+        # czekamy na wlasne ok; realnym dowodem jest rozlaczenie gammy nizej
+        for _ in range(6):
+            r = await recv(beta)
+            if r["type"] == "ok" and r.get("target") == "gamma":
+                break
+        else:
+            raise AssertionError("beta nie dostala ok na kick")
+        # gamma dostaje najpierw ramke 'wyrzucony', potem zamkniecie socketu
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            for _ in range(4):
+                await asyncio.wait_for(gamma.recv(), 2.0)
+        # delta bez admina dalej nie moze
+        delta, _ = await hello("delta", "td")
+        await delta.send(json.dumps({"type": "kick", "from": "delta",
+                                     "ts": 0.0, "target": "beta"}))
+        assert "forbidden" in (await recv(delta))["text"]
+        for w in (emil, beta, delta):
+            await w.close()
+    asyncio.run(srv(scenario))

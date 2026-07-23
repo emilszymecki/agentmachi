@@ -907,10 +907,16 @@ class ChatServer:
         """
         now = time.time()
         target = frame["target"]
-        if self.registry.role_of(nick) != "human":
+        # Moderacja: rola human ZAWSZE, plus grupa admin (orchestrator-agent,
+        # gdy czlowiek jawnie mu ja nada). Lancuch zaufania zostaje: do admina
+        # wprowadza wylacznie human/admin przez membership_set, wiec agent nie
+        # da sobie tej mocy sam. (B6 mial kick human-only; rozszerzone na
+        # rozkaz roota — rule 2 rules.md.)
+        if (self.registry.role_of(nick) != "human"
+                and "admin" not in self.registry.groups_of(nick)):
             await ws.send(json.dumps(protocol.make_frame(
                 "error", "server", now,
-                text="forbidden: kick wymaga roli human")))
+                text="forbidden: kick wymaga roli human albo grupy admin")))
             return
         if not self.conns.get(target):
             await ws.send(json.dumps(protocol.make_frame(
