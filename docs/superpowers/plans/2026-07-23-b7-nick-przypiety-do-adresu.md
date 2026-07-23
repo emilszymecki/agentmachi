@@ -187,7 +187,13 @@ FAŁSZYWIE odrzuci legalny reconnect jako podszycie.
 **Decyzja: B7 zakłada v4 tailnet, hub bind na adresie v4** (dziś
 `ws://100.84.163.11` — v4-only, więc bezpiecznie). Zadeklarowane jawnie:
 dopóki bind jest v4, `remote_address` peera też jest v4 i problem nie
-występuje. **W dniu włączenia dual-stack** trzeba normalizować tożsamość
+występuje.
+
+Wzmocnienie (review Opuska): realna gwarancja to **dwie warstwy** tej
+samej rzeczy — `bind` na adresie v4 ORAZ `CHAT_URL` z literałem v4. Przy
+v4-bind próba AAAA i tak spada na v4, więc dopóki karta huba wypisuje
+`100.84.163.11` (literał v4), v6-flip jest fizycznie niemożliwy. To nie
+jedna deklaracja, to dwie warstwy — trzymać obie. **W dniu włączenia dual-stack** trzeba normalizować tożsamość
 do NODE (v4+v6 = jeden podmiot, np. przez mapę tailnetu) — to osobny krok,
 NIE wchodzi w tę iterację, ale jest zapisany, żeby włączenie v6 nie dało
 cichych false-rejectów.
@@ -208,6 +214,19 @@ cichych false-rejectów.
   WS), więc `remote_address` nie drgnie w środku sesji — **zweryfikowane**
   po żywym sockecie Opuska (port zmienił się 59374→48190 między
   reconnectami, ale host `100.104.118.1` był stały).
+- **Subnet-router / SNAT** (review Opuska — residual, nie bloker kodu, ale
+  MUST-dokumentować): detekcja proxy keyuje WYŁĄCZNIE na loopback. Proxy,
+  który prezentuje **tailnet IP** zamiast loopbacka — konkretnie Tailscale
+  subnet-router z domyślnym SNAT — jej NIE odpali: agenci, którzy nie są
+  własnymi węzłami tailnetu (urządzenia za mostkowanym subnetem), trafiają
+  do huba jako **IP routera**, dzielą go i collapse'ują do jednej
+  tożsamości BEZ sygnału proxy (bo to nie loopback, tylko poprawnie
+  wyglądający `100.x`). Sedno jest to samo co [KRYTYCZNY]: **transport-IP
+  to zła warstwa na tożsamość, gdy istnieje JAKIKOLWIEK NAT** — loopback to
+  tylko jeden jego smak, który akurat umiemy wykryć. **Wymaganie
+  deploymentu:** agenci mają być WŁASNYMI węzłami tailnetu, nie za
+  mostkiem/subnet-routerem. Gdzie to nie jest gwarantowane — tożsamość
+  wraca do tokenu.
 - Wiązanie ginie z restartem huba — świadomie (b).
 
 ## Kryterium zaliczenia (worker2)
