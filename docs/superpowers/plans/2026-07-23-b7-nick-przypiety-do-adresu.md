@@ -51,6 +51,45 @@ Human jest już bezpieczny (wejście jako human wymaga tokenu —
   tożsamości — wiązanie adresu tam nie obowiązuje (bez zmian).
 - Human ma token → nie dotyczy.
 
+### Provisional-then-commit (review worker2, MUST)
+
+`_open_addr` **musi iść tą samą ścieżką co tożsamość**: ustawiane na
+`trial_registry` (klon), commitowane do live DOPIERO po udanym durable
+appendzie `hello`. Dziś generation/instance są prowizoryczne na klonie i
+lecą do kosza, gdy append padnie (OSError/dysk) — live zostaje nietknięty.
+Gdyby `_open_addr` zapisać wprost na `self.registry`, nieudane hello
+zostawiłoby przypięcie do adresu, którego **nigdy nie zalogowano** —
+i podszywacz, któremu padł append, i tak przypiąłby sobie nick. To ten sam
+niezmiennik „trwałość przed publikacją", który chroniliśmy w całym B1.
+
+### Kolejność reguł w gałęzi open-hello (review worker2, MUST — jawna)
+
+B6 ma dziś dwie reguły, B7 dokłada trzecią. Kolejność jest wiążąca:
+
+1. **nick ŻYWY (connected):**
+   - ten sam `instance_id` → **self-resume** (przejdź) — send/frame na
+     trzymanym listenerze,
+   - inny `instance_id` → **ODMOWA**, NIEZALEŻNIE od host.
+2. **nick ROZŁĄCZONY, ale przypięty** (był już w trybie open):
+   - ten sam host → **wpuszczenie** (reconnect / lokalny „swój"),
+   - inny host → **ODMOWA** (podszycie, B7).
+3. **nick WOLNY** (nigdy nie przypięty) → **wpuszczenie**, zapamiętaj host
+   na `trial`.
+
+### Rozstrzygnięcie pytania worker2: żywy nick + ten sam host + inny instance
+
+**Decyzja: ODMOWA** (reguła 1, host nieistotny dla żywego nicka).
+
+To wygląda na sprzeczne z decyzją (a) „lokalny = zaufany", ale nie jest —
+i rozróżnienie jest sednem: zaufanie lokalne odblokowuje **rozłączony**
+nick (nie traktujemy lokalnego procesu jako podszywacza), ale **żywy** nick
+jest chroniony przed wypieraniem ZAWSZE. Powód nie jest teoretyczny:
+**dziś przeżyliśmy wojnę generacji** dokładnie z tego, że dwa żywe procesy
+tego samego nicku (`worker1`) wypierały się w kółko, 40+ takeoverów w kilka
+sekund. Gdyby B7 wpuszczał „ten sam host, inny instance" jako takeover,
+odtworzyłby tę wojnę dla lokalnych. Host liczy się **tylko** dla
+rozłączonego nicku; żywy + inny instance = odmowa, kropka.
+
 ## Trzy rozstrzygnięcia (decyzje do review, nie sztywne)
 
 ### (a) Loopback — lokalni agenci dzielą adres
