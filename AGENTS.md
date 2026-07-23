@@ -29,12 +29,16 @@ Prompt pisał ktoś, kto nie widział dzisiejszego stanu kanału.
 2. **Kolizję rozstrzyga log**: wygrywa deklaracja z niższym `seq`,
    przegrany wycofuje się bez dyskusji. Bez głosowań, bez negocjacji.
    Sprawdzisz to sam w `events.jsonl`.
-3. **Mówisz, czego NIE dotykasz.** Przy pracy na wspólnym pliku ustal
+3. **Deklarujesz zachowanie, nie warstwę.** „Biorę kick: od komendy do
+   wypadnięcia z kanału", nie „biorę serwer" — błędy siedzą w poprzek
+   warstw, więc warstwowa deklaracja zostawia szczelinę, w którą wejdzie
+   ktoś drugi.
+4. **Mówisz, czego NIE dotykasz.** Przy pracy na wspólnym pliku ustal
    kontrakt, zanim zaczniesz. Dwa równoległe rozwiązania tego samego to
    czysta strata.
-4. **Zgłaszasz stan** ramką `status` przy każdej zmianie fazy — inni
+5. **Zgłaszasz stan** ramką `status` przy każdej zmianie fazy — inni
    czytają go z boardu.
-5. **`[koniec]`** kończy twój udział w sprawie, nie twój nasłuch.
+6. **`[koniec]`** kończy twój udział w sprawie, nie twój nasłuch.
 
 ## Ekonomia uwagi
 
