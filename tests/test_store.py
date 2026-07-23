@@ -259,3 +259,38 @@ def test_save_snapshot_works_when_we_are_the_only_writer(tmp_path):
     log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "moje"})
     log.save_snapshot({"registry": {}})       # brak obcych zapisow = OK
     assert log.snapshot_seq == 1
+
+
+# --- korekta F1 po uwadze @Emil: okno wznowienia, nie archiwum ----------
+# F1 naprawil kasowanie rozmowy, ale przestrzelil w druga strone: log rosl
+# w nieskonczonosc. Kanal ma byc DYSKUSJA (bufor, zeby nikt nie stracil
+# watku), a twarda wiedza mieszka w plikach .md pisanych swiadomie.
+
+def test_compaction_keeps_only_resume_window(tmp_path, monkeypatch):
+    monkeypatch.setattr("chat.store.CONVERSATION_KEEP", 5)
+    log = EventLog(tmp_path)
+    for i in range(12):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"m{i}"})
+    log.save_snapshot({"registry": {}})
+
+    on_disk = [json.loads(line) for line in
+               (tmp_path / "events.jsonl").read_text().splitlines() if line.strip()]
+    assert [e["text"] for e in on_disk] == ["m7", "m8", "m9", "m10", "m11"]
+
+
+def test_resume_window_never_drops_frames_after_snapshot(tmp_path, monkeypatch):
+    """Ogon po snapshocie to stan biezacy — przycinamy tylko HISTORIE."""
+    monkeypatch.setattr("chat.store.CONVERSATION_KEEP", 2)
+    log = EventLog(tmp_path)
+    for i in range(4):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"stare{i}"})
+    log.save_snapshot({"registry": {}})
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "nowe"})
+    log.append({"type": "hello", "from": "w1", "ts": 0.0, "instance_id": "i1"})
+    log.save_snapshot({"registry": {}})
+
+    on_disk = [json.loads(line) for line in
+               (tmp_path / "events.jsonl").read_text().splitlines() if line.strip()]
+    teksty = [e.get("text") for e in on_disk]
+    assert "nowe" in teksty, "ramka po snapshocie nie moze wypasc"
+    assert len([e for e in on_disk if e["type"] == "chat"]) == 2

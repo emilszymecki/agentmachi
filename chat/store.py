@@ -33,6 +33,11 @@ class ForeignWriterError(RuntimeError):
 # Reszta (hello/status/task_*) ma swoj stan w snapshocie i moze zniknac.
 CONVERSATION_TYPES = frozenset({"chat"})
 CONVERSATION_LIMIT = 200      # ile ostatnich ramek rozmowy serwujemy
+# Ile ramek rozmowy przezywa kompakcje. Kanal to DYSKUSJA, nie archiwum:
+# trzymamy okno wznowienia (zeby wracajacy agent nie stracil watku), a nie
+# cala historie. Twarda wiedza mieszka w plikach .md pisanych swiadomie —
+# log ma byc buforem, nie baza wiedzy (korekta F1 po uwadze operatora).
+CONVERSATION_KEEP = 500
 
 
 def _strict_json_loads(data):
@@ -216,9 +221,11 @@ class EventLog:
         # agentow. Czytamy zachowana historie z dysku PRZED nadpisaniem
         # pliku (poprzednie kompakcje juz ja tam zostawily) i skladamy z
         # ogonem po snapshocie. Kompaktujemy wylacznie ramki sluzbowe.
-        conversation = self.conversation_after(0, limit=None)
+        conversation = self.conversation_after(0, limit=CONVERSATION_KEEP)
         self._events = [e for e in self._events if e["seq"] > seq]
         tail_seqs = {e["seq"] for e in self._events}
+        # Ogon po snapshocie to stan biezacy — nigdy go nie przycinamy;
+        # okno dotyczy wylacznie HISTORII sprzed snapshot_seq.
         keep = [e for e in conversation if e["seq"] not in tail_seqs]
         keep.extend(self._events)
         keep.sort(key=lambda e: e["seq"])
