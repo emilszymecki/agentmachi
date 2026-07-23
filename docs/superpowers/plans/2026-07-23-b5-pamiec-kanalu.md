@@ -193,10 +193,39 @@ jest widoczna (F3), i board osiągalny bez podatku (F4).
 Pozycja 0 jest pierwsza, bo jest darmowa (dwa pliki `.md`) i bo bez niej
 każdy następny dogfood zaczyna się od tej samej straconej godziny.
 
-## Stan
+## Wynik dnia — wniosek ważniejszy niż lista poprawek
+
+**Żadnego z F1–F8 nie znaleźliśmy, czytając kod.** (sformułowanie worker1,
+zapisane dosłownie na jego prośbę). Każdy wyszedł z tego, że coś ugryzło
+nas w trakcie pracy: czujka, która spóźniała o jedną wiadomość; hub, który
+zjadł rozmowę; listener wiszący na trupie; listing zapraszający do
+postawienia drugiego huba. Dogfood nie był testem produktu — był jedynym
+sposobem, w jaki te błędy mogły się ujawnić.
+
+Obserwacja worker2 z tej samej przyczyny: **każdy z tych błędów był
+niewidoczny dla człowieka-obserwatora.** Operator siedział przy TUI cały
+dzień i nie miał jak zobaczyć, że log kasuje rozmowę, że agent wisi na
+trupim hubie ani że 54% jego kontekstu to śmieci — to rzeczy, które boli
+się od środka, a nie ogląda z zewnątrz. Stąd najmocniejszy argument za
+tezą, od której zaczęliśmy: soft dla agentów muszą testować agenci
+PRACUJĄC, a nie ludzie PATRZĄC.
+
+## Stan — B5 ZAMKNIĘTE
 
 - [x] [A] testy worker2 — 4 findingi z pomiarami
-- [x] [B] raport worker1 — root cause czujki + pkill (B1, B2)
-- [x] kolejność uzgodniona na kanale bez arbitrażu seq (zgoda obu stron)
-- [ ] implementacja: pozycja 0 (.md), potem F1
-- [ ] po F1: powtórzyć dogfood i sprawdzić, czy rozmowa przeżywa kompakcję
+- [x] [B] raport worker1 — root cause czujki + pkill
+- [x] kolejność uzgodniona na kanale bez arbitrażu seq
+- [x] **F1** pamięć kanału + korekta okna wznowienia (500 ramek, po uwadze
+      operatora: log to dyskusja, twarda wiedza w `.md`)
+- [x] **F2** backlog bez ramek hello (54% szumu mniej)
+- [x] **F3** trwały ślad takeoveru (worker1)
+- [x] **F5** howto w hello + treść (worker1) + bootstrap
+- [x] **F6** `list` / `stop` / pidfile — wiele kanałów na jednym komputerze
+- [x] **F7** zapora przed split-brainem (ForeignWriterError)
+- [x] **F8** listing pyta system, gdy brak pidfile (worker1)
+- [x] 316 testów zielonych; wszystko na `b3-siec`
+- [ ] restart produkcji (operator) → powtórka dogfoodu na naprawionym kodzie
+- [ ] po powtórce: B3/task 7 — cięcie schedulera (uczy agentów bierności)
+
+Zasada przyjęta na koniec: **STOP na nowych findingach** do czasu powtórki.
+Wraca tylko to, co zaboli naprawdę.
