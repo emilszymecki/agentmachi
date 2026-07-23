@@ -53,6 +53,32 @@ def test_validate_status_requires_nonempty_string_state():
     assert protocol.validate({"type": "status", "from": "a", "ts": 1.0, "state": "idle"}) is None
 
 
+def test_validate_status_state_is_free_text_up_to_32_chars():
+    # (t4) hub nie waliduje przynaleznosci do enuma — dowolny wolny tekst
+    # (niepusty, <=32 znaki) przechodzi; STATUS_STATES zostaje wylacznie
+    # dokumentacja stanow umownych.
+    assert protocol.validate({"type": "status", "from": "a", "ts": 1.0,
+                              "state": "sleeping"}) is None
+    assert protocol.validate({"type": "status", "from": "a", "ts": 1.0,
+                              "state": "cokolwiek-innego"}) is None
+    assert protocol.validate({"type": "status", "from": "a", "ts": 1.0,
+                              "state": "x" * 32}) is None            # brzeg OK
+    assert protocol.validate({"type": "status", "from": "a", "ts": 1.0,
+                              "state": "x" * 33}) is not None        # za dlugie
+    assert protocol.validate({"type": "status", "from": "a", "ts": 1.0,
+                              "state": ""}) is not None              # puste
+    assert protocol.validate({"type": "status", "from": "a", "ts": 1.0,
+                              "state": 5}) is not None                # nie-str
+
+
+def test_validate_status_target_optional_but_nonempty_string_if_present():
+    base = {"type": "status", "from": "a", "ts": 1.0, "state": "working"}
+    assert protocol.validate(base) is None                            # brak target OK
+    assert protocol.validate({**base, "target": "gamma"}) is None
+    assert protocol.validate({**base, "target": ""}) is not None       # puste
+    assert protocol.validate({**base, "target": 7}) is not None        # nie-str
+
+
 def test_validate_heartbeat_requires_nonempty_task_id_only():
     assert protocol.validate({
         "type": "heartbeat", "from": "beta", "ts": 1.0,

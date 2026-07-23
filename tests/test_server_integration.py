@@ -2369,7 +2369,8 @@ def test_participants_reflect_membership_after_reconnect(srv):
     asyncio.run(srv(scenario))
 
 
-# -- statusy agentow (kanon: idle/working/blocked/review) -------------------
+# -- statusy agentow (kanon: sleeping/idle/working/blocked/review/done,
+#    ale to WOLNY TEKST — hub nie waliduje przynaleznosci do enuma) --------
 
 def test_status_tracked_in_snapshot_and_idle_sync(srv):
     async def scenario(server):
@@ -2387,12 +2388,63 @@ def test_status_tracked_in_snapshot_and_idle_sync(srv):
         by_nick = {p["nick"]: p for p in snap}
         assert by_nick["beta"]["status"] == {"state": "working",
                                              "task_id": "t9"}
-        # zly status odrzucony
+        # dowolny wolny tekst (spoza kanonu) jest teraz akceptowany
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
-                                    "ts": 3.0, "state": "spie"}))
+                                    "ts": 2.5, "state": "spie"}))
+        await asyncio.sleep(0.1)
+        assert server.status["beta"]["state"] == "spie"
+        # ale schemat (niepusty string, maks 32 znaki) nadal jest twardy
+        before = server.log.last_seq
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 3.0, "state": "x" * 33}))
         err = await recv(ws_b)
         assert err["type"] == "error" and "status" in err["text"]
+        assert server.log.last_seq == before      # odrzucone, nie w logu
         await ws_b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_status_state_is_free_text(srv):
+    # hub nie waliduje przynaleznosci do slownika stanow — "sleeping" (spoza
+    # dotychczasowego idle/working/blocked/review) jest przyjmowane wprost.
+    async def scenario(server):
+        beta, _ = await hello("beta", "tb")
+        await beta.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 0.0, "state": "sleeping"}))
+        await asyncio.sleep(0.1)
+        assert server.status["beta"]["state"] == "sleeping"
+        await beta.close()
+    asyncio.run(srv(scenario))
+
+
+def test_orchestrator_sets_others_status_humans_see_live(srv):
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        # human nadaje grupe orchestrator becie (jedyna autoryzacja: human)
+        await emil.send(json.dumps({
+            "type": "membership_set", "from": "emil", "ts": 0.0,
+            "target": "beta", "groups": ["orchestrator"]}))
+        ack = await recv(emil)
+        assert ack["type"] == "ok"
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        await beta.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 0.0, "target": "gamma",
+                                    "state": "working", "task_id": "C"}))
+        await asyncio.sleep(0.1)
+        assert server.status["gamma"] == {"state": "working", "task_id": "C"}
+        ev = await recv(emil)                       # human widzi na zywo
+        assert ev["type"] == "status"
+        assert ev["target"] == "gamma" and ev["from"] == "beta"
+        # zwykly agent (bez grupy orchestrator) NIE ustawi cudzego statusu
+        await gamma.send(json.dumps({"type": "status", "from": "gamma",
+                                     "ts": 0.0, "target": "beta",
+                                     "state": "idle"}))
+        err = await recv(gamma)
+        assert err["type"] == "error" and "forbidden" in err["text"]
+        assert "beta" not in server.status  # odrzucone przed append/mutacja
+        for ws in (emil, beta, gamma):
+            await ws.close()
     asyncio.run(srv(scenario))
 
 

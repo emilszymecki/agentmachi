@@ -156,11 +156,11 @@ class ChatServer:
         for event in self.log.replay():
             etype = event.get("type")
             if etype == "status":
-                nick = event.get("from")
-                if isinstance(nick, str) and nick:
-                    self.status[nick] = {k: event[k] for k in
-                                         ("state", "task_id", "note")
-                                         if k in event}
+                key = event.get("target", event["from"])
+                if isinstance(key, str) and key:
+                    self.status[key] = {k: event[k] for k in
+                                        ("state", "task_id", "note")
+                                        if k in event}
             elif etype == "hello":
                 self.registry.replay_hello(event["from"], event["instance_id"])
             elif etype == "membership_set":
@@ -673,16 +673,31 @@ class ChatServer:
         elif ftype == "fyi":
             self._append(frame)
         elif ftype == "status":
-            self._append(frame)
-            self.status[nick] = {k: frame[k] for k in
-                                 ("state", "task_id", "note") if k in frame}
+            target = frame.get("target") or nick
+            if target != nick and not (
+                    self.registry.role_of(nick) == "human"
+                    or "orchestrator" in self.registry.groups_of(nick)):
+                await ws.send(json.dumps(protocol.make_frame(
+                    "error", "server", time.time(),
+                    text="forbidden: cudzy status wymaga human albo "
+                         "grupy orchestrator")))
+                return False
+            frame["target"] = target  # pole autorytatywne: server-side default
+            seq = self._append(frame)
+            frame["seq"] = seq
+            self.status[target] = {k: frame[k] for k in
+                                   ("state", "task_id", "note") if k in frame}
             if frame.get("state") == "idle":
-                if nick not in self.idle:
+                if target == nick and nick not in self.idle:
                     self.idle.append(nick)
                     self._trigger_offer()
-            elif nick in self.idle:
+            elif target in self.idle:
                 # working/blocked/review = nie oferuj mi taskow
-                self.idle.remove(nick)
+                self.idle.remove(target)
+            for observer, role in list(self.roles.items()):
+                if role == "human" and observer != nick:
+                    # live board dla TUI; agenci dostaja tylko backlog/preambule
+                    await self._send(observer, frame)
         elif ftype == "heartbeat":
             await self._on_heartbeat(frame, nick, sock_gen, ws)
         elif ftype == "membership_set":
