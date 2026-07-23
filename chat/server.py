@@ -367,12 +367,17 @@ class ChatServer:
         (registry) + jego serwerowe role/groups + realne connected.
         Zrodlo prawdy: registry (durable, replayowane) + conns (live) —
         nigdy statyczny plik tokenow po stronie klienta."""
+        # B6: roster to NIE lista posiadaczy tokenow. W trybie otwartym agent
+        # wchodzi bez wpisu w tokens.json — gdyby go tu brakowalo, moderator
+        # nie zobaczylby, kogo ma wyrzucic, a inni agenci nie wiedzieliby, ze
+        # ktos doszedl. Zrodlem jest suma: konfiguracja + realne polaczenia.
+        znani = set(self.registry.tokens) | set(self.registry.roles)
         return [{"nick": nick,
                  "role": self.registry.role_of(nick),
                  "groups": sorted(self.registry.groups_of(nick)),
                  "connected": bool(self.conns.get(nick)),
                  "status": self.status.get(nick)}
-                for nick in sorted(self.registry.tokens)]
+                for nick in sorted(znani | set(self.conns))]
 
     def _wolny_nick(self, prefix="worker"):
         """Pierwszy nick, ktorego nikt nie trzyma — propozycja dla wchodzacego."""
@@ -589,8 +594,14 @@ class ChatServer:
             nick = frame["from"]
             # role jest stala z configu; groups to aktualny, trwaly stan
             # serwera. Deklaracja hello zadnego z nich nie nadpisuje.
-            role = self.registry.role_of(nick)
-            groups = self.registry.groups_of(nick)
+            # Z KLONA, nie z live: w trybie otwartym (B6) nowy nick dostaje
+            # role i grupy dopiero w open_hello, czyli na klonie — live
+            # jeszcze go nie zna, bo swap nastepuje po durable appendzie.
+            # Czytanie z live dawalo agentowi PUSTE grupy: technicznie na
+            # kanale, praktycznie gluchy na $workers (zlapane na zywym pokoju,
+            # testy jednostkowe Registry tego nie widzialy).
+            role = trial_registry.role_of(nick)
+            groups = trial_registry.groups_of(nick)
             # backlog liczony PRZED zalogowaniem WLASNEGO hello — inaczej
             # klient zawsze widzialby wlasna ramke hello w swoim backlogu i
             # "last_seq == biezacy cursor" po reconnnekcie nigdy by nie

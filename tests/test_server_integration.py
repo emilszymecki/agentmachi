@@ -2834,3 +2834,38 @@ def test_kick_survives_compaction_like_takeover(srv):
         assert "kick" in zachowane
         await emil.close()
     asyncio.run(srv(scenario))
+
+
+def test_open_mode_agent_gets_groups_and_appears_on_board(tmp_path):
+    """B6, dwa bledy zlapane dopiero na zywym pokoju:
+    (1) rola/grupy czytane z LIVE registry byly puste, bo nowy nick istnieje
+        na razie tylko w klonie — agent byl gluchy na $workers;
+    (2) roster iterowal po posiadaczach TOKENOW, wiec wchodzacy bez tokenu
+        nie pojawial sie na boardzie — moderator nie mial kogo wyrzucic."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="127.0.0.1")
+        await server.start()
+        try:
+            ws = await websockets.connect(f"ws://localhost:{port}")
+            await ws.send(json.dumps({"type": "hello", "from": "gosc",
+                                      "ts": 0.0, "instance_id": "i1",
+                                      "last_seq": 0, "role": "agent"}))
+            reply = json.loads(await ws.recv())
+            assert reply["type"] == "ok"
+            assert reply["groups"] == ["workers"], "bez grupy agent jest gluchy"
+
+            emil = await websockets.connect(f"ws://localhost:{port}")
+            await emil.send(json.dumps({"type": "hello", "from": "emil",
+                                        "ts": 0.0, "instance_id": "h1",
+                                        "token": "te", "last_seq": 0,
+                                        "role": "human"}))
+            r = json.loads(await emil.recv())
+            board = {p["nick"]: p for p in r["participants"]}
+            assert "gosc" in board and board["gosc"]["connected"] is True
+            await ws.close()
+            await emil.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenario())
