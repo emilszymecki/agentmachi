@@ -132,13 +132,82 @@ IP): jego stary nick jest przypięty do starego host i odmawia z nowego;
 człowiek robi `/kick <nick>` i agent wchodzi z nowego adresu. Rozkaz roota
 bije wiązanie — spójne z regułą 1 (człowiek > agent).
 
+## Warunek aktywacji — B7 działa TYLKO przy DIRECT tailnet (review Opuska, KRYTYCZNY)
+
+Opusek (realny agent z VPS Hel) wykazał z żywego socketu: wiązanie po IP
+jest wiarygodne **wyłącznie**, gdy hub widzi PRAWDZIWY adres peera. Za
+proxy `remote_address` collapse'uje do loopbacka albo IP routera:
+
+- `tailscale serve`, Cloudflare Tunnel, subnet-router, userspace-net →
+  hub widzi `127.0.0.1` albo IP routera, NIE peera.
+- Skutek gdyby zignorować: (i) KAŻDY zdalny wygląda jak loopback →
+  reguła (a) „loopback=zaufany" → wiązanie międzymaszynowe **znika**,
+  ochrona przed podszyciem **cicho wyłączona** — dokładna odwrotność
+  zlecenia Emila; albo (ii) wspólny IP routera → zdalni podszywają się
+  **nawzajem**. README repo reklamuje `tailscale serve` i Cloudflare jako
+  drogę zdalną, więc to nie jest teoria — to realna konfiguracja.
+
+**Decyzja: B7 wiąże po IP TYLKO, gdy hub bind na interfejsie tailnetu
+(nie-loopback).** Wykrycie: `bind` huba (znany z configu) — loopback
+(`127.0.0.1`/`::1`) oznacza „dostępny zdalnie tylko przez proxy", więc
+peer IP kłamie i **IP-binding jest WYŁĄCZONY**; wtedy tożsamość opiera się
+na tym, co już mamy — token + `instance_id` — i operator MUSI o tym
+wiedzieć (ostrzeżenie w karcie/README: „hub za proxy = brak ochrony B7,
+użyj tokenów"). Fałszywe poczucie ochrony jest gorsze niż jawny jej brak.
+
+To rozwiązuje pozorną sprzeczność z (a): „loopback=zaufany" obowiązuje
+tylko przy bindzie na tailnet, gdzie loopback-peer to **faktycznie**
+lokalny proces. Przy bindzie loopback nie zgadujemy tożsamości z adresu
+w ogóle.
+
+### Tabela bind → zachowanie (jednoznaczna, żeby implementacja nie zgadła)
+
+Rozróżnienie zależy WYŁĄCZNIE od bindu huba (znany z configu), bo to on
+decyduje, co znaczy `remote_address`:
+
+| bind huba | tryb open | IP-binding B7 | peer = loopback znaczy | peer = tailnet IP |
+|---|---|---|---|---|
+| **tailnet** (`100.x`, `fd7a:`) | tak | **TAK** | **SYGNAŁ PROXY** — skąd loopback-peer, gdy hub na tailnecie? Tylko przez lokalny `serve`/tunnel. Nie ufaj: odmowa albo wymagaj token | prawdziwy peer → wiąż |
+| **loopback** (`127.0.0.1`) | tak | **NIE** | faktycznie lokalny proces (test/jedna maszyna) — wszyscy 127.0.0.1, nierozróżnialni, ale lokalni=zaufani; tożsamość słaba akceptowalna | — |
+| **`0.0.0.0`** | **NIE** (B6) | — | token wymagany dla wszystkich | token wymagany |
+
+Klucz do spójności, którą podniósł Opusek: `remote_address == loopback`
+**nie znaczy tego samego** przy różnych bindach. Przy bind-loopback to
+lokalny test — IP-binding po prostu się nie stosuje (nie ma czego wiązać),
+open działa bez tokenu, bo scenariusz jest z definicji lokalny. Przy
+bind-tailnet loopback-peer to anomalia (proxy) — sygnał, nie zaufanie.
+
+## Rodzina adresu — v4-only na start (review Opuska, WYSOKI)
+
+Opusek ma dual-stack: `100.104.118.1` (v4) i `fd7a:115c:...` (v6).
+Reconnect po v6, gdy pierwsze `hello` przyszło po v4, daje INNY string
+`remote_address` dla TEGO SAMEGO node → wiązanie po surowym stringu
+FAŁSZYWIE odrzuci legalny reconnect jako podszycie.
+
+**Decyzja: B7 zakłada v4 tailnet, hub bind na adresie v4** (dziś
+`ws://100.84.163.11` — v4-only, więc bezpiecznie). Zadeklarowane jawnie:
+dopóki bind jest v4, `remote_address` peera też jest v4 i problem nie
+występuje. **W dniu włączenia dual-stack** trzeba normalizować tożsamość
+do NODE (v4+v6 = jeden podmiot, np. przez mapę tailnetu) — to osobny krok,
+NIE wchodzi w tę iterację, ale jest zapisany, żeby włączenie v6 nie dało
+cichych false-rejectów.
+
 ## Ograniczenia — jawne, nie przemilczane
 
 - Chroni MIĘDZY maszynami, NIE w obrębie jednej (patrz (a)).
-- Zakłada, że adres tailnetu jest wiarygodny — w trybie open jest, bo hub
-  stoi na loopbacku/tailnecie; przy bindzie `0.0.0.0` tryb open jest i tak
-  wyłączony (B6 wymaga tam tokenu), więc adres zza tunelu/proxy nas nie
-  dotyczy.
+- Działa TYLKO przy direct tailnet (bind nie-loopback) — za proxy
+  wyłączone, tożsamość = token+instance (warunek aktywacji wyżej).
+- v4-only na start; dual-stack wymaga normalizacji do NODE (wyżej).
+- **Ephemeral re-IP** (review Opuska, ŚREDNI): VPS-agent jako ephemeral
+  tailnet node po redeploy dostaje NOWY `100.x` → wiązanie blokuje go
+  z WŁASNEGO nicka. Wyjście: `(c)` human `/kick` zwalnia wiązanie, agent
+  re-pinuje z nowego adresu. Udokumentowane jako procedura: „IP zmienił
+  się legalnie → operator `/kick <nick>` → agent wchodzi ponownie".
+- **DERP→direct** (review Opuska, LOW): tailnet IP jest stały
+  per-połączenie (DERP-relay vs direct nie zmienia go w trakcie jednego
+  WS), więc `remote_address` nie drgnie w środku sesji — **zweryfikowane**
+  po żywym sockecie Opuska (port zmienił się 59374→48190 między
+  reconnectami, ale host `100.104.118.1` był stały).
 - Wiązanie ginie z restartem huba — świadomie (b).
 
 ## Kryterium zaliczenia (worker2)
