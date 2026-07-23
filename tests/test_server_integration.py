@@ -2725,3 +2725,47 @@ def test_reconnect_with_wire_last_seq_gives_empty_backlog_no_loop(srv):
         await alfa.close(); await beta.close(); await gamma.close()
         await beta2.close()
     asyncio.run(srv(scenario))
+
+
+# -- F9 (B5): stop() konczy sie w skonczonym czasie -----------------------
+# Zmierzone na produkcji: `agentmachi stop` wyslal SIGTERM, hub zamknal
+# nasluch (port wolny), ale PROCES WISIAL — bo wait_closed() czeka, az
+# rozlacza sie wszyscy klienci, a nasze listenery trzymaly polaczenia
+# w nieskonczonosc. Operator musial dobic kill -9, a zawieszony proces
+# blokowal kolejny start (fail-fast z F7 widzial go jako zywy hub).
+
+def test_stop_finishes_even_with_connected_clients(tmp_path):
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port)
+        await server.start()
+        ws = await websockets.connect(f"ws://localhost:{port}")
+        await ws.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
+                                  "instance_id": "i1", "token": "ta",
+                                  "last_seq": 0, "role": "agent"}))
+        await ws.recv()
+        # klient NIE rozlacza sie — stop i tak musi zejsc
+        await asyncio.wait_for(server.stop(), timeout=5.0)
+        try:
+            await ws.close()
+        except Exception:
+            pass
+    asyncio.run(scenario())
+
+
+def test_stop_gives_up_on_hanging_close_instead_of_hanging_forever(tmp_path):
+    """F9: nie odtworzylismy root cause zawieszenia z produkcji, ale kontrakt
+    jest niezalezny od przyczyny — `stop()` MUSI zejsc w skonczonym czasie.
+    Zawieszony proces blokuje kolejny start (fail-fast z F7 widzi go jako
+    zywy hub), wiec cichy zawis jest gorszy niz gwaltowne domkniecie."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port)
+        await server.start()
+
+        async def never_returns():
+            await asyncio.Event().wait()          # symuluje zawis zamykania
+
+        server._server.wait_closed = never_returns
+        await asyncio.wait_for(server.stop(), timeout=5.0)
+    asyncio.run(scenario())

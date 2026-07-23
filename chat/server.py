@@ -67,6 +67,7 @@ SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
 OFFER_IO_RETRY_MIN = 0.05
 OFFER_IO_RETRY_MAX = 1.0
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
+STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
 
@@ -224,7 +225,22 @@ class ChatServer:
             except asyncio.CancelledError:
                 pass
         self._server.close()
-        await self._server.wait_closed()
+        # F9: zamykanie serwera pod TWARDYM limitem czasu. Zmierzone na
+        # produkcji: hub dostal SIGTERM, zwolnil port, ale PROCES WISIAL —
+        # operator musial go dobic kill -9, a do tego czasu zawieszony proces
+        # blokowal kolejny start (fail-fast z F7 widzi go jako zywy hub).
+        # Root cause zawisu nie zostal odtworzony w tescie, ale kontrakt jest
+        # od niego niezalezny: `stop()` konczy sie zawsze, a snapshot (ponizej)
+        # MUSI sie wykonac, bo to on domyka trwalosc. Glosny log zamiast ciszy.
+        try:
+            await asyncio.wait_for(self._server.wait_closed(),
+                                   timeout=STOP_CLOSE_TIMEOUT)
+        except asyncio.TimeoutError:
+            LOGGER.warning(
+                "stop(): zamykanie serwera nie skonczylo sie w %.0fs — "
+                "porzucam czekanie i domykam trwalosc (snapshot). Port jest "
+                "juz zwolniony; wiszace polaczenia zamknie wyjscie procesu.",
+                STOP_CLOSE_TIMEOUT)
         self.snapshot()  # clean shutdown -> snapshot zawsze (polityka c)
 
     def snapshot(self):
