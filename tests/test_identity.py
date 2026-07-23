@@ -241,3 +241,51 @@ def test_open_hello_keeps_config_role_for_known_agent():
                              "groups": ["workers", "reviewers"]}})
     reg.open_hello("beta", "i1")
     assert sorted(reg.groups_of("beta")) == ["reviewers", "workers"]
+
+
+# --- B7: nick przypiety do adresu (tryb open) ------------------------------
+
+def test_open_hello_binds_nick_to_first_address():
+    """Pierwsze wejscie zapamietuje adres; ten sam adres przechodzi."""
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    reg.open_hello("agent", "i1", addr="100.64.0.5")
+    # ten sam adres, kolejny instance (reconnect/self) — przechodzi
+    reg.open_hello("agent", "i2", addr="100.64.0.5")
+    assert reg.instance_of("agent") == "i2"
+
+
+def test_open_hello_refuses_other_address_on_bound_nick():
+    """Podszycie: inny adres na przypiety nick = odmowa (rdzen B7)."""
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    reg.open_hello("ofiara", "i1", addr="100.64.0.5")
+    with pytest.raises(AuthError):
+        reg.open_hello("ofiara", "PODSZYWACZ", addr="100.64.0.9")
+
+
+def test_open_hello_address_beats_instance_id():
+    """instance_id jest PUBLICZNY (trafia do logu), wiec NIE moze przelamac
+    wiazania — inny adres = odmowa nawet z tym samym instance. Inaczej
+    podszywacz ze skradzionym instance z innego adresu przejmuje nick."""
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    reg.open_hello("agent", "i1", addr="100.64.0.5")
+    with pytest.raises(AuthError):
+        reg.open_hello("agent", "i1", addr="100.64.0.9")  # ten sam instance!
+
+
+def test_open_hello_no_addr_does_not_bind():
+    """addr=None (bind loopback: IP nie rozroznia) — brak wiazania, dowolne
+    kolejne wejscia przechodza."""
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    reg.open_hello("agent", "i1", addr=None)
+    reg.open_hello("agent", "i2", addr=None)   # bez wyjatku
+    assert reg.instance_of("agent") == "i2"
+
+
+def test_release_open_addr_frees_binding():
+    """kick zwalnia wiazanie: po release inny adres wchodzi (re-IP / nowy
+    wlasciciel nicka po rozkazie roota)."""
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    reg.open_hello("agent", "i1", addr="100.64.0.5")
+    reg.release_open_addr("agent")
+    reg.open_hello("agent", "i2", addr="100.64.0.9")   # bez wyjatku
+    assert reg.instance_of("agent") == "i2"
