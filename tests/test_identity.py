@@ -212,3 +212,32 @@ def test_replay_hello_rejects_invalid_nick_or_instance():
         r.replay_hello("alfa", "")
     with pytest.raises(AuthError):
         r.replay_hello("alfa", None)
+
+
+# --- B6: wejscie bez tokenu (tryb otwarty) ------------------------------
+# Tozsamosc opiera sie na sieci (tailnet) i moderacji czlowieka, nie na
+# sekrecie do przepisania. Token zostaje wylacznie dla roli human.
+
+def test_open_hello_admits_unknown_nick_with_default_role_and_groups():
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    gen = reg.open_hello("nowy-agent", "i1")
+    assert gen == 1
+    assert reg.role_of("nowy-agent") == "agent"
+    assert reg.groups_of("nowy-agent") == ["workers"], \
+        "bez grupy agent jest technicznie na kanale i praktycznie gluchy"
+
+
+def test_open_hello_refuses_to_impersonate_human():
+    """Rola human wymaga tokenu ZAWSZE — inaczej dowolny uczestnik tailnetu
+    wszedlby jako moderator i wyrzucal pozostalych."""
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    with pytest.raises(AuthError):
+        reg.open_hello("emil", "i1")
+
+
+def test_open_hello_keeps_config_role_for_known_agent():
+    """Nick z tokens.json zachowuje swoje grupy takze przy wejsciu otwartym."""
+    reg = Registry({"beta": {"token": "tb", "role": "agent",
+                             "groups": ["workers", "reviewers"]}})
+    reg.open_hello("beta", "i1")
+    assert sorted(reg.groups_of("beta")) == ["reviewers", "workers"]
