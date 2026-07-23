@@ -34,7 +34,7 @@ class ForeignWriterError(RuntimeError):
 # F3 (B5): takeover jest czescia PAMIECI kanalu, nie stanem maszyny — stan
 # mowi "kto jest teraz", a slad odpowiada na pytanie "dlaczego kolega
 # zamilkl". Kompakcja go wiec nie rusza, tak jak rozmowy.
-CONVERSATION_TYPES = frozenset({"chat", "takeover"})
+CONVERSATION_TYPES = frozenset({"chat", "takeover", "kick"})
 CONVERSATION_LIMIT = 200      # ile ostatnich ramek rozmowy serwujemy
 # Ile ramek rozmowy przezywa kompakcje. Kanal to DYSKUSJA, nie archiwum:
 # trzymamy okno wznowienia (zeby wracajacy agent nie stracil watku), a nie

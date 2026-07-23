@@ -71,6 +71,38 @@ STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
 
+def _is_tailnet_ip(host):
+    """Czy `host` to adres w zakresie tailnetu (CGNAT 100.64/10 albo fd7a:...)."""
+    if not isinstance(host, str):
+        return False
+    if host.startswith("100."):          # tailnet IPv4 (100.64.0.0/10)
+        try:
+            drugi = int(host.split(".")[1])
+        except (ValueError, IndexError):
+            return False
+        return 64 <= drugi <= 127
+    return host.lower().startswith("fd7a:115c:a1e0")   # tailnet IPv6
+
+
+def _open_bind(bind):
+    """Czy ten bind sam w sobie jest bramka (loopback albo tailnet)."""
+    if not isinstance(bind, str):
+        return False
+    if bind in ("127.0.0.1", "localhost", "::1"):
+        return True
+    return _is_tailnet_ip(bind)
+
+
+def _bind_is_tailnet(bind):
+    """B7: czy hub bindowany na interfejs TAILNETU (nie loopback).
+
+    Tylko wtedy `remote_address` peera to jego prawdziwy adres tailnetu i
+    IP-binding ma sens. Przy bind-loopback wszyscy peer to 127.0.0.1
+    (lokalny test albo proxy) — adres nie rozroznia podmiotow, wiec
+    wiazanie sie NIE stosuje. Patrz tabela bind->zachowanie w planie B7."""
+    return _is_tailnet_ip(bind)
+
+
 def _reject_json_constant(value):
     """Odrzuc rozszerzenia Pythona (NaN/Infinity), ktore nie sa JSON-em."""
     raise ValueError(f"invalid JSON constant: {value}")
@@ -99,9 +131,14 @@ _TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"heartbeat"}
 
 class ChatServer:
     def __init__(self, data_dir, tokens, port, bind="127.0.0.1", wip_limit=3,
-                 lease_ttl=120.0, offer_timeout=5.0):
+                 lease_ttl=120.0, offer_timeout=5.0, open_mode=None):
         self.port = port
         self.bind = bind
+        # B6: tryb otwarty (agent bez tokenu) wlacza sie SAM przy bindzie,
+        # ktory juz jest bramka: loopback albo adres tailnetowy. Przy 0.0.0.0
+        # hub stoi takze na LAN i publicznie — tam siec nie chroni niczego,
+        # wiec token wraca jako wymog dla wszystkich.
+        self.open_mode = _open_bind(bind) if open_mode is None else open_mode
         self.offer_timeout = offer_timeout
         self.log = EventLog(Path(data_dir))
         snap = self.log.load_snapshot()
@@ -211,7 +248,13 @@ class ChatServer:
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
-        self._server = await websockets.serve(self._handler, self.bind, self.port)
+        # Keepalive JAWNIE, nie z domyslnych: od niego zalezy, co znaczy
+        # "nick zajety przez zywe polaczenie" (B6). Martwy socket bez pingu
+        # wisi w ESTAB minutami — zdarzylo sie w dogfoodzie i agent nie mogl
+        # wrocic na wlasny nick. Przy tych wartosciach trup wypada w ~40 s.
+        self._server = await websockets.serve(
+            self._handler, self.bind, self.port,
+            ping_interval=20, ping_timeout=20)
         self._expiry_task = asyncio.ensure_future(self._expiry_loop())
 
     async def stop(self):
@@ -341,12 +384,26 @@ class ChatServer:
         (registry) + jego serwerowe role/groups + realne connected.
         Zrodlo prawdy: registry (durable, replayowane) + conns (live) —
         nigdy statyczny plik tokenow po stronie klienta."""
+        # B6: roster to NIE lista posiadaczy tokenow. W trybie otwartym agent
+        # wchodzi bez wpisu w tokens.json — gdyby go tu brakowalo, moderator
+        # nie zobaczylby, kogo ma wyrzucic, a inni agenci nie wiedzieliby, ze
+        # ktos doszedl. Zrodlem jest suma: konfiguracja + realne polaczenia.
+        znani = set(self.registry.tokens) | set(self.registry.roles)
         return [{"nick": nick,
                  "role": self.registry.role_of(nick),
                  "groups": sorted(self.registry.groups_of(nick)),
                  "connected": bool(self.conns.get(nick)),
                  "status": self.status.get(nick)}
-                for nick in sorted(self.registry.tokens)]
+                for nick in sorted(znani | set(self.conns))]
+
+    def _wolny_nick(self, prefix="worker"):
+        """Pierwszy nick, ktorego nikt nie trzyma — propozycja dla wchodzacego."""
+        n = 1
+        while True:
+            kandydat = f"{prefix}{n}"
+            if not self.conns.get(kandydat) and kandydat not in self.registry.tokens:
+                return kandydat
+            n += 1
 
     def _load_rules(self):
         path = self.log.dir / "rules.md"
@@ -525,8 +582,69 @@ class ChatServer:
                 # swiadomy, tani trade-off — hello nie jest hot-path jak retry
                 # mutacji taskow.
                 trial_registry = copy.deepcopy(self.registry)
-                generation = trial_registry.hello(
-                    frame.get("from"), frame.get("instance_id"), frame.get("token"))
+                # B6: w trybie otwartym agent moze wejsc BEZ tokenu. Rola
+                # human wymaga go zawsze (open_hello odmawia), a tryb otwarty
+                # wlacza sie wylacznie przy bindzie loopback/tailnet — patrz
+                # _open_mode(). Nick zajety przez ZYWE polaczenie nie jest
+                # odbierany (nizej): martwe sockety wypadaja same dzieki
+                # keepalive, wiec "zajety" znaczy "zajety naprawde".
+                if self.open_mode and not frame.get("token"):
+                    zadany = frame.get("from")
+                    # Brak propozycji nicka = "dajcie mi jakikolwiek". Agent
+                    # nie musi wiedziec, kim jest, zanim wejdzie — dowie sie
+                    # z pola `nick` w odpowiedzi ok (bez tego musialby to
+                    # wywnioskowac z participants, co lamie sie przy dwoch
+                    # swiezych wejsciach naraz).
+                    if not zadany:
+                        zadany = self._wolny_nick()
+                        frame["from"] = zadany
+                    # B7: adres wiazania. Aktywny TYLKO przy bindzie na
+                    # interfejs tailnetu — wtedy remote_address peera to jego
+                    # prawdziwy adres. Przy bind-loopback adres nie rozroznia
+                    # podmiotow (addr = None -> open_hello nie wiaze).
+                    addr = None
+                    if _bind_is_tailnet(self.bind):
+                        peer = ws.remote_address
+                        host = peer[0] if peer else None
+                        if host is None or host in ("127.0.0.1", "::1",
+                                                    "localhost"):
+                            # Loopback-peer przy bindzie na tailnet to ANOMALIA:
+                            # skad loopback, gdy hub stoi na tailnecie? Tylko
+                            # przez lokalny serve/tunnel (proxy). remote_address
+                            # to wtedy proxy, nie peer — IP-binding daloby
+                            # falszywa ochrone. Nie ufamy: open bez tokenu
+                            # odrzucone, tozsamosc wraca do tokenu.
+                            await ws.send(json.dumps(protocol.make_frame(
+                                "error", "server", time.time(),
+                                text="hub za proxy/tunelem — wejscie bez tokenu "
+                                     "niedostepne; podaj CHAT_TOKEN")))
+                            return
+                        addr = host
+                    # Odmowa TYLKO gdy zywy nick nalezy do INNEGO instance_id.
+                    # Ten sam instance = wlasny self-resume/self-send (send/frame
+                    # wspoldziela tozsamosc listenera, zeby nie robic takeoveru)
+                    # — musi przejsc jak na sciezce tokenowej. Bez tego zdalny
+                    # agent bez tokenu nie mogl wyslac ramki trzymajac nasluch
+                    # (finding Opuska: obietnica polowiczna, tylko dla nasluchu).
+                    if (isinstance(zadany, str) and self.conns.get(zadany)
+                            and trial_registry.role_of(zadany) != "human"
+                            and self.registry.instance_of(zadany)
+                                != frame.get("instance_id")):
+                        wolny = self._wolny_nick()
+                        await ws.send(json.dumps(protocol.make_frame(
+                            "error", "server", time.time(),
+                            text=f"nick {zadany} jest zajety przez polaczonego "
+                                 f"uczestnika; wolny nick: {wolny}")))
+                        return
+                    # B7 host-check + zapis wiazania — w open_hello, na trial
+                    # (provisional-then-commit). Inny adres na przypiety nick =
+                    # AuthError (lapane nizej jak kazdy blad open_hello).
+                    generation = trial_registry.open_hello(
+                        zadany, frame.get("instance_id"), addr)
+                else:
+                    generation = trial_registry.hello(
+                        frame.get("from"), frame.get("instance_id"),
+                        frame.get("token"))
             except AuthError as e:
                 await ws.send(json.dumps(protocol.make_frame(
                     "error", "server", time.time(), text=str(e))))
@@ -534,8 +652,14 @@ class ChatServer:
             nick = frame["from"]
             # role jest stala z configu; groups to aktualny, trwaly stan
             # serwera. Deklaracja hello zadnego z nich nie nadpisuje.
-            role = self.registry.role_of(nick)
-            groups = self.registry.groups_of(nick)
+            # Z KLONA, nie z live: w trybie otwartym (B6) nowy nick dostaje
+            # role i grupy dopiero w open_hello, czyli na klonie — live
+            # jeszcze go nie zna, bo swap nastepuje po durable appendzie.
+            # Czytanie z live dawalo agentowi PUSTE grupy: technicznie na
+            # kanale, praktycznie gluchy na $workers (zlapane na zywym pokoju,
+            # testy jednostkowe Registry tego nie widzialy).
+            role = trial_registry.role_of(nick)
+            groups = trial_registry.groups_of(nick)
             # backlog liczony PRZED zalogowaniem WLASNEGO hello — inaczej
             # klient zawsze widzialby wlasna ramke hello w swoim backlogu i
             # "last_seq == biezacy cursor" po reconnnekcie nigdy by nie
@@ -649,6 +773,10 @@ class ChatServer:
                 # wydarzylo" (zmierzone na produkcji: 105 ramek dogfoodu).
                 reply = protocol.make_frame(
                     "resync_required", "server", time.time(),
+                    nick=nick,   # KIM jestes — takze na sciezce resync, nie
+                                 # tylko w ok (agent bez wlasnej propozycji
+                                 # nicka, ktory po kompakcji trafia na resync,
+                                 # inaczej nigdy nie pozna przydzielonego nicka)
                     snapshot_seq=self.log.snapshot_seq,
                     state={"queue": self.queue.dump(),
                            "registry": self.registry.dump(),
@@ -670,6 +798,11 @@ class ChatServer:
                 wire_backlog = [e for e in backlog if e.get("type") != "hello"]
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
+                    nick=nick,   # KIM jestes — jawnie, nie do wywnioskowania
+                                 # z participants (B6 review: agent bez
+                                 # wlasnej propozycji nicka inaczej nie wie,
+                                 # kim zostal, a przy dwoch swiezych
+                                 # wejsciach naraz zgadywanie sie lamie)
                     generation=generation, role=role, groups=list(groups),
                     backlog=wire_backlog, last_seq=self.log.last_seq, **extra)
             await ws.send(json.dumps(reply))
@@ -793,6 +926,8 @@ class ChatServer:
                     await self._send(observer, frame)
         elif ftype == "heartbeat":
             await self._on_heartbeat(frame, nick, sock_gen, ws)
+        elif ftype == "kick":
+            await self._on_kick(frame, nick, ws)
         elif ftype == "membership_set":
             await self._on_membership_set(frame, requested_groups, nick, ws)
         elif ftype in _TASK_REQUIRED_FIELDS:
@@ -802,6 +937,63 @@ class ChatServer:
                 "error", "server", time.time(),
                 text=f"nieoczekiwany typ ramki od klienta: {ftype}")))
         return False
+
+    async def _on_kick(self, frame, nick, ws):
+        """B6: moderacja czlowieka — jedyna odpowiedz na pytanie 'kim jestes'
+        w kanale bez tokenow dla agentow.
+
+        Uprawnienie ma WYLACZNIE rola human (a human zawsze ma token, wiec
+        to realne uprawnienie, nie umowa). Swiadomie WEZSZE niz przy
+        membership_set, gdzie wystarczy grupa admin: zmiana grup jest
+        odwracalna i wewnetrzna, a kick ODCINA uczestnika od kanalu.
+        """
+        now = time.time()
+        target = frame["target"]
+        # Moderacja: rola human ZAWSZE, plus grupa admin (orchestrator-agent,
+        # gdy czlowiek jawnie mu ja nada). Lancuch zaufania zostaje: do admina
+        # wprowadza wylacznie human/admin przez membership_set, wiec agent nie
+        # da sobie tej mocy sam. (B6 mial kick human-only; rozszerzone na
+        # rozkaz roota — rule 2 rules.md.)
+        if (self.registry.role_of(nick) != "human"
+                and "admin" not in self.registry.groups_of(nick)):
+            await ws.send(json.dumps(protocol.make_frame(
+                "error", "server", now,
+                text="forbidden: kick wymaga roli human albo grupy admin")))
+            return
+        if not self.conns.get(target):
+            await ws.send(json.dumps(protocol.make_frame(
+                "error", "server", now,
+                text=f"kick: {target} nie jest polaczony")))
+            return
+        event = protocol.make_frame("kick", "server", now,
+                                    target=target, by=nick)
+        seq = self._append(event)      # trwalosc PRZED publikacja
+        event["seq"] = seq
+        await ws.send(json.dumps(protocol.make_frame(
+            "ok", "server", now, target=target)))
+        # JEDYNY WYJATEK od reguly "agenta budzi tylko wzmianka" — i ma nim
+        # zostac. Uzasadnienie: kick zmienia SKLAD ZESPOLU, a nie tresc
+        # rozmowy. Agent, ktory wlasnie uzgodnil podzial pracy z wyrzuconym,
+        # musi wiedziec, ze partner zniknal, bo inaczej czeka na robote,
+        # ktorej nikt nie zrobi. Kazdy kolejny wyjatek zabija te regule
+        # przez tysiac drobnych ustepstw — nie dokladaj drugiego bez
+        # rownie mocnego powodu.
+        for other in list(self.conns):
+            if other != target:
+                await self._send(other, event)
+        await self._send(target, protocol.make_frame(
+            "error", "server", now,
+            text=f"wyrzucony z kanalu przez {nick}"))
+        for sock in list(self.conns.get(target, ())):
+            try:
+                await sock.close(code=4003, reason="kicked")
+            except websockets.exceptions.ConnectionClosed:
+                pass
+        # B7: rozkaz roota bije wiazanie — zwolnij przypiecie nick->adres,
+        # zeby ten sam agent po re-IP (albo ktos inny) mogl wejsc na ten nick
+        # z nowego adresu. Bez tego wyrzucony agent, ktory zmienil IP, byloby
+        # trwale zablokowany z wlasnego nicka.
+        self.registry.release_open_addr(target)
 
     async def _on_membership_set(self, frame, requested_groups, nick, ws):
         """Przekaz funkcje przez grupy; bez RBAC, elekcji i CAS."""

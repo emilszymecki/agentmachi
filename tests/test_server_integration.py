@@ -2769,3 +2769,250 @@ def test_stop_gives_up_on_hanging_close_instead_of_hanging_forever(tmp_path):
         server._server.wait_closed = never_returns
         await asyncio.wait_for(server.stop(), timeout=5.0)
     asyncio.run(scenario())
+
+
+# -- B6: moderacja czlowieka (kick) --------------------------------------
+# W kanale bez tokenow dla agentow to jedyna odpowiedz na pytanie "kim
+# jestes": wpuszczamy wszystkich, czlowiek wyrzuca.
+
+def test_human_kicks_agent_and_channel_learns_about_it(srv):
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+
+        await emil.send(json.dumps({"type": "kick", "from": "emil",
+                                    "ts": 0.0, "target": "beta"}))
+        ack = await recv(emil)
+        assert ack["type"] == "ok" and ack["target"] == "beta"
+
+        # trzeci uczestnik dowiaduje sie o zmianie skladu zespolu
+        ev = await recv(gamma)
+        assert ev["type"] == "kick" and ev["target"] == "beta"
+        assert ev["by"] == "emil" and isinstance(ev["seq"], int)
+
+        # wyrzucony dostaje powod i rozlaczenie
+        powod = await recv(beta)
+        assert powod["type"] == "error" and "wyrzucony" in powod["text"]
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(beta.recv(), 2.0)
+
+        for w in (emil, gamma):
+            await w.close()
+    asyncio.run(srv(scenario))
+
+
+def test_agent_cannot_kick_anyone(srv):
+    """Swiadomie wezsze niz membership_set: agent nie odcina uczestnika."""
+    async def scenario(server):
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        await beta.send(json.dumps({"type": "kick", "from": "beta",
+                                    "ts": 0.0, "target": "gamma"}))
+        err = await recv(beta)
+        assert err["type"] == "error" and "forbidden" in err["text"]
+        # gamma nietkniety
+        await gamma.send(json.dumps({"type": "chat", "from": "gamma",
+                                     "ts": 0.0, "text": "dalej tu jestem"}))
+        await asyncio.sleep(0.2)
+        for w in (beta, gamma):
+            await w.close()
+    asyncio.run(srv(scenario))
+
+
+def test_kick_survives_compaction_like_takeover(srv):
+    """Pytanie 'czemu on zniknal' pada PO fakcie — slad musi przezyc."""
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        beta, _ = await hello("beta", "tb")
+        await emil.send(json.dumps({"type": "kick", "from": "emil",
+                                    "ts": 0.0, "target": "beta"}))
+        await recv(emil)
+        await asyncio.sleep(0.2)
+        server.snapshot()
+        zachowane = [e["type"] for e in server.log.conversation_after(0)]
+        assert "kick" in zachowane
+        await emil.close()
+    asyncio.run(srv(scenario))
+
+
+def test_open_mode_agent_gets_groups_and_appears_on_board(tmp_path):
+    """B6, dwa bledy zlapane dopiero na zywym pokoju:
+    (1) rola/grupy czytane z LIVE registry byly puste, bo nowy nick istnieje
+        na razie tylko w klonie — agent byl gluchy na $workers;
+    (2) roster iterowal po posiadaczach TOKENOW, wiec wchodzacy bez tokenu
+        nie pojawial sie na boardzie — moderator nie mial kogo wyrzucic."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="127.0.0.1")
+        await server.start()
+        try:
+            ws = await websockets.connect(f"ws://localhost:{port}")
+            await ws.send(json.dumps({"type": "hello", "from": "gosc",
+                                      "ts": 0.0, "instance_id": "i1",
+                                      "last_seq": 0, "role": "agent"}))
+            reply = json.loads(await ws.recv())
+            assert reply["type"] == "ok"
+            assert reply["groups"] == ["workers"], "bez grupy agent jest gluchy"
+
+            emil = await websockets.connect(f"ws://localhost:{port}")
+            await emil.send(json.dumps({"type": "hello", "from": "emil",
+                                        "ts": 0.0, "instance_id": "h1",
+                                        "token": "te", "last_seq": 0,
+                                        "role": "human"}))
+            r = json.loads(await emil.recv())
+            board = {p["nick"]: p for p in r["participants"]}
+            assert "gosc" in board and board["gosc"]["connected"] is True
+            await ws.close()
+            await emil.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenario())
+
+
+def test_open_hello_without_nick_gets_one_and_learns_it(tmp_path):
+    """B6 review worker1: agent, ktory nie podal nicka, musi sie dowiedziec,
+    kim jest — wprost z odpowiedzi, nie przez porownywanie participants."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="127.0.0.1")
+        await server.start()
+        try:
+            ws = await websockets.connect(f"ws://localhost:{port}")
+            await ws.send(json.dumps({"type": "hello", "ts": 0.0,
+                                      "instance_id": "i1", "last_seq": 0,
+                                      "role": "agent"}))
+            reply = json.loads(await ws.recv())
+            assert reply["type"] == "ok"
+            assert reply["nick"].startswith("worker"), reply
+            assert reply["groups"] == ["workers"]
+            await ws.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenario())
+
+
+def test_open_mode_same_instance_self_send_allowed(tmp_path):
+    """Finding Opuska: bez tokenu, send/frame na tozsamosci LISTENERA (ten sam
+    instance_id) musi przejsc jako self-resume — inaczej zdalny agent nie
+    moze wyslac ramki trzymajac nasluch. Inny instance na zywy nick = odmowa."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="127.0.0.1")
+        await server.start()
+        try:
+            # listener trzyma nick "gosc" instance i1
+            lis = await websockets.connect(f"ws://localhost:{port}")
+            await lis.send(json.dumps({"type": "hello", "from": "gosc",
+                                       "ts": 0.0, "instance_id": "i1",
+                                       "last_seq": 0, "role": "agent"}))
+            assert json.loads(await lis.recv())["type"] == "ok"
+            # self-send: TEN SAM instance i1 -> przechodzi (oneshot na tozsamosci)
+            me = await websockets.connect(f"ws://localhost:{port}")
+            await me.send(json.dumps({"type": "hello", "from": "gosc",
+                                      "ts": 0.0, "instance_id": "i1",
+                                      "last_seq": 0, "role": "agent"}))
+            assert json.loads(await me.recv())["type"] == "ok", "self-resume musi przejsc"
+            await me.close()
+            # inny instance na zywy nick -> odmowa z propozycja
+            other = await websockets.connect(f"ws://localhost:{port}")
+            await other.send(json.dumps({"type": "hello", "from": "gosc",
+                                         "ts": 0.0, "instance_id": "INNY",
+                                         "last_seq": 0, "role": "agent"}))
+            r = json.loads(await other.recv())
+            assert r["type"] == "error" and "zajety" in r["text"]
+            await other.close()
+            await lis.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenario())
+
+
+def test_admin_agent_can_kick_after_human_grants_admin(srv):
+    """Orchestrator-agent w grupie admin moze wyrzucac (rozkaz roota, B6+).
+    Zwykly agent bez admina dalej NIE moze — lancuch zaufania trzyma, bo
+    admina nadaje wylacznie human przez membership_set."""
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        # zanim beta dostanie admina — kick odrzucony
+        await beta.send(json.dumps({"type": "kick", "from": "beta",
+                                    "ts": 0.0, "target": "gamma"}))
+        assert (await recv(beta))["type"] == "error"
+        # human nadaje becie grupe admin
+        await emil.send(json.dumps({"type": "membership_set", "from": "emil",
+                                    "ts": 0.0, "target": "beta",
+                                    "groups": ["workers", "admin"]}))
+        assert (await recv(emil))["type"] == "ok"
+        # teraz beta (admin-agent) wyrzuca gamme
+        await beta.send(json.dumps({"type": "kick", "from": "beta",
+                                    "ts": 0.0, "target": "gamma"}))
+        # beta dostaje ok (moze przyjsc po membership_set echo/kick event)
+        # beta moze najpierw dostac membership_set (o sobie) i kick-event —
+        # czekamy na wlasne ok; realnym dowodem jest rozlaczenie gammy nizej
+        for _ in range(6):
+            r = await recv(beta)
+            if r["type"] == "ok" and r.get("target") == "gamma":
+                break
+        else:
+            raise AssertionError("beta nie dostala ok na kick")
+        # gamma dostaje najpierw ramke 'wyrzucony', potem zamkniecie socketu
+        with pytest.raises(websockets.exceptions.ConnectionClosed):
+            for _ in range(4):
+                await asyncio.wait_for(gamma.recv(), 2.0)
+        # delta bez admina dalej nie moze
+        delta, _ = await hello("delta", "td")
+        await delta.send(json.dumps({"type": "kick", "from": "delta",
+                                     "ts": 0.0, "target": "beta"}))
+        assert "forbidden" in (await recv(delta))["text"]
+        for w in (emil, beta, delta):
+            await w.close()
+    asyncio.run(srv(scenario))
+
+
+def test_b7_loopback_peer_at_tailnet_bind_is_proxy_signal(srv):
+    """B7 [KRYTYCZNY, Opusek]: przy bindzie na tailnet loopback-peer to
+    ANOMALIA (proxy/tunnel), nie lokalnosc — open bez tokenu odrzucone,
+    zeby IP-binding nie dawal falszywej ochrony. Test laczy sie z loopbacku
+    (peer=127.0.0.1), a bind jest zamockowany na tailnet."""
+    async def scenario(server):
+        server.bind = "100.64.0.1"     # udajemy bind na interfejs tailnetu
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": "ghost", "ts": 0.0,
+                                  "instance_id": "i1", "last_seq": 0,
+                                  "role": "agent"}))
+        r = json.loads(await ws.recv())
+        assert r["type"] == "error"
+        assert "proxy" in r["text"].lower()
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_b7_loopback_bind_does_not_bind_addr(srv):
+    """B7: przy bindzie loopback (domyslny test) IP-binding sie NIE stosuje —
+    dwa wejscia tego samego nicku z loopbacku (rozne instance, ten sam peer)
+    zachowuja sie jak w B6, bez odmowy z tytulu adresu. Chroni przed regresja
+    'B7 wlaczylo sie tam, gdzie nie powinno'."""
+    async def open_hello_ws(nick, instance):
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": nick, "ts": 0.0,
+                                  "instance_id": instance, "last_seq": 0,
+                                  "role": "agent"}))
+        return ws, json.loads(await ws.recv())
+
+    async def scenario(server):
+        # server.bind zostaje 127.0.0.1 (fixture) -> _bind_is_tailnet False
+        ws1, r1 = await open_hello_ws("luzny", "i1")
+        assert r1["type"] in ("ok", "resync_required")
+        await ws1.close()
+        await asyncio.sleep(0.1)
+        # ten sam nick, inny instance, znow z loopbacku -> wchodzi (nick wolny
+        # po rozlaczeniu, adres sie nie stosuje)
+        ws2, r2 = await open_hello_ws("luzny", "i2")
+        assert r2["type"] in ("ok", "resync_required")
+        await ws2.close()
+    asyncio.run(srv(scenario))

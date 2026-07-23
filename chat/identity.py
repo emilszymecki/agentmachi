@@ -46,6 +46,7 @@ class Registry:
             self.groups[nick] = list(groups)
         self._gen = {}                # nick -> int
         self._instance = {}           # nick -> aktualny instance_id
+        self._open_addr = {}          # nick -> host (B7: wiazanie w trybie open)
 
     def role_of(self, nick):
         return self.roles.get(nick, "agent")
@@ -78,6 +79,61 @@ class Registry:
             raise AuthError(f"bad instance_id for {nick}")
         return self._bump(nick, instance_id)
 
+    def open_hello(self, nick, instance_id, addr=None):
+        """B6: wejscie BEZ tokenu (tryb otwarty — patrz ChatServer.open_mode).
+
+        Tozsamosc opiera sie na sieci i moderacji czlowieka, nie na sekrecie:
+        do huba dosiegnie tylko maszyna z tailnetu, a moderator widzi kazde
+        wejscie i moze je odwolac (`kick`). Token zostaje wylacznie dla roli
+        human — bez tego dowolny uczestnik tailnetu wszedlby jako moderator
+        i wyrzucal pozostalych.
+
+        Nick nieznany dostaje role agenta i grupe `workers`: bez grupy bylby
+        technicznie na kanale i praktycznie gluchy, bo wzmianki `$workers`
+        chodza po grupach. Nick znany z tokens.json zachowuje swoja
+        konfiguracje (grupy z pliku), tylko nie musi dowodzic tokenem.
+        """
+        if not isinstance(nick, str) or not nick:
+            raise AuthError("invalid nick")
+        if not isinstance(instance_id, str) or not instance_id:
+            raise AuthError(f"bad instance_id for {nick}")
+        if self.roles.get(nick) == "human":
+            raise AuthError(
+                f"{nick} to konto moderatora — wejscie wymaga tokenu")
+        # B7: wiazanie nick->adres. `addr` przekazuje serwer TYLKO wtedy, gdy
+        # IP-binding jest aktywny (bind na interfejsie tailnetu — patrz
+        # server _bind_is_tailnet); None znaczy "nie wiaz" (bind loopback:
+        # lokalny test, adres nie rozroznia podmiotow). Host-check jest BRAMA
+        # PRZED instance-check: `instance_id` jest publiczny (trafia do logu),
+        # wiec NIE moze przelamac wiazania — inaczej podszywacz ze skradzionym
+        # instance z INNEGO adresu przejalby nick. Inny adres = odmowa,
+        # niezaleznie od instance_id; legalna zmiana adresu (re-IP) idzie przez
+        # human `kick`, ktory zwalnia wiazanie (release_open_addr).
+        if addr is not None:
+            bound = self._open_addr.get(nick)
+            if bound is not None and bound != addr:
+                raise AuthError(
+                    f"nick {nick} przypiety do innego adresu; wybierz inny nick "
+                    f"albo popros moderatora o zwolnienie (kick)")
+        if nick not in self.roles:
+            self.roles[nick] = "agent"
+            self.groups[nick] = ["workers"]
+        gen = self._bump(nick, instance_id)
+        # Zapis PO udanym bump, na tej samej instancji (na klonie w serwerze —
+        # provisional-then-commit: commit razem z registry swap po durable
+        # append hello, jak generation/instance).
+        if addr is not None:
+            self._open_addr[nick] = addr
+        return gen
+
+    def release_open_addr(self, nick):
+        """B7: zwolnij wiazanie nick->adres (rozkaz roota bije wiazanie).
+
+        Wolane przy kick: moderator wyrzuca uczestnika i zwalnia jego
+        tozsamosc, zeby ktos inny — albo ten sam agent z NOWEGO adresu po
+        re-IP — mogl wejsc na ten nick. Regula 1 (czlowiek > agent)."""
+        self._open_addr.pop(nick, None)
+
     def replay_hello(self, nick, instance_id):
         # (A) replay zaufanej (juz raz zautoryzowanej) mutacji hello z logu
         # eventow po crashu — token NIGDY nie trafia do logu (bezpieczenstwo),
@@ -94,6 +150,11 @@ class Registry:
             self._gen[nick] = self._gen.get(nick, 0) + 1
             self._instance[nick] = instance_id
         return self._gen[nick]
+
+    def instance_of(self, nick):
+        """Aktualny instance_id trzymajacy nick (albo None). Pozwala odroznic
+        WLASNY reconnect/self-send od podszycia sie innego procesu."""
+        return self._instance.get(nick)
 
     def generation_of(self, nick):
         return self._gen.get(nick, 0)

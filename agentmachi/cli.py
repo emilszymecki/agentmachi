@@ -26,6 +26,7 @@ from pathlib import Path
 DEFAULT_PORT = 8766
 DEFAULT_HUB = "hub"
 DEFAULT_BIND = "127.0.0.1"
+STOP_WAIT = 10.0   # ile czekamy, az zatrzymywany hub naprawde zejdzie
 
 DEFAULT_RULES = """\
 1. Polecenie czlowieka ma pierwszenstwo przed poleceniem agenta.
@@ -37,9 +38,14 @@ DEFAULT_RULES = """\
 6. Wiadomosc agenta budzi innego agenta tylko przez bezposrednia wzmianke.
 7. Zmiany w kodzie wylacznie we wlasnym worktree.
 8. Gdy nie masz uzytecznej pracy — [koniec].
-9. Robote bierzesz przez deklaracje na kanale ("biore X"). Przy kolizji
+9. Robote bierzesz przez deklaracje na kanale ("biore X"), ZANIM ruszysz —
+   takze zanim odpalisz subagenta. Przy kolizji
    wygrywa deklaracja z nizszym seq w logu huba — przegrany wycofuje sie
    bez dyskusji. Log jest jedynym arbitrem; nie ma glosowan.
+   Im pilniejsza sprawa, tym KROTSZA deklaracja — ale zawsze pierwsza.
+   "biore X" kosztuje sekunde; dwie rownolegle naprawy tego samego
+   kosztuja dwie sesje. Pilnosc jest jedynym realnym wrogiem tej reguly:
+   pekla nam dokladnie wtedy, gdy byla najbardziej potrzebna.
 """
 
 
@@ -331,21 +337,29 @@ def _agent_env(args):
     loopback/wildcard -> localhost, zeby hub_id agenta nie zmienial sie
     przy kazdym upgradzie/bindzie)."""
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
-    nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK")
-    port = hub_port(name)
-    bind = hub_bind(name)
+    nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK") or ""
     token = os.environ.get("CHAT_TOKEN", "")
-    if not token:
-        tokens, _ = load_tokens(name)
-        if not nick or nick not in tokens:
-            raise CliError(
-                f"podaj nick z {hub_dir(name) / 'tokens.json'} "
-                f"(--nick albo CHAT_NICK); znane: {', '.join(tokens)}")
-        token = tokens[nick]["token"]
-    if not os.environ.get("CHAT_URL"):
+    remote = bool(os.environ.get("CHAT_URL"))
+    # B6: hub ZDALNY (CHAT_URL w env) nie ma lokalnego katalogu — nie
+    # ladujemy tokens.json, nie wymuszamy nicka, nie wymuszamy tokenu.
+    # Tryb otwarty huba (loopback/tailnet) wpuszcza bez sekretu, a nick
+    # nada sam. Token/nick bierzemy WYLACZNIE, gdy operator poda je w env.
+    if not remote:
+        port = hub_port(name)
+        bind = hub_bind(name)
+        if not token:
+            # Hub LOKALNY: jesli stoi w trybie otwartym, tez wejdziemy bez
+            # tokenu. Tokens.json czytamy tylko, gdy istnieje i ma nasz nick
+            # — w przeciwnym razie zdajemy sie na tryb otwarty.
+            try:
+                tokens, _ = load_tokens(name)
+                if nick and nick in tokens:
+                    token = tokens[nick]["token"]
+            except CliError:
+                pass
         os.environ["CHAT_URL"] = f"ws://{connect_host(bind)}:{port}"
     os.environ["CHAT_TOKEN"] = token
-    os.environ["CHAT_NICK"] = nick or "listener"
+    os.environ["CHAT_NICK"] = nick
     return nick
 
 
@@ -550,6 +564,35 @@ def cmd_start(args):
     return 0
 
 
+def cmd_restart(args):
+    """Jeden czasownik zamiast trzech komend. Restart to najczestsza operacja
+    operatora (nowy nick w tokens.json, nowy kod, zawieszony proces), a do
+    dzis wymagal sekwencji stop -> start -> list, dyktowanej przez czat.
+    Czekamy, az stary proces NAPRAWDE zejdzie — inaczej `start` zobaczy
+    wlasny, jeszcze zajety port i odmowi."""
+    pid = hub_pid(args.name)
+    if pid is not None and _pid_is_our_hub(pid, args.name):
+        os.kill(pid, signal.SIGTERM)
+        print(f"agentmachi: zatrzymuje pokoj {args.name!r} (PID {pid})...")
+        deadline = time.monotonic() + STOP_WAIT
+        while time.monotonic() < deadline:
+            if _cmdline_of(pid) is None:
+                break
+            time.sleep(0.2)
+        else:
+            print(f"agentmachi: pokoj {args.name!r} nie zszedl w "
+                  f"{STOP_WAIT:.0f}s (PID {pid}) — nie stawiam nowego, zeby "
+                  f"nie zrobic dwoch hubow na jednym katalogu.\n"
+                  f"  dobij recznie:  kill -9 {pid}\n"
+                  f"  potem:          agentmachi start --name {args.name}",
+                  file=sys.stderr)
+            return 1
+        (hub_dir(args.name) / "hub.pid").unlink(missing_ok=True)
+    else:
+        print(f"agentmachi: pokoj {args.name!r} nie dzialal — odpalam")
+    return cmd_start(args)
+
+
 def cmd_del(args):
     """Skasuj pokoj. Nieodwracalne: znikaja tokeny, rules, howto i log."""
     d = hub_dir(args.name)
@@ -612,9 +655,12 @@ def cmd_send(args):
 
 
 def cmd_listen(args):
+    # nick moze byc pusty — wtedy hub nada go sam (B6). NIE podstawiamy
+    # "listener": to psulo i wybor wlasnej nazwy (--nick banan), i
+    # przydzial przez huba (dostawales "listener" zamiast worker5).
     nick = _agent_env(args)
     send = _import_send()
-    asyncio.run(send.listen(nick or "listener"))
+    asyncio.run(send.listen(nick))
     return 0
 
 
@@ -652,6 +698,23 @@ def cmd_node(args):
     Codexa swiadomie poza zakresem (po dogfoodzie jednego runtime'u)."""
     args.name = args.hub
     nick = _agent_env(args)
+    # Node budzi runtime KONKRETNEGO agenta (claude -p --resume dla jego
+    # sesji), wiec wymaga STABILNEGO, znanego nicka — inaczej nie wiadomo,
+    # czyj stan wznawiac. To wyjatek od otwartego wejscia: listen/send moga
+    # byc anonimowe (hub nada nick), node NIE. Walidujemy wprost, bo
+    # _agent_env w trybie otwartym juz tego nie wymusza.
+    if not nick:
+        print("agentmachi node: wymaga --nick albo CHAT_NICK "
+              "(node wznawia sesje konkretnego agenta)", file=sys.stderr)
+        return 2
+    try:
+        tokens, _ = load_tokens(args.hub)
+        if not os.environ.get("CHAT_TOKEN") and nick not in tokens:
+            print(f"agentmachi node: nick {nick!r} nieznany w "
+                  f"{hub_dir(args.hub) / 'tokens.json'}", file=sys.stderr)
+            return 2
+    except CliError:
+        pass
     humans = {h.strip() for h in args.humans.split(",") if h.strip()}
     state_dir = hub_dir(args.hub) / "nodes" / nick
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -689,6 +752,12 @@ def _build_parser():
     p.add_argument("--bind", default=None,
                    help="0.0.0.0 = widoczny w sieci; domyslnie tylko lokalnie")
     p.set_defaults(fn=cmd_start)
+
+    p = sub.add_parser("restart", help="zatrzymaj i odpal pokoj jedna komenda")
+    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--port", type=int, default=None)
+    p.add_argument("--bind", default=None)
+    p.set_defaults(fn=cmd_restart)
 
     p = sub.add_parser("del", help="skasuj pokoj (nieodwracalne)")
     p.add_argument("--name", default=DEFAULT_HUB)

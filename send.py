@@ -58,18 +58,19 @@ def hub_id_from_url(url):
 URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")
 HUB_ID = hub_id_from_url(URI)
 HELLO_TIMEOUT = 10.0
+# B6: kod zamkniecia, ktorym serwer sygnalizuje wyrzucenie przez moderatora
+KICKED_CODE = 4003
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
 
 
 def _require_token():
-    token = os.environ.get("CHAT_TOKEN", "")
-    if not token:
-        print("brak CHAT_TOKEN — ustaw token agenta zanim polaczysz sie "
-              "z hubem B1 (fail-fast po stronie klienta, zeby nie slac "
-              "pustego sekretu)", file=sys.stderr)
-        sys.exit(2)
-    return token
+    # B6: token jest OPCJONALNY. Hub w trybie otwartym (loopback/tailnet)
+    # przyjmuje agenta bez sekretu — wymuszanie tokenu po stronie klienta
+    # blokowalo dokladnie to, co serwer wlasnie dopuscil (ta sama rodzina
+    # bledu co F10: jedna strona drutu pozwala, druga zabrania). Pusty
+    # string = "wejdz bez tokenu"; hub zada go tylko, gdy stoi na 0.0.0.0.
+    return os.environ.get("CHAT_TOKEN", "")
 
 
 def _session(nick):
@@ -77,12 +78,16 @@ def _session(nick):
 
 
 async def do_hello(ws, nick, session, token, role=None):
-    await ws.send(json.dumps({
-        "type": "hello", "from": nick, "ts": 0.0,
+    hello = {
+        "type": "hello", "ts": 0.0,
         "instance_id": session.instance_id,
-        "token": token,
         "last_seq": session.last_applied_seq,
-        "role": role or os.environ.get("CHAT_ROLE", "agent")}))
+        "role": role or os.environ.get("CHAT_ROLE", "agent")}
+    if nick:
+        hello["from"] = nick         # bez nicka hub nada go sam (B6)
+    if token:
+        hello["token"] = token       # tylko gdy jest — pusty wymusil sciezke
+    await ws.send(json.dumps(hello)) # tokenowa po stronie huba (bad token)
     try:
         reply = json.loads(await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
     except asyncio.TimeoutError:
@@ -168,6 +173,37 @@ def _emit_session_metadata(reply):
         _print_event({"type": "session_metadata", **meta})
 
 
+def _warn_if_taken_over(reply, nick):
+    """Powiedz agentowi, ze ktos siedzial na jego nicku.
+
+    F3 dal slad po takeoverze LUDZIOM (push do TUI) — ale ofiara nie
+    dostaje nic: w chwili wyparcia jej socket jest wlasnie zamykany,
+    a po powrocie ramka jest juz historia, ktorej nikt jej nie pokazuje.
+    Zmierzone na produkcji: 40 wyparc worker1 w osiem sekund i ani jedno
+    nie dotarlo do wypartego — dowiedzial sie od czlowieka.
+
+    `takeover` jest w CONVERSATION_TYPES, wiec wraca w `conversation`
+    przy hello. Wystarczy je przefiltrowac po wlasnym nicku — zero zmian
+    w protokole i zero pracy po stronie serwera.
+    """
+    # Dwa zrodla, bo hub uzywa ich zaleznie od kursora: `backlog` przy
+    # zwyklym powrocie (odpowiedz ok), `conversation` po kompakcji
+    # (resync_required). Patrzenie tylko na jedno dawalo ostrzezenie
+    # wylacznie po snapshocie — czyli prawie nigdy.
+    ramki = list(reply.get("backlog") or []) + list(reply.get("conversation") or [])
+    mine = [f for f in ramki
+            if isinstance(f, dict) and f.get("type") == "takeover"
+            and f.get("nick") == nick]
+    if not mine:
+        return
+    ostatni = mine[-1]
+    print(f"[uwaga] na twoim nicku ({nick}) doszlo do {len(mine)} wyparc; "
+          f"ostatnie: generacja {ostatni.get('previous_generation')} -> "
+          f"{ostatni.get('generation')}. Sprawdz, czy nie masz drugiego "
+          f"klienta na tym nicku — dwa zywe klienty wypieraja sie w kolko.",
+          file=sys.stderr)
+
+
 def _apply_hello_reply(session, reply):
     if reply["type"] == "ok":
         _emit_session_metadata(reply)
@@ -209,15 +245,33 @@ async def send_once(nick, text):
 
 async def listen(nick):
     token = _require_token()
-    session = _session(nick)
-    session.acquire_listener_lock()
+    # B6: nick moze byc pusty — wtedy hub nada go sam i odesle w hello.
+    # Sesje (kursor + lock) tworzymy DOPIERO gdy znamy tozsamosc, zeby
+    # kursor byl trwaly per przydzielony nick, a nie per "" przy kazdym
+    # reconnekcie. Do pierwszego hello uzywamy sesji tymczasowej.
+    session = _session(nick) if nick else None
+    if session:
+        session.acquire_listener_lock()
     backoff = BACKOFF_START
     try:
         while True:
             try:
                 async with websockets.connect(URI) as ws:
-                    reply = await do_hello(ws, nick, session, token)
+                    boot = session or _session("")   # tozsamosc na pierwsze hello
+                    reply = await do_hello(ws, nick, boot, token)
+                    nadany = reply.get("nick") if isinstance(reply, dict) else None
+                    if session is None and nadany:
+                        # przyjmij nick nadany przez huba i od teraz trzymaj
+                        # trwaly kursor+lock pod nim
+                        nick = nadany
+                        session = _session(nick)
+                        session.acquire_listener_lock()
+                        print(f"[hub] nadany nick: {nick}", file=sys.stderr)
+                    elif session is None:
+                        session = boot
+                        session.acquire_listener_lock()
                     _apply_hello_reply(session, reply)
+                    _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
                     async for message in ws:
                         try:
@@ -226,7 +280,24 @@ async def listen(nick):
                             _print_message(message)
                             continue
                         apply_frame(session, data)
-            except (websockets.exceptions.ConnectionClosed, OSError) as e:
+            except websockets.exceptions.ConnectionClosed as e:
+                # B6: 4003 = wyrzucony przez czlowieka. Reconnect jest tu
+                # ODWROTNOSCIA intencji: serwer mowi "wyjdz", a klient
+                # wracalby po sekundzie — moderator klikalby kick w kolko
+                # i nic by nie wskoral (zmierzone na zywym pokoju).
+                # Pozostale kody (1006 zerwana siec itd.) reconnectuja jak
+                # dotad; wyrzucenie to DECYZJA, a nie awaria transportu.
+                if getattr(e, "rcvd", None) is not None and e.rcvd.code == KICKED_CODE:
+                    print("[kick] wyrzucony z kanalu przez moderatora — "
+                          "koncze nasluch. Zeby wrocic, uruchom go ponownie.",
+                          file=sys.stderr)
+                    return
+                print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
+                      f"{backoff:.0f}s od kursora "
+                      f"{session.last_applied_seq}", file=sys.stderr)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, BACKOFF_MAX)
+            except OSError as e:
                 print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
                       f"{backoff:.0f}s od kursora "
                       f"{session.last_applied_seq}", file=sys.stderr)
