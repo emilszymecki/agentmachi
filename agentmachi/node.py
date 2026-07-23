@@ -7,17 +7,31 @@ Kontrakt kursorow (kolejnosc zapisow jest czescia kontraktu):
   [3] last_context_seq       PO zakonczeniu rundy      (kontekst sie nie rwie)
 
 Petla (node_loop -> _one_connection): polacz (hello z last_seq=
-last_context_seq) -> backlog + live w jednym strumieniu (window) -> kazda
-ramka chat z seq > last_wake_seq spelniajaca wzmianke @nick/$grupa/@all
-budzi runtime; kontekst przekazany runtime'owi to ramki (last_context_seq, S]
-z okna tego polaczenia, verbatim (jedna linia JSON na ramke). Rate limiter
-moze zablokowac start runtime'u — wtedy last_wake_seq i tak sie przesuwa
-(wzmianka skonsumowana odpowiedzia rate-limit), ale last_context_seq NIE
-(agent zobaczy pomijeta ramke w nastepnej rundzie).
+last_context_seq) -> backlog. KONTRAKT OKNA KONTEKSTU: kontekst wake'a
+budowany jest WYLACZNIE z tego backlogu (niefiltrowanego — zadanie 2),
+NIGDY z ramek live. Live push dostarcza agentowi wylacznie wzmianki
+(@nick/$grupa/@all — fizyka huba, chat/server.py._publish_chat), wiec
+zywa ramka jest tylko SYGNALEM: gdy przejdzie _should_wake (seq >
+last_wake_seq), node zamyka polaczenie i wraca do node_loop, ktory
+NATYCHMIAST (bez eskalacji backoffu — to nie jest blad) reconnectuje;
+swiezy hello zwraca w backlogu pelna rozmowe razem z budzaca wzmianka
+(trwalosc-przed-publikacja gwarantuje, ze jest juz w logu), i wake
+obsluzy sie ta sama scieszka backlogu. Budowanie kontekstu z okna
+backlog+live bylo amnezja tylnymi drzwiami: chat bez wzmianki wyslany PO
+polaczeniu node'a nigdy nie dociera live. Koszt: jeden reconnect na
+wake — pomijalny przy limicie kilku wake'ow/h.
+
+Dla kazdej ramki chat z backlogu z seq > last_wake_seq spelniajacej
+wzmianke budzi sie runtime; kontekst przekazany runtime'owi to ramki
+(last_context_seq, S] z tego backlogu, verbatim (jedna linia JSON na
+ramke). Rate limiter moze zablokowac start runtime'u — wtedy
+last_wake_seq i tak sie przesuwa (wzmianka skonsumowana odpowiedzia
+rate-limit), ale last_context_seq NIE (agent zobaczy pomijeta ramke w
+nastepnej rundzie).
 
 Czego node NIE robi: nie ma obiektu activation, nie kolejkuje wzmianek
-(przychodzace w trakcie pracy runtime'u zostaja w oknie/logu — kolejny
-obieg petli je zlapie), nie parsuje odpowiedzi agenta, nie zarzadza
+(przychodzace w trakcie pracy runtime'u zostaja w logu — kolejny obieg
+petli/reconnect je zlapie), nie parsuje odpowiedzi agenta, nie zarzadza
 worktree.
 """
 import asyncio
@@ -181,7 +195,7 @@ async def _hello(ws, nick, token, last_seq):
 
 
 async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
-                       limiter, now, groups, rules, window):
+                       limiter, now, groups, rules, backlog):
     verdict = limiter.check(now(), state.wake_times, frame["from"] in humans)
     if verdict is not None:
         state.last_wake_seq = frame["seq"]
@@ -193,7 +207,7 @@ async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
     state.wake_times = [t for t in state.wake_times
                         if now() - t < 3600.0] + [now()]
     state.save(state_path)
-    context = [f for f in window if _has_seq(f)
+    context = [f for f in backlog if _has_seq(f)
                and f["seq"] > state.last_context_seq
                and f["seq"] <= frame["seq"]]
     prompt = WAKE_PREAMBLE.format(nick=nick, groups=",".join(sorted(groups)),
@@ -206,19 +220,38 @@ async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
     await runtime.run(prompt, state.session_id, _persist_sid)
     state.last_context_seq = frame["seq"]                   # [zapis 3]
     state.save(state_path)
-    window[:] = [f for f in window if _has_seq(f)
-                and f["seq"] > state.last_context_seq]
+    # UWAGA: `backlog` to ta sama lista, po ktorej iteruje wolajacy
+    # (`for frame in backlog:` w _one_connection) — NIE mutowac jej tutaj
+    # (dawne `window[:] = ...` przycinanie z ery wspolnego okna backlog+live
+    # psulo iteracje wolajacego: obcinanie listy W TRAKCIE iteracji po niej
+    # przez indeks powodowalo CICHE, przedwczesne zakonczenie petli po
+    # pierwszej wzmiance — bug znaleziony przy naprawie kontraktu okna
+    # kontekstu). Kontekst i tak jest liczony na biezaco z
+    # `state.last_context_seq`, wiec przycinanie nie bylo potrzebne do
+    # poprawnosci — tylko do (juz nieaktualnego) ograniczania pamieci
+    # rosnacego live-okna.
 
 
 async def _one_connection(url, nick, token, state_path, runtime, humans,
                           limiter, now):
+    """KONTRAKT OKNA KONTEKSTU (fix po kontroli, patrz raport): kontekst
+    wake'a budowany jest WYLACZNIE z backlogu tego hello (niefiltrowanego —
+    zadanie 2). Live push dostarcza agentowi tylko wzmianki, wiec zywa
+    ramka jest wylacznie SYGNALEM: gdy przejdzie _should_wake, node NIE
+    buduje z niej kontekstu — zamyka polaczenie (return, bez wyjatku) i
+    node_loop natychmiast reconnectuje (bez eskalacji backoffu, bo to nie
+    jest blad). Swiezy hello(last_context_seq) zwraca w backlogu PELNA
+    rozmowe razem z budzaca wzmianka (trwalosc-przed-publikacja gwarantuje,
+    ze jest juz w logu), i wake obsluzy sie ponizsza scieszka backlogu.
+    Budowanie kontekstu z okna backlog+live bylo amnezja tylnymi drzwiami:
+    chat bez wzmianki, wyslany PO polaczeniu node'a, nigdy nie dociera live
+    (fizyka huba — patrz CLAUDE.md/chat/server.py._publish_chat)."""
     state = NodeState.load(state_path) if Path(state_path).exists() \
         else _new_state(nick, runtime)
     async with websockets.connect(url) as ws:
         reply = await _hello(ws, nick, token, state.last_context_seq)
         groups = reply.get("groups", [])
         rules = reply.get("rules")
-        window = []
         if reply.get("type") == "resync_required":
             # historia skompaktowana: kursor kontekstu = snapshot_seq,
             # stanu kolejki/rejestru node nie obchodzi (nie ma wlasnej
@@ -228,12 +261,12 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
                 state.last_context_seq = snapshot_seq
                 state.save(state_path)
         else:
-            window = [f for f in reply.get("backlog", []) if isinstance(f, dict)]
-            for frame in list(window):
+            backlog = [f for f in reply.get("backlog", []) if isinstance(f, dict)]
+            for frame in backlog:
                 if _should_wake(frame, nick, groups, state.last_wake_seq):
                     await _handle_wake(ws, nick, frame, state, state_path,
                                        runtime, humans, limiter, now, groups,
-                                       rules, window)
+                                       rules, backlog)
 
         async for raw in ws:
             try:
@@ -242,19 +275,24 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
                 continue
             if not isinstance(frame, dict):
                 continue  # defensywnie ignoruj nieznane/nie-obiektowe ramki
-            window.append(frame)
             if _should_wake(frame, nick, groups, state.last_wake_seq):
-                await _handle_wake(ws, nick, frame, state, state_path,
-                                   runtime, humans, limiter, now, groups,
-                                   rules, window)
+                # SYGNAL, nie kontekst: zamknij i wroc do node_loop, ktore
+                # natychmiast reconnectuje (celowy powrot — nie wyjatek).
+                return
 
 
 async def node_loop(url, nick, token, state_path, runtime, humans,
                     limiter=None, now=time.time):
     limiter = limiter or RateLimiter()
     backoff = BACKOFF_START
-    while True:            # reconnect z backoffem jak send.py (1..30 s)
+    while True:
         try:
+            # Normalny (nie-wyjatkowy) powrot z _one_connection oznacza
+            # ALBO czyste zamkniecie, ALBO celowy reconnect-na-sygnal-wake
+            # (patrz _one_connection) — zaden z nich nie jest bledem
+            # polaczenia, wiec backoff resetuje sie i petla wraca NATYCHMIAST
+            # (brak sleep) bez eskalacji. Backoff z prawdziwym opoznieniem
+            # (1..30 s, jak send.py) dotyczy WYLACZNIE wyjatkow ponizej.
             await _one_connection(url, nick, token, state_path, runtime,
                                   humans, limiter, now)
             backoff = BACKOFF_START

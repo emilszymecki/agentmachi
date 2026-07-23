@@ -134,23 +134,27 @@ async def _wait_for(cond, timeout=5.0):
 
 
 def test_node_wakes_on_mention_resumes_and_survives_restart(tmp_path, srv):
+    """Kolejnosc PRODUKCYJNA (fix po kontroli — patrz raport, sekcja "Fix po
+    kontroli"): node laczy sie PIERWSZY i zdazyl osiasc w live-loopie, ZANIM
+    human w ogole polaczyl sie z hubem. Chat bez wzmianki idzie WYLACZNIE do
+    humanow live (fizyka huba) — node go NIGDY nie dostanie na zywo; jesli
+    node budowalby kontekst z okna live+backlog (stary blad), zobaczylby
+    WYLACZNIE ramke z wzmianka, nie ta wczesniejsza — amnezja. Kontrakt:
+    kontekst wake'a wylacznie z backlogu swiezego reconnectu wywolanego
+    przez sam SYGNAL wzmianki na zywo."""
     from agentmachi.node import node_loop
 
     async def run(server):
         state_path = tmp_path / "node-state.json"
         prompts = tmp_path / "prompts.txt"
         rt = RecordingRuntime(prompts)          # fake: loguje prompt, zwraca 0
-        emil, _ = await hello("emil", "te", role="human")
-        await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
-                                    "text": "kontekst bez wzmianki"}))
-        # (fizyka huba: chat bez wzmianki idzie TYLKO do humanow live —
-        # node go zobaczy WYLACZNIE przez backlog, wiec musi byc durable
-        # PRZED pierwszym hello node'a; ten sam wzorzec co
-        # test_reconnect_resumes_from_last_seq w test_server_integration.py)
-        await asyncio.sleep(0.2)  # niech serwer zapisze
         node = asyncio.ensure_future(node_loop(
             url=f"ws://localhost:{PORT}", nick="beta", token="tb",
             state_path=state_path, runtime=rt, humans={"emil"}))
+        await asyncio.sleep(0.2)  # niech node zdazy hello+wejsc w live-loop
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
+                                    "text": "kontekst bez wzmianki"}))
         await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
                                     "text": "@beta zrob taska"}))
         await _wait_for(lambda: prompts.exists())
@@ -185,6 +189,11 @@ def test_node_wakes_on_mention_resumes_and_survives_restart(tmp_path, srv):
 # --- rate-limit: trzecia wzmianka pod rzad NIE odpala runtime'u -----------
 
 def test_node_rate_limits_repeated_wakes(tmp_path, srv):
+    """Kolejnosc produkcyjna (fix po kontroli): node polaczony i w
+    live-loopie PRZED wzmiankami — kazda z 3 wzmianek dociera do node'a
+    zywo jako SYGNAL (kazda wywoluje reconnect po drodze); backlog
+    kazdego kolejnego hello jest niefiltrowany, wiec rate-limit i tak
+    dziala poprawnie niezaleznie od tego, ile reconnectow po drodze."""
     from agentmachi.node import RateLimiter, node_loop
 
     async def run(server):
@@ -196,6 +205,7 @@ def test_node_rate_limits_repeated_wakes(tmp_path, srv):
             url=f"ws://localhost:{PORT}", nick="beta", token="tb",
             state_path=state_path, runtime=rt, humans={"emil"},
             limiter=limiter))
+        await asyncio.sleep(0.2)  # niech node zdazy hello+wejsc w live-loop
         emil, _ = await hello("emil", "te", role="human")
         for i in range(3):
             await emil.send(json.dumps({"type": "chat", "from": "emil",
