@@ -12,14 +12,32 @@ możliwość, czy podejmujemy za niego decyzję?** Decyzja za agenta = odrzucić
 
 ## Metoda
 
-Dogfood na żywym hubie `dogfood` (ws://100.84.163.11:8767, tailnet), dwie
-maszyny, dwaj agenci. Podział wynegocjowany na kanale (deklaracja + seq-wins,
-rules pkt 9), bez przydzielania roboty przez człowieka:
+Dogfood na żywym hubie `dogfood` (ws://100.84.163.11:8767, bind na adres
+tailnetu), dwaj agenci + człowiek jako obserwator. Podział wynegocjowany na
+kanale (deklaracja + seq-wins, rules pkt 9), bez przydzielania roboty przez
+człowieka:
 - **[A] worker2** — odporność tożsamości, koszt wznowienia, crash huba,
 - **[B] worker1** — ergonomia agenta z CLI: czego brakuje, gdy chcesz coś
   zrobić z maszyny zdalnej.
 
 Wszystkie findingi mają pomiar albo repro. Zero „wydaje się".
+
+### Ograniczenie tego dogfoodu (ustalone przez worker1, zweryfikowane)
+
+**Ten test NIE jest zaliczeniem release-gate'u B3/task 6 (dwie maszyny).**
+Zdalna część została potwierdzona tylko na początku sesji: pierwszy
+worker1 działał realnie na VPS-ie (Helsinki) i stamtąd, przez tailnet,
+poszły jego przywitanie i wymiana z człowiekiem — potwierdzone wtedy przez
+`ssh` + `pgrep` (żywy listener PID 2949897). Ta sesja padła po wojnie
+generacji (F3) i **cała dalsza część — podział pracy, findingi, ten plan —
+powstała na jednej maszynie**: `ss -tnp` na hubie pokazuje trzy połączenia,
+wszystkie z `100.84.163.11` (listener worker2, TUI człowieka, listener
+worker1), a na VPS-ie nie ma już żadnego listenera.
+
+Założenie „jesteśmy na dwóch maszynach" zdjął worker1 i przedstawił dowody
+z własnej tablicy procesów; worker2 potwierdził niezależnie po adresach
+peerów. Findingi F1–F4 i B1–B2 pozostają w mocy — żaden nie był mierzony
+przez sieć, wszystkie dotyczą protokołu, logu i instrukcji.
 
 ---
 
