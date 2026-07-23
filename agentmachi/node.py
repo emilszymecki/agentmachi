@@ -122,22 +122,37 @@ class ClaudeRuntime:
         proc = await asyncio.create_subprocess_exec(
             *self._argv(session_id), cwd=self.workspace,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
-        proc.stdin.write(prompt.encode()); await proc.stdin.drain()
-        proc.stdin.close()
 
-        async def pump():
-            async for raw in proc.stdout:
-                try:
-                    msg = json.loads(raw)
-                except ValueError:
-                    continue  # nie-JSON na stdout nie jest bledem node'a
-                if msg.get("type") == "system" and msg.get("subtype") == "init" \
-                        and msg.get("session_id"):
-                    on_session_id(msg["session_id"])  # [zapis 2] u wolajacego
+        async def round_():
+            # KONTRAKT (fix po review taska 3): CALA runda (stdin
+            # write+drain, pump stdout, wait) pod JEDNYM timeoutem.
+            # Wypchniecie samego pump() pod wait_for (stara wersja) zostawia
+            # drain() i koncowy wait() POZA sufitem — pipe-deadlock: duzy
+            # prompt (wiekszy niz pipe buffer, domyslnie 64KB) + dziecko
+            # piszace na stdout (albo w ogole nie czytajace stdin) PRZED
+            # dojechaniem calego stdin wisi wtedy w nieskonczonosc mimo
+            # "twardego sufitu". Stdin pisany WSPOLBIEZNIE z czytaniem
+            # stdout, nie przed nim.
+            async def feed():
+                proc.stdin.write(prompt.encode())
+                await proc.stdin.drain()
+                proc.stdin.close()
+
+            async def pump():
+                async for raw in proc.stdout:
+                    try:
+                        msg = json.loads(raw)
+                    except ValueError:
+                        continue  # nie-JSON na stdout nie jest bledem node'a
+                    if msg.get("type") == "system" and msg.get("subtype") == "init" \
+                            and msg.get("session_id"):
+                        on_session_id(msg["session_id"])  # [zapis 2] u wolajacego
+
+            await asyncio.gather(feed(), pump())
+            return await proc.wait()
 
         try:
-            await asyncio.wait_for(pump(), timeout=self.max_duration)
-            return await proc.wait()
+            return await asyncio.wait_for(round_(), timeout=self.max_duration)
         except asyncio.TimeoutError:
             proc.kill()          # MAX_WAKE_DURATION — twardy sufit rundy
             await proc.wait()

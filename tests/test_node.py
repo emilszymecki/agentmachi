@@ -67,6 +67,30 @@ def test_claude_runtime_reports_session_id_immediately(tmp_path):
     assert seen[-1] == "old-sid"  # resume niesie ten sam session_id
 
 
+def test_claude_runtime_max_duration_kills_child_hung_before_reading_stdin(tmp_path):
+    """Regresja z review: max_duration musi byc twardym sufitem CALEJ rundy
+    (stdin write+drain, pump stdout, wait), nie tylko pump() stdout. Stary
+    kod robil `proc.stdin.write(...); await proc.stdin.drain()` PRZED
+    wait_for — dziecko, ktore nigdy nie czyta stdin, z duzym promptem
+    (wieksze niz pipe buffer, domyslnie 64KB) blokuje drain() BEZ timeoutu:
+    pipe-deadlock, node wisi w nieskonczonosc mimo "twardego sufitu".
+    `asyncio.wait_for` na CALYM tescie (nie tylko wewnatrz runtime'u) jako
+    siatka bezpieczenstwa, zeby suita nie zawisla, gdyby fix nie zadzialal."""
+    from agentmachi.node import ClaudeRuntime
+    rt = ClaudeRuntime(workspace=str(tmp_path), max_duration=0.5,
+                       argv0=[sys.executable,
+                              str(Path(__file__).parent / "fake_runtime.py"),
+                              "--hang"])
+    big_prompt = "x" * (300 * 1024)  # >256KB — wieksze niz domyslny pipe (64KB)
+    start = time.monotonic()
+    code = asyncio.run(asyncio.wait_for(
+        rt.run(big_prompt, session_id=None, on_session_id=lambda sid: None),
+        timeout=5.0))
+    elapsed = time.monotonic() - start
+    assert code == -9              # zabite przez max_duration, nie zwisniete
+    assert elapsed < 2.0            # sufit ~0.5s + narzut kill/wait, NIE ~120s spania dziecka
+
+
 # --- Step 8: e2e node_loop na realnym hubie --------------------------------
 
 TOKENS = {
