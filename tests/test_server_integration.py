@@ -2326,11 +2326,11 @@ def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
     asyncio.run(scenario())
 
 
-# -- t2 review: participants snapshot dla humana ----------------------------
+# -- t2 review + B4 agent-first: participants snapshot dla kazdego ----------
 
 def test_human_hello_gets_authoritative_participants(srv):
     async def scenario(server):
-        # human dostaje snapshot; agent NIE
+        # human dostaje snapshot; agent (B4: agent-first) rowniez
         ws_h, rep_h = await hello("emil", "te", role="human")
         assert isinstance(rep_h.get("participants"), list)
         by_nick = {p["nick"]: p for p in rep_h["participants"]}
@@ -2338,7 +2338,7 @@ def test_human_hello_gets_authoritative_participants(srv):
         assert by_nick["emil"]["connected"] is True
         assert by_nick["emil"]["role"] == "human"
         ws_a, rep_a = await hello("alfa", "ta", instance="ia")
-        assert "participants" not in rep_a
+        assert isinstance(rep_a.get("participants"), list)
         await ws_h.close()
         await ws_a.close()
     asyncio.run(srv(scenario))
@@ -2366,6 +2366,20 @@ def test_participants_reflect_membership_after_reconnect(srv):
         assert by_nick["alfa"]["groups"] == ["admin", "head"]  # sorted
         assert before["alfa"] != by_nick["alfa"]["groups"]
         await ws_h2.close()
+    asyncio.run(srv(scenario))
+
+
+def test_agent_hello_receives_participants_snapshot(srv):
+    # Agent-first (B4): roster+board w hello to nie przywilej TUI.
+    # Agent bez tego jest slepy na "kto tu jest i kto co robi" —
+    # starsze ramki status sa PRZED jego oknem kontekstu.
+    async def scenario(server):
+        beta, reply = await hello("beta", "tb")
+        parts = {p["nick"]: p for p in reply["participants"]}
+        assert set(parts) == set(TOKENS)
+        assert parts["beta"]["connected"] is True
+        assert "status" in parts["beta"] and "groups" in parts["beta"]
+        await beta.close()
     asyncio.run(srv(scenario))
 
 

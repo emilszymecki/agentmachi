@@ -548,11 +548,13 @@ class ChatServer:
             if rules_text is not None:
                 extra["rules"] = rules_text
                 extra["rules_hash"] = rules_hash
-            if role == "human":
-                # (t2 review) roster musi byc cursor-coherent: panel TUI
-                # dostaje przy KAZDYM hello swiezy autorytatywny snapshot
-                # zamiast zgadywac z configu/backlogu.
-                extra["participants"] = self._participants_snapshot()
+            # (t2 review + B4 agent-first) roster musi byc cursor-coherent
+            # i JAWNY dla kazdego uczestnika: czlowiek renderuje z niego TUI,
+            # agent czyta board ("kto tu jest, kto co robi") — starsze ramki
+            # status leza przed oknem kontekstu agenta, wiec snapshot w hello
+            # to jedyne zrodlo pelnego stanu. Live push do agentow pozostaje
+            # wylacznie wzmiankowy — to jest odpowiedz na hello, nie budzenie.
+            extra["participants"] = self._participants_snapshot()
             if backlog is None:
                 # niezmiennik B: resync spojny — snapshot_seq zwracany
                 # klientowi musi etykietowac DOKLADNIE ten state, ktory
