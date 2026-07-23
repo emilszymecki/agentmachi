@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import secrets
+import signal
 import sys
 from pathlib import Path
 
@@ -116,6 +117,75 @@ def hub_bind(name, fallback=DEFAULT_BIND):
     return fallback
 
 
+# --- cykl zycia huba (F6 UX + F7 split-brain) ---------------------------
+# Jeden komputer = wiele kanalow (projektow) na wielu portach. Bez listingu
+# i bez blokady podwojnego startu operator nie ma jak stwierdzic, co u niego
+# dziala — zmierzone bolesnie: pkill nie ubil starego huba, `serve` postawil
+# drugi obok, dwa procesy pisaly do jednego katalogu (split-brain).
+
+def _cmdline_of(pid):
+    """Linia polecen procesu albo None, gdy go nie ma. Wydzielone, zeby
+    test mogl podstawic cudzy proces bez zabawy w prawdziwe PID-y."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+    return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+
+
+def _pid_is_our_hub(pid, name):
+    """Czy PID to NA PEWNO hub tego kanalu? Pidfile bywa nieaktualny, a PID-y
+    sa recyklowane — bez tej kontroli `stop` moglby ubic cudzy proces."""
+    cmd = _cmdline_of(pid)
+    if not cmd:
+        return False
+    return ("agentmachi" in cmd or "chat.server" in cmd) and name in cmd
+
+
+def hub_pid(name):
+    """PID zywego huba albo None. Martwy pidfile sprzatamy od razu — inaczej
+    `list` klamie, ze kanal dziala."""
+    path = hub_dir(name) / "hub.pid"
+    if not path.exists():
+        return None
+    try:
+        pid = int(path.read_text().strip())
+    except (ValueError, OSError):
+        path.unlink(missing_ok=True)
+        return None
+    if _cmdline_of(pid) is None:
+        path.unlink(missing_ok=True)
+        return None
+    return pid
+
+
+def write_hub_pid(name):
+    (hub_dir(name) / "hub.pid").write_text(str(os.getpid()))
+
+
+def hub_rows():
+    """Stan wszystkich kanalow tego uzytkownika — zrodlo dla `list`."""
+    home = hub_home()
+    if not home.exists():
+        return []
+    rows = []
+    for d in sorted(p for p in home.iterdir() if p.is_dir()):
+        name = d.name
+        if not (d / "tokens.json").exists():
+            continue
+        pid = hub_pid(name)
+        try:
+            tokens = json.loads((d / "tokens.json").read_text())
+            nicks = sorted(tokens)
+        except (json.JSONDecodeError, OSError):
+            nicks = []
+        rows.append({"name": name, "port": hub_port(name),
+                     "bind": hub_bind(name), "pid": pid,
+                     "running": pid is not None, "nicks": nicks,
+                     "dir": d})
+    return rows
+
+
 def connect_host(bind):
     """Adres POLACZENIOWY != bind: bind loopback/wildcard laczy sie lokalnie
     po 'localhost' (a) zachowuje dotychczasowy hub_id 'localhost:<port>' —
@@ -202,8 +272,19 @@ def _import_send():
 
 
 def cmd_serve(args):
+    # F7: fail-fast zamiast split-brain. Drugi `serve` na tej samej nazwie
+    # nie dostanie portu (bind zawiedzie), ale ZDAZY otworzyc ten sam
+    # katalog danych i pisac do tego samego events.jsonl — dwa procesy,
+    # jeden log. Sprawdzamy PRZED czymkolwiek innym.
+    running = hub_pid(args.name)
+    if running is not None and _pid_is_our_hub(running, args.name):
+        print(f"agentmachi: hub {args.name!r} juz dziala (PID {running}). "
+              f"Zatrzymaj go: agentmachi stop --name {args.name}",
+              file=sys.stderr)
+        return 1
     d, port = ensure_hub(args.name, args.port, bind=args.bind)
     bind = hub_bind(args.name, fallback=args.bind)
+    write_hub_pid(args.name)
     tokens = json.loads((d / "tokens.json").read_text())
     print_card(args.name, port, tokens, bind=bind)
     os.environ["CHAT_TOKENS"] = str(d / "tokens.json")
@@ -212,6 +293,43 @@ def cmd_serve(args):
     os.environ["CHAT_BIND"] = bind
     from chat.server import main as server_main
     server_main()
+    return 0
+
+
+def cmd_list(args):
+    """Co u mnie dziala? Jeden komputer = wiele kanalow na wielu portach."""
+    rows = hub_rows()
+    if not rows:
+        print(f"brak kanalow w {hub_home()} — zaloz pierwszy: "
+              f"agentmachi serve --name <nazwa>")
+        return 0
+    print(f"{'KANAL':<16} {'ADRES':<28} {'STAN':<16} UCZESTNICY")
+    for r in rows:
+        addr = f"ws://{connect_host(r['bind'])}:{r['port']}"
+        stan = f"dziala (PID {r['pid']})" if r["running"] else "zatrzymany"
+        print(f"{r['name']:<16} {addr:<28} {stan:<16} {', '.join(r['nicks'])}")
+    zatrzymane = [r["name"] for r in rows if not r["running"]]
+    if zatrzymane:
+        print(f"\nzatrzymane mozesz odpalic: agentmachi serve --name "
+              f"{zatrzymane[0]}")
+    return 0
+
+
+def cmd_stop(args):
+    pid = hub_pid(args.name)
+    if pid is None:
+        print(f"agentmachi: hub {args.name!r} nie dziala", file=sys.stderr)
+        return 1
+    if not _pid_is_our_hub(pid, args.name):
+        # Pidfile moze byc nieaktualny, a PID-y sa recyklowane przez system.
+        # Lepiej odmowic i zostawic decyzje czlowiekowi niz ubic cudzy proces.
+        print(f"agentmachi: PID {pid} z hub.pid NIE wyglada na hub "
+              f"{args.name!r} (cmdline: {_cmdline_of(pid)!r}) — nie ubijam. "
+              f"Sprawdz sam i usun {hub_dir(args.name) / 'hub.pid'}",
+              file=sys.stderr)
+        return 1
+    os.kill(pid, signal.SIGTERM)
+    print(f"agentmachi: wyslano SIGTERM do huba {args.name!r} (PID {pid})")
     return 0
 
 
@@ -322,6 +440,13 @@ def _build_parser():
                   help="interfejs do bindowania (0.0.0.0 = wszystkie; "
                        "domyslnie 127.0.0.1 — tylko lokalnie)")
     p.set_defaults(fn=cmd_serve)
+
+    p = sub.add_parser("list", help="jakie kanaly istnieja i ktore dzialaja")
+    p.set_defaults(fn=cmd_list)
+
+    p = sub.add_parser("stop", help="zatrzymaj hub (SIGTERM po PID z hub.pid)")
+    p.add_argument("--name", default=DEFAULT_HUB)
+    p.set_defaults(fn=cmd_stop)
 
     p = sub.add_parser("card", help="pokaz karte wejsciowa huba")
     p.add_argument("--name", default=None)

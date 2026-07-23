@@ -18,6 +18,17 @@ def _reject_json_constant(value):
     raise ValueError(f"invalid JSON constant in storage: {value}")
 
 
+class ForeignWriterError(RuntimeError):
+    """Ktos inny pisze do naszego events.jsonl — split-brain.
+
+    Zmierzone dwukrotnie na produkcji: `pkill` nie ubil starego huba, drugi
+    `serve` wstal obok i oba procesy trzymaly ten sam katalog danych. Gdy
+    starszy dostal SIGTERM, jego `stop()` zrobil snapshot ze SWOIM
+    (nieaktualnym) stanem i przepisal events.jsonl — kasujac wszystko, co
+    w miedzyczasie zapisal nowszy proces. Kompakcja jest jedyna operacja,
+    ktora przepisuje log w calosci, wiec to tutaj musi stanac zapora."""
+
+
 # F1 (B5): typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji.
 # Reszta (hello/status/task_*) ma swoj stan w snapshocie i moze zniknac.
 CONVERSATION_TYPES = frozenset({"chat"})
@@ -161,7 +172,33 @@ class EventLog:
                     out.append(e)
         return out[-limit:] if limit is not None else out
 
+    def _max_seq_on_disk(self):
+        top = 0
+        if not self.events_path.exists():
+            return top
+        with self.events_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = _strict_json_loads(line)
+                except ValueError:
+                    continue
+                top = max(top, e.get("seq", 0))
+        return top
+
     def save_snapshot(self, state):
+        # F7: nie przepisuj logu, ktorego nie jestes jedynym autorem. Seq na
+        # dysku wyzszy niz nasz last_seq oznacza, ze pisal tam inny proces —
+        # kompakcja skasowalaby jego ramki. Fail-fast zostawia plik nietkniety.
+        disk_top = self._max_seq_on_disk()
+        if disk_top > self.last_seq:
+            raise ForeignWriterError(
+                f"events.jsonl ma seq {disk_top} > naszego {self.last_seq}: "
+                f"do katalogu {self.dir} pisze inny proces huba. Kompakcja "
+                f"przerwana, zeby nie skasowac cudzych ramek. Zatrzymaj "
+                f"nadmiarowy hub (agentmachi list / agentmachi stop).")
         seq = self.last_seq
         tmp = self.dir / "snapshot.json.tmp"
         # Najpierw zwaliduj/serializuj calosc. Blad (np. NaN w stanie) zostawia

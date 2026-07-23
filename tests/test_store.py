@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from chat.store import EventLog
+from chat.store import EventLog, ForeignWriterError
 
 
 def test_append_assigns_monotonic_seq(tmp_path):
@@ -233,3 +233,29 @@ def test_conversation_after_does_not_break_events_after(tmp_path):
     log.save_snapshot({"registry": {}})
     assert log.events_after(0) is None      # kontrakt resync bez zmian
     assert log.conversation_after(0)        # ale pamiec jest dostepna
+
+
+# --- F7 (B5): ochrona przed split-brain ---------------------------------
+# Zmierzone DWUKROTNIE na produkcji: dwa procesy huba na jednym katalogu.
+# Przy zamykaniu starszy robil snapshot ze SWOIM (nieaktualnym) stanem i
+# nadpisywal events.jsonl, kasujac ramki zapisane przez nowszy proces.
+
+def test_save_snapshot_refuses_when_disk_has_newer_seq(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "moje"})
+    # inny proces dopisal nowsza ramke do TEGO SAMEGO pliku
+    with (tmp_path / "events.jsonl").open("a") as f:
+        f.write(json.dumps({"seq": 99, "type": "chat", "from": "w2",
+                            "ts": 0.0, "text": "z drugiego procesu"}) + "\n")
+    with pytest.raises(ForeignWriterError):
+        log.save_snapshot({"registry": {}})
+    on_disk = (tmp_path / "events.jsonl").read_text()
+    assert "z drugiego procesu" in on_disk, "cudze ramki maja przezyc"
+    assert "moje" in on_disk
+
+
+def test_save_snapshot_works_when_we_are_the_only_writer(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "moje"})
+    log.save_snapshot({"registry": {}})       # brak obcych zapisow = OK
+    assert log.snapshot_seq == 1

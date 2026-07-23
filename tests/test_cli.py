@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import stat
@@ -263,3 +264,39 @@ def test_ensure_hub_writes_howto_for_agents(tmp_path, monkeypatch):
     assert "ZAKAZ: czujka konczaca sie po trafieniu" in howto
     assert "wygrywa deklaracja z nizszym" in howto
     assert "instance_id" in howto
+
+
+# --- F6 (B5): start/list/stop — cykl zycia huba jedna komenda -----------
+
+def test_start_writes_pidfile_and_list_sees_running(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h1", 8910)
+    pid_path = cli.hub_dir("h1") / "hub.pid"
+    pid_path.write_text(str(os.getpid()))          # zywy proces = my sami
+    rows = cli.hub_rows()
+    row = next(r for r in rows if r["name"] == "h1")
+    assert row["running"] is True and row["pid"] == os.getpid()
+    assert row["port"] == 8910
+
+
+def test_list_reports_dead_hub_and_cleans_stale_pidfile(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h2", 8911)
+    pid_path = cli.hub_dir("h2") / "hub.pid"
+    pid_path.write_text("999999")                  # PID, ktorego nie ma
+    row = next(r for r in cli.hub_rows() if r["name"] == "h2")
+    assert row["running"] is False and row["pid"] is None
+    assert not pid_path.exists(), "martwy pidfile ma zniknac sam"
+
+
+def test_stop_refuses_foreign_process(tmp_path, monkeypatch):
+    """Bezpiecznik: stop ubija WYLACZNIE proces, ktory jest hubem tego
+    katalogu. Pidfile moze byc nieaktualny i wskazywac cudzy PID."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h3", 8912)
+    (cli.hub_dir("h3") / "hub.pid").write_text(str(os.getpid()))
+    monkeypatch.setattr(cli, "_cmdline_of", lambda pid: "vim notatki.txt")
+    killed = []
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: killed.append(pid))
+    rc = cli.cmd_stop(argparse.Namespace(name="h3"))
+    assert rc == 1 and killed == []

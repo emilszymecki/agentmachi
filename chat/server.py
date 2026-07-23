@@ -60,7 +60,7 @@ import websockets
 
 from . import protocol
 from .identity import AuthError, Registry
-from .store import EventLog
+from .store import EventLog, ForeignWriterError
 from .tasks import TaskError, TaskQueue
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
@@ -228,11 +228,25 @@ class ChatServer:
         self.snapshot()  # clean shutdown -> snapshot zawsze (polityka c)
 
     def snapshot(self):
-        self.log.save_snapshot({"queue": self.queue.dump(),
+        """F7: kompakcja jest jedyna operacja przepisujaca log w calosci.
+        Gdy w katalogu pisze inny proces huba (split-brain), store odmawia —
+        i DOBRZE: wolimy hub bez kompakcji niz skasowana rozmowe. Glosny log
+        operatora, zycie huba bez zmian."""
+        try:
+            self._save_snapshot_unchecked({"queue": self.queue.dump(),
                                  "registry": self.registry.dump(),
                                  "offers": self._dump_offers(),
                                  "status": dict(self.status)})
+        except ForeignWriterError:
+            LOGGER.error(
+                "SPLIT-BRAIN: do %s pisze inny proces huba — kompakcja "
+                "przerwana, dane nietkniete. Zatrzymaj nadmiarowy hub "
+                "(agentmachi list / agentmachi stop).", self.log.dir)
+            return
         self._events_since_snapshot = 0
+
+    def _save_snapshot_unchecked(self, state):
+        self.log.save_snapshot(state)
 
     def _append(self, frame):
         seq = self._append_durable(frame)
