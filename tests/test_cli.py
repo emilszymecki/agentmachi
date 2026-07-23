@@ -293,15 +293,21 @@ def test_list_sees_running_hub_without_pidfile(tmp_path, monkeypatch):
 
     real = cli._cmdline_of
 
+    # UWAGA: udajemy PROCES RODZICA, nie wlasny. Wlasny PID jest przez
+    # skaner swiadomie wykluczany (regresja z produkcji: startujacy hub
+    # znajdowal sam siebie i odmawial startu), wiec nie nadaje sie juz na
+    # proxy dla "jakiegos zywego procesu".
+    other = os.getppid()
+
     def fake(pid):
-        if pid == os.getpid():
+        if pid == other:
             return "python3 -m agentmachi.cli serve --name h3"
         return real(pid)
 
     monkeypatch.setattr(cli, "_cmdline_of", fake)
     row = next(r for r in cli.hub_rows() if r["name"] == "h3")
     assert row["running"] is True
-    assert row["pid"] == os.getpid()
+    assert row["pid"] == other
     assert row["pidfile"] is False   # `list` ma to pokazac, nie przemilczec
 
 
@@ -326,3 +332,23 @@ def test_stop_refuses_foreign_process(tmp_path, monkeypatch):
     monkeypatch.setattr(cli.os, "kill", lambda pid, sig: killed.append(pid))
     rc = cli.cmd_stop(argparse.Namespace(name="h3"))
     assert rc == 1 and killed == []
+
+
+def test_scan_never_reports_the_calling_process_as_running_hub(tmp_path, monkeypatch):
+    """REGRESJA (produkcja): hub startowal, pytal 'czy juz dzialam?', skaner
+    znajdowal JEGO WLASNY proces i serve odmawial startu — hub nie mogl wstac
+    w ogole. Ten sam wzorzec co pkill trafiajacy we wlasny wrapper."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h9", 8919)
+    # nasz wlasny proces udaje huba tej nazwy — skaner MUSI go pominac
+    real = cli._cmdline_of
+
+    def only_me_looks_like_hub(pid):
+        if pid == os.getpid():
+            return "python3 -m agentmachi.cli serve --name h9"
+        cmd = real(pid)
+        # zaden inny proces w systemie nie moze udawac tego huba
+        return None if cmd and "h9" in cmd else cmd
+
+    monkeypatch.setattr(cli, "_cmdline_of", only_me_looks_like_hub)
+    assert cli._scan_hub_pid("h9") is None

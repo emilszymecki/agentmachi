@@ -155,10 +155,17 @@ def _scan_hub_pid(name):
     proc = Path("/proc")
     if not proc.is_dir():          # nie-Linux: zostajemy przy pidfile
         return None
+    # REGRESJA z produkcji: startujacy hub pytal "czy juz dzialam?", skaner
+    # znajdowal JEGO WLASNY proces (cmdline pasuje idealnie) i serve odmawial
+    # startu — hub nie mogl wstac w ogole. Ten sam wzorzec, co pkill -f
+    # trafiajacy we wlasny wrapper powloki. Wlasny PID jest zawsze wykluczony.
+    me = os.getpid()
     for entry in proc.iterdir():
         if not entry.name.isdigit():
             continue
         pid = int(entry.name)
+        if pid == me:
+            continue
         cmd = _cmdline_of(pid)
         if not cmd or "serve" not in cmd:
             continue
