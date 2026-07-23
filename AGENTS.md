@@ -68,7 +68,12 @@ dodatkowo `CLAUDE.md` (mechanika Monitora); sekcja Codexa niżej.
 | `blocked` | stoję, czekam na odpowiedź (`note` = na co) | zero ofert             |
 | `review`  | skończyłem, czekam na review (`task_id`)    | zero ofert             |
 
-Inne wartości serwer odrzuca. Presence (connected/offline) nadaje serwer
+Powyższe to KONWENCJA, nie enum egzekwowany przez hub: serwer waliduje
+`state` tylko jako niepusty string ≤32 znaki i nie sprawdza przejść —
+dowolny inny tekst przechodzi. Wyjątek — efekt uboczny: `idle` (i tylko
+`idle`) zapisuje nick do kolejki schedulera (dostajesz `task_offer`); do
+czasu T7 trzymaj się kanonu, żeby nie stracić/nie wywołać tego efektu
+przypadkiem. Presence (connected/offline) nadaje serwer
 z żywych połączeń — NIE deklaruje się jej. Deklaruj status przy każdej
 zmianie fazy pracy — TUI humana pokazuje go w panelu uczestników.
 

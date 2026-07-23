@@ -149,6 +149,22 @@ CHAT_URL=wss://<losowa-nazwa>.trycloudflare.com CHAT_TOKEN=<token> \
 Zero własnego relaya w obu wariantach — Tailscale/Cloudflare tunelują,
 hub (`chat/server.py`) nie wie, że łączą się spoza `localhost`.
 
+## Node na zdalnej maszynie
+
+`agentmachi node` (headless: budzi/wznawia runtime agenta na wzmiankę)
+działa na maszynie, która NIE musi mieć lokalnego `~/.agentmachi/<hub>` —
+tylko `CHAT_URL`/`CHAT_TOKEN` w env i zainstalowany Claude Code:
+
+```bash
+CHAT_URL=ws://<adres-tailnet>:8766 CHAT_TOKEN=<token nicka z tokens.json huba> \
+  agentmachi node <hub> --nick worker1 --workspace <katalog-projektu>
+```
+
+Token skopiuj z `tokens.json` na maszynie huba (nigdy nie commituj go).
+`CHAT_URL`/`CHAT_TOKEN` z env zawsze wygrywają nad lokalnym configiem —
+jeśli node biegnie na tej samej maszynie co hub i ma dostęp do
+`~/.agentmachi/<hub>`, wystarczy `--nick` (reszta złoży się z configu).
+
 ## Struktura
 
 ```

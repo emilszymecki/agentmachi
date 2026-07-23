@@ -148,7 +148,21 @@ class ClaudeRuntime:
                             and msg.get("session_id"):
                         on_session_id(msg["session_id"])  # [zapis 2] u wolajacego
 
-            await asyncio.gather(feed(), pump())
+            try:
+                await asyncio.gather(feed(), pump())
+            except OSError:
+                # I2(b) fix: dziecko, ktore pada/nie czyta stdin, zamyka
+                # swoj koniec pipe'u — feed() dostaje wtedy surowy
+                # BrokenPipeError (OSError) bez return_exceptions=True,
+                # a proc.wait() ponizej NIGDY sie nie wykonuje (zombie).
+                # kill() zamiast terminate(): dziecko juz najczesciej martwe,
+                # ProcessLookupError tolerowany; wait() reapuje w kazdym razie.
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                await proc.wait()
+                return -1
             return await proc.wait()
 
         try:
@@ -161,6 +175,14 @@ class ClaudeRuntime:
 
 def _is_wake(frame, nick, groups):
     if frame.get("type") != "chat":
+        return False
+    if frame.get("from") == nick:
+        # I1 fix: backlog jest niefiltrowany i zawiera WLASNE ramki agenta
+        # (np. "@all zrobione") — nie moga wywolywac spurious wake po
+        # reconnect + spam rate-limited (cooldown nie dotyczy, bo
+        # from == nick nie jest w `humans`). Kontekst dalej je zawiera
+        # (budowany osobno z last_context_seq, bez filtra _is_wake) —
+        # tylko GATE wake'a ma je odrzucac.
         return False
     text = frame.get("text", "")
     mentions = protocol.parse_mentions(text)
@@ -232,7 +254,19 @@ async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
     def _persist_sid(sid):
         state.session_id = sid; state.save(state_path)      # [zapis 2]
 
-    await runtime.run(prompt, state.session_id, _persist_sid)
+    try:
+        await runtime.run(prompt, state.session_id, _persist_sid)
+    except Exception as e:
+        # I2(a) fix: runtime.run moze rzucic (np. FileNotFoundError -
+        # brak binarium claude). Bez tego wyjatek propagowalby do
+        # node_loop -> backoff, wzmianka juz skonsumowana ([zapis 1] wyzej)
+        # i ZERO sladu na kanale. Zero szczegolow/sciezek w tresci (nie
+        # wyciekamy internaliow) — tylko nazwa typu wyjatku. last_context_seq
+        # ([zapis 3]) CELOWO nie wykonujemy: kontekst ma wrocic w
+        # nastepnym wake'u. Petla wraca normalnie (bez raise) do
+        # kolejnej ramki backlogu / live-loopa.
+        await _say(ws, nick, f"runtime error: {type(e).__name__}")
+        return
     state.last_context_seq = frame["seq"]                   # [zapis 3]
     state.save(state_path)
     # UWAGA: `backlog` to ta sama lista, po ktorej iteruje wolajacy

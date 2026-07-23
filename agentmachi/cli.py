@@ -6,7 +6,7 @@ hub to infrastruktura obok (jak Hamachi obok CS-a).
 
 Uklad ~/.agentmachi/<name>/:
   tokens.json  (0600)  nick -> {token, role, groups}
-  config.json          {port}
+  config.json          {port, bind}
   data/                event-log + snapshot huba (chat.store)
   data/rules.md        konstytucja kanalu (edytuje human, plikiem)
 """
@@ -148,6 +148,8 @@ czlowiek (TUI):
 agent dolacza (nasluch + wysylka; wklej agentowi jedno z ponizszych):
   AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=worker1 agentmachi listen
   AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send worker1 "czesc"
+  na zdalnej maszynie dodaj CHAT_TOKEN=<token z tokens.json> (hub nie
+  musi tam istniec lokalnie — patrz README: Node na zdalnej maszynie)
 
 zdanie dla agenta (skill join):
   "dolacz do agentmachi '{name}' ({addr}) jako worker1"
@@ -157,9 +159,13 @@ zdanie dla agenta (skill join):
 def _agent_env(args):
     """Zloz srodowisko klienta: hub z --name/AGENTMACHI_HUB, nick+token
     z tokens.json huba (CHAT_TOKEN z env wygrywa — nie wymuszamy pliku).
-    CHAT_URL wygrywa nad CHAT_PORT w send.py; adres to connect_host(bind)
-    (NIE surowy bind — patrz connect_host: loopback/wildcard -> localhost,
-    zeby hub_id agenta nie zmienial sie przy kazdym upgradzie/bindzie)."""
+    CHAT_URL z env WYGRYWA NAD configiem lokalnym (fix C1 — na maszynie
+    zdalnej, bez ~/.agentmachi/<hub>, ustawiamy tylko gdy env pusty;
+    inaczej agent na VPS dostalby CHAT_URL z lokalnego configu i celowal
+    w localhost zamiast w adres operatora). Gdy ustawiamy sami, adres to
+    connect_host(bind) (NIE surowy bind — patrz connect_host:
+    loopback/wildcard -> localhost, zeby hub_id agenta nie zmienial sie
+    przy kazdym upgradzie/bindzie)."""
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
     nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK")
     port = hub_port(name)
@@ -172,7 +178,8 @@ def _agent_env(args):
                 f"podaj nick z {hub_dir(name) / 'tokens.json'} "
                 f"(--nick albo CHAT_NICK); znane: {', '.join(tokens)}")
         token = tokens[nick]["token"]
-    os.environ["CHAT_URL"] = f"ws://{connect_host(bind)}:{port}"
+    if not os.environ.get("CHAT_URL"):
+        os.environ["CHAT_URL"] = f"ws://{connect_host(bind)}:{port}"
     os.environ["CHAT_TOKEN"] = token
     os.environ["CHAT_NICK"] = nick or "listener"
     return nick
@@ -205,14 +212,27 @@ def cmd_card(args):
     return 0
 
 
-def cmd_tui(args):
-    name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
+def _tui_env(name):
+    """Zloz srodowisko TUI (wydzielone z cmd_tui — testowalne bez Textuala).
+    I3 fix: CHAT_URL musi isc z bindu huba (connect_host(hub_bind(name))),
+    nie tylko CHAT_PORT — inaczej tui.py fallbackuje do ws://localhost i
+    nie polaczy sie z hubem bindowanym na adres tailnetowy. Env CHAT_URL
+    WYGRYWA nad configiem lokalnym (symetrycznie do C1 w _agent_env)."""
     tokens_path = hub_dir(name) / "tokens.json"
     if not tokens_path.exists():
         raise CliError(f"hub {name!r} nie istnieje; najpierw: "
                        f"agentmachi serve --name {name}")
     os.environ["AGENTMACHI_TOKENS"] = str(tokens_path)
-    os.environ["CHAT_PORT"] = str(hub_port(name))
+    port = hub_port(name)
+    os.environ["CHAT_PORT"] = str(port)
+    if not os.environ.get("CHAT_URL"):
+        os.environ["CHAT_URL"] = f"ws://{connect_host(hub_bind(name))}:{port}"
+    return tokens_path
+
+
+def cmd_tui(args):
+    name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
+    _tui_env(name)
     import tui
     return tui.main()
 

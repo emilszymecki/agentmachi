@@ -141,6 +141,40 @@ def test_agent_env_upgrade_hub_without_bind_in_config_keeps_localhost(
     assert send.hub_id_from_url(os.environ["CHAT_URL"]) == "localhost:8931"
 
 
+def test_agent_env_chat_url_from_env_wins_over_config(home, monkeypatch):
+    """C1: na maszynie zdalnej (VPS bez lokalnego ~/.agentmachi/<hub>) env
+    CHAT_URL musi wygrac nad configem lokalnym — inaczej _agent_env kasuje
+    adres operatora i zawsze celuje w localhost z lokalnego config.json."""
+    cli.ensure_hub("alpha", 8931)  # config lokalny: bind 127.0.0.1
+    monkeypatch.setenv("CHAT_URL", "ws://100.64.0.7:8766")
+    monkeypatch.setenv("CHAT_TOKEN", "remote-token")
+    monkeypatch.setenv("CHAT_NICK", "")
+
+    class Args:
+        name = "alpha"
+        nick = "worker1"
+    cli._agent_env(Args())
+    assert os.environ["CHAT_URL"] == "ws://100.64.0.7:8766"
+
+
+def test_tui_env_sets_chat_url_from_hub_bind(home, monkeypatch):
+    """I3: cmd_tui musi ustawiac CHAT_URL z bindu huba (nie tylko CHAT_PORT),
+    inaczej tui.py fallbackuje do ws://localhost i nie polaczy sie z hubem
+    bindowanym na adres tailnetowy."""
+    cli.ensure_hub("alpha", 8931, bind="100.64.0.5")
+    monkeypatch.setenv("CHAT_URL", "")
+    cli._tui_env("alpha")
+    assert os.environ["CHAT_URL"] == "ws://100.64.0.5:8931"
+
+
+def test_tui_env_chat_url_from_env_wins(home, monkeypatch):
+    """I3 (symetria z C1): preset CHAT_URL nie moze zostac nadpisany."""
+    cli.ensure_hub("alpha", 8931, bind="100.64.0.5")
+    monkeypatch.setenv("CHAT_URL", "ws://preset-host:1234")
+    cli._tui_env("alpha")
+    assert os.environ["CHAT_URL"] == "ws://preset-host:1234"
+
+
 # --- Task 3: subkomenda `agentmachi node` ----------------------------------
 
 def test_node_parser_defaults():

@@ -51,6 +51,22 @@ def test_cooldown_after_agent_wake():
     assert rl.check(now, [now - 90], sender_is_human=False) is None
 
 
+# --- I1: self-wake guard — wlasne ramki z backlogu nie moga budzic --------
+
+def test_should_wake_ignores_own_frames_from_backlog():
+    """I1: backlog (niefiltrowany) zawiera wlasne wiadomosci agenta
+    (np. '@all zrobione') — nie moga wywolywac spurious wake po reconnect.
+    Kontekst i tak je zawiera (budowany z backlogu bez filtra _is_wake) —
+    tylko gate wake'a ma je odrzucac."""
+    from agentmachi.node import _should_wake
+    own_mention = {"type": "chat", "from": "beta", "seq": 5,
+                   "text": "@all zrobione"}
+    assert _should_wake(own_mention, "beta", {"workers"}, last_wake_seq=0) is False
+    others_mention = {"type": "chat", "from": "emil", "seq": 6,
+                      "text": "@all kolejna sprawa"}
+    assert _should_wake(others_mention, "beta", {"workers"}, last_wake_seq=0) is True
+
+
 # --- Step 5: ClaudeRuntime na fake'owym binarium ---------------------------
 
 def test_claude_runtime_reports_session_id_immediately(tmp_path):
@@ -89,6 +105,22 @@ def test_claude_runtime_max_duration_kills_child_hung_before_reading_stdin(tmp_p
     elapsed = time.monotonic() - start
     assert code == -9              # zabite przez max_duration, nie zwisniete
     assert elapsed < 2.0            # sufit ~0.5s + narzut kill/wait, NIE ~120s spania dziecka
+
+
+def test_claude_runtime_survives_broken_pipe_from_early_exit_child(tmp_path):
+    """I2(b): dziecko, ktore pada natychmiast BEZ czytania stdin (np. binarium
+    nie istnieje/crashuje na starcie), zamyka swoj koniec pipe'u zanim feed()
+    zdazy napisac duzy prompt — asyncio.gather(feed(), pump()) bez
+    return_exceptions puszcza wtedy surowy BrokenPipeError/OSError, omijajac
+    proc.wait() (zombie). run() musi zlapac OSError i zwrocic int."""
+    from agentmachi.node import ClaudeRuntime
+    rt = ClaudeRuntime(workspace=str(tmp_path), max_duration=5.0,
+                       argv0=[sys.executable, "-c", "import sys; sys.exit(3)"])
+    big_prompt = "x" * (300 * 1024)  # >256KB — wieksze niz domyslny pipe (64KB)
+    code = asyncio.run(asyncio.wait_for(
+        rt.run(big_prompt, session_id=None, on_session_id=lambda sid: None),
+        timeout=5.0))
+    assert isinstance(code, int)   # run() zwraca int, nie wyjatek
 
 
 # --- Step 8: e2e node_loop na realnym hubie --------------------------------
@@ -258,4 +290,71 @@ def test_node_rate_limits_repeated_wakes(tmp_path, srv):
         except asyncio.CancelledError:
             pass
         await emil.close(); await obs.close()
+    asyncio.run(srv(run))
+
+
+# --- I2(a): runtime.run rzucajacy wyjatek nie moze wywalic node_loop ------
+
+class FailingOnceRuntime:
+    """Fake runtime: pierwsze wywolanie pada (symuluje brak binarium
+    claude), kolejne dzialaja normalnie jak RecordingRuntime."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def run(self, prompt, session_id, on_session_id):
+        self.calls += 1
+        if self.calls == 1:
+            raise FileNotFoundError("brak binarium claude")
+        on_session_id(session_id or "fresh-session")
+        return 0
+
+
+def test_node_reports_runtime_failure_on_channel_and_keeps_going(tmp_path, srv):
+    """I2(a): (a) FileNotFoundError z runtime.run (brak binarium claude) NIE
+    propaguje do node_loop (zero-backoff-crash-loop bez sladu na kanale);
+    (b) na hubie ma sie pojawic ramka chat 'runtime error: FileNotFoundError'
+    (widoczna live dla humana — fizyka huba dostarcza KAZDY chat humanom
+    bez wzgledu na wzmianke); (c) last_context_seq NIE przesuwa sie po
+    failu (kontekst wraca w nastepnym wake'u); (d) node zyje i obsluguje
+    kolejny wake normalnie."""
+    from agentmachi.node import node_loop
+
+    async def run(server):
+        state_path = tmp_path / "node-state.json"
+        rt = FailingOnceRuntime()
+        node = asyncio.ensure_future(node_loop(
+            url=f"ws://localhost:{PORT}", nick="beta", token="tb",
+            state_path=state_path, runtime=rt, humans={"emil"}))
+        await asyncio.sleep(0.2)  # niech node zdazy hello+wejsc w live-loop
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
+                                    "text": "@beta zrob taska"}))
+
+        error_frame = None
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and error_frame is None:
+            raw = await asyncio.wait_for(emil.recv(), timeout=5.0)
+            frame = json.loads(raw)
+            if frame.get("type") == "chat" and frame.get("from") == "beta":
+                error_frame = frame
+        assert error_frame is not None, "brak ramki bledu na kanale"
+        assert error_frame["text"] == "runtime error: FileNotFoundError"
+
+        st = NodeState.load(state_path)
+        assert st.last_wake_seq > 0            # wzmianka skonsumowana [zapis 1]
+        assert st.last_context_seq == 0         # NIE przesuniety po failu
+        assert rt.calls == 1
+
+        # node zyje: kolejna wzmianka odpala runtime normalnie
+        await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
+                                    "text": "@beta jeszcze raz"}))
+        await _wait_for(lambda: rt.calls == 2)
+
+        node.cancel()
+        try:
+            await node
+        except asyncio.CancelledError:
+            pass
+        await emil.close()
     asyncio.run(srv(run))

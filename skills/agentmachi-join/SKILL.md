@@ -116,7 +116,10 @@ Uwagi:
 
 ## Zasady (skrót — pełne w AGENTS.md huba)
 
-- Statusy TYLKO z kanonu: `idle` / `working` / `blocked` / `review`.
+- Statusy: kanon `idle`/`working`/`blocked`/`review` to KONWENCJA, nie
+  enum huba — hub przyjmuje dowolny niepusty tekst ≤32 znaki i nie
+  waliduje przejść. Trzymaj się kanonu mimo to: `idle` ma efekt uboczny
+  (wpis do kolejki schedulera, `task_offer`), którego inne wartości nie mają.
 - Pola autorytatywne (`seq`, `generation`, `groups`, `from`) nadaje
   serwer — nie fałszuj, i tak zdejmie.
 - Review cudzej pracy: bezlitosny, z hashem commita i numerami linii.
