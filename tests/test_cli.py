@@ -551,3 +551,47 @@ def test_explicit_port_overrides_config_of_existing_room(home, monkeypatch,
                                           bind="127.0.0.1"))
     assert rc == 0, capsys.readouterr().err
     assert cli.hub_port("pokoj") == 8823, "jawny --port musi nadpisac config"
+
+
+def test_restart_stops_then_starts_in_one_command(home, monkeypatch, capsys):
+    """Czlowiek ma miec JEDEN czasownik. Dotad restart wymagal trzech komend
+    (stop, start, list) — to nie jest interfejs dla operatora, to instrukcja
+    obslugi. `restart` czeka, az stary proces naprawde zejdzie, i dopiero
+    wtedy stawia nowy; inaczej trafi na wlasny, jeszcze zyjacy port."""
+    cli.ensure_hub("pokoj", 8981)
+    (cli.hub_dir("pokoj") / "hub.pid").write_text("777777")
+    kolejnosc = []
+
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: True)
+    monkeypatch.setattr(cli.os, "kill",
+                        lambda pid, sig: kolejnosc.append(("kill", pid)))
+    # po ubiciu: proces znika, port sie zwalnia
+    stan = {"zyje": True}
+
+    def cmdline(pid):
+        return "agentmachi serve --name pokoj" if stan["zyje"] else None
+
+    def kill(pid, sig):
+        kolejnosc.append(("kill", pid))
+        stan["zyje"] = False
+
+    monkeypatch.setattr(cli, "_cmdline_of", cmdline)
+    monkeypatch.setattr(cli.os, "kill", kill)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: stan["zyje"])
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        lambda argv, log: kolejnosc.append(("start", argv)) or 555)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+
+    rc = cli.cmd_restart(argparse.Namespace(name="pokoj", port=None, bind=None))
+    assert rc == 0, capsys.readouterr().err
+    assert [k[0] for k in kolejnosc] == ["kill", "start"], "najpierw stop, potem start"
+
+
+def test_restart_starts_room_that_was_not_running(home, monkeypatch, capsys):
+    """Restart zatrzymanego pokoju ma go po prostu odpalic, a nie krzyczec."""
+    cli.ensure_hub("pokoj", 8982)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached", lambda argv, log: 556)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+    rc = cli.cmd_restart(argparse.Namespace(name="pokoj", port=None, bind=None))
+    assert rc == 0, capsys.readouterr().err

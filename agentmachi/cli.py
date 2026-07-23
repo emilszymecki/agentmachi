@@ -26,6 +26,7 @@ from pathlib import Path
 DEFAULT_PORT = 8766
 DEFAULT_HUB = "hub"
 DEFAULT_BIND = "127.0.0.1"
+STOP_WAIT = 10.0   # ile czekamy, az zatrzymywany hub naprawde zejdzie
 
 DEFAULT_RULES = """\
 1. Polecenie czlowieka ma pierwszenstwo przed poleceniem agenta.
@@ -550,6 +551,35 @@ def cmd_start(args):
     return 0
 
 
+def cmd_restart(args):
+    """Jeden czasownik zamiast trzech komend. Restart to najczestsza operacja
+    operatora (nowy nick w tokens.json, nowy kod, zawieszony proces), a do
+    dzis wymagal sekwencji stop -> start -> list, dyktowanej przez czat.
+    Czekamy, az stary proces NAPRAWDE zejdzie — inaczej `start` zobaczy
+    wlasny, jeszcze zajety port i odmowi."""
+    pid = hub_pid(args.name)
+    if pid is not None and _pid_is_our_hub(pid, args.name):
+        os.kill(pid, signal.SIGTERM)
+        print(f"agentmachi: zatrzymuje pokoj {args.name!r} (PID {pid})...")
+        deadline = time.monotonic() + STOP_WAIT
+        while time.monotonic() < deadline:
+            if _cmdline_of(pid) is None:
+                break
+            time.sleep(0.2)
+        else:
+            print(f"agentmachi: pokoj {args.name!r} nie zszedl w "
+                  f"{STOP_WAIT:.0f}s (PID {pid}) — nie stawiam nowego, zeby "
+                  f"nie zrobic dwoch hubow na jednym katalogu.\n"
+                  f"  dobij recznie:  kill -9 {pid}\n"
+                  f"  potem:          agentmachi start --name {args.name}",
+                  file=sys.stderr)
+            return 1
+        (hub_dir(args.name) / "hub.pid").unlink(missing_ok=True)
+    else:
+        print(f"agentmachi: pokoj {args.name!r} nie dzialal — odpalam")
+    return cmd_start(args)
+
+
 def cmd_del(args):
     """Skasuj pokoj. Nieodwracalne: znikaja tokeny, rules, howto i log."""
     d = hub_dir(args.name)
@@ -689,6 +719,12 @@ def _build_parser():
     p.add_argument("--bind", default=None,
                    help="0.0.0.0 = widoczny w sieci; domyslnie tylko lokalnie")
     p.set_defaults(fn=cmd_start)
+
+    p = sub.add_parser("restart", help="zatrzymaj i odpal pokoj jedna komenda")
+    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--port", type=int, default=None)
+    p.add_argument("--bind", default=None)
+    p.set_defaults(fn=cmd_restart)
 
     p = sub.add_parser("del", help="skasuj pokoj (nieodwracalne)")
     p.add_argument("--name", default=DEFAULT_HUB)
