@@ -142,6 +142,40 @@ def _pid_is_our_hub(pid, name):
     return ("agentmachi" in cmd or "chat.server" in cmd) and name in cmd
 
 
+_SHELLS = ("zsh", "bash", "sh", "dash", "fish", "setsid", "nohup", "timeout", "env")
+
+
+def _ancestor_pids():
+    """My i wszyscy nasi przodkowie. Skaner nie ma prawa uznac zadnego z nich
+    za "juz dzialajacy hub" — to nie inny serwer, to my w drodze do startu."""
+    out = set()
+    cur = os.getpid()
+    while cur and cur > 1 and cur not in out:
+        out.add(cur)
+        try:
+            status = Path(f"/proc/{cur}/status").read_text()
+        except OSError:
+            break
+        ppid = next((l.split()[1] for l in status.splitlines()
+                     if l.startswith("PPid:")), None)
+        cur = int(ppid) if ppid and ppid.isdigit() else 0
+    return out
+
+
+def _is_shell_wrapper(pid):
+    """Czy proces to powloka/opakowanie odpalajace polecenie, a nie sam hub?
+
+    `zsh -c "... agentmachi serve --name X"` ma cale polecenie we wlasnym
+    argv, wiec kazdy wzorzec tekstowy trafia w niego tak samo jak w prawdziwy
+    serwer. Rozstrzygamy po PLIKU WYKONYWALNYM, nie po tresci argumentow —
+    argv klamie, exe nie."""
+    try:
+        exe = os.path.basename(os.readlink(f"/proc/{pid}/exe"))
+    except OSError:
+        return False           # brak dostepu: nie zgadujemy, decyduje wzorzec
+    return any(exe == s or exe.startswith(s) for s in _SHELLS)
+
+
 def _scan_hub_pid(name):
     """Znajdz zywy hub tego kanalu po procesach, bez pidfile.
 
@@ -159,12 +193,17 @@ def _scan_hub_pid(name):
     # znajdowal JEGO WLASNY proces (cmdline pasuje idealnie) i serve odmawial
     # startu — hub nie mogl wstac w ogole. Ten sam wzorzec, co pkill -f
     # trafiajacy we wlasny wrapper powloki. Wlasny PID jest zawsze wykluczony.
-    me = os.getpid()
+    # ...a razem z nim CALE nasze drzewo przodkow. Wrapper powloki
+    # (`zsh -c "... serve --name X"`, setsid, nohup) trzyma cale polecenie
+    # we WLASNYM argv, wiec pasuje do wzorca rownie dobrze jak prawdziwy hub.
+    # Bez tego startujacy przez powloke hub znajduje swojego rodzica i znow
+    # odmawia startu — ta sama pulapka, tylko o jedno pietro wyzej.
+    mine = _ancestor_pids()
     for entry in proc.iterdir():
         if not entry.name.isdigit():
             continue
         pid = int(entry.name)
-        if pid == me:
+        if pid in mine or _is_shell_wrapper(pid):
             continue
         cmd = _cmdline_of(pid)
         if not cmd or "serve" not in cmd:

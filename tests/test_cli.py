@@ -293,10 +293,11 @@ def test_list_sees_running_hub_without_pidfile(tmp_path, monkeypatch):
 
     real = cli._cmdline_of
 
-    # UWAGA: udajemy PROCES RODZICA, nie wlasny. Wlasny PID jest przez
-    # skaner swiadomie wykluczany (regresja z produkcji: startujacy hub
-    # znajdowal sam siebie i odmawial startu), wiec nie nadaje sie juz na
-    # proxy dla "jakiegos zywego procesu".
+    # Skaner wyklucza CALE nasze drzewo przodkow (my + rodzic + wrapper
+    # powloki), bo zaden z nich nie jest "innym hubem", tylko nami w drodze
+    # do startu. Rodzic nie nadaje sie wiec na proxy dla obcego procesu —
+    # udajemy, ze nasze drzewo to my sami, i dopiero wtedy PPID gra role
+    # cudzego, zywego huba.
     other = os.getppid()
 
     def fake(pid):
@@ -305,6 +306,8 @@ def test_list_sees_running_hub_without_pidfile(tmp_path, monkeypatch):
         return real(pid)
 
     monkeypatch.setattr(cli, "_cmdline_of", fake)
+    monkeypatch.setattr(cli, "_ancestor_pids", lambda: {os.getpid()})
+    monkeypatch.setattr(cli, "_is_shell_wrapper", lambda pid: False)
     row = next(r for r in cli.hub_rows() if r["name"] == "h3")
     assert row["running"] is True
     assert row["pid"] == other
@@ -352,3 +355,26 @@ def test_scan_never_reports_the_calling_process_as_running_hub(tmp_path, monkeyp
 
     monkeypatch.setattr(cli, "_cmdline_of", only_me_looks_like_hub)
     assert cli._scan_hub_pid("h9") is None
+
+
+def test_scanner_ignores_shell_wrapper_and_own_tree(tmp_path, monkeypatch):
+    """Regresja B2/F8: wrapper powloki NIE jest hubem.
+
+    `zsh -c "... agentmachi serve --name X"` trzyma cale polecenie we
+    wlasnym argv, wiec pasuje do wzorca tak samo jak prawdziwy serwer.
+    Startujacy przez powloke hub znajdowal wiec swojego rodzica i odmawial
+    startu — ta sama pulapka, co `pkill -f` trafiajacy we wlasny wrapper,
+    tylko o pietro wyzej. Rozstrzyga plik wykonywalny, nie tresc argv.
+    """
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h4", 8913)
+    other = os.getppid()
+    monkeypatch.setattr(
+        cli, "_cmdline_of",
+        lambda pid: "zsh -c cd repo && agentmachi serve --name h4"
+        if pid == other else None)
+    monkeypatch.setattr(cli, "_ancestor_pids", lambda: {os.getpid()})
+    monkeypatch.setattr(cli, "_is_shell_wrapper", lambda pid: pid == other)
+
+    row = next(r for r in cli.hub_rows() if r["name"] == "h4")
+    assert row["running"] is False, "powloka udajaca huba nie moze blokowac startu"
