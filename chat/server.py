@@ -71,6 +71,21 @@ STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
 
+def _open_bind(bind):
+    """Czy ten bind sam w sobie jest bramka (loopback albo tailnet)."""
+    if not isinstance(bind, str):
+        return False
+    if bind in ("127.0.0.1", "localhost", "::1"):
+        return True
+    if bind.startswith("100."):          # tailnet IPv4 (100.64.0.0/10)
+        try:
+            drugi = int(bind.split(".")[1])
+        except (ValueError, IndexError):
+            return False
+        return 64 <= drugi <= 127
+    return bind.lower().startswith("fd7a:115c:a1e0")   # tailnet IPv6
+
+
 def _reject_json_constant(value):
     """Odrzuc rozszerzenia Pythona (NaN/Infinity), ktore nie sa JSON-em."""
     raise ValueError(f"invalid JSON constant: {value}")
@@ -99,9 +114,14 @@ _TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"heartbeat"}
 
 class ChatServer:
     def __init__(self, data_dir, tokens, port, bind="127.0.0.1", wip_limit=3,
-                 lease_ttl=120.0, offer_timeout=5.0):
+                 lease_ttl=120.0, offer_timeout=5.0, open_mode=None):
         self.port = port
         self.bind = bind
+        # B6: tryb otwarty (agent bez tokenu) wlacza sie SAM przy bindzie,
+        # ktory juz jest bramka: loopback albo adres tailnetowy. Przy 0.0.0.0
+        # hub stoi takze na LAN i publicznie — tam siec nie chroni niczego,
+        # wiec token wraca jako wymog dla wszystkich.
+        self.open_mode = _open_bind(bind) if open_mode is None else open_mode
         self.offer_timeout = offer_timeout
         self.log = EventLog(Path(data_dir))
         snap = self.log.load_snapshot()
@@ -211,7 +231,13 @@ class ChatServer:
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
-        self._server = await websockets.serve(self._handler, self.bind, self.port)
+        # Keepalive JAWNIE, nie z domyslnych: od niego zalezy, co znaczy
+        # "nick zajety przez zywe polaczenie" (B6). Martwy socket bez pingu
+        # wisi w ESTAB minutami — zdarzylo sie w dogfoodzie i agent nie mogl
+        # wrocic na wlasny nick. Przy tych wartosciach trup wypada w ~40 s.
+        self._server = await websockets.serve(
+            self._handler, self.bind, self.port,
+            ping_interval=20, ping_timeout=20)
         self._expiry_task = asyncio.ensure_future(self._expiry_loop())
 
     async def stop(self):
@@ -347,6 +373,15 @@ class ChatServer:
                  "connected": bool(self.conns.get(nick)),
                  "status": self.status.get(nick)}
                 for nick in sorted(self.registry.tokens)]
+
+    def _wolny_nick(self, prefix="worker"):
+        """Pierwszy nick, ktorego nikt nie trzyma — propozycja dla wchodzacego."""
+        n = 1
+        while True:
+            kandydat = f"{prefix}{n}"
+            if not self.conns.get(kandydat) and kandydat not in self.registry.tokens:
+                return kandydat
+            n += 1
 
     def _load_rules(self):
         path = self.log.dir / "rules.md"
@@ -525,8 +560,28 @@ class ChatServer:
                 # swiadomy, tani trade-off — hello nie jest hot-path jak retry
                 # mutacji taskow.
                 trial_registry = copy.deepcopy(self.registry)
-                generation = trial_registry.hello(
-                    frame.get("from"), frame.get("instance_id"), frame.get("token"))
+                # B6: w trybie otwartym agent moze wejsc BEZ tokenu. Rola
+                # human wymaga go zawsze (open_hello odmawia), a tryb otwarty
+                # wlacza sie wylacznie przy bindzie loopback/tailnet — patrz
+                # _open_mode(). Nick zajety przez ZYWE polaczenie nie jest
+                # odbierany (nizej): martwe sockety wypadaja same dzieki
+                # keepalive, wiec "zajety" znaczy "zajety naprawde".
+                if self.open_mode and not frame.get("token"):
+                    zadany = frame.get("from")
+                    if (isinstance(zadany, str) and self.conns.get(zadany)
+                            and trial_registry.role_of(zadany) != "human"):
+                        wolny = self._wolny_nick()
+                        await ws.send(json.dumps(protocol.make_frame(
+                            "error", "server", time.time(),
+                            text=f"nick {zadany} jest zajety przez polaczonego "
+                                 f"uczestnika; wolny nick: {wolny}")))
+                        return
+                    generation = trial_registry.open_hello(
+                        zadany, frame.get("instance_id"))
+                else:
+                    generation = trial_registry.hello(
+                        frame.get("from"), frame.get("instance_id"),
+                        frame.get("token"))
             except AuthError as e:
                 await ws.send(json.dumps(protocol.make_frame(
                     "error", "server", time.time(), text=str(e))))

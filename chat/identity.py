@@ -78,6 +78,32 @@ class Registry:
             raise AuthError(f"bad instance_id for {nick}")
         return self._bump(nick, instance_id)
 
+    def open_hello(self, nick, instance_id):
+        """B6: wejscie BEZ tokenu (tryb otwarty — patrz ChatServer.open_mode).
+
+        Tozsamosc opiera sie na sieci i moderacji czlowieka, nie na sekrecie:
+        do huba dosiegnie tylko maszyna z tailnetu, a moderator widzi kazde
+        wejscie i moze je odwolac (`kick`). Token zostaje wylacznie dla roli
+        human — bez tego dowolny uczestnik tailnetu wszedlby jako moderator
+        i wyrzucal pozostalych.
+
+        Nick nieznany dostaje role agenta i grupe `workers`: bez grupy bylby
+        technicznie na kanale i praktycznie gluchy, bo wzmianki `$workers`
+        chodza po grupach. Nick znany z tokens.json zachowuje swoja
+        konfiguracje (grupy z pliku), tylko nie musi dowodzic tokenem.
+        """
+        if not isinstance(nick, str) or not nick:
+            raise AuthError("invalid nick")
+        if not isinstance(instance_id, str) or not instance_id:
+            raise AuthError(f"bad instance_id for {nick}")
+        if self.roles.get(nick) == "human":
+            raise AuthError(
+                f"{nick} to konto moderatora — wejscie wymaga tokenu")
+        if nick not in self.roles:
+            self.roles[nick] = "agent"
+            self.groups[nick] = ["workers"]
+        return self._bump(nick, instance_id)
+
     def replay_hello(self, nick, instance_id):
         # (A) replay zaufanej (juz raz zautoryzowanej) mutacji hello z logu
         # eventow po crashu — token NIGDY nie trafia do logu (bezpieczenstwo),
