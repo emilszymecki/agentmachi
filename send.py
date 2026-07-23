@@ -173,6 +173,37 @@ def _emit_session_metadata(reply):
         _print_event({"type": "session_metadata", **meta})
 
 
+def _warn_if_taken_over(reply, nick):
+    """Powiedz agentowi, ze ktos siedzial na jego nicku.
+
+    F3 dal slad po takeoverze LUDZIOM (push do TUI) — ale ofiara nie
+    dostaje nic: w chwili wyparcia jej socket jest wlasnie zamykany,
+    a po powrocie ramka jest juz historia, ktorej nikt jej nie pokazuje.
+    Zmierzone na produkcji: 40 wyparc worker1 w osiem sekund i ani jedno
+    nie dotarlo do wypartego — dowiedzial sie od czlowieka.
+
+    `takeover` jest w CONVERSATION_TYPES, wiec wraca w `conversation`
+    przy hello. Wystarczy je przefiltrowac po wlasnym nicku — zero zmian
+    w protokole i zero pracy po stronie serwera.
+    """
+    # Dwa zrodla, bo hub uzywa ich zaleznie od kursora: `backlog` przy
+    # zwyklym powrocie (odpowiedz ok), `conversation` po kompakcji
+    # (resync_required). Patrzenie tylko na jedno dawalo ostrzezenie
+    # wylacznie po snapshocie — czyli prawie nigdy.
+    ramki = list(reply.get("backlog") or []) + list(reply.get("conversation") or [])
+    mine = [f for f in ramki
+            if isinstance(f, dict) and f.get("type") == "takeover"
+            and f.get("nick") == nick]
+    if not mine:
+        return
+    ostatni = mine[-1]
+    print(f"[uwaga] na twoim nicku ({nick}) doszlo do {len(mine)} wyparc; "
+          f"ostatnie: generacja {ostatni.get('previous_generation')} -> "
+          f"{ostatni.get('generation')}. Sprawdz, czy nie masz drugiego "
+          f"klienta na tym nicku — dwa zywe klienty wypieraja sie w kolko.",
+          file=sys.stderr)
+
+
 def _apply_hello_reply(session, reply):
     if reply["type"] == "ok":
         _emit_session_metadata(reply)
@@ -240,6 +271,7 @@ async def listen(nick):
                         session = boot
                         session.acquire_listener_lock()
                     _apply_hello_reply(session, reply)
+                    _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
                     async for message in ws:
                         try:
