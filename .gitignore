@@ -14,3 +14,8 @@ server.log
 hub-8766.log
 agentmachi.egg-info/
 uv.lock
+
+# scratch/PoC z rootu — NIE czesc projektu (prawdziwy serwer to chat/server.py)
+/server.py
+/test.json
+/countdown.py
