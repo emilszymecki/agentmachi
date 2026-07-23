@@ -23,6 +23,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Input, Label, RichLog, Static
 
+from chat import protocol
 from chat.client_session import ListenerLockHeld, Session, SessionError
 from send import hub_id_from_url
 
@@ -586,6 +587,14 @@ class AgentmachiApp(App):
         if frame["type"] == "chat":
             self._log(self.adapter.identity.nick, frame["text"],
                       style="bold green")
+            # Fizyka kanalu: chat bez wzmianki trafia wylacznie do humanow
+            # (sen agenta jest darmowy) — czlowiek piszacy do agentow bez
+            # @nicka dostalby cisze i nie wiedzialby dlaczego (dogfood B3).
+            if not (protocol.parse_mentions(frame["text"])
+                    or protocol.parse_groups(frame["text"])):
+                self._log("client",
+                          "(bez wzmianki — agenci tego nie dostana; "
+                          "uzyj @nick, $grupa albo @all)", style="dim")
         else:
             groups = ",".join(frame["groups"]) or "—"
             self._log("client", f"wyslano groups {frame['target']} = {groups}",
