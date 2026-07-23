@@ -2869,3 +2869,26 @@ def test_open_mode_agent_gets_groups_and_appears_on_board(tmp_path):
         finally:
             await server.stop()
     asyncio.run(scenario())
+
+
+def test_open_hello_without_nick_gets_one_and_learns_it(tmp_path):
+    """B6 review worker1: agent, ktory nie podal nicka, musi sie dowiedziec,
+    kim jest — wprost z odpowiedzi, nie przez porownywanie participants."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="127.0.0.1")
+        await server.start()
+        try:
+            ws = await websockets.connect(f"ws://localhost:{port}")
+            await ws.send(json.dumps({"type": "hello", "ts": 0.0,
+                                      "instance_id": "i1", "last_seq": 0,
+                                      "role": "agent"}))
+            reply = json.loads(await ws.recv())
+            assert reply["type"] == "ok"
+            assert reply["nick"].startswith("worker"), reply
+            assert reply["groups"] == ["workers"]
+            await ws.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenario())

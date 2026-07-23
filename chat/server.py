@@ -573,6 +573,14 @@ class ChatServer:
                 # keepalive, wiec "zajety" znaczy "zajety naprawde".
                 if self.open_mode and not frame.get("token"):
                     zadany = frame.get("from")
+                    # Brak propozycji nicka = "dajcie mi jakikolwiek". Agent
+                    # nie musi wiedziec, kim jest, zanim wejdzie — dowie sie
+                    # z pola `nick` w odpowiedzi ok (bez tego musialby to
+                    # wywnioskowac z participants, co lamie sie przy dwoch
+                    # swiezych wejsciach naraz).
+                    if not zadany:
+                        zadany = self._wolny_nick()
+                        frame["from"] = zadany
                     if (isinstance(zadany, str) and self.conns.get(zadany)
                             and trial_registry.role_of(zadany) != "human"):
                         wolny = self._wolny_nick()
@@ -736,6 +744,11 @@ class ChatServer:
                 wire_backlog = [e for e in backlog if e.get("type") != "hello"]
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
+                    nick=nick,   # KIM jestes — jawnie, nie do wywnioskowania
+                                 # z participants (B6 review: agent bez
+                                 # wlasnej propozycji nicka inaczej nie wie,
+                                 # kim zostal, a przy dwoch swiezych
+                                 # wejsciach naraz zgadywanie sie lamie)
                     generation=generation, role=role, groups=list(groups),
                     backlog=wire_backlog, last_seq=self.log.last_seq, **extra)
             await ws.send(json.dumps(reply))

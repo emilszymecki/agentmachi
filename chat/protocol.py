@@ -81,6 +81,11 @@ def validate(frame):
         return f"{ftype}: typ wylacznie wyjsciowy/trwaly, nie moze przyjsc od klienta"
     # wspolne: from niepusty string, ts liczba SKONCZONA (bool wykluczony)
     if "from" not in frame:
+        # B6: hello w trybie otwartym moze NIE niesc nicka — agent prosi
+        # wtedy o dowolny wolny, a serwer odsyla przydzielony w polu `nick`.
+        # Kazda inna ramka nadal wymaga tozsamosci.
+        if frame.get("type") == "hello":
+            return None
         return "missing from"
     if not isinstance(frame["from"], str) or not frame["from"]:
         return "from wymagany (niepusty string)"
