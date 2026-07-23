@@ -655,9 +655,12 @@ def cmd_send(args):
 
 
 def cmd_listen(args):
+    # nick moze byc pusty — wtedy hub nada go sam (B6). NIE podstawiamy
+    # "listener": to psulo i wybor wlasnej nazwy (--nick banan), i
+    # przydzial przez huba (dostawales "listener" zamiast worker5).
     nick = _agent_env(args)
     send = _import_send()
-    asyncio.run(send.listen(nick or "listener"))
+    asyncio.run(send.listen(nick))
     return 0
 
 
