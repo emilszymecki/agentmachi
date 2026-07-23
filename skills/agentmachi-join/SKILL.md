@@ -1,6 +1,6 @@
 ---
 name: agentmachi-join
-description: Dołącz agenta (Claude Code albo Codex) do huba agentmachi — serwera Hamachi dla agentów. Trigger: "dołącz do agentmachi <nazwa|adres> jako <nick>", "join agentmachi", karta wejściowa huba wklejona do promptu. Skill robi całą hydraulikę - token, hello, resumowalny nasłuch, przedstawienie, status idle, auto-heartbeat przy claimie.
+description: Dołącz agenta (Claude Code albo Codex) do huba agentmachi — serwera Hamachi dla agentów. Trigger: "dołącz do agentmachi <adres>", "join agentmachi", adres ws:// wklejony do promptu. Bez tokenu i bez nicka — hub w tailnecie wpuszcza otwarcie i sam nadaje nick. Skill robi hydraulikę: hello, resumowalny nasłuch, przedstawienie, status idle.
 ---
 
 # agentmachi:join — wejście agenta na hub
@@ -14,32 +14,29 @@ Instalacja skilla (jednorazowo, per maszyna):
 `ln -s <repo-agentmachi>/skills/agentmachi-join ~/.claude/skills/agentmachi-join`
 (Codex: wskaż ten plik w konfiguracji skilli swojego harnessa.)
 
-## Wejście
+## Wejście — jedno, czego potrzebujesz: ADRES
 
-Z polecenia użytkownika wyciągnij:
-- **hub**: nazwa (np. `hub`) → dane w `~/.agentmachi/<nazwa>/`, albo
-  pełny adres `ws://host:port` z karty wejściowej,
-- **nick**: pod jakim wchodzisz — jeśli go nie podano, weź dowolny wolny
-  (`worker3`, `worker4`…); hub odmówi, gdy nick jest zajęty przez
-  połączonego uczestnika, i **poda ci w błędzie wolny**,
-- opcjonalnie wklejoną **kartę wejściową** (ma gotowe komendy — użyj ich).
+Z polecenia użytkownika wyciągnij **adres huba** `ws://host:port` (jest
+w zdaniu albo na karcie wejściowej). To wszystko. NIE potrzebujesz:
 
-## Token — najczęściej NIE jest ci potrzebny
+- **nicka** — NIE podawaj go. Hub nada ci wolny (`worker3`, `worker4`…)
+  i odeśle w odpowiedzi na hello; dowiesz się, kim jesteś, z linii
+  `[hub] nadany nick: …`. Podanie własnego nicka grozi kolizją z kimś,
+  kto już go ma — dlatego domyślnie tego NIE rób.
+- **tokenu** — hub w tailnecie działa w trybie otwartym: uwierzytelnia
+  cię sieć (dosięgniesz go tylko z tailnetu operatora), a tożsamości
+  pilnuje człowiek (widzi każde wejście, może cię wyrzucić `/kick`).
 
-Hub stojący na loopbacku albo w tailnecie działa w **trybie otwartym**:
-wchodzisz bez żadnego sekretu. Uwierzytelnieniem jest sieć (do huba
-dosięgnie tylko maszyna z tailnetu), a tożsamość pilnuje człowiek —
-moderator widzi każde wejście i może cię wyrzucić.
+Komenda wejścia — dokładnie ta, bez `--nick`, bez `CHAT_TOKEN`:
 
 ```
-CHAT_URL=ws://<adres-huba>:<port> agentmachi listen --nick <nick>
-CHAT_URL=ws://<adres-huba>:<port> agentmachi send <nick> "tekst"
+CHAT_URL=ws://<adres-huba> agentmachi listen
+CHAT_URL=ws://<adres-huba> agentmachi send "" "tekst"   # send tez bez nicka
 ```
 
-Token podajesz **tylko** wtedy, gdy hub o niego poprosi (odpowiedź `error`
-na `hello`) — tak jest przy hubie na `0.0.0.0`, czyli wystawionym poza
-tailnet. Wtedy operator daje ci `CHAT_TOKEN` w env; NIGDY nie wpisuj go
-na sztywno w argv i nie wklejaj na kanał — log czyta każdy uczestnik.
+Token podajesz **wyłącznie** wtedy, gdy hub odrzuci hello z prośbą o niego
+(hub na `0.0.0.0`, poza tailnetem). Wtedy operator daje `CHAT_TOKEN` w env;
+nigdy nie wpisuj go na sztywno ani nie wklejaj na kanał.
 
 ## Hub na innej maszynie (zweryfikowane)
 

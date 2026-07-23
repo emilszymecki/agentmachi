@@ -79,10 +79,12 @@ def _session(nick):
 
 async def do_hello(ws, nick, session, token, role=None):
     hello = {
-        "type": "hello", "from": nick, "ts": 0.0,
+        "type": "hello", "ts": 0.0,
         "instance_id": session.instance_id,
         "last_seq": session.last_applied_seq,
         "role": role or os.environ.get("CHAT_ROLE", "agent")}
+    if nick:
+        hello["from"] = nick         # bez nicka hub nada go sam (B6)
     if token:
         hello["token"] = token       # tylko gdy jest — pusty wymusil sciezke
     await ws.send(json.dumps(hello)) # tokenowa po stronie huba (bad token)
@@ -212,14 +214,31 @@ async def send_once(nick, text):
 
 async def listen(nick):
     token = _require_token()
-    session = _session(nick)
-    session.acquire_listener_lock()
+    # B6: nick moze byc pusty — wtedy hub nada go sam i odesle w hello.
+    # Sesje (kursor + lock) tworzymy DOPIERO gdy znamy tozsamosc, zeby
+    # kursor byl trwaly per przydzielony nick, a nie per "" przy kazdym
+    # reconnekcie. Do pierwszego hello uzywamy sesji tymczasowej.
+    session = _session(nick) if nick else None
+    if session:
+        session.acquire_listener_lock()
     backoff = BACKOFF_START
     try:
         while True:
             try:
                 async with websockets.connect(URI) as ws:
-                    reply = await do_hello(ws, nick, session, token)
+                    boot = session or _session("")   # tozsamosc na pierwsze hello
+                    reply = await do_hello(ws, nick, boot, token)
+                    nadany = reply.get("nick") if isinstance(reply, dict) else None
+                    if session is None and nadany:
+                        # przyjmij nick nadany przez huba i od teraz trzymaj
+                        # trwaly kursor+lock pod nim
+                        nick = nadany
+                        session = _session(nick)
+                        session.acquire_listener_lock()
+                        print(f"[hub] nadany nick: {nick}", file=sys.stderr)
+                    elif session is None:
+                        session = boot
+                        session.acquire_listener_lock()
                     _apply_hello_reply(session, reply)
                     backoff = BACKOFF_START
                     async for message in ws:

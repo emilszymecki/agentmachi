@@ -337,21 +337,29 @@ def _agent_env(args):
     loopback/wildcard -> localhost, zeby hub_id agenta nie zmienial sie
     przy kazdym upgradzie/bindzie)."""
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
-    nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK")
-    port = hub_port(name)
-    bind = hub_bind(name)
+    nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK") or ""
     token = os.environ.get("CHAT_TOKEN", "")
-    if not token:
-        tokens, _ = load_tokens(name)
-        if not nick or nick not in tokens:
-            raise CliError(
-                f"podaj nick z {hub_dir(name) / 'tokens.json'} "
-                f"(--nick albo CHAT_NICK); znane: {', '.join(tokens)}")
-        token = tokens[nick]["token"]
-    if not os.environ.get("CHAT_URL"):
+    remote = bool(os.environ.get("CHAT_URL"))
+    # B6: hub ZDALNY (CHAT_URL w env) nie ma lokalnego katalogu — nie
+    # ladujemy tokens.json, nie wymuszamy nicka, nie wymuszamy tokenu.
+    # Tryb otwarty huba (loopback/tailnet) wpuszcza bez sekretu, a nick
+    # nada sam. Token/nick bierzemy WYLACZNIE, gdy operator poda je w env.
+    if not remote:
+        port = hub_port(name)
+        bind = hub_bind(name)
+        if not token:
+            # Hub LOKALNY: jesli stoi w trybie otwartym, tez wejdziemy bez
+            # tokenu. Tokens.json czytamy tylko, gdy istnieje i ma nasz nick
+            # — w przeciwnym razie zdajemy sie na tryb otwarty.
+            try:
+                tokens, _ = load_tokens(name)
+                if nick and nick in tokens:
+                    token = tokens[nick]["token"]
+            except CliError:
+                pass
         os.environ["CHAT_URL"] = f"ws://{connect_host(bind)}:{port}"
     os.environ["CHAT_TOKEN"] = token
-    os.environ["CHAT_NICK"] = nick or "listener"
+    os.environ["CHAT_NICK"] = nick
     return nick
 
 
@@ -687,6 +695,23 @@ def cmd_node(args):
     Codexa swiadomie poza zakresem (po dogfoodzie jednego runtime'u)."""
     args.name = args.hub
     nick = _agent_env(args)
+    # Node budzi runtime KONKRETNEGO agenta (claude -p --resume dla jego
+    # sesji), wiec wymaga STABILNEGO, znanego nicka — inaczej nie wiadomo,
+    # czyj stan wznawiac. To wyjatek od otwartego wejscia: listen/send moga
+    # byc anonimowe (hub nada nick), node NIE. Walidujemy wprost, bo
+    # _agent_env w trybie otwartym juz tego nie wymusza.
+    if not nick:
+        print("agentmachi node: wymaga --nick albo CHAT_NICK "
+              "(node wznawia sesje konkretnego agenta)", file=sys.stderr)
+        return 2
+    try:
+        tokens, _ = load_tokens(args.hub)
+        if not os.environ.get("CHAT_TOKEN") and nick not in tokens:
+            print(f"agentmachi node: nick {nick!r} nieznany w "
+                  f"{hub_dir(args.hub) / 'tokens.json'}", file=sys.stderr)
+            return 2
+    except CliError:
+        pass
     humans = {h.strip() for h in args.humans.split(",") if h.strip()}
     state_dir = hub_dir(args.hub) / "nodes" / nick
     state_dir.mkdir(parents=True, exist_ok=True)
