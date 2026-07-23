@@ -15,8 +15,12 @@ import asyncio
 import json
 import os
 import secrets
+import shutil
 import signal
+import socket
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 DEFAULT_PORT = 8766
@@ -357,6 +361,12 @@ def cmd_serve(args):
     # katalog danych i pisac do tego samego events.jsonl — dwa procesy,
     # jeden log. Sprawdzamy PRZED czymkolwiek innym.
     running = hub_pid(args.name)
+    # `agentmachi start` zapisuje hub.pid z PID-em procesu, ktory WLASNIE
+    # tu jestesmy — wiec wlasny PID w pidfile nie oznacza "inny hub juz
+    # dziala". Trzeci wariant tej samej pulapki w jednym dniu: dopasowanie
+    # po argv (pkill), skan procesow, teraz pidfile.
+    if running == os.getpid():
+        running = None
     if running is not None and _pid_is_our_hub(running, args.name):
         print(f"agentmachi: hub {args.name!r} juz dziala (PID {running}). "
               f"Zatrzymaj go: agentmachi stop --name {args.name}",
@@ -415,6 +425,86 @@ def cmd_stop(args):
         return 1
     os.kill(pid, signal.SIGTERM)
     print(f"agentmachi: wyslano SIGTERM do huba {args.name!r} (PID {pid})")
+    return 0
+
+
+# --- cykl zycia dla operatora: start / stop / list / del ----------------
+# Czlowiek ma odpalac i moderowac pokoje, a nie pamietac zaklec powloki.
+# Do dzis start w tle wymagal recznego `setsid nohup ... & disown` — cztery
+# razy dyktowanego przez czat, raz wklejonego w zlej kolejnosci (skonczylo
+# sie split-brainem). Prompt musi wrocic do czlowieka, a adres ma byc na
+# ekranie.
+
+def _spawn_detached(argv, log_path):
+    """Odpal proces w tle, odpiety od terminala. Zwraca PID."""
+    with open(log_path, "a") as log:
+        proc = subprocess.Popen(
+            argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+            start_new_session=True)
+    return proc.pid
+
+
+def _wait_until_listening(port, bind, timeout=10.0):
+    """Czekaj, az hub realnie przyjmuje polaczenia. Bez tego `start` mowilby
+    'gotowe' zanim serwer wstanie, a czlowiek probowalby sie polaczyc za
+    wczesnie i uznal, ze nie dziala."""
+    host = connect_host(bind)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.15)
+    return False
+
+
+def cmd_start(args):
+    running = hub_pid(args.name)
+    if running is not None and _pid_is_our_hub(running, args.name):
+        print(f"agentmachi: pokoj {args.name!r} juz dziala (PID {running}).\n"
+              f"  zatrzymac:  agentmachi stop --name {args.name}\n"
+              f"  zobaczyc:   agentmachi card --name {args.name}",
+              file=sys.stderr)
+        return 1
+    d, port = ensure_hub(args.name, args.port, bind=args.bind)
+    bind = hub_bind(args.name, fallback=args.bind)
+    log_path = d / "serve.log"
+    argv = [sys.executable, "-m", "agentmachi.cli", "serve",
+            "--name", args.name, "--port", str(port), "--bind", bind]
+    pid = _spawn_detached(argv, log_path)
+    (d / "hub.pid").write_text(str(pid))
+    if not _wait_until_listening(port, bind, 10.0):
+        print(f"agentmachi: pokoj {args.name!r} nie wstal w 10 s — "
+              f"zajrzyj do {log_path}", file=sys.stderr)
+        return 1
+    tokens = json.loads((d / "tokens.json").read_text())
+    print_card(args.name, port, tokens, bind=bind)
+    print(f"pokoj dziala w tle (PID {pid}), log: {log_path}\n"
+          f"  kto jest w srodku:  agentmachi list\n"
+          f"  zatrzymac:          agentmachi stop --name {args.name}")
+    return 0
+
+
+def cmd_del(args):
+    """Skasuj pokoj. Nieodwracalne: znikaja tokeny, rules, howto i log."""
+    d = hub_dir(args.name)
+    if not d.exists():
+        print(f"agentmachi: pokoj {args.name!r} nie istnieje", file=sys.stderr)
+        return 1
+    running = hub_pid(args.name)
+    if running is not None and _pid_is_our_hub(running, args.name):
+        print(f"agentmachi: pokoj {args.name!r} DZIALA (PID {running}) — "
+              f"najpierw: agentmachi stop --name {args.name}", file=sys.stderr)
+        return 1
+    if args.confirm != args.name:
+        print(f"agentmachi: to skasuje pokoj {args.name!r} NA ZAWSZE "
+              f"(tokeny, rules, howto, cala historia rozmowy).\n"
+              f"  jesli na pewno:  agentmachi del --name {args.name} "
+              f"--tak-kasuj {args.name}", file=sys.stderr)
+        return 1
+    shutil.rmtree(d)
+    print(f"agentmachi: pokoj {args.name!r} skasowany")
     return 0
 
 
@@ -525,6 +615,19 @@ def _build_parser():
                   help="interfejs do bindowania (0.0.0.0 = wszystkie; "
                        "domyslnie 127.0.0.1 — tylko lokalnie)")
     p.set_defaults(fn=cmd_serve)
+
+    p = sub.add_parser("start", help="odpal pokoj W TLE i pokaz adres")
+    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("--bind", default=DEFAULT_BIND,
+                   help="0.0.0.0 = widoczny w sieci; domyslnie tylko lokalnie")
+    p.set_defaults(fn=cmd_start)
+
+    p = sub.add_parser("del", help="skasuj pokoj (nieodwracalne)")
+    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--tak-kasuj", dest="confirm", default=None,
+                   help="wpisz nazwe pokoju, zeby potwierdzic")
+    p.set_defaults(fn=cmd_del)
 
     p = sub.add_parser("list", help="jakie kanaly istnieja i ktore dzialaja")
     p.set_defaults(fn=cmd_list)

@@ -378,3 +378,95 @@ def test_scanner_ignores_shell_wrapper_and_own_tree(tmp_path, monkeypatch):
 
     row = next(r for r in cli.hub_rows() if r["name"] == "h4")
     assert row["running"] is False, "powloka udajaca huba nie moze blokowac startu"
+
+
+# --- zlecenie operatora: start / stop / list / del ----------------------
+# Czlowiek ma odpalac i moderowac pokoje, nie pamietac zakleć powloki.
+# Dotad start w tle wymagal `setsid nohup ... & disown` wklejanego recznie.
+
+def test_start_runs_hub_in_background_and_prints_card(home, monkeypatch, capsys):
+    spawned = {}
+
+    def fake_spawn(argv, log_path):
+        spawned["argv"] = argv
+        spawned["log"] = log_path
+        return 4242
+
+    monkeypatch.setattr(cli, "_spawn_detached", fake_spawn)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda port, bind, t: True)
+    rc = cli.cmd_start(argparse.Namespace(name="pokoj", port=8951,
+                                          bind="127.0.0.1"))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "serve" in " ".join(spawned["argv"])
+    assert "ws://localhost:8951" in out           # karta wejsciowa od razu
+    assert "agentmachi stop" in out               # mowi, co dalej
+    # pidfile zapisany przez start; hub_pid() go NIE potwierdzi, bo weryfikuje
+    # zywotnosc procesu, a 4242 jest atrapa — sprawdzamy wiec sam zapis
+    assert (cli.hub_dir("pokoj") / "hub.pid").read_text() == "4242"
+
+
+def test_start_refuses_when_already_running(home, monkeypatch, capsys):
+    cli.ensure_hub("pokoj", 8952)
+    (cli.hub_dir("pokoj") / "hub.pid").write_text(str(os.getpid()))
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: True)
+    rc = cli.cmd_start(argparse.Namespace(name="pokoj", port=8952,
+                                          bind="127.0.0.1"))
+    assert rc == 1
+    assert "juz dziala" in capsys.readouterr().err
+
+
+def test_del_requires_typing_the_room_name(home, capsys):
+    cli.ensure_hub("pokoj", 8953)
+    rc = cli.cmd_del(argparse.Namespace(name="pokoj", confirm=None))
+    assert rc == 1 and cli.hub_dir("pokoj").exists()
+    assert "--tak-kasuj pokoj" in capsys.readouterr().err
+
+    rc = cli.cmd_del(argparse.Namespace(name="pokoj", confirm="zla-nazwa"))
+    assert rc == 1 and cli.hub_dir("pokoj").exists()
+
+    rc = cli.cmd_del(argparse.Namespace(name="pokoj", confirm="pokoj"))
+    assert rc == 0 and not cli.hub_dir("pokoj").exists()
+
+
+def test_del_refuses_while_hub_is_running(home, monkeypatch, capsys):
+    cli.ensure_hub("pokoj", 8954)
+    (cli.hub_dir("pokoj") / "hub.pid").write_text(str(os.getpid()))
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: True)
+    rc = cli.cmd_del(argparse.Namespace(name="pokoj", confirm="pokoj"))
+    assert rc == 1 and cli.hub_dir("pokoj").exists()
+    assert "agentmachi stop" in capsys.readouterr().err
+
+
+def test_serve_does_not_treat_its_own_pidfile_as_another_hub(home, monkeypatch,
+                                                             capsys):
+    """REGRESJA z zywego testu: `start` zapisuje hub.pid z PID-em dziecka,
+    a dziecko (`serve`) czytalo ten sam plik i uznawalo SAMO SIEBIE za juz
+    dzialajacy hub — wiec nie wstawalo. Trzeci wariant tej samej pulapki
+    w jednym dniu (pkill po argv, skan procesow, teraz pidfile)."""
+    cli.ensure_hub("pokoj", 8961)
+    (cli.hub_dir("pokoj") / "hub.pid").write_text(str(os.getpid()))
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: True)
+
+    started = {}
+    monkeypatch.setattr(cli, "ensure_hub",
+                        lambda n, p, bind="127.0.0.1": (cli.hub_dir(n), 8961))
+    monkeypatch.setattr(cli, "print_card",
+                        lambda *a, **k: started.setdefault("card", True))
+
+    class Boom(RuntimeError):
+        pass
+
+    def fake_server_main():
+        started["ran"] = True
+        raise Boom()
+
+    import chat.server
+    monkeypatch.setattr(chat.server, "main", fake_server_main)
+    try:
+        cli.cmd_serve(argparse.Namespace(name="pokoj", port=8961,
+                                         bind="127.0.0.1"))
+    except Boom:
+        pass
+    assert started.get("ran"), ("serve odmowil startu z powodu WLASNEGO "
+                                "pidfile: " + capsys.readouterr().err)
