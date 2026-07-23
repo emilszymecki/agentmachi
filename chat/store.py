@@ -18,6 +18,12 @@ def _reject_json_constant(value):
     raise ValueError(f"invalid JSON constant in storage: {value}")
 
 
+# F1 (B5): typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji.
+# Reszta (hello/status/task_*) ma swoj stan w snapshocie i moze zniknac.
+CONVERSATION_TYPES = frozenset({"chat"})
+CONVERSATION_LIMIT = 200      # ile ostatnich ramek rozmowy serwujemy
+
+
 def _strict_json_loads(data):
     return json.loads(data, parse_constant=_reject_json_constant)
 
@@ -121,6 +127,40 @@ class EventLog:
             return None  # resync_required
         return [e for e in self._events if e["seq"] > seq]
 
+    def conversation_after(self, seq, limit=CONVERSATION_LIMIT):
+        """F1 (B5): rozmowa o seq > podanym, prosto z dysku.
+
+        Kanal JEST pamiecia agenta — inaczej niz stan maszyny (queue,
+        registry), ktory da sie odtworzyc ze snapshotu, rozmowy nie da sie
+        odtworzyc z niczego. Dlatego kompakcja jej nie rusza (save_snapshot
+        nizej), a tu podajemy ja niezaleznie od kursora i snapshot_seq.
+        Czytamy z pliku, nie z RAM: log rozmowy rosnie liniowo z historia
+        projektu i nie ma powodu trzymac go w pamieci huba (zmierzone:
+        22 ms dla 10k ramek). limit=None oddaje calosc; domyslnie tniemy
+        NAJSTARSZE, bo agent potrzebuje swiezego kontekstu."""
+        if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+            raise ValueError(f"conversation_after: zly seq: {seq!r}")
+        if limit is not None and (not isinstance(limit, int) or limit <= 0):
+            raise ValueError(f"conversation_after: zly limit: {limit!r}")
+        out = []
+        if not self.events_path.exists():
+            return out
+        with self.events_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = _strict_json_loads(line)
+                except ValueError:
+                    # urwany ogon po crashu jest naprawiany w __init__;
+                    # tutaj pomijamy, zeby odczyt pamieci nigdy nie wywrocil
+                    # obslugi hello.
+                    continue
+                if e.get("type") in CONVERSATION_TYPES and e.get("seq", 0) > seq:
+                    out.append(e)
+        return out[-limit:] if limit is not None else out
+
     def save_snapshot(self, state):
         seq = self.last_seq
         tmp = self.dir / "snapshot.json.tmp"
@@ -134,10 +174,20 @@ class EventLog:
             os.fsync(f.fileno())
         tmp.rename(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
         self.snapshot_seq = seq
+        # F1 (B5): rozmowa NIE podlega kompakcji. Stan maszyny odtwarza sie
+        # ze snapshotu, rozmowy nie odtworzy nic — a to ona jest pamiecia
+        # agentow. Czytamy zachowana historie z dysku PRZED nadpisaniem
+        # pliku (poprzednie kompakcje juz ja tam zostawily) i skladamy z
+        # ogonem po snapshocie. Kompaktujemy wylacznie ramki sluzbowe.
+        conversation = self.conversation_after(0, limit=None)
         self._events = [e for e in self._events if e["seq"] > seq]
+        tail_seqs = {e["seq"] for e in self._events}
+        keep = [e for e in conversation if e["seq"] not in tail_seqs]
+        keep.extend(self._events)
+        keep.sort(key=lambda e: e["seq"])
         events_tmp = self.dir / "events.jsonl.tmp"
         with events_tmp.open("w") as f:
-            for e in self._events:
+            for e in keep:
                 f.write(json.dumps(e, allow_nan=False) + "\n")
             f.flush()
             os.fsync(f.fileno())

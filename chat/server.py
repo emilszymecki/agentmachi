@@ -325,6 +325,17 @@ class ChatServer:
         text = path.read_text()
         return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+    def _load_howto(self):
+        """F5 (B5): instrukcja obslugi kanalu — dla agenta, ktory ma TYLKO
+        socket. Plik w repo jest bezuzyteczny dla klienta na golym ws (nie
+        ma repo), wiec onboarding musi isc ta sama droga co rules: w
+        odpowiedzi na hello. Rules mowia JAK sie zachowywac, howto — JAK sie
+        tu poruszac (adres, nicki, uzbrojenie nasluchu, pulapki)."""
+        path = self.log.dir / "howto.md"
+        if not path.exists():
+            return None
+        return path.read_text()
+
     # -- dostarczanie ------------------------------------------------------
     async def _send(self, nick, payload):
         data = json.dumps(payload)
@@ -548,6 +559,9 @@ class ChatServer:
             if rules_text is not None:
                 extra["rules"] = rules_text
                 extra["rules_hash"] = rules_hash
+            howto_text = self._load_howto()
+            if howto_text is not None:
+                extra["howto"] = howto_text
             # (t2 review + B4 agent-first) roster musi byc cursor-coherent
             # i JAWNY dla kazdego uczestnika: czlowiek renderuje z niego TUI,
             # agent czyta board ("kto tu jest, kto co robi") — starsze ramki
@@ -569,12 +583,18 @@ class ChatServer:
                 # Snapshot niesie offers (pending activations); gdyby resync
                 # wysylal sam queue, klient z za starym kursorem nie odzyskalby
                 # pending ofert po kompakcji.
+                # F1 (B5): resync niesie takze PAMIEC kanalu. `state` odtwarza
+                # maszyne (queue/registry/offers), ale rozmowy nie odtworzy
+                # nic — a to ona jest jedyna pamiecia agenta. Bez tego agent
+                # po kompakcji wchodzil na kanal, na ktorym "nic sie nigdy nie
+                # wydarzylo" (zmierzone na produkcji: 105 ramek dogfoodu).
                 reply = protocol.make_frame(
                     "resync_required", "server", time.time(),
                     snapshot_seq=self.log.snapshot_seq,
                     state={"queue": self.queue.dump(),
                            "registry": self.registry.dump(),
                            "offers": self._dump_offers()},
+                    conversation=self.log.conversation_after(last_seq),
                     generation=generation, role=role, groups=list(groups), **extra)
             else:
                 reply = protocol.make_frame(

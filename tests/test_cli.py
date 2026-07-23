@@ -252,3 +252,14 @@ def test_node_cmd_rejects_unknown_nick(home, monkeypatch):
     rc = cli.main(["node", "alpha", "--nick", "nikt-taki",
                   "--workspace", "/tmp/w"])
     assert rc == 2
+
+
+def test_ensure_hub_writes_howto_for_agents(tmp_path, monkeypatch):
+    """F5 (B5): swiezy hub serwuje howto — agent na golym sockecie dostaje
+    onboarding protokolem, bez dostepu do repo."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h", 8901)
+    howto = (tmp_path / "h" / "data" / "howto.md").read_text()
+    assert "ZAKAZ: czujka konczaca sie po trafieniu" in howto
+    assert "wygrywa deklaracja z nizszym" in howto
+    assert "instance_id" in howto

@@ -78,6 +78,13 @@ def ensure_hub(name, port, bind="127.0.0.1"):
     rules_path = d / "data" / "rules.md"
     if not rules_path.exists():
         rules_path.write_text(DEFAULT_RULES)
+    # F5 (B5): howto ma dojsc do agenta PROTOKOLEM (hub czyta ten plik i
+    # doklada do hello) — plik w repo jest bezuzyteczny dla klienta, ktory
+    # ma tylko socket. Szablon idzie z pakietu; human moze go nadpisac.
+    howto_path = d / "data" / "howto.md"
+    if not howto_path.exists():
+        howto_path.write_text(
+            (Path(__file__).with_name("howto_default.md")).read_text())
     config_path = d / "config.json"
     if config_path.exists():
         port = json.loads(config_path.read_text()).get("port", port)

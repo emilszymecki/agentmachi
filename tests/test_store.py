@@ -1,4 +1,6 @@
 # tests/test_store.py
+import json
+
 import pytest
 
 from chat.store import EventLog
@@ -184,3 +186,50 @@ def test_snapshot_rejects_nan_without_replacing_previous_snapshot(tmp_path):
     assert log.snapshot_path.read_bytes() == before
     assert log.snapshot_seq == before_seq
     assert log.load_snapshot() == ({"queue": {"ok": True}}, before_seq)
+
+
+# --- F1 (B5): pamiec kanalu przezywa kompakcje ---------------------------
+# Kanal JEST pamiecia agenta. Kompakcja projektowana pod odtworzenie
+# maszyny (queue/registry) kasowala rozmowe z DYSKU — zmierzone na
+# produkcji: snapshot_seq=105 zostawil 1 ramke ze 105. Ramki sluzbowe
+# (hello/status/task_*) nadal kompaktujemy: ich stan jest w snapshocie.
+
+def test_snapshot_preserves_conversation(tmp_path):
+    log = EventLog(tmp_path)
+    for i in range(3):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"ustalenie {i}"})
+        log.append({"type": "hello", "from": "w1", "ts": 0.0, "instance_id": "i1"})
+    log.save_snapshot({"registry": {}})
+
+    on_disk = [json.loads(line) for line in
+               (tmp_path / "events.jsonl").read_text().splitlines() if line.strip()]
+    typy = {e["type"] for e in on_disk}
+    assert typy == {"chat"}, "sluzbowe maja zniknac, rozmowa ma zostac"
+    assert [e["text"] for e in on_disk] == ["ustalenie 0", "ustalenie 1", "ustalenie 2"]
+
+
+def test_conversation_after_survives_restart(tmp_path):
+    log = EventLog(tmp_path)
+    for i in range(3):
+        log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"m{i}"})
+    log.save_snapshot({"registry": {}})
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "po snapshocie"})
+
+    revived = EventLog(tmp_path)   # restart procesu huba
+    conv = revived.conversation_after(0)
+    assert [e["text"] for e in conv] == ["m0", "m1", "m2", "po snapshocie"]
+    assert [e["seq"] for e in conv] == sorted(e["seq"] for e in conv)
+    # kursor w srodku: tylko nowsze
+    assert [e["text"] for e in revived.conversation_after(2)] == \
+        ["m2", "po snapshocie"]
+    # limit tnie NAJSTARSZE (agent chce swiezy kontekst)
+    assert [e["text"] for e in revived.conversation_after(0, limit=2)] == \
+        ["m2", "po snapshocie"]
+
+
+def test_conversation_after_does_not_break_events_after(tmp_path):
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "a"})
+    log.save_snapshot({"registry": {}})
+    assert log.events_after(0) is None      # kontrakt resync bez zmian
+    assert log.conversation_after(0)        # ale pamiec jest dostepna

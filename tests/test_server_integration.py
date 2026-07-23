@@ -183,6 +183,29 @@ def test_hello_no_rules_field_when_file_absent(srv):
     asyncio.run(srv(scenario))
 
 
+# -- F5 (B5): onboarding w PROTOKOLE. Agent na golym sockecie nie ma repo
+# ani plikow projektu — jedyne, co ma, to odpowiedz na hello. Howto musi
+# przyjsc ta sama droga co rules, inaczej kazdy nowy agent zaczyna od
+# zgadywania (zmierzone w dogfoodzie B5: godzina straty na nasluchu).
+
+def test_hello_returns_howto_when_present(srv):
+    async def scenario(server):
+        text = "adres: ws://host:8767\nnasluch: Monitor persistent\n"
+        (server.log.dir / "howto.md").write_text(text)
+        ws, reply = await hello("alfa", "ta")
+        assert reply["howto"] == text
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_hello_no_howto_field_when_file_absent(srv):
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert "howto" not in reply
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
 # -- Nowe: grupy adresowe (aneks v2, kontrakt codexa) ------------------------
 
 def test_group_mention_wakes_exact_members(srv):
@@ -2559,4 +2582,41 @@ def test_replay_backlog_unfiltered_for_agents(srv):
                  if f.get("type") == "chat"]
         assert "notatka bez wzmianki" in texts
         await beta.close(); await emil.close()
+    asyncio.run(srv(scenario))
+
+
+# -- F1 (B5): resync niesie PAMIEC, nie tylko stan maszyny ----------------
+# Zmierzone na produkcji: snapshot skasowal 105 ramek dogfoodu. Agent
+# wchodzacy po kompakcji dostawal {queue, registry, offers} i zero historii
+# — czyli stan maszyny przezywal, a pamiec agentow nie.
+
+def test_resync_carries_conversation(srv):
+    async def scenario(server):
+        ws, _ = await hello("alfa", "ta")
+        for i in range(3):
+            await ws.send(json.dumps({"type": "chat", "from": "alfa",
+                                      "ts": 0.0, "text": f"ustalenie {i}"}))
+        await asyncio.sleep(0.2)
+        server.snapshot()                      # kompakcja jak w produkcji
+        await ws.close()
+
+        ws2, reply = await hello("beta", "tb", instance="swiezy", last_seq=0)
+        assert reply["type"] == "resync_required"
+        conv = reply["conversation"]
+        assert [f["text"] for f in conv] == ["ustalenie 0", "ustalenie 1",
+                                             "ustalenie 2"]
+        assert [f["seq"] for f in conv] == sorted(f["seq"] for f in conv)
+        assert all(f["type"] == "chat" for f in conv)
+        await ws2.close()
+    asyncio.run(srv(scenario))
+
+
+def test_ok_reply_has_no_conversation_field(srv):
+    # kursor w zasiegu logu: backlog i tak niesie rozmowe, drugi raz
+    # wysylac jej nie ma po co
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        assert "conversation" not in reply
+        await ws.close()
     asyncio.run(srv(scenario))
