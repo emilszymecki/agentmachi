@@ -71,19 +71,36 @@ STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
 
+def _is_tailnet_ip(host):
+    """Czy `host` to adres w zakresie tailnetu (CGNAT 100.64/10 albo fd7a:...)."""
+    if not isinstance(host, str):
+        return False
+    if host.startswith("100."):          # tailnet IPv4 (100.64.0.0/10)
+        try:
+            drugi = int(host.split(".")[1])
+        except (ValueError, IndexError):
+            return False
+        return 64 <= drugi <= 127
+    return host.lower().startswith("fd7a:115c:a1e0")   # tailnet IPv6
+
+
 def _open_bind(bind):
     """Czy ten bind sam w sobie jest bramka (loopback albo tailnet)."""
     if not isinstance(bind, str):
         return False
     if bind in ("127.0.0.1", "localhost", "::1"):
         return True
-    if bind.startswith("100."):          # tailnet IPv4 (100.64.0.0/10)
-        try:
-            drugi = int(bind.split(".")[1])
-        except (ValueError, IndexError):
-            return False
-        return 64 <= drugi <= 127
-    return bind.lower().startswith("fd7a:115c:a1e0")   # tailnet IPv6
+    return _is_tailnet_ip(bind)
+
+
+def _bind_is_tailnet(bind):
+    """B7: czy hub bindowany na interfejs TAILNETU (nie loopback).
+
+    Tylko wtedy `remote_address` peera to jego prawdziwy adres tailnetu i
+    IP-binding ma sens. Przy bind-loopback wszyscy peer to 127.0.0.1
+    (lokalny test albo proxy) — adres nie rozroznia podmiotow, wiec
+    wiazanie sie NIE stosuje. Patrz tabela bind->zachowanie w planie B7."""
+    return _is_tailnet_ip(bind)
 
 
 def _reject_json_constant(value):
@@ -581,6 +598,28 @@ class ChatServer:
                     if not zadany:
                         zadany = self._wolny_nick()
                         frame["from"] = zadany
+                    # B7: adres wiazania. Aktywny TYLKO przy bindzie na
+                    # interfejs tailnetu — wtedy remote_address peera to jego
+                    # prawdziwy adres. Przy bind-loopback adres nie rozroznia
+                    # podmiotow (addr = None -> open_hello nie wiaze).
+                    addr = None
+                    if _bind_is_tailnet(self.bind):
+                        peer = ws.remote_address
+                        host = peer[0] if peer else None
+                        if host is None or host in ("127.0.0.1", "::1",
+                                                    "localhost"):
+                            # Loopback-peer przy bindzie na tailnet to ANOMALIA:
+                            # skad loopback, gdy hub stoi na tailnecie? Tylko
+                            # przez lokalny serve/tunnel (proxy). remote_address
+                            # to wtedy proxy, nie peer — IP-binding daloby
+                            # falszywa ochrone. Nie ufamy: open bez tokenu
+                            # odrzucone, tozsamosc wraca do tokenu.
+                            await ws.send(json.dumps(protocol.make_frame(
+                                "error", "server", time.time(),
+                                text="hub za proxy/tunelem — wejscie bez tokenu "
+                                     "niedostepne; podaj CHAT_TOKEN")))
+                            return
+                        addr = host
                     # Odmowa TYLKO gdy zywy nick nalezy do INNEGO instance_id.
                     # Ten sam instance = wlasny self-resume/self-send (send/frame
                     # wspoldziela tozsamosc listenera, zeby nie robic takeoveru)
@@ -597,8 +636,11 @@ class ChatServer:
                             text=f"nick {zadany} jest zajety przez polaczonego "
                                  f"uczestnika; wolny nick: {wolny}")))
                         return
+                    # B7 host-check + zapis wiazania — w open_hello, na trial
+                    # (provisional-then-commit). Inny adres na przypiety nick =
+                    # AuthError (lapane nizej jak kazdy blad open_hello).
                     generation = trial_registry.open_hello(
-                        zadany, frame.get("instance_id"))
+                        zadany, frame.get("instance_id"), addr)
                 else:
                     generation = trial_registry.hello(
                         frame.get("from"), frame.get("instance_id"),
@@ -947,6 +989,11 @@ class ChatServer:
                 await sock.close(code=4003, reason="kicked")
             except websockets.exceptions.ConnectionClosed:
                 pass
+        # B7: rozkaz roota bije wiazanie — zwolnij przypiecie nick->adres,
+        # zeby ten sam agent po re-IP (albo ktos inny) mogl wejsc na ten nick
+        # z nowego adresu. Bez tego wyrzucony agent, ktory zmienil IP, byloby
+        # trwale zablokowany z wlasnego nicka.
+        self.registry.release_open_addr(target)
 
     async def _on_membership_set(self, frame, requested_groups, nick, ws):
         """Przekaz funkcje przez grupy; bez RBAC, elekcji i CAS."""

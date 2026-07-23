@@ -2972,3 +2972,47 @@ def test_admin_agent_can_kick_after_human_grants_admin(srv):
         for w in (emil, beta, delta):
             await w.close()
     asyncio.run(srv(scenario))
+
+
+def test_b7_loopback_peer_at_tailnet_bind_is_proxy_signal(srv):
+    """B7 [KRYTYCZNY, Opusek]: przy bindzie na tailnet loopback-peer to
+    ANOMALIA (proxy/tunnel), nie lokalnosc — open bez tokenu odrzucone,
+    zeby IP-binding nie dawal falszywej ochrony. Test laczy sie z loopbacku
+    (peer=127.0.0.1), a bind jest zamockowany na tailnet."""
+    async def scenario(server):
+        server.bind = "100.64.0.1"     # udajemy bind na interfejs tailnetu
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": "ghost", "ts": 0.0,
+                                  "instance_id": "i1", "last_seq": 0,
+                                  "role": "agent"}))
+        r = json.loads(await ws.recv())
+        assert r["type"] == "error"
+        assert "proxy" in r["text"].lower()
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_b7_loopback_bind_does_not_bind_addr(srv):
+    """B7: przy bindzie loopback (domyslny test) IP-binding sie NIE stosuje —
+    dwa wejscia tego samego nicku z loopbacku (rozne instance, ten sam peer)
+    zachowuja sie jak w B6, bez odmowy z tytulu adresu. Chroni przed regresja
+    'B7 wlaczylo sie tam, gdzie nie powinno'."""
+    async def open_hello_ws(nick, instance):
+        ws = await websockets.connect(f"ws://localhost:{PORT}")
+        await ws.send(json.dumps({"type": "hello", "from": nick, "ts": 0.0,
+                                  "instance_id": instance, "last_seq": 0,
+                                  "role": "agent"}))
+        return ws, json.loads(await ws.recv())
+
+    async def scenario(server):
+        # server.bind zostaje 127.0.0.1 (fixture) -> _bind_is_tailnet False
+        ws1, r1 = await open_hello_ws("luzny", "i1")
+        assert r1["type"] in ("ok", "resync_required")
+        await ws1.close()
+        await asyncio.sleep(0.1)
+        # ten sam nick, inny instance, znow z loopbacku -> wchodzi (nick wolny
+        # po rozlaczeniu, adres sie nie stosuje)
+        ws2, r2 = await open_hello_ws("luzny", "i2")
+        assert r2["type"] in ("ok", "resync_required")
+        await ws2.close()
+    asyncio.run(srv(scenario))
