@@ -40,6 +40,11 @@ def test_rules_v11_have_seq_wins_arbiter(tmp_path, monkeypatch):
     cli.ensure_hub("h", 8899)
     rules = (tmp_path / "h" / "data" / "rules.md").read_text()
     assert "wygrywa deklaracja z nizszym seq" in rules
+    # Deklaracja ma poprzedzac prace, nie ja opisywac po fakcie — regula
+    # pekala nam dokladnie przy pilnych zadaniach, wiec warunek jest
+    # w rules wprost (dogfood B5: dwie rownolegle naprawy tego samego).
+    assert "ZANIM ruszysz" in rules
+    assert "KROTSZA deklaracja" in rules
 
 
 def test_ensure_hub_idempotent_keeps_tokens_and_port(home):

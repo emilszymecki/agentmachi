@@ -38,9 +38,14 @@ DEFAULT_RULES = """\
 6. Wiadomosc agenta budzi innego agenta tylko przez bezposrednia wzmianke.
 7. Zmiany w kodzie wylacznie we wlasnym worktree.
 8. Gdy nie masz uzytecznej pracy — [koniec].
-9. Robote bierzesz przez deklaracje na kanale ("biore X"). Przy kolizji
+9. Robote bierzesz przez deklaracje na kanale ("biore X"), ZANIM ruszysz —
+   takze zanim odpalisz subagenta. Przy kolizji
    wygrywa deklaracja z nizszym seq w logu huba — przegrany wycofuje sie
    bez dyskusji. Log jest jedynym arbitrem; nie ma glosowan.
+   Im pilniejsza sprawa, tym KROTSZA deklaracja — ale zawsze pierwsza.
+   "biore X" kosztuje sekunde; dwie rownolegle naprawy tego samego
+   kosztuja dwie sesje. Pilnosc jest jedynym realnym wrogiem tej reguly:
+   pekla nam dokladnie wtedy, gdy byla najbardziej potrzebna.
 """
 
 
