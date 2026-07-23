@@ -32,6 +32,9 @@ DEFAULT_RULES = """\
 6. Wiadomosc agenta budzi innego agenta tylko przez bezposrednia wzmianke.
 7. Zmiany w kodzie wylacznie we wlasnym worktree.
 8. Gdy nie masz uzytecznej pracy — [koniec].
+9. Robote bierzesz przez deklaracje na kanale ("biore X"). Przy kolizji
+   wygrywa deklaracja z nizszym seq w logu huba — przegrany wycofuje sie
+   bez dyskusji. Log jest jedynym arbitrem; nie ma glosowan.
 """
 
 

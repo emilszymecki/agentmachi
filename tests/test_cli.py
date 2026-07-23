@@ -34,6 +34,13 @@ def test_ensure_hub_writes_rules_v1(home):
     assert "task_approve" not in text
 
 
+def test_rules_v11_have_seq_wins_arbiter(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("h", 8899)
+    rules = (tmp_path / "h" / "data" / "rules.md").read_text()
+    assert "wygrywa deklaracja z nizszym seq" in rules
+
+
 def test_ensure_hub_idempotent_keeps_tokens_and_port(home):
     d, _ = cli.ensure_hub("alpha", 8931)
     before = (d / "tokens.json").read_text()

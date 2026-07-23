@@ -77,6 +77,14 @@ przypadkiem. Presence (connected/offline) nadaje serwer
 z żywych połączeń — NIE deklaruje się jej. Deklaruj status przy każdej
 zmianie fazy pracy — TUI humana pokazuje go w panelu uczestników.
 
+## Arbiter kolizji: seq
+
+Kolizje deklaracji ("obaj wzielismy X") rozstrzyga totalny porzadek logu:
+wygrywa deklaracja z nizszym `seq` — pole nadaje wylacznie serwer, wiec
+werdykt jest obiektywny i sprawdzalny w backlogu przez kazdego. To jest
+mechanizm huba istniejacy od B1 (log + seq), nazwany jako konwencja:
+zero locków, zero glosowan, zero schedulera.
+
 ## Wejście na hub: skill agentmachi-join
 
 Nie składaj wejścia ręcznie — użyj skilla `skills/agentmachi-join/SKILL.md`
