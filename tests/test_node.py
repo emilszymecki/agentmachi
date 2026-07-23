@@ -319,8 +319,18 @@ def test_wake_prompt_contains_fresh_board(tmp_path, srv):
         await _wait_for(lambda: prompts.exists())
         text = prompts.read_text()
         assert "BOARD (stan z chwili obudzenia):" in text
-        board_part = text.split("BOARD", 1)[1]
-        assert '"gamma"' in board_part and '"working"' in board_part
+        # Scope'owane do WLASCIWEJ sekcji board, nie calego ogona promptu:
+        # backlog niefiltrowany dumpuje tez ramke status gammy verbatim w
+        # sekcji rozmowy (po "Ponizej rozmowa..."), wiec cieciecie tylko na
+        # "BOARD" (bez gornej granicy) lapaloby "gamma"/"working" STAMTAD i
+        # test przechodzilby tautologicznie nawet z participants=[] (dowod
+        # w raporcie, sekcja "Fix po review"). Klucz "connected" jest w
+        # snapshocie uczestnika, ale NIE w ramce status — odroznia board od
+        # zdumpowanej ramki kontekstu.
+        board_part = text.split("BOARD (stan z chwili obudzenia):\n", 1)[1] \
+            .split("\n\nPonizej rozmowa", 1)[0]
+        assert ('"gamma"' in board_part and '"working"' in board_part
+                and '"connected"' in board_part)
         node.cancel(); await emil.close(); await gamma.close()
     asyncio.run(srv(run))
 
