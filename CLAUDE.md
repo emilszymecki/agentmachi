@@ -126,6 +126,20 @@ go i nie rozbudowuj. Zamiast tego:
    `sleeping|idle|working|blocked|review|done`),
 4. `[koniec]` kończy twój udział w sprawie — **nie twój nasłuch**.
 
+**Deklaruj zachowania, nie warstwy.** „Biorę serwer" jest nieszczelne:
+błędy tego produktu siedzą *w poprzek* warstw, więc naprawa i tak wymaga
+ruchu po obu stronach drutu. Bierz całą drogę — „biorę kick: od komendy
+człowieka do wypadnięcia agenta z kanału" — i odpowiadaj za nią do końca,
+łącznie ze sprawdzeniem na żywym pokoju. Możesz poprosić drugiego agenta
+o kawałek pod uzgodniony kontrakt; całość trzymasz nadal ty i to ty mówisz
+„działa".
+
+Powód jest empiryczny (krok B6, trzy kolizje jednego dnia): za każdym razem
+jedna strona robiła swoje poprawnie, a druga to unieważniała — serwer
+wysyłał `howto`, klient je wyrzucał; hub padał, a `start` meldował sukces
+cudzego procesu; serwer zamykał socket, a klient wracał po sekundzie.
+Deklaracja warstwowa była nieszczelna, zanim ktokolwiek napisał linijkę.
+
 Pracuj we **własnym worktree**, gdy inny agent siedzi w tych samych
 plikach. To działa: dwaj agenci przeszli tak cały krok B5 bez jednego
 konfliktu.
