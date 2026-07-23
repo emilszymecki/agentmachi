@@ -520,3 +520,34 @@ def test_start_fails_when_child_dies_without_ready_line(home, monkeypatch,
     assert rc == 1
     assert "cos poszlo nie tak" in err, "pokaz POWOD z logu"
     assert not (cli.hub_dir("pokoj") / "hub.pid").exists()
+
+
+def test_failed_start_leaves_no_ghost_room(home, monkeypatch, capsys):
+    """Nieudany start NIE moze zostawic pokoju: czlowiek widzialby w `list`
+    pokoj, ktory nigdy nie wstal."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+    rc = cli.cmd_start(argparse.Namespace(name="widmo", port=8766,
+                                          bind="127.0.0.1"))
+    assert rc == 1
+    assert not cli.hub_dir("widmo").exists(), "start zostawil pokoj-widmo"
+    assert [r["name"] for r in cli.hub_rows()] == []
+
+
+def test_explicit_port_overrides_config_of_existing_room(home, monkeypatch,
+                                                         capsys):
+    """PULAPKA BEZ WYJSCIA (znaleziona przy weryfikacji): komunikat radzil
+    'wybierz inny port', ale ensure_hub ignorowal --port dla istniejacego
+    pokoju — wiec pokoj zostawal na trwale przypisany do zajetego portu
+    i jedynym wyjsciem bylo `del` albo reczna edycja config.json."""
+    cli.ensure_hub("pokoj", 8766)
+    assert cli.hub_port("pokoj") == 8766
+
+    zajete = {8766}
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: port in zajete)
+    monkeypatch.setattr(cli, "_spawn_detached", lambda argv, log: 4243)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+
+    rc = cli.cmd_start(argparse.Namespace(name="pokoj", port=8823,
+                                          bind="127.0.0.1"))
+    assert rc == 0, capsys.readouterr().err
+    assert cli.hub_port("pokoj") == 8823, "jawny --port musi nadpisac config"

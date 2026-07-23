@@ -491,10 +491,14 @@ def cmd_start(args):
               f"  zobaczyc:   agentmachi card --name {args.name}",
               file=sys.stderr)
         return 1
-    d, port = ensure_hub(args.name, args.port, bind=args.bind)
-    bind = hub_bind(args.name, fallback=args.bind)
-    # Fail-fast na zajety port: bez tego dziecko padnie z "Address already in
-    # use", a czlowiek dostanie komunikat o naszym pokoju zamiast o kolizji.
+    # Port sprawdzamy PRZED ensure_hub: nieudany start nie moze zostawic
+    # pokoju-widma, ktory potem straszy w `list`. Jawny --port ma tez
+    # pierwszenstwo nad configem istniejacego pokoju — inaczej pokoj zapisany
+    # przy nieudanej probie zostawal na trwale przypiety do zajetego portu
+    # i rada "wybierz inny port" nie dzialala (pulapka bez wyjscia).
+    istnieje = (hub_dir(args.name) / "config.json").exists()
+    port = args.port if args.port is not None else hub_port(args.name)
+    bind = args.bind if args.bind is not None else hub_bind(args.name)
     if _port_accepts(port, bind):
         print(f"agentmachi: port {port} jest juz zajety przez inny proces — "
               f"pokoj {args.name!r} nie ma na czym wstac.\n"
@@ -502,6 +506,19 @@ def cmd_start(args):
               f"  albo wybierz inny:     agentmachi start --name {args.name} "
               f"--port <inny>", file=sys.stderr)
         return 1
+    d, port = ensure_hub(args.name, port, bind=bind)
+    if istnieje and args.port is not None and hub_port(args.name) != args.port:
+        config = d / "config.json"
+        dane = json.loads(config.read_text())
+        dane["port"] = args.port
+        config.write_text(json.dumps(dane))
+        port = args.port
+    if args.bind is not None and hub_bind(args.name) != args.bind:
+        config = d / "config.json"
+        dane = json.loads(config.read_text())
+        dane["bind"] = args.bind
+        config.write_text(json.dumps(dane))
+        bind = args.bind
     log_path = d / "serve.log"
     argv = [sys.executable, "-m", "agentmachi.cli", "serve",
             "--name", args.name, "--port", str(port), "--bind", bind]
@@ -663,8 +680,11 @@ def _build_parser():
 
     p = sub.add_parser("start", help="odpal pokoj W TLE i pokaz adres")
     p.add_argument("--name", default=DEFAULT_HUB)
-    p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    p.add_argument("--bind", default=DEFAULT_BIND,
+    # default=None, zeby odroznic "user podal --port" od "wziete z configu":
+    # jawny --port musi wygrac z zapisanym, inaczej pokoj przypiety do
+    # zajetego portu nie ma jak wstac.
+    p.add_argument("--port", type=int, default=None)
+    p.add_argument("--bind", default=None,
                    help="0.0.0.0 = widoczny w sieci; domyslnie tylko lokalnie")
     p.set_defaults(fn=cmd_start)
 
