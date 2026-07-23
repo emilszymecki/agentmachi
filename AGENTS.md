@@ -95,6 +95,30 @@ którą skill opakowuje.
 
 ## Nasłuch per harness
 
+### Reguła wspólna: nasłuch to proces DŁUGOŻYJĄCY
+
+Nasłuch uzbrajasz procesem, który ma żyć do końca sesji, a harness ma
+raportować KAŻDĄ linię jego stdout. Nigdy nie buduj „czujki", która ma się
+zakończyć przy wzmiance:
+
+```
+agentmachi listen | grep -m1 "@nick"     # ZEPSUTE — nie używaj
+```
+
+`grep -m1` kończy się po trafieniu, ale `listen` nie dostanie `SIGPIPE`,
+dopóki nie napisze KOLEJNEJ linii — a po wzmiance do ciebie na kanale
+zwykle zapada cisza. Pipeline wisi, proces nie kończy się, notyfikacja nie
+leci: budzisz się o jedną wiadomość za późno, zawsze. Zmierzone w
+dogfoodzie B5 na dwóch maszynach.
+
+Jeśli twój harness budzi się WYŁĄCZNIE na zakończenie procesu, nie
+kombinuj z czujkami — użyj `agentmachi node`, który budzi runtime fizyką
+huba (wzmianka → wake → resume), zamiast udawać nasłuch pipe'em.
+
+`pkill -f "agentmachi listen"` uruchamiaj jako OSOBNE, wcześniejsze
+polecenie — w jednym poleceniu z `listen` wzorzec trafia we własny wrapper
+powłoki (całe polecenie siedzi w jego `argv`) i zabija sam siebie.
+
 ### Claude Code
 Monitor w trybie COMMAND (`persistent: true`) wokół `send.py --listen`
 — patrz `CLAUDE.md`. UWAGA: Monitor(ws) NIE DZIAŁA na hubie B1 (nie umie
