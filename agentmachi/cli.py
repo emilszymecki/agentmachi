@@ -444,18 +444,42 @@ def _spawn_detached(argv, log_path):
     return proc.pid
 
 
-def _wait_until_listening(port, bind, timeout=10.0):
-    """Czekaj, az hub realnie przyjmuje polaczenia. Bez tego `start` mowilby
-    'gotowe' zanim serwer wstanie, a czlowiek probowalby sie polaczyc za
-    wczesnie i uznal, ze nie dziala."""
-    host = connect_host(bind)
+def _port_accepts(port, bind):
+    """Czy cokolwiek przyjmuje polaczenia na tym porcie."""
+    try:
+        with socket.create_connection((connect_host(bind), port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+READY_MARK = "chat server on"     # linia, ktora wypisuje NASZ serwer
+
+
+def _wait_until_listening(port, bind, timeout=10.0, pid=None,
+                          log_path=None, log_from=0):
+    """Czekaj, az NASZ hub potwierdzi start WLASNYM glosem.
+
+    KRYTYCZNE: fakt, ze port odpowiada, NIC nie dowodzi — moze go trzymac
+    cudzy proces. Zdarzylo sie naprawde: nowy pokoj dostal domyslny port
+    zajety przez inny serwer, nasze dziecko padlo z 'Address already in use',
+    a `start` zameldowal sukces, bo polaczyl sie z TAMTYM nasluchem i wypisal
+    PID trupa. Sprawdzanie samego zycia procesu tez nie wystarcza: dziecko
+    zyje jeszcze przez chwile po spawnie, wiec wyscig wraca.
+
+    Dowodem startu jest wiec linia w NASZYM logu (`chat server on ...`),
+    ktora wypisuje wylacznie nasz proces po udanym bindzie.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.5):
-                return True
-        except OSError:
-            time.sleep(0.15)
+        if log_path is not None and Path(log_path).exists():
+            with open(log_path) as f:
+                f.seek(log_from)
+                if READY_MARK in f.read():
+                    return True
+        if pid is not None and _cmdline_of(pid) is None:
+            return False           # dziecko padlo, a linii nie ma
+        time.sleep(0.15)
     return False
 
 
@@ -469,15 +493,36 @@ def cmd_start(args):
         return 1
     d, port = ensure_hub(args.name, args.port, bind=args.bind)
     bind = hub_bind(args.name, fallback=args.bind)
+    # Fail-fast na zajety port: bez tego dziecko padnie z "Address already in
+    # use", a czlowiek dostanie komunikat o naszym pokoju zamiast o kolizji.
+    if _port_accepts(port, bind):
+        print(f"agentmachi: port {port} jest juz zajety przez inny proces — "
+              f"pokoj {args.name!r} nie ma na czym wstac.\n"
+              f"  sprawdz czyj to port:  ss -tlnp | grep {port}\n"
+              f"  albo wybierz inny:     agentmachi start --name {args.name} "
+              f"--port <inny>", file=sys.stderr)
+        return 1
     log_path = d / "serve.log"
     argv = [sys.executable, "-m", "agentmachi.cli", "serve",
             "--name", args.name, "--port", str(port), "--bind", bind]
+    log_before = log_path.stat().st_size if log_path.exists() else 0
     pid = _spawn_detached(argv, log_path)
-    (d / "hub.pid").write_text(str(pid))
-    if not _wait_until_listening(port, bind, 10.0):
-        print(f"agentmachi: pokoj {args.name!r} nie wstal w 10 s — "
-              f"zajrzyj do {log_path}", file=sys.stderr)
+    if not _wait_until_listening(port, bind, 10.0, pid=pid,
+                                 log_path=log_path, log_from=log_before):
+        # pidfile NIE powstaje przy nieudanym starcie — martwy plik klamalby
+        # potem `list` i `stop`.
+        powod = ""
+        if log_path.exists():
+            with log_path.open() as f:
+                f.seek(log_before)
+                ogon = f.read().strip().splitlines()
+            if ogon:
+                powod = "\n  powod: " + "\n         ".join(ogon[-3:])
+        print(f"agentmachi: pokoj {args.name!r} NIE wstal.{powod}\n"
+              f"  pelny log: {log_path}\n"
+              f"  czy port {port} jest wolny:  agentmachi list", file=sys.stderr)
         return 1
+    (d / "hub.pid").write_text(str(pid))
     tokens = json.loads((d / "tokens.json").read_text())
     print_card(args.name, port, tokens, bind=bind)
     print(f"pokoj dziala w tle (PID {pid}), log: {log_path}\n"

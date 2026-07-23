@@ -393,7 +393,9 @@ def test_start_runs_hub_in_background_and_prints_card(home, monkeypatch, capsys)
         return 4242
 
     monkeypatch.setattr(cli, "_spawn_detached", fake_spawn)
-    monkeypatch.setattr(cli, "_wait_until_listening", lambda port, bind, t: True)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_wait_until_listening",
+                        lambda *a, **kw: True)
     rc = cli.cmd_start(argparse.Namespace(name="pokoj", port=8951,
                                           bind="127.0.0.1"))
     out = capsys.readouterr().out
@@ -470,3 +472,51 @@ def test_serve_does_not_treat_its_own_pidfile_as_another_hub(home, monkeypatch,
         pass
     assert started.get("ran"), ("serve odmowil startu z powodu WLASNEGO "
                                 "pidfile: " + capsys.readouterr().err)
+
+
+def test_start_fails_loudly_when_child_dies_even_if_port_is_taken(
+        home, monkeypatch, capsys):
+    """KRYTYCZNE (znalezione przy weryfikacji skilla): gdy port zajmuje CUDZY
+    proces, nasz serve pada, ale `_wait_until_listening` laczylo sie z tym
+    cudzym nasluchem i `start` meldowal sukces z PID-em trupa. Potwierdzenie
+    startu musi patrzec na NASZ proces, nie na to, czy cokolwiek slucha."""
+    cli.ensure_hub("pokoj", 8766)
+
+    def spawn_that_dies(argv, log_path):
+        with open(log_path, "a") as f:      # dziecko zdazylo krzyknac i paść
+            f.write("OSError: [Errno 98] Address already in use\n")
+        return 999999                        # PID, ktorego juz nie ma
+
+    monkeypatch.setattr(cli, "_spawn_detached", spawn_that_dies)
+    # port "odpowiada" — ale to cudzy serwer
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+
+    rc = cli.cmd_start(argparse.Namespace(name="pokoj", port=8766,
+                                          bind="127.0.0.1"))
+    err = capsys.readouterr().err
+    assert rc == 1, "start nie moze meldowac sukcesu, gdy port trzyma ktos inny"
+    assert "zajety przez inny proces" in err, "powiedz czlowiekowi, co jest nie tak"
+    assert "ss -tlnp" in err, "pokaz, jak sprawdzic czyj to port"
+    assert not (cli.hub_dir("pokoj") / "hub.pid").exists(), \
+        "martwy pidfile wprowadza w blad `list` i `stop`"
+
+
+def test_start_fails_when_child_dies_without_ready_line(home, monkeypatch,
+                                                        capsys):
+    """Drugi bezpiecznik: port byl wolny, ale nasz serwer i tak padl.
+    Dowodem startu jest linia z NASZEGO logu, nie sam fakt, ze cos slucha."""
+    cli.ensure_hub("pokoj", 8967)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+
+    def spawn_that_dies(argv, log_path):
+        with open(log_path, "a") as f:
+            f.write("Traceback: cos poszlo nie tak\n")
+        return 999999                        # PID, ktorego juz nie ma
+
+    monkeypatch.setattr(cli, "_spawn_detached", spawn_that_dies)
+    rc = cli.cmd_start(argparse.Namespace(name="pokoj", port=8967,
+                                          bind="127.0.0.1"))
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "cos poszlo nie tak" in err, "pokaz POWOD z logu"
+    assert not (cli.hub_dir("pokoj") / "hub.pid").exists()
