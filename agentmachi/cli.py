@@ -103,7 +103,7 @@ def load_tokens(name):
     tokens_path = d / "tokens.json"
     if not tokens_path.exists():
         raise CliError(f"hub {name!r} nie istnieje (brak {tokens_path}); "
-                       f"najpierw: agentmachi serve --name {name}")
+                       f"najpierw: agentmachi start --name {name}")
     return json.loads(tokens_path.read_text()), d
 
 
@@ -391,7 +391,7 @@ def cmd_list(args):
     rows = hub_rows()
     if not rows:
         print(f"brak kanalow w {hub_home()} — zaloz pierwszy: "
-              f"agentmachi serve --name <nazwa>")
+              f"agentmachi start --name <nazwa>")
         return 0
     print(f"{'KANAL':<16} {'ADRES':<28} {'STAN':<24} UCZESTNICY")
     for r in rows:
@@ -405,7 +405,9 @@ def cmd_list(args):
         print(f"{r['name']:<16} {addr:<28} {stan:<24} {', '.join(r['nicks'])}")
     zatrzymane = [r["name"] for r in rows if not r["running"]]
     if zatrzymane:
-        print(f"\nzatrzymane mozesz odpalic: agentmachi serve --name "
+        # `start`, nie `serve`: serve blokuje terminal, czyli dokladnie to,
+        # od czego uciekamy w komendach dla czlowieka.
+        print(f"\nzatrzymane mozesz odpalic: agentmachi start --name "
               f"{zatrzymane[0]}")
     return 0
 
