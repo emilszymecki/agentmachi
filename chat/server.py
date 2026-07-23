@@ -723,6 +723,10 @@ class ChatServer:
                 # wydarzylo" (zmierzone na produkcji: 105 ramek dogfoodu).
                 reply = protocol.make_frame(
                     "resync_required", "server", time.time(),
+                    nick=nick,   # KIM jestes — takze na sciezce resync, nie
+                                 # tylko w ok (agent bez wlasnej propozycji
+                                 # nicka, ktory po kompakcji trafia na resync,
+                                 # inaczej nigdy nie pozna przydzielonego nicka)
                     snapshot_seq=self.log.snapshot_seq,
                     state={"queue": self.queue.dump(),
                            "registry": self.registry.dump(),

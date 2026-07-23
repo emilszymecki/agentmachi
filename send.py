@@ -65,13 +65,12 @@ LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
 
 
 def _require_token():
-    token = os.environ.get("CHAT_TOKEN", "")
-    if not token:
-        print("brak CHAT_TOKEN — ustaw token agenta zanim polaczysz sie "
-              "z hubem B1 (fail-fast po stronie klienta, zeby nie slac "
-              "pustego sekretu)", file=sys.stderr)
-        sys.exit(2)
-    return token
+    # B6: token jest OPCJONALNY. Hub w trybie otwartym (loopback/tailnet)
+    # przyjmuje agenta bez sekretu — wymuszanie tokenu po stronie klienta
+    # blokowalo dokladnie to, co serwer wlasnie dopuscil (ta sama rodzina
+    # bledu co F10: jedna strona drutu pozwala, druga zabrania). Pusty
+    # string = "wejdz bez tokenu"; hub zada go tylko, gdy stoi na 0.0.0.0.
+    return os.environ.get("CHAT_TOKEN", "")
 
 
 def _session(nick):
@@ -79,12 +78,14 @@ def _session(nick):
 
 
 async def do_hello(ws, nick, session, token, role=None):
-    await ws.send(json.dumps({
+    hello = {
         "type": "hello", "from": nick, "ts": 0.0,
         "instance_id": session.instance_id,
-        "token": token,
         "last_seq": session.last_applied_seq,
-        "role": role or os.environ.get("CHAT_ROLE", "agent")}))
+        "role": role or os.environ.get("CHAT_ROLE", "agent")}
+    if token:
+        hello["token"] = token       # tylko gdy jest — pusty wymusil sciezke
+    await ws.send(json.dumps(hello)) # tokenowa po stronie huba (bad token)
     try:
         reply = json.loads(await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
     except asyncio.TimeoutError:

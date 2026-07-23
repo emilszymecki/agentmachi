@@ -164,11 +164,15 @@ def test_heartbeat_interval_valid_passes():
     assert send._check_heartbeat_interval(0.5) == 0.5
 
 
-def test_require_token_fails_fast(monkeypatch):
+def test_token_is_optional_in_open_mode(monkeypatch):
+    """B6: brak CHAT_TOKEN NIE jest juz bledem — hub w trybie otwartym
+    wpuszcza agenta bez sekretu. Wymuszanie tokenu po stronie klienta
+    blokowalo dokladnie to, na co serwer pozwala (zlapane w dogfoodzie:
+    agent na VPS nie mogl wejsc mimo otwartego huba)."""
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
-    with pytest.raises(SystemExit) as e:
-        send._require_token()
-    assert e.value.code == 2
+    assert send._require_token() == ""
+    monkeypatch.setenv("CHAT_TOKEN", "sekret")
+    assert send._require_token() == "sekret"
 
 
 # --- hub_id_from_url (Task 1: CHAT_URL / zdalne hub-y) --------------------
