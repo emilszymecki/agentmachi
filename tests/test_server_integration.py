@@ -2620,3 +2620,62 @@ def test_ok_reply_has_no_conversation_field(srv):
         assert "conversation" not in reply
         await ws.close()
     asyncio.run(srv(scenario))
+
+
+# -- F2 (B5): backlog na drucie bez ramek hello — agent placi kontekstem --
+# Zmierzone na produkcji: hello(last_seq=0) = 66 ramek/15159 B, z czego 36
+# (54%) to cudze ramki hello. Agent dostaje autorytatywny roster w
+# participants (B4) i tych ramek wcale nie potrzebuje — placi za czysty
+# szum. Log NADAL je trzyma (replay generacji przy restarcie), filtr
+# dotyczy wylacznie tego, co idzie na drut w gałęzi "ok".
+
+def test_backlog_wire_has_no_hello_frames(srv):
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")            # loguje hello#1
+        beta, _ = await hello("beta", "tb")             # loguje hello#2
+        await alfa.send(json.dumps({"type": "chat", "from": "alfa",
+                                    "ts": 1.0, "text": "ustalenie"}))
+        await beta.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 0.0, "state": "idle"}))
+        await asyncio.sleep(0.2)                       # niech serwer zapisze
+
+        # w logu na dysku hello sa (potrzebne do replayu generacji)
+        assert any(e["type"] == "hello" for e in server.log.replay())
+
+        gamma, reply = await hello("gamma", "tg", last_seq=0)
+        types = {f["type"] for f in reply["backlog"]}
+        assert "hello" not in types
+        assert "chat" in types and "status" in types
+        await alfa.close(); await beta.close(); await gamma.close()
+    asyncio.run(srv(scenario))
+
+
+def test_backlog_last_seq_is_true_log_end_not_last_filtered_frame(srv):
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        beta, reply = await hello("beta", "tb", last_seq=0)
+        # ostatnia ramka w logu jest hello bety (odfiltrowana z backlogu na
+        # drucie) — last_seq zwracany klientowi MUSI byc mimo to prawdziwym
+        # koncem logu, inaczej klient zapetli sie prosząc o ramki, ktorych
+        # nigdy nie dostanie (bo sa hello i zawsze beda odfiltrowane)
+        assert reply["last_seq"] == server.log.last_seq
+        assert server.log.replay()[-1]["type"] == "hello"
+        await alfa.close(); await beta.close()
+    asyncio.run(srv(scenario))
+
+
+def test_reconnect_with_wire_last_seq_gives_empty_backlog_no_loop(srv):
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        beta, reply = await hello("beta", "tb", last_seq=0)
+        last = reply["last_seq"]
+        # miedzy odpowiedzia a reconnectem dochodzi kolejny uczestnik — jego
+        # hello lezy w logu powyzej `last`, ale MUSI zostac odfiltrowane z
+        # backlogu tak samo jak przy pierwszym hello (inaczej klient
+        # zapetlalby sie prosząc o ramki, ktorych nigdy nie dostanie)
+        gamma, _ = await hello("gamma", "tg")
+        beta2, reply2 = await hello("beta", "tb", instance="i1", last_seq=last)
+        assert reply2["backlog"] == []
+        await alfa.close(); await beta.close(); await gamma.close()
+        await beta2.close()
+    asyncio.run(srv(scenario))

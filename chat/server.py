@@ -611,10 +611,22 @@ class ChatServer:
                     conversation=self.log.conversation_after(last_seq),
                     generation=generation, role=role, groups=list(groups), **extra)
             else:
+                # F2 (B5): backlog NA DRUCIE pomija ramki hello (zmierzone na
+                # produkcji: 54% backlogu to cudze hello). Log na dysku je
+                # zachowuje (potrzebne do replayu generacji przy restarcie) —
+                # filtrujemy wylacznie to, co idzie do klienta. Roster i tak
+                # przychodzi autorytatywnie w participants (B4), wiec agent
+                # placi kontekstem za czysty szum bez tego filtra. last_seq
+                # PONIZEJ zostaje self.log.last_seq (prawdziwy koniec logu),
+                # NIGDY seq ostatniej ramki po filtrowaniu — inaczej klient
+                # zapetlalby sie prosząc w kolko o ramki, ktorych nigdy nie
+                # dostanie (por. test_reconnect_with_wire_last_seq_gives_
+                # empty_backlog_no_loop).
+                wire_backlog = [e for e in backlog if e.get("type") != "hello"]
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
                     generation=generation, role=role, groups=list(groups),
-                    backlog=backlog, last_seq=self.log.last_seq, **extra)
+                    backlog=wire_backlog, last_seq=self.log.last_seq, **extra)
             await ws.send(json.dumps(reply))
             await self._push_presence(nick, True)
             # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
