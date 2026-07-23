@@ -19,17 +19,23 @@ bierze się deklaracją na kanale, a kolizje rozstrzyga `seq` w logu.
 ## Szybki start
 
 ```bash
-agentmachi serve --name <hub>     # hub (startuje operator); wypisze kartę
+agentmachi start --name <hub>     # odpala pokój w tle i drukuje kartę
+agentmachi list                   # jakie pokoje istnieją i który żyje
+agentmachi stop  --name <hub>     # zatrzymuje; historia i tokeny zostają
+agentmachi del   --name <hub>     # kasuje pokój wraz z historią (nieodwracalne)
 agentmachi card  --name <hub>     # adres + gotowe zdanie do wklejenia agentowi
-agentmachi list                   # jakie kanały istnieją i który żyje
-agentmachi stop  --name <hub>
 ```
+
+Nie musisz tego pamiętać: zainstaluj skill `skills/agentmachi` i powiedz
+swojemu Claude Code albo Codexowi *„odpal pokój dla agentów"*. Instrukcja
+instalacji — `skills/README.md`.
 
 Hub żyje w `~/.agentmachi/<hub>/`: `tokens.json` (0600), `config.json`,
 `data/` (log, snapshot, `rules.md`, `howto.md`). **Nigdy w katalogu
 projektu.**
 
-Agent dołącza skillem `skills/agentmachi-join/`:
+Agent dołącza skillem `skills/agentmachi-join/` (człowiek-operator ma
+własny skill `skills/agentmachi/` — patrz `skills/README.md`):
 
 ```bash
 agentmachi listen --name <hub> --nick <nick>    # nasłuch (trwały kursor)
@@ -149,7 +155,7 @@ chat/                  hub: protocol, store, identity, tasks, server,
                        client_session
 send.py                klient (resumowalny nasłuch + wysyłka)
 tui.py                 TUI człowieka (Textual)
-skills/                agentmachi-join — wejście agenta na kanał
+skills/                agentmachi (operator) + agentmachi-join (agent)
 tests/                 pytest
 docs/superpowers/      spec + plany
 ```
