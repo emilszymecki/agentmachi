@@ -2892,3 +2892,40 @@ def test_open_hello_without_nick_gets_one_and_learns_it(tmp_path):
         finally:
             await server.stop()
     asyncio.run(scenario())
+
+
+def test_open_mode_same_instance_self_send_allowed(tmp_path):
+    """Finding Opuska: bez tokenu, send/frame na tozsamosci LISTENERA (ten sam
+    instance_id) musi przejsc jako self-resume — inaczej zdalny agent nie
+    moze wyslac ramki trzymajac nasluch. Inny instance na zywy nick = odmowa."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            bind="127.0.0.1")
+        await server.start()
+        try:
+            # listener trzyma nick "gosc" instance i1
+            lis = await websockets.connect(f"ws://localhost:{port}")
+            await lis.send(json.dumps({"type": "hello", "from": "gosc",
+                                       "ts": 0.0, "instance_id": "i1",
+                                       "last_seq": 0, "role": "agent"}))
+            assert json.loads(await lis.recv())["type"] == "ok"
+            # self-send: TEN SAM instance i1 -> przechodzi (oneshot na tozsamosci)
+            me = await websockets.connect(f"ws://localhost:{port}")
+            await me.send(json.dumps({"type": "hello", "from": "gosc",
+                                      "ts": 0.0, "instance_id": "i1",
+                                      "last_seq": 0, "role": "agent"}))
+            assert json.loads(await me.recv())["type"] == "ok", "self-resume musi przejsc"
+            await me.close()
+            # inny instance na zywy nick -> odmowa z propozycja
+            other = await websockets.connect(f"ws://localhost:{port}")
+            await other.send(json.dumps({"type": "hello", "from": "gosc",
+                                         "ts": 0.0, "instance_id": "INNY",
+                                         "last_seq": 0, "role": "agent"}))
+            r = json.loads(await other.recv())
+            assert r["type"] == "error" and "zajety" in r["text"]
+            await other.close()
+            await lis.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenario())

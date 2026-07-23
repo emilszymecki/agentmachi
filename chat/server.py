@@ -581,8 +581,16 @@ class ChatServer:
                     if not zadany:
                         zadany = self._wolny_nick()
                         frame["from"] = zadany
+                    # Odmowa TYLKO gdy zywy nick nalezy do INNEGO instance_id.
+                    # Ten sam instance = wlasny self-resume/self-send (send/frame
+                    # wspoldziela tozsamosc listenera, zeby nie robic takeoveru)
+                    # — musi przejsc jak na sciezce tokenowej. Bez tego zdalny
+                    # agent bez tokenu nie mogl wyslac ramki trzymajac nasluch
+                    # (finding Opuska: obietnica polowiczna, tylko dla nasluchu).
                     if (isinstance(zadany, str) and self.conns.get(zadany)
-                            and trial_registry.role_of(zadany) != "human"):
+                            and trial_registry.role_of(zadany) != "human"
+                            and self.registry.instance_of(zadany)
+                                != frame.get("instance_id")):
                         wolny = self._wolny_nick()
                         await ws.send(json.dumps(protocol.make_frame(
                             "error", "server", time.time(),

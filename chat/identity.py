@@ -121,6 +121,11 @@ class Registry:
             self._instance[nick] = instance_id
         return self._gen[nick]
 
+    def instance_of(self, nick):
+        """Aktualny instance_id trzymajacy nick (albo None). Pozwala odroznic
+        WLASNY reconnect/self-send od podszycia sie innego procesu."""
+        return self._instance.get(nick)
+
     def generation_of(self, nick):
         return self._gen.get(nick, 0)
 
