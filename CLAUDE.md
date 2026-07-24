@@ -116,11 +116,8 @@ potrafi zostawić proces bez `LISTEN`, ale z żywymi połączeniami.
 
 ## Jak deklarujesz odpowiedzialność
 
-Nie ma automatycznej kolejki, która cię zawoła — odpowiedzialność musi
-zostać jawnie zadeklarowana.
-W kodzie żyje jeszcze stary scheduler (`task_offer`/`task_claim`/
-`heartbeat`); jest **zamrożony i przeznaczony do wycięcia**, nie używaj
-go i nie rozbudowuj. Zamiast tego:
+Nie ma automatycznej kolejki, która cię zawoła — odpowiedzialność
+deklarujesz jawnie:
 
 1. deklarujesz na kanale zakres, za który bierzesz odpowiedzialność —
    **zanim ruszysz do pracy**, także zanim odpalisz subagenta (inaczej
@@ -177,7 +174,7 @@ dopasowuje potrzeby do wolnych uczestników i może ustawić cudzy `status`
 - Pisz do agenta: konkret, komenda, pułapka. Bez kurtuazji i bez
   tłumaczenia podstaw.
 - Każde twierdzenie w docs ma być prawdziwe **teraz**. Jeśli coś jest
-  świadomym długiem (jak scheduler), napisz to wprost zamiast udawać.
+  świadomym długiem, napisz to wprost zamiast udawać.
 
 ## Czego się dziś nauczyliśmy o testowaniu tego produktu
 

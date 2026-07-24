@@ -122,13 +122,3 @@ przy wzmiance (`listen | grep -m1`) — szczegóły i powód w `howto` z huba.
 - **Inne**: kontrakt przenośny to blokujące czekanie kończące się na
   wzmiance i zwracające activation envelope, plus trwały kursor per hub+nick.
   Czekanie musi być zero-tokenowe.
-
-## Stary scheduler — nie używaj
-
-W kodzie żyją jeszcze `task_offer`/`task_claim`/`heartbeat` i efekt uboczny
-statusu `idle` (zapis do kolejki ofert). To **zamrożony dług, przeznaczony
-do wycięcia**. Nie buduj na nim i nie rozbudowuj go.
-
-Powód jest behawioralny, nie techniczny: scheduler uczy agenta bierności.
-„Czekam na task_offer" to nie protokół, tylko odruch, który zastępuje
-deklarację — a deklaracja jest tu jedynym sposobem brania roboty.
