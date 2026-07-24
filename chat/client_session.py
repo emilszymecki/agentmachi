@@ -57,6 +57,15 @@ if sys.platform == "win32":
             msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         except OSError:
             pass
+
+    def _fsync_dir(path):
+        # Windows nie pozwala os.open(katalog) (PermissionError) i nie zna
+        # POSIX-owego fsync katalogu: os.replace jest tam atomowe, a trwalosc
+        # wpisu daje NTFS. fsync DANYCH pliku (nizej w _atomic_write) zostaje na
+        # obu OS — to ON trzyma inwariant "trwalosc przed publikacja", nie
+        # fsync katalogu. Zlapane, gdy pierwszy klient Windows padl tu po
+        # przejsciu locka (druga warstwa tego samego cross-platform buga).
+        pass
 else:
     import fcntl
 
@@ -66,6 +75,15 @@ else:
 
     def _unlock(fd):
         fcntl.flock(fd, fcntl.LOCK_UN)
+
+    def _fsync_dir(path):
+        # POSIX: po rename trzeba fsync KATALOGU, zeby nowa nazwa przetrwala
+        # pad zasilania (sam fsync pliku nie gwarantuje trwalosci wpisu).
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 SCHEMA = 1
 MAX_ACTIVATIONS = 200
@@ -97,11 +115,7 @@ def _atomic_write_0600(path, payload):
         tmp.unlink(missing_ok=True)
         raise
     os.replace(tmp, path)
-    dir_fd = os.open(path.parent, os.O_RDONLY)
-    try:
-        os.fsync(dir_fd)
-    finally:
-        os.close(dir_fd)
+    _fsync_dir(path.parent)
 
 
 class Session:
