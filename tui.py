@@ -19,9 +19,12 @@ from typing import Awaitable, Callable
 
 import websockets
 from rich.text import Text
+from textual import on
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Input, Label, RichLog, Static
+from textual.message import Message
+from textual.widgets import Label, RichLog, Static, TextArea
 
 from chat import protocol
 from chat.client_session import ListenerLockHeld, Session, SessionError
@@ -323,6 +326,37 @@ class HubAdapter:
             await self._ws.close()
 
 
+class MessageInput(TextArea):
+    """Wieloliniowy input operatora (czat + komendy slash).
+
+    TextArea zamiast jednoliniowego Input: Emil moze wkleic tekst z
+    newline'ami i komponowac w wielu liniach. Enter wstawia nowa linie
+    (kontrakt TextArea), a wysylka jest JAWNA pod Ctrl+S — inaczej Enter
+    wysylalby wpol-napisana wiadomosc przy pierwszym zawinieciu. Emituje
+    wlasna ramke Submitted z pelnym tekstem, zeby App nie znala szczegolow
+    edytora (ta sama sciezka wysylki co dawny Input.Submitted)."""
+
+    # Ctrl+S jest nieprintowalny i spoza insert_values TextArea, wiec jej
+    # _on_key go nie polyka i binding odpala normalnie. Ctrl+Enter to bonus
+    # dla terminali z protokolem kitty; tam gdzie go nie ma, klawisz wchodzi
+    # po prostu jako Enter (nowa linia) i nic sie nie psuje.
+    BINDINGS = [
+        Binding("ctrl+s", "submit", "wyslij", show=False),
+        Binding("ctrl+enter", "submit", "wyslij", show=False),
+    ]
+
+    class Submitted(Message):
+        """Operator zatwierdzil tekst (Ctrl+S) — do wyslania na hub."""
+
+        def __init__(self, input: "MessageInput", text: str) -> None:
+            self.input = input
+            self.text = text
+            super().__init__()
+
+    def action_submit(self) -> None:
+        self.post_message(self.Submitted(self, self.text))
+
+
 class AgentmachiApp(App):
     TITLE = "agentmachi"
     SUB_TITLE = "human operator"
@@ -353,7 +387,7 @@ class AgentmachiApp(App):
         height: 1fr;
     }
     #message-input {
-        height: 3;
+        height: 6;
         border: tall $accent;
     }
     #participants, #rules {
@@ -383,9 +417,10 @@ class AgentmachiApp(App):
                 yield Label("Czat", classes="panel-title")
                 yield RichLog(id="chat-log", wrap=True, max_lines=500,
                               auto_scroll=True)
-                yield Input(
-                    placeholder="wiadomosc lub /groups <nick> <g1,g2>",
-                    id="message-input")
+                yield MessageInput(
+                    id="message-input",
+                    placeholder="wiadomosc lub /groups <nick> <g1,g2> — "
+                                "Ctrl+S wysyla, Enter = nowa linia")
             with VerticalScroll(id="participants-panel", classes="panel"):
                 yield Label("Uczestnicy / grupy", classes="panel-title")
                 yield Static("", id="participants")
@@ -396,7 +431,7 @@ class AgentmachiApp(App):
                 yield Static("", id="rules")
 
     def on_mount(self):
-        self.query_one("#message-input", Input).disabled = True
+        self.query_one("#message-input", MessageInput).disabled = True
         self._render_participants()
         self.run_worker(
             self.adapter.run(
@@ -440,7 +475,7 @@ class AgentmachiApp(App):
     async def apply_status(self, message, connected):
         self.connected = bool(connected)
         self.query_one("#connection-status", Static).update(Text(str(message)))
-        self.query_one("#message-input", Input).disabled = not self.connected
+        self.query_one("#message-input", MessageInput).disabled = not self.connected
         own = self.roster.get(self.adapter.identity.nick)
         if own is not None:
             own.presence = "connected" if connected else "known"
@@ -598,9 +633,12 @@ class AgentmachiApp(App):
             group for group in groups if isinstance(group, str) and group]
         self._render_participants()
 
-    async def on_input_submitted(self, event: Input.Submitted):
+    @on(MessageInput.Submitted)
+    async def on_message_submitted(self, event: MessageInput.Submitted):
+        # Nazwa metody celowo NIE pasuje do konwencji on_message_input_submitted
+        # — dyspozycja idzie wylacznie przez @on, wiec handler nie odpali dwa razy.
         try:
-            frame = parse_user_input(event.value)
+            frame = parse_user_input(event.text)
             await self.adapter.send(frame)
         except TuiError as exc:
             self._log("client", str(exc), style="bold red")

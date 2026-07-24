@@ -308,11 +308,15 @@ def test_app_renders_and_sends_chat(tmp_path):
             inp.focus()
             await pilot.pause()
             assert len(app.query(".panel")) == 3  # dokladnie trzy panele
-            inp.value = "czesc kanale"
-            await pilot.press("enter")
+            # Input jest teraz wieloliniowy (MessageInput/TextArea): Enter
+            # wstawia nowa linie, wysylka jest jawna pod Ctrl+S. Stary
+            # kontrakt (jednoliniowy Input.value + Enter = wyslij) zostal
+            # swiadomie zastapiony — patrz MessageInput w tui.py.
+            inp.text = "czesc kanale"
+            await pilot.press("ctrl+s")
             await pilot.pause()
-            inp.value = "/groups beta head,admin"
-            await pilot.press("enter")
+            inp.text = "/groups beta head,admin"
+            await pilot.press("ctrl+s")
             await pilot.pause()
     asyncio.run(scenario())
     assert sent == [
