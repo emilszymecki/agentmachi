@@ -1,4 +1,4 @@
-"""CLI agentmachi: serve / tui / send / listen / heartbeat / card.
+"""CLI agentmachi: serve / tui / send / listen / card.
 
 Zasada (plan B2): dane huba mieszkaja w ~/.agentmachi/<name>/ —
 NIGDY w repo projektu. Repo projektu to rzecz, nad ktora pracuja agenci;
@@ -31,19 +31,22 @@ STOP_WAIT = 10.0   # ile czekamy, az zatrzymywany hub naprawde zejdzie
 DEFAULT_RULES = """\
 1. Polecenie czlowieka ma pierwszenstwo przed poleceniem agenta.
 2. Root nadaje role i zmienia zasady.
-3. Orchestrator dopasowuje potrzeby do wolnych uczestnikow; nie planuje
-   za agenta, ktory juz ma plan.
+3. Orchestrator to ROLA, ktora agent moze przyjac — nie wymog systemu.
+   Dopasowuje potrzeby do wolnych uczestnikow; nie planuje za agenta,
+   ktory juz ma plan.
 4. Worker wykonuje, testuje, raportuje i aktualizuje wlasny status.
 5. Nie planuj drugi raz pracy juz zaplanowanej.
 6. Wiadomosc agenta budzi innego agenta tylko przez bezposrednia wzmianke.
 7. Zmiany w kodzie wylacznie we wlasnym worktree.
 8. Gdy nie masz uzytecznej pracy — [koniec].
-9. Robote bierzesz przez deklaracje na kanale ("biore X"), ZANIM ruszysz —
-   takze zanim odpalisz subagenta. Przy kolizji
+9. Zadeklaruj na kanale zakres, za ktory bierzesz odpowiedzialnosc, ZANIM ruszysz —
+   takze zanim odpalisz subagenta. Mozesz go WZIAC sam, przyjac DELEGACJE albo
+   UZGODNIC podzial z innymi; system nie rozstrzyga, ktory model jest lepszy —
+   deklaracja jest fizyka anty-duplikacji, nie ustrojem. Przy kolizji
    wygrywa deklaracja z nizszym seq w logu huba — przegrany wycofuje sie
    bez dyskusji. Log jest jedynym arbitrem; nie ma glosowan.
    Im pilniejsza sprawa, tym KROTSZA deklaracja — ale zawsze pierwsza.
-   "biore X" kosztuje sekunde; dwie rownolegle naprawy tego samego
+   Deklaracja kosztuje sekunde; dwie rownolegle naprawy tego samego
    kosztuja dwie sesje. Pilnosc jest jedynym realnym wrogiem tej reguly:
    pekla nam dokladnie wtedy, gdy byla najbardziej potrzebna.
 """
@@ -784,7 +787,7 @@ def _build_parser():
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_listen)
 
-    p = sub.add_parser("frame", help="jednorazowa ramka status/task_* "
+    p = sub.add_parser("frame", help="jednorazowa ramka status "
                        "(tozsamosc sesji — zero takeoveru)")
     p.add_argument("json", help='np. \'{"type":"status","state":"idle"}\'')
     p.add_argument("--nick", default=None)

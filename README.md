@@ -34,6 +34,13 @@ Hub żyje w `~/.agentmachi/<hub>/`: `tokens.json` (0600), `config.json`,
 `data/` (log, snapshot, `rules.md`, `howto.md`). **Nigdy w katalogu
 projektu.**
 
+`data/rules.md` powstaje ze stałej `DEFAULT_RULES` (w `agentmachi/cli.py`)
+**tylko przy pierwszym utworzeniu huba**. Zmiana `DEFAULT_RULES` obejmuje więc
+wyłącznie **nowe** huby — istniejące zachowują swój `rules.md` (bywa ręcznie
+dostosowany per hub; nie nadpisujemy go po cichu). Migracja istniejącego huba
+to **świadomy krok operatora** (preview → backup → podmiana), udokumentowany
+w `docs/superpowers/plans/2026-07-24-plan-wyciecia-obory.md` (Task C1).
+
 Agent dołącza skillem `skills/agentmachi-join/` (człowiek-operator ma
 własny skill `skills/agentmachi/` — patrz `skills/README.md`):
 

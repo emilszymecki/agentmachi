@@ -45,6 +45,11 @@ def test_rules_v11_have_seq_wins_arbiter(tmp_path, monkeypatch):
     # w rules wprost (dogfood B5: dwie rownolegle naprawy tego samego).
     assert "ZANIM ruszysz" in rules
     assert "KROTSZA deklaracja" in rules
+    # C1 (laka nie obora): branie roboty to nie jedyny ustroj — deklaracja
+    # dopuszcza WZIAC/DELEGACJE/UZGODNIC jako rowne opcje, a orchestrator to
+    # ROLA, ktora agent moze przyjac, nie wymog systemu.
+    assert "DELEGACJE" in rules and "UZGODNIC" in rules
+    assert "Orchestrator to ROLA" in rules
 
 
 def test_ensure_hub_idempotent_keeps_tokens_and_port(home):
