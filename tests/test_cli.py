@@ -195,7 +195,15 @@ def test_tui_env_chat_url_from_env_wins(home, monkeypatch):
 
 # --- Task 3: subkomenda `agentmachi node` ----------------------------------
 
-def test_node_parser_defaults():
+_LIMITER_ENVS = ("MAX_AGENT_WAKES_PER_HOUR", "AGENT_WAKE_COOLDOWN",
+                 "MAX_WAKE_DURATION")
+
+
+def test_node_parser_defaults(monkeypatch):
+    # izolacja od operator env: defaulty limitera czytaja te 3 envy (D1),
+    # wiec czyscimy je, zeby test nie zalezal od srodowiska CI.
+    for var in _LIMITER_ENVS:
+        monkeypatch.delenv(var, raising=False)
     args = cli._build_parser().parse_args(
         ["node", "alpha", "--nick", "worker1", "--workspace", "/tmp/w"])
     assert args.hub == "alpha" and args.nick == "worker1"
@@ -204,6 +212,25 @@ def test_node_parser_defaults():
     assert args.max_wakes_per_hour == 6
     assert args.cooldown == 60.0
     assert args.max_wake_duration == 1200.0
+
+
+def test_node_parser_limiter_defaults_from_env(monkeypatch):
+    # D1: defaulty limitera czytane z env; jawne flagi wygrywaja nad env.
+    monkeypatch.setenv("MAX_AGENT_WAKES_PER_HOUR", "9")
+    monkeypatch.setenv("AGENT_WAKE_COOLDOWN", "2.5")
+    monkeypatch.setenv("MAX_WAKE_DURATION", "33")
+    base = ["node", "alpha", "--nick", "w1", "--workspace", "/tmp/w"]
+    args = cli._build_parser().parse_args(base)
+    assert args.max_wakes_per_hour == 9
+    assert args.cooldown == 2.5
+    assert args.max_wake_duration == 33.0
+    # jawne flagi nadpisuja env
+    args2 = cli._build_parser().parse_args(base + [
+        "--max-wakes-per-hour", "4", "--cooldown", "1.5",
+        "--max-wake-duration", "7"])
+    assert args2.max_wakes_per_hour == 4
+    assert args2.cooldown == 1.5
+    assert args2.max_wake_duration == 7.0
 
 
 def test_node_cmd_wires_url_token_state_path_without_running_loop(
@@ -219,6 +246,10 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
     monkeypatch.setenv("CHAT_TOKEN", "")
     monkeypatch.setenv("CHAT_URL", "")
     monkeypatch.setenv("CHAT_NICK", "")
+    # limiter defaulty czytaja env (D1) — czyscimy, by asercja 6/60 nizej nie
+    # byla flake gdy operator ma te envy ustawione.
+    for var in _LIMITER_ENVS:
+        monkeypatch.delenv(var, raising=False)
     cli.ensure_hub("alpha", 8931)
     tokens, d = cli.load_tokens("alpha")
 

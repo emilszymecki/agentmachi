@@ -252,7 +252,7 @@ async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
         return
     state.last_wake_seq = frame["seq"]                      # [zapis 1]
     state.wake_times = [t for t in state.wake_times
-                        if now() - t < 3600.0] + [now()]
+                        if now() - t < limiter._window] + [now()]
     state.save(state_path)
     context = [f for f in backlog if _has_seq(f)
                and f["seq"] > state.last_context_seq
