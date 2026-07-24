@@ -1,6 +1,6 @@
 """Testy integracyjne chat/server.py: hello/auth, generation przypieta do
 socketu, backlog/resync, echo po nicku, wzmianki, grupy adresowe,
-snapshot+restart, activation_id kotwiczony w evencie.
+snapshot+restart, replay result-based, pasywny board.
 
 Serwer per-test na porcie 8891+ (nie 8765 — PoC A na roocie repo).
 """
@@ -43,7 +43,7 @@ PORT = _free_port()
 def srv(tmp_path):
     async def _run(coro):
         server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                             lease_ttl=5.0, offer_timeout=0.3)
+                             lease_ttl=5.0)
         await server.start()
         try:
             return await asyncio.wait_for(coro(server), timeout=10)
@@ -77,14 +77,13 @@ CARD = {"goal": "x", "acceptance": "y", "verify": "true", "files": [],
 
 
 # -- direct-seed helpery (A2 mikro-2): inbound task_new/task_claim zostaly
-# wyciete (laka-nie-obora), ale offer/expiry/queue/replay/snapshot ZYJA do
-# A3/A4 i ich testy nadal potrzebuja zasiac stan taska. Te helpery
+# wyciete (laka-nie-obora); queue/replay/snapshot ZYJA do A4 i ich testy
+# nadal potrzebuja zasiac stan taska. Te helpery
 # odwzorowuja DURABILITY BOUNDARY dawnej inbound-owej sciezki task_* — clone -> mutacja na
 # klonie -> _append_durable(result-event z task_state+fingerprint) -> swap
 # live -> _maybe_snapshot — a NIE udaja usunietego handlera (zero walidacji
-# inbound, zero side-effectow oferty). Inwariant: NIGDY _append przed swapem
-# (na granicy #100 snapshotowalby STARA live queue). Side-effecty oferty
-# (idle.remove / _drop_offers_for_task / _trigger_offer) wola test JAWNIE.
+# inbound). Inwariant: NIGDY _append przed swapem (na granicy #100
+# snapshotowalby STARA live queue).
 def _persist_task_new(server, card, command_id, now=0.0):
     trial = copy.deepcopy(server.queue)
     result = trial.add(card, command_id, now)
@@ -419,34 +418,12 @@ def test_inbound_task_new_rejected_cleanly_server_stays_live(srv):
     asyncio.run(srv(scenario))
 
 
-# -- Nowe: activation_id kotwiczony w evencie --------------------------------
-
-def test_activation_id_retry_identical_new_offer_different(srv):
-    async def scenario(server):
-        task_a = server.queue.add(CARD, "c1", 0.0)
-        before = server.log.last_seq
-        id1 = server._offer_activation_id("beta", task_a)
-        after_first = server.log.last_seq
-        id2 = server._offer_activation_id("beta", task_a)   # retry tej samej oferty
-        after_second = server.log.last_seq
-        assert id1 == id2
-        assert after_first == before + 1          # dokladnie jeden nowy event
-        assert after_second == after_first          # retry NIE dopisuje eventu
-
-        task_b = server.queue.add({**CARD, "goal": "y"}, "c2", 0.0)
-        id3 = server._offer_activation_id("beta", task_b)    # inny task -> nowa oferta
-        assert id3 != id1
-        id4 = server._offer_activation_id("gamma", task_a)   # inny nick -> nowa oferta
-        assert id4 != id1
-    asyncio.run(srv(scenario))
-
-
 # -- Nowe: restart odtwarza queue+registry po snapshocie ---------------------
 
 def test_restart_restores_queue_and_registry_after_snapshot(tmp_path):
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
+                         lease_ttl=5.0)
         await s1.start()
         ws, reply = await hello("alfa", "ta", instance="i1")
         assert reply["generation"] == 1
@@ -456,7 +433,7 @@ def test_restart_restores_queue_and_registry_after_snapshot(tmp_path):
         await s1.stop()
 
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
+                         lease_ttl=5.0)
         dumped = s2.queue.dump()
         assert any(t["status"] == "open" and t["card"]["goal"] == "x"
                    for t in dumped["tasks"])
@@ -613,18 +590,9 @@ def test_resync_snapshot_seq_matches_returned_fresh_state(srv):
 # -- A: crash-recovery — eventy po (ostatnim) snapshocie MUSZA sie odtworzyc
 
 async def _crash_stop(server):
-    """Symuluje crash: zamyka nasluch/petle serwera BEZ wywolania snapshot()
+    """Symuluje crash: zamyka nasluch serwera BEZ wywolania snapshot()
     (w odroznieniu od server.stop(), ktory zawsze snapshotuje na koniec —
     to jest wlasnie sciezka, ktora maskowalaby brak replay w __init__)."""
-    for task in (server._expiry_task, server._offering):
-        if task is None:
-            continue
-        if not task.done():
-            task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
     server._server.close()
     await server._server.wait_closed()
 
@@ -632,7 +600,7 @@ async def _crash_stop(server):
 def test_crash_recovery_replays_events_after_snapshot_without_manual_snapshot(tmp_path):
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
+                         lease_ttl=5.0)
         await s1.start()
         ws, reply = await hello("alfa", "ta", instance="i1")
         assert reply["generation"] == 1
@@ -646,7 +614,7 @@ def test_crash_recovery_replays_events_after_snapshot_without_manual_snapshot(tm
         # na dysku — caly stan musi wrocic z samego logu eventow (replay)
         assert not (Path(tmp_path) / "snapshot.json").exists()
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
+                         lease_ttl=5.0)
         t = s2.queue.get(task_id)
         assert t["status"] == "claimed" and t["assignee"] == "alfa"
         assert s2.registry.generation_of("alfa") == 1     # (hello -> registry odtworzone)
@@ -656,7 +624,7 @@ def test_crash_recovery_replays_events_after_snapshot_without_manual_snapshot(tm
 def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
+                         lease_ttl=5.0)
         await s1.start()
         ws, _ = await hello("alfa", "ta", instance="i1")
         _persist_task_new(s1, CARD, "n1")
@@ -665,126 +633,13 @@ def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
         await _crash_stop(s1)
 
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
+                         lease_ttl=5.0)
         # (A3) licznik snapshot-co-100 startuje od liczby eventow juz w logu,
         # nie od zera — inaczej po restarcie trzeba by 100 NOWYCH eventow
         # zanim serwer w ogole rozwazy pierwszy snapshot po starcie
         assert s2._events_since_snapshot == events_on_disk
     asyncio.run(scenario())
 
-
-# -- F: oferty — activation trwaly, poprawny cache, wyscig, sprzatanie idle -
-
-def test_task_offer_event_persists_activation_id_and_seq(srv):
-    async def scenario(server):
-        task = server.queue.add(CARD, "c1", 0.0)
-        activation_id = server._offer_activation_id("beta", task)
-        offer_events = [e for e in server.log.events_after(0) if e["type"] == "task_offer"]
-        assert len(offer_events) == 1
-        # (F1) trwaly event MUSI zawierac activation_id i seq — nie tylko
-        # zwrocona wartosc w pamieci
-        assert offer_events[0]["activation_id"] == activation_id
-        assert offer_events[0]["seq"] == server.log.last_seq
-        assert activation_id == f"beta:{offer_events[0]['seq']}"
-    asyncio.run(srv(scenario))
-
-
-def test_offer_round_robin_new_attempt_after_full_cycle_gets_new_id(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        # (A1) status nie zasila juz idle — round-robin seedujemy WPROST na
-        # serwerze; task_new nizej wywola _trigger_offer i uruchomi petle ofert.
-        server.idle.append("beta")
-        server.idle.append("gamma")
-        a, _ = await hello("alfa", "ta")
-        _persist_task_new(server, CARD, "n1")
-        server._trigger_offer()
-
-        offer_b1 = await recv(b, timeout=2.0)        # pierwsza oferta dla beta
-        id_b1 = offer_b1["activation_id"]
-        offer_g = await recv(g, timeout=2.0)         # beta nie wzieła -> gamma
-        offer_b2 = await recv(b, timeout=2.0)        # gamma tez nie -> NOWA proba dla beta
-        id_b2 = offer_b2["activation_id"]
-        # (F2) nowa proba (po pelnym okrazeniu beta->gamma->beta) to NOWY
-        # event/id, a nie sklejenie z pierwsza oferta dla bety
-        assert id_b2 != id_b1
-        await a.close(); await b.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
-def test_offer_timeout_race_does_not_lose_offered_nick_from_idle(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        # (A1) seed idle WPROST — status juz go nie zasila; task_new triggeruje.
-        server.idle.append("beta")
-        a, _ = await hello("alfa", "ta")
-        task1_id = _persist_task_new(server, CARD, "n1")["id"]
-        server._trigger_offer()
-        offer1 = await recv(b, timeout=2.0)
-        assert offer1["task"]["id"] == task1_id
-
-        # gamma krad task1 (bezposredni task_claim) zanim minie offer_timeout
-        # oferty dla bety — bez fixu bety nigdy nie wraca do self.idle
-        stolen = _persist_task_claim(server, task1_id, "gamma", 1, "steal1", 1)
-        assert stolen["assignee"] == "gamma"
-
-        await asyncio.sleep(0.6)     # przeczekaj offer_timeout (0.3 z fixture) + margines
-
-        task2_id = _persist_task_new(server, {**CARD, "goal": "drugi"}, "n2")["id"]
-        server._trigger_offer()
-        # (F4) beta MUSI dalej byc w idle i dostac oferte na drugi task
-        offer2 = await recv(b, timeout=2.0)
-        assert offer2["task"]["id"] == task2_id
-        await a.close(); await b.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
-def test_idle_nick_removed_on_disconnect_offer_goes_to_live_idle(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        server.idle.append("beta")               # (A1) seed WPROST, nie przez status
-        await asyncio.sleep(0.1)
-        await b.close()
-        await asyncio.sleep(0.1)
-        # (F5) rozlaczony nick (bez zadnego socketu) wypada z self.idle
-        assert "beta" not in server.idle
-
-        g, _ = await hello("gamma", "tg")
-        server.idle.append("gamma")              # (A1) seed WPROST, nie przez status
-        a, _ = await hello("alfa", "ta")
-        _persist_task_new(server, CARD, "n1")
-        server._trigger_offer()
-        offer = await recv(g, timeout=2.0)          # oferta idzie do zywego gamma, nie w prozne
-        assert offer["type"] == "task_offer"
-        await a.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
-def test_pending_offer_cache_restored_after_restart(tmp_path):
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
-        await s1.start()
-        ws, _ = await hello("alfa", "ta")
-        task = _persist_task_new(s1, CARD, "n1")
-        activation_id = s1._offer_activation_id("beta", task)
-        await ws.close()
-        await _crash_stop(s1)             # BEZ snapshotu
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
-        # (F3) retry TEJ SAMEJ proby po restarcie -> ten sam activation_id,
-        # BEZ nowego eventu — odtworzone z replay eventow (task_offer)
-        before = s2.log.last_seq
-        again = s2._offer_activation_id("beta", task)
-        assert again == activation_id
-        assert s2.log.last_seq == before
-    asyncio.run(scenario())
-
-
-# == RUNDA 3 — result-based replay ==========================================
 
 # -- (2) SEDNO: replay result-based, niezalezny od biezacej polityki --------
 
@@ -793,7 +648,7 @@ def test_replay_ignores_current_wip_policy(tmp_path):
     # NIE crashuje (replay result-based nie re-waliduje WIP), oba claimed.
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         wip_limit=2, lease_ttl=5.0, offer_timeout=0.3)
+                         wip_limit=2, lease_ttl=5.0)
         await s1.start()
         a, _ = await hello("alfa", "ta")
         b, _ = await hello("beta", "tb")
@@ -805,7 +660,7 @@ def test_replay_ignores_current_wip_policy(tmp_path):
         await _crash_stop(s1)                       # BEZ snapshotu
 
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         wip_limit=1, lease_ttl=5.0, offer_timeout=0.3)  # ciasniejsza polityka
+                         wip_limit=1, lease_ttl=5.0)  # ciasniejsza polityka
         assert s2.queue.get(t1)["status"] == "claimed"
         assert s2.queue.get(t2)["status"] == "claimed"
     asyncio.run(scenario())
@@ -816,7 +671,7 @@ def test_replay_preserves_historical_lease_until(tmp_path):
     # odtworzone HISTORYCZNE (z task_state), nie przeliczone wg nowej polityki.
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=10.0, offer_timeout=0.3)
+                         lease_ttl=10.0)
         await s1.start()
         a, _ = await hello("alfa", "ta")
         tid = _persist_task_new(s1, CARD, "n1")["id"]
@@ -825,7 +680,7 @@ def test_replay_preserves_historical_lease_until(tmp_path):
         await _crash_stop(s1)
 
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=100.0, offer_timeout=0.3)  # inna polityka lease
+                         lease_ttl=100.0)  # inna polityka lease
         assert s2.queue.get(tid)["lease_until"] == lease_hist
     asyncio.run(scenario())
 
@@ -839,115 +694,32 @@ def test_expiry_event_replays_result_based_no_conflict(tmp_path):
     # claima (expected=3) trafial na v2 claimed -> Conflict w __init__.
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=0.5, offer_timeout=0.3)   # krotki lease -> szybki expire
+                         lease_ttl=0.5)   # krotki lease -> szybki expire
         await s1.start()
         ws, _ = await hello("alfa", "ta")
         tid = _persist_task_new(s1, CARD, "n1")["id"]
         assert _persist_task_claim(s1, tid, "alfa", 1, "c1", 1)["version"] == 2   # v2 claimed
-        await asyncio.sleep(1.6)      # petla expiry (co 1.0s) reopenuje po lease 0.5
+        # (A3) aktywny reap wyciety — symulujemy expiry BEZPOSREDNIO (SUT to
+        # REPLAY task_expired_batch do A4, nie aktywny reap): expire na klonie ->
+        # durable batch -> swap, dokladnie jak dawny _reap_expired.
+        trial = copy.deepcopy(s1.queue)
+        expired = trial.expire(time.time() + 1.0)   # lease 0.5 juz minal
+        assert len(expired) == 1 and expired[0]["version"] == 3 \
+            and expired[0]["status"] == "open"       # reopen faktycznie zaszedl
+        s1._append_durable({"type": "task_expired_batch", "from": "server",
+                            "ts": 0.0, "task_ids": [t["id"] for t in expired],
+                            "task_states": expired})
+        s1.queue = trial
         reclaimed = _persist_task_claim(s1, tid, "alfa", 1, "c2", 3)  # open v3 -> claimed v4
         assert reclaimed["status"] == "claimed" and reclaimed["version"] == 4
         await ws.close()
         await _crash_stop(s1)                 # BEZ snapshotu
 
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=0.5, offer_timeout=0.3)      # konstruktor NIE rzuca
+                         lease_ttl=0.5)      # konstruktor NIE rzuca
         t = s2.queue.get(tid)
         assert t["status"] == "claimed" and t["version"] == 4 and t["assignee"] == "alfa"
     asyncio.run(scenario())
-
-
-# -- (3) trwaly lifecycle ofert (pending przezywa, resolved nie odzywa) ------
-
-def test_pending_offer_survives_clean_stop_and_restart(tmp_path):
-    # (3) pending oferta przezywa CLEAN stop->restart (ten sam activation_id,
-    # ZERO nowego eventu) — odtworzona ze snapshotu (offers w state).
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
-        await s1.start()
-        ws, _ = await hello("alfa", "ta")
-        task = _persist_task_new(s1, CARD, "n1")
-        activation_id = s1._offer_activation_id("beta", task)     # pending offer
-        await ws.close()
-        await s1.stop()                          # CLEAN stop -> snapshot (z offers)
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
-        before = s2.log.last_seq
-        again = s2._offer_activation_id("beta", task)
-        assert again == activation_id            # ten sam activation_id
-        assert s2.log.last_seq == before         # ZERO nowego eventu
-    asyncio.run(scenario())
-
-
-def test_resolved_offer_does_not_revive_after_replay(tmp_path):
-    # (3) oferta rozstrzygnieta PRZED crashem (offer_resolved) NIE odzywa po
-    # replay — kolejna proba to NOWY event/activation_id.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
-        await s1.start()
-        ws, _ = await hello("alfa", "ta")
-        task = _persist_task_new(s1, CARD, "n1")
-        aid1 = s1._offer_activation_id("beta", task)              # task_offer event
-        s1._resolve_offer("beta", task["id"], task["version"], "timeout")  # offer_resolved
-        await ws.close()
-        await _crash_stop(s1)                     # BEZ snapshotu -> replay z eventow
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0, offer_timeout=0.3)
-        assert ("beta", task["id"], task["version"]) not in s2._offer_cache
-        before = s2.log.last_seq
-        aid2 = s2._offer_activation_id("beta", task)              # NOWA proba
-        assert aid2 != aid1
-        assert s2.log.last_seq == before + 1      # nowy task_offer event
-    asyncio.run(scenario())
-
-
-# -- (4) live task_offer = trwaly event z seq -------------------------------
-
-def test_live_task_offer_carries_persistent_event_seq(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        server.idle.append("beta")               # (A1) seed WPROST, nie przez status
-        a, _ = await hello("alfa", "ta")
-        _persist_task_new(server, CARD, "n1")
-        server._trigger_offer()
-        offer = await recv(b, timeout=2.0)
-        assert offer["type"] == "task_offer"
-        # (4) odbiorca widzi DOKLADNIE trwaly event: seq == seq zapisanego eventu
-        offer_events = [e for e in server.log.events_after(0) if e["type"] == "task_offer"]
-        assert "seq" in offer
-        assert offer["seq"] == offer_events[-1]["seq"]
-        await a.close(); await b.close()
-    asyncio.run(srv(scenario))
-
-
-# -- (5) brak ducha w idle przy disconnect w oknie oferty --------------------
-
-def test_disconnect_in_offer_window_leaves_no_ghost_in_idle(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        server.idle.append("beta")               # (A1) seed WPROST, nie przez status
-        await asyncio.sleep(0.1)
-        a, _ = await hello("alfa", "ta")
-        _persist_task_new(server, CARD, "n1")
-        server._trigger_offer()
-        offer = await recv(b, timeout=2.0)          # beta dostaje oferte (popped z idle)
-        assert offer["type"] == "task_offer"
-        await b.close()                              # disconnect W OKNIE oferty
-        await asyncio.sleep(0.6)                     # przeczekaj offer_timeout (0.3) + margines
-        # (5) beta nie wraca do idle jako "duch" — brak zywego socketu
-        assert "beta" not in server.idle
-        # kolejna oferta idzie do ZYWEGO nicka (task wciaz open)
-        g, _ = await hello("gamma", "tg")
-        server.idle.append("gamma")              # (A1) seed WPROST, nie przez status
-        server._trigger_offer()                  # (A1) status nie wyzwala juz oferty
-        offer_g = await recv(g, timeout=2.0)
-        assert offer_g["type"] == "task_offer"
-        await a.close(); await g.close()
-    asyncio.run(srv(scenario))
 
 
 # -- (6) brak okna wycieku przy takeover (_close_stale_sockets) --------------
@@ -955,7 +727,7 @@ def test_disconnect_in_offer_window_leaves_no_ghost_in_idle(srv):
 def test_close_stale_sockets_evicts_from_conns_before_first_await(tmp_path):
     async def scenario():
         server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                            lease_ttl=5.0, offer_timeout=0.3)
+                            lease_ttl=5.0)
 
         class FakeWS:
             def __init__(self):
@@ -1050,98 +822,6 @@ async def send_status_idle(ws, nick):
                               "state": "idle"}))
 
 
-def test_task_offer_goes_to_one_idle_worker(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        # (A1) seed idle WPROST — status nie zasila juz round-robin; task_new triggeruje.
-        server.idle.append("beta")
-        server.idle.append("gamma")
-        a, _ = await hello("alfa", "ta")
-        _persist_task_new(server, CARD, "n1")
-        server._trigger_offer()
-        offer = await recv(b)                          # TYLKO beta (pierwsza idle)
-        assert offer["type"] == "task_offer"
-        assert "activation_id" in offer
-        with pytest.raises(asyncio.TimeoutError):
-            await recv(g, timeout=0.2)                 # gamma spi — no herd
-        for ws in (a, b, g):
-            await ws.close()
-    asyncio.run(srv(scenario))
-
-
-def test_offer_timeout_moves_to_next_worker(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        # (A1) seed idle WPROST — status nie zasila juz round-robin; task_new triggeruje.
-        server.idle.append("beta")
-        server.idle.append("gamma")
-        a, _ = await hello("alfa", "ta")
-        _persist_task_new(server, CARD, "n2")
-        server._trigger_offer()
-        await recv(b)                                  # beta dostaje oferte...
-        offer_g = await recv(g, timeout=2.0)           # ...ignoruje -> gamma
-        assert offer_g["type"] == "task_offer"
-        for ws in (a, b, g):
-            await ws.close()
-    asyncio.run(srv(scenario))
-
-
-# -- (2) auto-snapshot NIE moze strzelic w srodku atomowej mutacji oferty ---
-
-def test_auto_snapshot_mid_offer_does_not_lose_pending_offer(tmp_path):
-    # (2) serwer wkladal oferte do _offer_cache PO _append. Gdy task_offer to
-    # event #100, _append wywoluje snapshot ZANIM oferta trafi do cache ->
-    # snapshot bez oferty + kompakcja usuwa event task_offer -> po restarcie
-    # pending offer przepada, nowa oferta dostaje inny activation_id. Fix:
-    # domkniecie stanu (offer w cache) PRZED mozliwym snapshotem. Test: 99
-    # eventow + task_offer #100 -> restart -> pending offer odtworzone, ten
-    # sam activation_id, zero nowego eventu.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=0.3)
-        for i in range(99):    # dopchnij licznik do 99 -> nastepny _append snapshotuje
-            s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": str(i)})
-        assert s1._events_since_snapshot == 99
-        task = s1.queue.add(CARD, "c1", 0.0)
-        activation_id = s1._offer_activation_id("beta", task)   # task_offer = event #100
-        assert s1._events_since_snapshot == 0                    # auto-snapshot strzelil
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=0.3)
-        before = s2.log.last_seq
-        again = s2._offer_activation_id("beta", task)
-        assert again == activation_id            # pending offer odtworzone (ten sam id)
-        assert s2.log.last_seq == before         # zero nowego eventu
-    asyncio.run(scenario())
-
-
-# -- (4) resync wire-state musi niesc offers (+ registry) -------------------
-
-def test_resync_required_state_carries_offers(srv):
-    # (4) snapshot state ma offers, ale resync_required wysylal klientowi tylko
-    # {"queue": ...}. Po kompakcji klient nie odzyskalby pending activations.
-    # Fix: wire resync state = DOKLADNIE persisted snapshot state (queue +
-    # registry + offers). Test: snapshot z pending offer -> klient z za starym
-    # kursorem dostaje resync_required z offers w state.
-    async def scenario(server):
-        a, _ = await hello("alfa", "ta")
-        task = _persist_task_new(server, CARD, "n1")
-        activation_id = server._offer_activation_id("beta", task)   # pending offer
-        server.snapshot()                                            # kompakcja logu
-
-        b, reply = await hello("gamma", "tg", last_seq=1)   # kursor sprzed snapshotu
-        assert reply["type"] == "resync_required"
-        state = reply["state"]
-        assert "queue" in state and "registry" in state and "offers" in state
-        offers = state["offers"]
-        assert any(o["target"] == "beta" and o["activation_id"] == activation_id
-                   and o["task"]["id"] == task["id"] for o in offers)
-        await a.close(); await b.close()
-    asyncio.run(srv(scenario))
-
-
 # -- (5) walidacja inbound per typ ramki (schematy, nie 3 wyjatki) ----------
 
 def test_fyi_without_text_rejected_not_logged(srv):
@@ -1168,7 +848,6 @@ def test_status_with_non_numeric_ts_rejected_not_logged(srv):
         err = await recv(a)
         assert err["type"] == "error"
         assert server.log.last_seq == before      # NIE trafil do logu
-        assert "alfa" not in server.idle          # ani do idle (nie doszlo do dispatchu)
         await a.close()
     asyncio.run(srv(scenario))
 
@@ -1188,12 +867,12 @@ def test_status_with_non_string_state_rejected_not_logged(srv):
 
 
 def test_outbound_only_frame_types_rejected_inbound_not_logged(srv):
-    # (5) task_expired i offer_resolved to typy WYLACZNIE OUTBOUND/trwale — NIE
-    # moga przyjsc od klienta. validate odrzuca je inbound-em; zero zapisu.
+    # (5) task_expired/task_expired_batch to typy WYLACZNIE OUTBOUND/trwale —
+    # NIE moga przyjsc od klienta. validate odrzuca je inbound-em; zero zapisu.
     async def scenario(server):
         a, _ = await hello("alfa", "ta")
         before = server.log.last_seq
-        for ftype in ("task_expired", "offer_resolved", "task_offer", "ok", "error"):
+        for ftype in ("task_expired", "task_expired_batch", "ok", "error"):
             await a.send(json.dumps({"type": ftype, "from": "alfa", "ts": 0.0}))
             err = await recv(a)
             assert err["type"] == "error"
@@ -1204,178 +883,6 @@ def test_outbound_only_frame_types_rejected_inbound_not_logged(srv):
 
 # -- A: DURABILITY-BEFORE-PUBLICATION — blad appendu oferty NIE moze wlozyc
 #       niedurable oferty do cache (ktore steruje publikacja w _offer_loop) ----
-
-def test_offer_append_failure_does_not_cache_nondurable_offer(srv):
-    # (A) _offer_event wkladal oferte do _offer_cache PRZED log.append. Gdy
-    # pierwszy append rzuca (OSError, np. dysk pelny): cache=True, ale nic na
-    # dysku (last_seq bez zmian). Kolejna proba zwracala cached seq bez
-    # appendu -> _offer_loop publikowal NIEDURABLE oferte. Fix: durable append
-    # NAJPIERW (moze rzucic -> cache nietkniety), cache PO udanym appendzie,
-    # snapshot na koncu.
-    async def scenario(server):
-        task = server.queue.add(CARD, "c1", 0.0)
-        key = ("beta", task["id"], task["version"])
-        seq_before = server.log.last_seq
-
-        orig_append = server.log.append
-        calls = {"n": 0}
-
-        def flaky_append(frame):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise OSError("dysk pelny — pierwszy append oferty pada")
-            return orig_append(frame)
-
-        server.log.append = flaky_append
-        with pytest.raises(OSError):
-            server._offer_event("beta", task)
-        # niedurable oferta NIE moze wejsc do cache: zero publikacji czegos,
-        # czego nie ma na dysku
-        assert key not in server._offer_cache
-        assert server.log.last_seq == seq_before
-
-        # po naprawie appendu kolejna proba dziala normalnie: trwaly event + cache
-        offer = server._offer_event("beta", task)
-        assert key in server._offer_cache
-        assert offer["seq"] == server.log.last_seq
-        offer_events = [e for e in server.log.events_after(seq_before)
-                        if e["type"] == "task_offer"]
-        assert len(offer_events) == 1
-        assert offer_events[0]["seq"] == offer["seq"]
-    asyncio.run(srv(scenario))
-
-
-def test_offer_loop_recovers_after_task_offer_append_oserror(srv):
-    # Whole-branch liveness: OSError z _offer_event nie moze zakonczyc jedynego
-    # future ani zgubic nicka wyjetego z idle. Recovery zachodzi bez zewnetrznego
-    # _trigger_offer po tym, jak storage zacznie znow przyjmowac zapisy.
-    async def scenario(server):
-        server.offer_timeout = 0.01
-        task = server.queue.add(CARD, "liveness-offer", 0.0)
-        server.conns["beta"] = {object()}
-        server.idle = ["beta"]
-        seq_before = server.log.last_seq
-        sent = []
-
-        async def capture_send(nick, event):
-            sent.append((nick, event))
-
-        original_send = server._send
-        original_append = server.log.append
-        failed = {"done": False}
-
-        def fail_once(frame):
-            if frame.get("type") == "task_offer" and not failed["done"]:
-                failed["done"] = True
-                raise OSError("chwilowa awaria storage na task_offer")
-            return original_append(frame)
-
-        server._send = capture_send
-        server.log.append = fail_once
-        try:
-            server._trigger_offer()
-            await asyncio.wait_for(server._offering, timeout=2.0)
-        finally:
-            server._send = original_send
-            server.log.append = original_append
-
-        events = server.log.events_after(seq_before)
-        assert failed["done"]
-        assert [e["type"] for e in events] == ["task_offer", "offer_resolved"]
-        assert len(sent) == 1
-        assert server.queue.get(task["id"])["status"] == "open"
-        assert server._offer_cache == {}
-        assert server.idle == ["beta"]
-        assert server._offering.done() and server._offering.exception() is None
-    asyncio.run(srv(scenario))
-
-
-def test_offer_loop_recovers_after_offer_resolved_append_oserror(srv):
-    # Gdy pada durable offer_resolved, pending event zostaje w cache. Retry ma
-    # wyslac TEN SAM seq/activation_id (at-least-once), domknac resolution i nie
-    # wymagac nowego status/task eventu do obudzenia dystrybucji.
-    async def scenario(server):
-        server.offer_timeout = 0.01
-        task = server.queue.add(CARD, "liveness-resolve", 0.0)
-        server.conns["beta"] = {object()}
-        server.idle = ["beta"]
-        seq_before = server.log.last_seq
-        sent = []
-
-        async def capture_send(nick, event):
-            sent.append((nick, event))
-
-        original_send = server._send
-        original_append = server.log.append
-        failed = {"done": False}
-
-        def fail_once(frame):
-            if frame.get("type") == "offer_resolved" and not failed["done"]:
-                failed["done"] = True
-                raise OSError("chwilowa awaria storage na offer_resolved")
-            return original_append(frame)
-
-        server._send = capture_send
-        server.log.append = fail_once
-        try:
-            server._trigger_offer()
-            await asyncio.wait_for(server._offering, timeout=2.0)
-        finally:
-            server._send = original_send
-            server.log.append = original_append
-
-        events = server.log.events_after(seq_before)
-        assert failed["done"]
-        assert [e["type"] for e in events] == ["task_offer", "offer_resolved"]
-        assert len(sent) == 2
-        assert sent[0][1]["seq"] == sent[1][1]["seq"]
-        assert sent[0][1]["activation_id"] == sent[1][1]["activation_id"]
-        assert server.queue.get(task["id"])["status"] == "open"
-        assert server._offer_cache == {}
-        assert server.idle == ["beta"]
-        assert server._offering.done() and server._offering.exception() is None
-    asyncio.run(srv(scenario))
-
-
-# -- B: RESOLUTION OFERTY atomowa i niezalezna od targetu — udany claim (od
-#       KOGOKOLWIEK) rozstrzyga pending oferty taska; replay wywodzi to z
-#       samego claim, bez zaleznosci od offer_resolved -----------------------
-
-def test_replay_claim_resolves_pending_offer_without_offer_resolved(tmp_path):
-    # (B replay) crash-prefix [task_new, task_offer, task_claim] BEZ
-    # offer_resolved (symulacja okna nieatomowosci: claim persisted, resolve
-    # nie zdazyl) -> restart: task claimed ORAZ ZERO pending offers. Poprawnosc
-    # replay NIE moze zalezec od osobnego offer_resolved — claim SAM jest
-    # faktem resolution.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        await s1.start()
-        a, _ = await hello("alfa", "ta")
-        task = _persist_task_new(s1, CARD, "n1")
-        tid = task["id"]
-        s1._offer_activation_id("beta", task)              # task_offer + pending (beta,tid,1)
-        # zbuduj recznie ogon [task_claim] BEZ swap/offer_resolved — crash-window:
-        # claim trwaly w logu, ale live queue NIE swapped ani snapshotowana
-        # (celowo, inaczej niz _persist_task_claim; SUT to replay tego ogona).
-        trial = copy.deepcopy(s1.queue)
-        result = trial.claim(tid, "gamma", 1, "c1", 1, 0.0)
-        s1._append_durable({"type": "task_claim", "from": "gamma", "ts": 0.0,
-                            "task_id": tid, "command_id": "c1",
-                            "expected_task_version": 1, "task_state": result,
-                            "fingerprint": trial.fingerprint_for("c1")})
-        assert [e for e in s1.log.events_after(0)
-                if e["type"] == "offer_resolved"] == []     # brak offer_resolved w logu
-        await a.close()
-        await _crash_stop(s1)                               # BEZ snapshotu
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        assert s2.queue.get(tid)["status"] == "claimed"
-        assert ("beta", tid, 1) not in s2._offer_cache      # replay wywiodl resolution z claim
-        assert s2._offer_cache == {}                        # ZERO pending offers
-    asyncio.run(scenario())
-
 
 # -- C: walidacja inbound pelna — type nie-str, ts NaN, pierwsze hello przez
 #       wspolny schemat ------------------------------------------------------
@@ -1494,145 +1001,6 @@ def test_strict_json_rejects_nan_in_first_hello_without_side_effects(srv):
 # == RUNDA 6 — event-first (provisional-then-commit) mutacje taskow ==========
 
 
-async def _kill_expiry(server):
-    # deterministyczne testy licznikow/eventow: wylacz petle expiry, zeby jej
-    # tik nie dorzucil zdarzenia w oknie testu
-    server._expiry_task.cancel()
-    try:
-        await server._expiry_task
-    except asyncio.CancelledError:
-        pass
-
-
-# -- expiry event-first: expire na klonie, durable append, potem swap --------
-
-def test_reap_expired_batch_append_failure_no_partial_log(tmp_path):
-    # (Runda 6) expiry = JEDEN atomowy event task_expired_batch (lista
-    # task_states). Petla wielu appendow (jeden task_expired per task) + swap na
-    # koncu dawala EXPIRY_SPLIT: OSError na N-tym appendzie zostawial pierwsze
-    # eventy trwale na dysku, ale swap sie nie wykonywal -> live=[claimed,...],
-    # persisted=[czesc], replay=rozszczepienie. Batch: jeden append = albo caly
-    # trwaly, albo nic. Injekcja na appendzie batcha (DWA wygasle taski) -> live
-    # NIETKNIETE (oba claimed), ZERO eventow na dysku (nie czesc); po naprawie
-    # nastepna petla reopenuje OBA jednym batchem, replay spojny [open, open].
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        await s1.start()
-        await _kill_expiry(s1)
-        a, _ = await hello("alfa", "ta")
-        b, _ = await hello("beta", "tb")
-        t1 = _persist_task_new(s1, CARD, "n1")["id"]
-        t2 = _persist_task_new(s1, {**CARD, "goal": "y"}, "n2")["id"]
-        assert _persist_task_claim(s1, t1, "alfa", 1, "c1", 1)["status"] == "claimed"
-        assert _persist_task_claim(s1, t2, "beta", 1, "c2", 1)["status"] == "claimed"
-
-        future = time.time() + 1000    # oba lease dawno wygasle
-        orig = s1.log.append
-
-        def flaky(frame):
-            if frame.get("type") == "task_expired_batch":
-                raise OSError("dysk pelny na appendzie batcha")
-            return orig(frame)
-
-        s1.log.append = flaky
-        seq_before = s1.log.last_seq
-        with pytest.raises(OSError):
-            s1._reap_expired(future)
-        # live NIETKNIETE: OBA nadal claimed, ZERO eventow (zero czesciowego logu)
-        assert s1.queue.get(t1)["status"] == "claimed"
-        assert s1.queue.get(t2)["status"] == "claimed"
-        assert s1.log.last_seq == seq_before
-
-        # po naprawie nastepny reap reopenuje OBA jednym batchem
-        s1.log.append = orig
-        s1._reap_expired(future)
-        assert s1.queue.get(t1)["status"] == "open"
-        assert s1.queue.get(t2)["status"] == "open"
-        batch = [e for e in s1.log.events_after(seq_before)
-                 if e["type"] == "task_expired_batch"]
-        assert len(batch) == 1                                  # DOKLADNIE jeden batch
-        assert {ts["id"] for ts in batch[0]["task_states"]} == {t1, t2}
-        assert [e for e in s1.log.events_after(seq_before)
-                if e["type"] == "task_expired"] == []           # brak singla-per-task
-        await a.close(); await b.close()
-        await _crash_stop(s1)
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        assert s2.queue.get(t1)["status"] == "open"             # replay batcha spojny
-        assert s2.queue.get(t2)["status"] == "open"
-    asyncio.run(scenario())
-
-
-# -- offer_resolved durable-first: append -> pop -> snapshot -----------------
-
-def test_resolve_offer_append_failure_keeps_offer_in_cache(srv):
-    # (Runda 6) _resolve_offer robil pop(_offer_cache) -> _append(offer_resolved).
-    # Append-fail usuwal oferte tylko LIVE (niedurable) -> restart resurrectowal
-    # pending; a offer_resolved na #100 snapshotowal PRZED popem (gdyby kolejnosc
-    # odwrocic naiwnie). Fix durable-first: _append_durable(offer_resolved)
-    # NAJPIERW, dopiero po sukcesie pop, na koncu _maybe_snapshot. Append-fail =>
-    # oferta zostaje w cache (spojnie z durable), retry dziala.
-    async def scenario(server):
-        await _kill_expiry(server)
-        task = server.queue.add(CARD, "c1", 0.0)
-        server._offer_activation_id("beta", task)
-        key = ("beta", task["id"], task["version"])
-        assert key in server._offer_cache
-        seq_before = server.log.last_seq
-
-        orig = server.log.append
-
-        def flaky(frame):
-            if frame.get("type") == "offer_resolved":
-                raise OSError("dysk pelny na offer_resolved")
-            return orig(frame)
-
-        server.log.append = flaky
-        with pytest.raises(OSError):
-            server._resolve_offer("beta", task["id"], task["version"], "timeout")
-        assert key in server._offer_cache          # oferta NADAL w cache
-        assert server.log.last_seq == seq_before    # zero eventu offer_resolved
-
-        server.log.append = orig                    # napraw
-        server._resolve_offer("beta", task["id"], task["version"], "timeout")
-        assert key not in server._offer_cache
-        assert [e for e in server.log.events_after(seq_before)
-                if e["type"] == "offer_resolved"]   # teraz trwaly
-    asyncio.run(srv(scenario))
-
-
-def test_offer_resolved_at_snapshot_boundary_no_resurrection(tmp_path):
-    # (Runda 6 — guard) offer_resolved dokladnie na granicy #100: durable-first
-    # (append -> pop -> snapshot) gwarantuje, ze snapshot #100 widzi cache JUZ
-    # bez oferty. restart: zero resurrekcji pending (chroni przed odwrotna,
-    # bledna kolejnoscia append->snapshot->pop).
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        await s1.start()
-        await _kill_expiry(s1)
-        ws, _ = await hello("alfa", "ta")
-        task = _persist_task_new(s1, CARD, "n1")
-        s1._offer_activation_id("beta", task)          # task_offer + pending
-        while s1._events_since_snapshot < 99:           # offer_resolved bedzie #100
-            s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
-        assert s1._events_since_snapshot == 99
-        s1._resolve_offer("beta", task["id"], task["version"], "timeout")
-        assert s1._events_since_snapshot == 0           # snapshot #100 strzelil
-        snap = json.loads((Path(tmp_path) / "snapshot.json").read_text())
-        assert [o for o in snap["state"]["offers"]
-                if o["task"]["id"] == task["id"]] == []  # oferta NIE w snapshocie
-        await ws.close()
-        await _crash_stop(s1)
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        assert ("beta", task["id"], task["version"]) not in s2._offer_cache
-    asyncio.run(scenario())
-
-
 # -- Runda 7: Registry durability w hello (provisional-then-commit) ----------
 
 def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path, caplog):
@@ -1645,9 +1013,8 @@ def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path, caplog)
     # live vs replay).
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
+                        lease_ttl=5.0)
         await s1.start()
-        await _kill_expiry(s1)
 
         orig = s1.log.append
         calls = {"n": 0}
@@ -1701,9 +1068,8 @@ def test_takeover_hello_append_failure_keeps_old_socket_and_generation(tmp_path)
     # appendem -> append-fail rozjezdzal tozsamosc (gen=2 niedurable, A martwy).
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
+                        lease_ttl=5.0)
         await s1.start()
-        await _kill_expiry(s1)
         a1, reply1 = await hello("alfa", "ta", instance="i1")
         assert reply1["generation"] == 1
 
@@ -1756,9 +1122,8 @@ def test_hello_at_snapshot_boundary_restores_registry_generation(tmp_path):
     # generacje (i queue). Restart odtwarza registry generation z tego snapshotu.
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
+                        lease_ttl=5.0)
         await s1.start()
-        await _kill_expiry(s1)
         a, _ = await hello("alfa", "ta", instance="i1")     # hello #1 + task nizej
         tid = _persist_task_new(s1, CARD, "n1")["id"]
         while s1._events_since_snapshot < 99:               # kolejny append = #100
@@ -1774,7 +1139,7 @@ def test_hello_at_snapshot_boundary_restores_registry_generation(tmp_path):
         await _crash_stop(s1)
 
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
+                        lease_ttl=5.0)
         assert s2.registry.generation_of("beta") == 1
         assert s2.registry.generation_of("alfa") == 1
         assert s2.queue.get(tid) is not None
@@ -1788,9 +1153,8 @@ def test_auth_fail_hello_no_registry_mutation_no_event(tmp_path):
     # zbumpowac.
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
+                        lease_ttl=5.0)
         await s1.start()
-        await _kill_expiry(s1)
         seq_before = s1.log.last_seq
         bad = await websockets.connect(f"ws://localhost:{PORT}")
         await bad.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
@@ -1811,9 +1175,8 @@ def test_auth_fail_hello_no_registry_mutation_no_event(tmp_path):
 def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
+                        lease_ttl=5.0)
         await s1.start()
-        await _kill_expiry(s1)
         human, _ = await hello("emil", "te", role="human")
         beta, _ = await hello("beta", "tb")
         gamma, _ = await hello("gamma", "tg")
@@ -1900,7 +1263,7 @@ def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
 
         # Bez clean snapshotu: replay eventow zachowuje przekazanie funkcji.
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
+                        lease_ttl=5.0)
         assert s2.registry.groups_of("beta") == ["workers"]
         assert s2.registry.groups_of("gamma") == ["head", "admin"]
         assert s2.groups["gamma"] == {"head", "admin"}
@@ -1982,7 +1345,7 @@ def test_status_tracked_in_snapshot(srv):
         # czysty fakt, ale NIE zasila kolejki round-robin. Reintrodukcja starego
         # side-effectu status->idle OBLALABY ta asercje.
         assert server.status["beta"] == {"state": "idle"}
-        assert "beta" not in server.idle
+        assert not hasattr(server, "idle")   # (A3) offer machinery wyciete — brak idle
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 2.0, "state": "working",
                                     "task_id": "t9"}))

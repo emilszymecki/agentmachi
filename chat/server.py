@@ -1,5 +1,5 @@
 """Serwer czatu agentow: hello/auth, backlog/resync, echo po nicku,
-wzmianki, grupy adresowe, oferty taskow. Jedyny modul z asyncio/websockets.
+wzmianki, grupy adresowe. Jedyny modul z asyncio/websockets.
 
 Kluczowe niezmienniki (review tercetu, wiazace):
   a) generation przypieta do SOCKETU przy hello — kazda kolejna ramka z
@@ -8,32 +8,21 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      z innym instance_id) serwer zamyka stare sockety NATYCHMIAST (przy
      samym hello, nie dopiero przy ich kolejnej ramce); per-ramkowy check
      generacji zostaje jako druga linia obrony.
-  b) snapshot niesie {"queue": ..., "registry": ..., "offers": ...} —
+  b) snapshot niesie {"queue": ..., "registry": ..., "status": ...} —
      restart odtwarza je i DODATKOWO replay'uje kazdy event > snapshot_seq.
      Replay jest RESULT-BASED (nie re-execution): kazdy event mutacji taska
      niesie serwerowy wynik (task_state) i jest APLIKOWANY wprost przez
      queue.apply_replayed — bez ponownej walidacji WIP/lease/CAS i bez
      zaleznosci od biezacej polityki (wip_limit/lease_ttl moga sie zmienic
-     miedzy restartami; lease_until odtwarzany HISTORYCZNY). Expiry to tez
-     trwaly event (task_expired_batch — jeden atomowy batch na petle), nie fyi.
-     resync_required robi swiezy,
+     miedzy restartami; lease_until odtwarzany HISTORYCZNY). Historyczny
+     task_expired_batch w starym logu nadal replayuje sie result-based (do
+     wyciecia kolejki w A4). resync_required robi swiezy,
      atomowy snapshot() PRZED odpowiedzia, zeby zwracany snapshot_seq
      zawsze etykietowal dokladnie ten state.
   c) snapshot po kazdych SNAPSHOT_EVERY=100 eventach (licznik zasiany przy
      starcie liczba eventow juz w logu po snapshot_seq) ORAZ przy stop()
      (w tym Ctrl+C/SIGTERM — patrz main()/finally).
-  d) activation_id kotwiczony w TRWALYM evencie: seq jest przewidywalny
-     (log.last_seq+1, event loop jednowatkowy), wiec activation_id jest
-     wliczany do ramki PRZED jej zapisem — trwaly event ma i seq, i
-     activation_id. Cache pending ofert (_offer_cache) trzyma PELNY event
-     (z seq) i przezywa restart: snapshot ("offers") + replay (task_offer =
-     pending, offer_resolved = rozstrzygnieta). Retry TEJ SAMEJ proby (ten
-     sam nick+task+wersja) zwraca ten sam event bez nowego zapisu; po
-     rozstrzygnieciu (timeout/claim/ewikcja) appendujemy TRWALY offer_resolved
-     i ewikujemy z cache, wiec kolejna proba (po pelnym okrazeniu idle) to
-     NOWY event/id. Reinsert do idle po timeoucie tylko dla nicka z ZYWYM
-     socketem (brak ducha w idle).
-  e) grupy adresowe ($group) — patrz protocol.parse_groups; nieznana
+  d) grupy adresowe ($group) — patrz protocol.parse_groups; nieznana
      grupa = error do nadawcy, zero publikacji do niej (inne wzmianki w
      tej samej ramce dzialaja normalnie). role/groups faktycznie przypisane
      nickowi pochodza WYLACZNIE z configu serwera (Registry.role_of/
@@ -64,8 +53,6 @@ from .store import EventLog, ForeignWriterError
 from .tasks import TaskQueue
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
-OFFER_IO_RETRY_MIN = 0.05
-OFFER_IO_RETRY_MAX = 1.0
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
 STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
@@ -125,7 +112,7 @@ _TASK_REPLAY_EVENTS = frozenset({
 
 class ChatServer:
     def __init__(self, data_dir, tokens, port, bind="127.0.0.1", wip_limit=3,
-                 lease_ttl=120.0, offer_timeout=5.0, open_mode=None):
+                 lease_ttl=120.0, open_mode=None):
         self.port = port
         self.bind = bind
         # B6: tryb otwarty (agent bez tokenu) wlacza sie SAM przy bindzie,
@@ -133,7 +120,6 @@ class ChatServer:
         # hub stoi takze na LAN i publicznie — tam siec nie chroni niczego,
         # wiec token wraca jako wymog dla wszystkich.
         self.open_mode = _open_bind(bind) if open_mode is None else open_mode
-        self.offer_timeout = offer_timeout
         self.log = EventLog(Path(data_dir))
         snap = self.log.load_snapshot()
         if snap:
@@ -143,23 +129,13 @@ class ChatServer:
                 wip_limit=wip_limit, lease_ttl=lease_ttl)
             self.registry = Registry.restore(tokens, state.get("registry", {}))
             restored_status = state.get("status", {})
-            offers = state.get("offers", [])
         else:
             self.queue = TaskQueue(wip_limit=wip_limit, lease_ttl=lease_ttl)
             self.registry = Registry(tokens)
-            offers = []
         self.conns = {}        # nick -> set[ws]
         self.roles = {}        # nick -> role
         self.groups = {}       # nick -> set[group], lustro trwalego Registry
-        self.idle = []         # nicki wyrobnic zglaszajacych idle (round-robin)
-        # (3) trwaly lifecycle ofert: _offer_cache trzyma PELNY event task_offer
-        # (z seq+activation_id) per (nick, task_id, version). Pending oferty sa
-        # w snapshocie (odtwarzane z niego) i dodatkowo rekonstruowane z replay
-        # (task_offer dodaje, offer_resolved usuwa).
-        self._offer_cache = self._restore_offers(offers)  # (nick,task_id,ver) -> event
-        self._offering = None
         self._server = None
-        self._expiry_task = None
         # niezmiennik A: eventy > snapshot_seq NIGDY nie byly odtwarzane do
         # stanu — trwalosc byla teatrem. Replay stosuje te same mutacje
         # (queue/registry) co live, bez zadnych side-effectow sieciowych
@@ -183,8 +159,7 @@ class ChatServer:
         # re-execution i BEZ zaleznosci od biezacej polityki (wip_limit/
         # lease_ttl mogly sie zmienic miedzy restartami). Kazdy event mutacji
         # niesie serwerowy wynik (task_state) — apply_replayed wstawia go
-        # wprost. Rejestr (hello) i lifecycle ofert (task_offer/offer_resolved)
-        # odtwarzane osobno.
+        # wprost. Rejestr (hello) odtwarzany osobno.
         for event in self.log.replay():
             etype = event.get("type")
             if etype == "status":
@@ -199,46 +174,19 @@ class ChatServer:
                 # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
                 if event["target"] in self.registry.tokens:
                     self.registry.set_groups(event["target"], event["groups"])
-            elif etype == "task_offer":
-                key = (event["target"], event["task"]["id"], event["task"]["version"])
-                self._offer_cache[key] = event  # pending: pelny event (z seq)
-            elif etype == "offer_resolved":
-                key = (event["nick"], event["task_id"], event["task_version"])
-                self._offer_cache.pop(key, None)  # rozstrzygnieta = nie pending
             elif etype == "task_expired_batch":
                 # (Runda 6) JEDEN atomowy event niosacy task_states WSZYSTKICH
                 # taskow wygaslych w danej petli expiry — aplikujemy kazdy wprost
-                # (result-based), jak pojedynczy reopen.
+                # (result-based), jak pojedynczy reopen. Offer machinery wyciete
+                # (A3): offer-eventy w STARYM logu nie maja juz elif
+                # i sa po prostu pomijane (queue-state i tak wynika z task_*).
                 for ts in event["task_states"]:
                     self.queue.apply_replayed(ts, None, None)
             elif etype in _TASK_REPLAY_EVENTS:
                 self.queue.apply_replayed(event["task_state"],
                                           event.get("command_id"),
                                           event.get("fingerprint"))
-                if etype == "task_claim":
-                    # (Runda 5 B / Runda 6) claim SAM JEST faktem resolution:
-                    # usun pending offers dla (task_id, wersja-open) z
-                    # odtwarzanego cache. Sciezka claim NIE appenduje juz
-                    # offer_resolved (Runda 6) — replay MUSI wywiesc resolution z
-                    # samego task_claim (dziala tez dla steal-claim, ktorego
-                    # klucz cudzej oferty claimer nigdy by sam nie trafil).
-                    # offer_resolved w logu pochodzi WYLACZNIE z timeoutu/ewikcji.
-                    for key in self._pending_offer_keys_for(
-                            event.get("task_id"), event.get("expected_task_version")):
-                        self._offer_cache.pop(key, None)
-            # chat/fyi/status/ok/error: bez mutacji stanu queue/registry
-
-    # -- pending oferty (trwaly lifecycle) ---------------------------------
-    @staticmethod
-    def _restore_offers(offer_events):
-        cache = {}
-        for e in offer_events:
-            key = (e["target"], e["task"]["id"], e["task"]["version"])
-            cache[key] = e
-        return cache
-
-    def _dump_offers(self):
-        return list(self._offer_cache.values())  # pelne eventy task_offer (z seq)
+            # chat/fyi/status/ok/error i stare offer-eventy: bez mutacji queue
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
@@ -249,18 +197,8 @@ class ChatServer:
         self._server = await websockets.serve(
             self._handler, self.bind, self.port,
             ping_interval=20, ping_timeout=20)
-        self._expiry_task = asyncio.ensure_future(self._expiry_loop())
 
     async def stop(self):
-        for task in (self._expiry_task, self._offering):
-            if task is None:
-                continue
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
         self._server.close()
         # F9: zamykanie serwera pod TWARDYM limitem czasu. Zmierzone na
         # produkcji: hub dostal SIGTERM, zwolnil port, ale PROCES WISIAL —
@@ -288,7 +226,6 @@ class ChatServer:
         try:
             self._save_snapshot_unchecked({"queue": self.queue.dump(),
                                  "registry": self.registry.dump(),
-                                 "offers": self._dump_offers(),
                                  "status": dict(self.status)})
         except ForeignWriterError:
             LOGGER.error(
@@ -310,8 +247,8 @@ class ChatServer:
         # (Runda 5 A) trwaly append ROZDZIELONY od auto-snapshotu: seq
         # przydzielony i event NA DYSKU, ale snapshot jeszcze NIE odpalony.
         # Mutacje wymagajace domkniecia stanu MIEDZY (trwaly event) a
-        # (ewentualny snapshot) — patrz _offer_event — wstawiaja swoj efekt PO
-        # udanym appendzie, a PRZED snapshotem. Nieudany append (wyjatek z
+        # (ewentualny snapshot) wstawiaja swoj efekt PO udanym appendzie,
+        # a PRZED snapshotem. Nieudany append (wyjatek z
         # log.append) rzuca zanim cokolwiek zmutujemy — brak dziury w numeracji
         # i brak przedwczesnej mutacji stanu zaleznego od trwalosci.
         seq = self.log.append(frame)
@@ -321,44 +258,6 @@ class ChatServer:
     def _maybe_snapshot(self):
         if self._events_since_snapshot >= SNAPSHOT_EVERY:
             self.snapshot()
-
-    async def _expiry_loop(self):
-        while True:
-            await asyncio.sleep(1.0)
-            try:
-                self._reap_expired(time.time())
-            except OSError:
-                # (Runda 6) trwaly append batcha moze paść (np. dysk pelny) —
-                # NIE zabijaj petli: provisional-then-commit gwarantuje ze live
-                # jest NIETKNIETE przy append-fail, wygasle taski zostaja claimed
-                # do nastepnej proby (bez utraty). Zawezone do OSError — bledy
-                # programistyczne maja sie propagowac, nie byc cicho polkniete.
-                pass
-
-    def _reap_expired(self, now):
-        # (1) expiry jest TRWALYM, replayowalnym eventem — nie fyi. Event niesie
-        # pelny stan taskow po powrocie do open, zeby replay odtworzyl reopen
-        # wprost (bez tego drugi claim po expire dawalby Conflict przy restarcie
-        # — patrz apply_replayed).
-        # (Runda 6) event-first TEZ tutaj (provisional-then-commit): expire()
-        # LIVE przed appendem dawal split-brain — OSError na appendzie zostawial
-        # reopen w live bez trwalego faktu. ATOMOWOSC CALEJ PACZKI: expiry to
-        # JEDEN event task_expired_batch z lista task_states wszystkich wygaslych
-        # w tej petli — jeden _append_durable to albo caly batch trwaly, albo
-        # nic (petla wielu appendow dawala czesciowy log przy calosciowym swapie
-        # -> EXPIRY_SPLIT). Kolejnosc: expire na KLONIE -> durable batch -> DOPIERO
-        # swap live=klon -> snapshot -> trigger. Append-fail => live NIETKNIETE,
-        # ZERO eventow, cala paczka zostaje claimed do nastepnej petli.
-        trial = copy.deepcopy(self.queue)
-        expired = trial.expire(now)
-        if not expired:
-            return
-        self._append_durable(protocol.make_frame(
-            "task_expired_batch", "server", time.time(),
-            task_ids=[t["id"] for t in expired], task_states=expired))
-        self.queue = trial       # commit: swap dopiero PO udanym appendzie batcha
-        self._maybe_snapshot()
-        self._trigger_offer()
 
     async def _push_presence(self, nick, connected):
         """Efemeryczna ramka presence do WSZYSTKICH podlaczonych humanow —
@@ -479,7 +378,7 @@ class ChatServer:
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
                 text=f"nieznana grupa: {', '.join(unknown_groups)}"))
-        seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik g)
+        seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
         frame["seq"] = seq
         await self._publish_chat(frame, mentions, groups_mentioned, set(unknown_groups))
 
@@ -502,7 +401,7 @@ class ChatServer:
     @staticmethod
     def _validate_role(value):
         # (7) role deklarowana w hello jest tylko WALIDOWANA (przypisanie
-        # pochodzi z configu serwera — niezmiennik e/H) — ale jesli podana,
+        # pochodzi z configu serwera — niezmiennik d/H) — ale jesli podana,
         # musi byc NIEPUSTYM stringiem (AGENTS.md: typ + niepustosc). role=[]
         # oraz role="" to blad wejscia do nadawcy. (Runda 6 #4: "" przechodzil,
         # bo "" jest str — teraz jawnie odrzucony.)
@@ -679,7 +578,7 @@ class ChatServer:
                     instance_id=frame.get("instance_id"),
                     groups=list(groups), role=role))
             except OSError:
-                # niezmiennik f: awaria storage (dysk pelny) na hello NIE moze
+                # niezmiennik e: awaria storage (dysk pelny) na hello NIE moze
                 # zabic handlera brutalnym 1011 — hello odpowiada czysta ramka
                 # error i dopiero potem graceful close. Stan pozostaje
                 # czysty (klon wyrzucony, registry nietkniety, zero side-effektow
@@ -773,8 +672,7 @@ class ChatServer:
                                  # inaczej nigdy nie pozna przydzielonego nicka)
                     snapshot_seq=self.log.snapshot_seq,
                     state={"queue": self.queue.dump(),
-                           "registry": self.registry.dump(),
-                           "offers": self._dump_offers()},
+                           "registry": self.registry.dump()},
                     conversation=self.log.conversation_after(last_seq),
                     generation=generation, role=role, groups=list(groups), **extra)
             else:
@@ -833,7 +731,7 @@ class ChatServer:
                         text=STORAGE_UNAVAILABLE)))
                     stop = False
                 except Exception:
-                    # Ostatnia linia obrony (niezmiennik f): detal tylko w logu,
+                    # Ostatnia linia obrony (niezmiennik e): detal tylko w logu,
                     # odpowiedz publiczna nie ujawnia implementacji ani sciezek.
                     LOGGER.exception(
                         "internal frame failure for nick=%r type=%r command_id=%r",
@@ -850,11 +748,7 @@ class ChatServer:
         finally:
             if nick and ws in self.conns.get(nick, set()):
                 self.conns[nick].discard(ws)
-                # (F5) nick bez zadnego zostalego socketu wypada z self.idle —
-                # inaczej oferta poszlaby w prozne (nikt jej nigdy nie odbierze)
                 if not self.conns[nick]:
-                    if nick in self.idle:
-                        self.idle.remove(nick)
                     # lista online jak na czacie: znikasz gdy pada OSTATNIE
                     # polaczenie (best-effort; sockety humanow moga juz byc
                     # w trakcie zamykania)
@@ -1012,142 +906,6 @@ class ChatServer:
                 await self._send(observer, event)
 
     # -- oferty (round-robin + timeout) -------------------------------------
-    def _offer_activation_id(self, nick, task):
-        return self._offer_event(nick, task)["activation_id"]
-
-    def _offer_event(self, nick, task):
-        # niezmiennik d)/F1: activation_id kotwiczony w TRWALYM evencie —
-        # event NA DYSKU musi sam zawierac activation_id (i seq). Seq
-        # przydzielany przez log.append() jest deterministyczny (petla
-        # asyncio jednowatkowa, wiec kolejny append dostanie DOKLADNIE
-        # przewidywany numer) — liczymy go z gory, zeby moc wlozyc
-        # activation_id do ramki PRZED jej zapisem, zamiast dopisywac
-        # cos do juz zapisanej linii (store.py nie pozwala na to).
-        # Retry TEJ SAMEJ proby (ten sam nick+task_id+wersja taska) zwraca
-        # ten sam event BEZ nowego zapisu; zmiana ktoregokolwiek pola to
-        # nowa proba -> nowy event. (4) cache trzyma PELNY event (z seq),
-        # zeby _offer_loop wyslal klientowi dokladnie ten trwaly event.
-        key = (nick, task["id"], task["version"])
-        cached = self._offer_cache.get(key)
-        if cached is not None:
-            return cached
-        predicted_seq = self.log.last_seq + 1
-        activation_id = f"{nick}:{predicted_seq}"
-        frame = protocol.make_frame(
-            "task_offer", "server", time.time(), task=task, target=nick,
-            activation_id=activation_id)
-        # (Runda 5 A) DURABILITY-BEFORE-PUBLICATION: trwaly append NAJPIERW.
-        # Gdy append rzuci (np. OSError/dysk pelny), _offer_cache pozostaje
-        # NIETKNIETY — a to cache steruje publikacja w _offer_loop, wiec zaden
-        # niedurable offer nie moze pojsc do klienta ani zwrocic sie jako cached
-        # przy kolejnej probie. Dopiero PO udanym, trwalym appendzie domykamy
-        # stan (offer -> cache), a snapshot (dumpuje _dump_offers) odpalamy na
-        # KONCU: oferta jest juz w cache, wiec auto-snapshot #100 ja obejmuje
-        # (utrzymuje fix Rundy 4 #2 — pending offer przezywa kompakcje). Seq
-        # przewidywalny (jednowatkowy event loop), append tylko potwierdza numer.
-        seq = self._append_durable(frame)
-        assert seq == predicted_seq  # jednowatkowy event loop — brak wyscigu
-        stored = {**frame, "seq": seq}  # dokladnie ten trwaly event (z seq)
-        self._offer_cache[key] = stored
-        self._maybe_snapshot()
-        return stored
-
-    def _pending_offer_keys_for(self, task_id, task_version):
-        # (Runda 5 B) wszystkie klucze pending ofert dla danego (task_id,
-        # wersja) niezaleznie od targetu. Zwraca LISTE (kopie) — wolajacy
-        # mutuje _offer_cache w petli.
-        return [k for k in self._offer_cache
-                if k[1] == task_id and k[2] == task_version]
-
-    def _drop_offers_for_task(self, task_id, task_version):
-        # (Runda 6) udany claim SAM jest trwalym faktem resolution (task_claim
-        # event; replay pop-uje WSZYSTKIE matching offers dla (task_id, wersja-
-        # open) niezaleznie od targetu — Runda 5 B, wiec steal-claim gammy tez
-        # czysci oferte bety). Sciezka claim wiec tylko USUWA pending offers z
-        # cache live, BEZ osobnego offer_resolved (bylby redundantny audyt, a
-        # jego durable append w petli przy wielu ofertach wymuszalby snapshoty w
-        # srodku transakcji). offer_resolved zostaje WYLACZNIE dla timeoutow/
-        # ewikcji (_offer_loop), gdzie NIE ma task_claim jako durable faktu.
-        for key in self._pending_offer_keys_for(task_id, task_version):
-            self._offer_cache.pop(key, None)
-
-    def _resolve_offer(self, nick, task_id, task_version, outcome):
-        # (3) rozstrzygniecie pending oferty przez TIMEOUT/EWIKCJE (_offer_loop)
-        # appenduje TRWALY event offer_resolved — dla tych sciezek to JEDYNY
-        # durable fakt resolution (nie ma task_claim). Sukces claim NIE idzie
-        # tedy (patrz _drop_offers_for_task). Idempotentne: tylko jesli pending.
-        # (Runda 6) DURABLE-FIRST, ta sama kolejnosc co reszta transakcji:
-        # _append_durable(offer_resolved) NAJPIERW (bez snapshotu), DOPIERO po
-        # sukcesie pop z cache, na koncu _maybe_snapshot. Append-fail => oferta
-        # zostaje w cache (spojnie z durable-stanem), retry dziala. Bez tego
-        # pop-przed-appendem usuwal oferte tylko live (niedurable) -> restart
-        # resurrectowal pending; a snapshot na #100 miedzy popem a appendem
-        # kompaktowal task_offer przy nieutrwalonym offer_resolved.
-        key = (nick, task_id, task_version)
-        if key not in self._offer_cache:
-            return
-        self._append_durable(protocol.make_frame(
-            "offer_resolved", "server", time.time(),
-            nick=nick, task_id=task_id, task_version=task_version,
-            outcome=outcome))
-        self._offer_cache.pop(key, None)
-        self._maybe_snapshot()
-
-    def _trigger_offer(self):
-        if self._offering is None or self._offering.done():
-            self._offering = asyncio.ensure_future(self._offer_loop())
-
-    def _requeue_idle_if_connected(self, nick):
-        """Przywroc workera do round-robin bez ducha ani duplikatu."""
-        if self.conns.get(nick) and nick not in self.idle:
-            self.idle.append(nick)
-            return True
-        return False
-
-    async def _offer_loop(self):
-        retry_delay = OFFER_IO_RETRY_MIN
-        while True:
-            task = self.queue.offerable()
-            if task is None or not self.idle:
-                return
-            nick = self.idle.pop(0)
-            try:
-                # (4) wysylamy klientowi DOKLADNIE trwaly event (z seq), nie
-                # okrojona ramke — odbiorca widzi seq == seq zapisanego eventu.
-                offer_event = self._offer_event(nick, task)
-                await self._send(nick, offer_event)
-                await asyncio.sleep(self.offer_timeout)
-                fresh = self.queue.get(task["id"])
-                # (F4) sprawdzamy KTO faktycznie dostal taska, nie tylko czy
-                # przestal byc "open" — inny klient mogl go ukrasc bezposrednim
-                # task_claim (poza mechanizmem ofert) w trakcie sleep().
-                # (3) proba jest ROZSTRZYGNIETA — trwaly offer_resolved (i
-                # ewikcja z cache), zeby PONOWNA oferta tego samego taska/
-                # wersji temu samemu nickowi byla NOWA proba/event.
-                outcome = "claimed" if fresh["assignee"] == nick else "timeout"
-                self._resolve_offer(nick, task["id"], task["version"], outcome)
-            except OSError:
-                # Storage moze wrocic bez zadnego nowego eventu, ktory ponownie
-                # wywolalby _trigger_offer. Pojedynczy OSError nie moze wiec
-                # zabic jedynego future ani zgubic workera wyjetego z idle.
-                # Pending offer pozostaje w cache (durable-first), dlatego
-                # retry publikuje ten sam seq/activation_id i dopiero ponawia
-                # offer_resolved. Backoff jest ograniczony, a CancelledError
-                # nie jest polykany.
-                self._requeue_idle_if_connected(nick)
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, OFFER_IO_RETRY_MAX)
-                continue
-            retry_delay = OFFER_IO_RETRY_MIN
-            if fresh["assignee"] != nick:
-                # (5) reinsert do idle TYLKO gdy nick ma zywy socket — inaczej
-                # rozlaczony w oknie oferty zostawialby "ducha" w idle i kolejna
-                # oferta szlaby w prozne (nikt jej nie odbierze).
-                if self._requeue_idle_if_connected(nick):
-                    if len(self.idle) == 1:
-                        return                  # nikt inny nie czeka
-
-
 def main():
     tokens_path = os.environ.get("CHAT_TOKENS", "tokens.json")
     tokens = json.loads(Path(tokens_path).read_text())

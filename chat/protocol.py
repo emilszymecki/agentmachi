@@ -3,21 +3,21 @@ import math
 import re
 import sys
 
-# (Runda 4 #5 / laka-nie-obora A2) Rozdzial typow: INBOUND to jedyne typy,
+# (Runda 4 #5 / laka-nie-obora A2/A3) Rozdzial typow: INBOUND to jedyne typy,
 # ktore klient moze przyslac. Inbound task_*/heartbeat zostaly WYCIETE —
 # task_new/claim/done/... to teraz typy NIEZNANE (validate: unknown type),
 # serwer nie przyjmuje zlecen taskowych od klienta. OUTBOUND to typy WYLACZNIE
-# serwerowe: generowane w locie (task_offer/backlog/resync_required/error/ok)
-# albo trwale eventy stanu (task_expired_batch/offer_resolved), ktore replay
-# czyta ze starych logow do wyciecia kolejki (A4). Historyczny task_expired
-# singular zostaje outbound-only tylko po to, by validate jawnie odrzucal go
-# inbound-em.
+# serwerowe: generowane w locie (backlog/resync_required/error/ok) albo trwale
+# eventy stanu kolejki (task_expired_batch), ktore replay czyta ze starych
+# logow do wyciecia kolejki (A4). Offer machinery wyciete (A3): task_offer/
+# offer_resolved juz nie istnieja. Historyczny task_expired singular zostaje
+# outbound-only tylko po to, by validate jawnie odrzucal go inbound-em.
 INBOUND_FRAME_TYPES = {
     "hello", "chat", "fyi", "status", "membership_set", "kick",
 }
 OUTBOUND_FRAME_TYPES = {
-    "task_offer", "backlog", "resync_required", "error", "ok",
-    "task_expired", "task_expired_batch", "offer_resolved",
+    "backlog", "resync_required", "error", "ok",
+    "task_expired", "task_expired_batch",
     "presence",  # efemeryczny (bez seq): nick wszedl/wypadl z polaczenia
     "takeover",  # F3: TRWALY slad wyparcia nicka przez nowsze hello
 }
@@ -32,7 +32,7 @@ FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 # ponizszy zbior to WYLACZNIE dokumentacja stanow umownych, walidacja
 # schematu juz go nie egzekwuje (patrz _validate_body):
 #   sleeping — smiem czekam na wzmianke (node/agent jeszcze nie obudzony)
-#   idle    — czekam na taska (serwer moze slac task_offer)
+#   idle    — czekam na przydzial pracy (deklaruje sie na kanale)
 #   working — robie taska (opcjonalnie task_id + note co dokladnie)
 #   blocked — stoje, czekam na odpowiedz/decyzje (task_id/note = na co)
 #   review  — skonczylem, czekam na review mojej pracy (task_id)

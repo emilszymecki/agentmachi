@@ -71,8 +71,10 @@ def test_apply_frame_without_seq_prints_but_keeps_cursor(session, capsys):
 
 def test_apply_frame_duplicate_activation_suppressed_cursor_moves(
         session, capsys):
-    offer = {"from": "server", "type": "task_offer", "seq": 13,
-             "activation_id": "beta:13", "task": {}}
+    # (A3) activation_id to GENERYCZNY dedup wybudzen po stronie klienta, nie
+    # scheduler — reprezentowany dowolna zywa ramka z activation_id (tu chat).
+    offer = {"from": "server", "type": "chat", "seq": 13,
+             "activation_id": "beta:13", "text": "@beta obudz sie"}
     assert send.apply_frame(session, offer) is True
     capsys.readouterr()
     retransmit = dict(offer, seq=14)  # retransmisja tej samej proby
@@ -96,8 +98,8 @@ def test_apply_frame_crash_before_mark_does_not_lose_activation(
         session, monkeypatch, capsys):
     """Review-changes codexa (1): crash w apply ramki z activation_id NIE
     zapisuje aktywacji — retry MUSI ja ponownie zastosowac, nie suppress."""
-    offer = {"from": "server", "type": "task_offer", "seq": 13,
-             "activation_id": "beta:13", "task": {}}
+    offer = {"from": "server", "type": "chat", "seq": 13,
+             "activation_id": "beta:13", "text": "@beta obudz sie"}
     def boom(_):
         raise RuntimeError("crash w apply")
     monkeypatch.setattr(send, "_print_event", boom)
@@ -107,7 +109,7 @@ def test_apply_frame_crash_before_mark_does_not_lose_activation(
     assert session.last_applied_seq == 0
     monkeypatch.undo()
     assert send.apply_frame(session, offer) is True  # retry APLIKUJE
-    assert "task_offer" in capsys.readouterr().out
+    assert "obudz sie" in capsys.readouterr().out
     assert session.is_activation_applied("beta:13") is True
     assert session.last_applied_seq == 13
 

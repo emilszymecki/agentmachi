@@ -99,8 +99,8 @@ def test_validate_inbound_task_and_heartbeat_now_unknown():
 
 
 def test_validate_rejects_outbound_only_types_inbound_but_known():
-    for ftype in ("task_offer", "backlog", "resync_required", "error", "ok",
-                  "task_expired", "offer_resolved"):
+    for ftype in ("backlog", "resync_required", "error", "ok",
+                  "task_expired", "task_expired_batch"):
         msg = protocol.validate({"type": ftype, "from": "a", "ts": 1.0})
         assert msg is not None                    # odrzucone inbound-em
         assert "unknown type" not in msg          # ale to ZNANE typy (nie nieznane)
