@@ -343,14 +343,15 @@ def test_snapshot_carries_status_into_roster(tmp_path):
                 "participants": [
                     {"nick": "beta", "role": "agent", "groups": ["workers"],
                      "connected": True,
-                     "status": {"state": "working", "task_id": "t2"}}]})
+                     "status": {"state": "working", "subject": "t2"}}]})
             assert app.roster["beta"].status == "working"
             assert app.roster["beta"].status_note == "t2"
-            # live status frame aktualizuje roster
+            # live status frame aktualizuje roster; subject -> status_note (branch live)
             await app.apply_hub_frame({
                 "type": "status", "from": "beta", "state": "review",
-                "task_id": "t2", "seq": 50})
+                "subject": "audyt", "seq": 50})
             assert app.roster["beta"].status == "review"
+            assert app.roster["beta"].status_note == "audyt"
     asyncio.run(scenario())
 
 
@@ -377,12 +378,14 @@ def test_roster_shows_only_connected_and_presence_updates(tmp_path):
                      "connected": False}]})
             rendered = str(app.query_one("#participants").render())
             assert "Emil" in rendered and "beta" not in rendered
-            # presence online -> pojawia sie
+            # presence online -> pojawia sie; subject renderowany (branch presence)
             await app.apply_hub_frame({"type": "presence", "nick": "beta",
                                        "connected": True,
-                                       "status": {"state": "idle"}})
+                                       "status": {"state": "working",
+                                                  "subject": "audyt"}})
             rendered = str(app.query_one("#participants").render())
-            assert "beta" in rendered and "idle" in rendered
+            assert "beta" in rendered and "working" in rendered
+            assert "audyt" in rendered
             # presence offline -> znika
             await app.apply_hub_frame({"type": "presence", "nick": "beta",
                                        "connected": False})

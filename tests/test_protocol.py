@@ -79,6 +79,21 @@ def test_validate_status_target_optional_but_nonempty_string_if_present():
     assert protocol.validate({**base, "target": 7}) is not None        # nie-str
 
 
+def test_validate_status_subject_and_note_optional_nonempty_string():
+    # B1: subject i note to opcjonalne pola statusu (niepusty string jesli
+    # obecne). task_id ZRETIROWANE — subject je zastapil, board = {state,subject,note}.
+    base = {"type": "status", "from": "a", "ts": 1.0, "state": "working"}
+    assert protocol.validate({**base, "subject": "audyt logu"}) is None
+    assert protocol.validate({**base, "note": "czekam"}) is None
+    assert protocol.validate({**base, "subject": "s", "note": "n"}) is None
+    assert protocol.validate({**base, "subject": ""}) is not None       # puste
+    assert protocol.validate({**base, "subject": []}) is not None       # nie-str
+    assert protocol.validate({**base, "note": ""}) is not None
+    # task_id nie jest juz walidowanym polem statusu (zretirowane); jako
+    # nieznane pole nie wywala walidacji — po prostu ignorowane, nie zapisywane
+    assert protocol.validate({**base, "task_id": "legacy"}) is None
+
+
 def test_validate_membership_set_requires_target_and_group_list():
     base = {"type": "membership_set", "from": "emil", "ts": 1.0}
     assert protocol.validate({**base, "target": "beta", "groups": []}) is None

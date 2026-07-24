@@ -66,7 +66,7 @@ class Participant:
     presence: str = "known"
     status: str = ""      # wolny tekst umowny: sleeping|idle|working|blocked|
                            # review|done, ale server nie waliduje enuma ("" = nieznany)
-    status_note: str = ""  # subject / task_id / note z ostatniej deklaracji
+    status_note: str = ""  # subject / note z ostatniej deklaracji
 
 
 def _normalized_groups(value, *, owner):
@@ -543,7 +543,7 @@ class AgentmachiApp(App):
                 if isinstance(status, dict):
                     raw = status.get("state")
                     participant.status = raw if isinstance(raw, str) else ""
-                    raw_note = status.get("subject") or status.get("task_id") or status.get("note")
+                    raw_note = status.get("subject") or status.get("note")
                     participant.status_note = raw_note \
                         if isinstance(raw_note, str) else ""
                 self._render_participants()
@@ -559,7 +559,7 @@ class AgentmachiApp(App):
                 participant = self.roster.setdefault(
                     nick, Participant(nick, "agent", []))
                 participant.status = state
-                raw_note = frame.get("subject") or frame.get("task_id") or frame.get("note")
+                raw_note = frame.get("subject") or frame.get("note")
                 participant.status_note = raw_note \
                     if isinstance(raw_note, str) else ""
                 self._render_participants()
@@ -611,7 +611,7 @@ class AgentmachiApp(App):
             if isinstance(status, dict):
                 raw_state = status.get("state")
                 state = raw_state if isinstance(raw_state, str) else ""
-                raw_note = status.get("subject") or status.get("task_id") or status.get("note")
+                raw_note = status.get("subject") or status.get("note")
                 note = raw_note if isinstance(raw_note, str) else ""
             fresh[nick] = Participant(
                 nick,

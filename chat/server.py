@@ -142,9 +142,15 @@ class ChatServer:
         # (bez _send/_append — eventy juz sa na dysku).
         # self.status MUSI istniec PRZED _replay_events() — replay eventow
         # status nadpisuje stan przywrocony ze snapshotu (nowsze wygrywa)
-        self.status = {}       # nick -> {state, subject?, note?, task_id?} (ostatnia deklaracja)
+        self.status = {}       # nick -> {state, subject?, note?} (ostatnia deklaracja)
         if snap:
-            self.status = {n: dict(v) for n, v in restored_status.items()
+            # Legacy-snapshot sanityzacja: stary snapshot (pre-B1) niesie martwe
+            # task_id w status. Projektujemy KAZDY wpis tylko na dozwolone klucze,
+            # zeby martwe/obce pola nie przetrwaly restartu — handler/replay juz
+            # ich nie zapisuja, stare log-eventy czysci projekcja _replay_events.
+            self.status = {n: {k: v[k] for k in ("state", "subject", "note")
+                               if k in v}
+                           for n, v in restored_status.items()
                            if isinstance(n, str) and isinstance(v, dict)}
         self._replay_events()
         self.groups = {nick: set(self.registry.groups_of(nick))
@@ -166,7 +172,7 @@ class ChatServer:
                 key = event.get("target", event["from"])
                 if isinstance(key, str) and key:
                     self.status[key] = {k: event[k] for k in
-                                        ("state", "task_id", "note", "subject")
+                                        ("state", "subject", "note")
                                         if k in event}
             elif etype == "hello":
                 self.registry.replay_hello(event["from"], event["instance_id"])
@@ -797,7 +803,7 @@ class ChatServer:
             seq = self._append(frame)
             frame["seq"] = seq
             self.status[target] = {k: frame[k] for k in
-                                   ("state", "task_id", "note", "subject")
+                                   ("state", "subject", "note")
                                    if k in frame}
             # Etap 1 (laka-nie-obora): status to CZYSTY fakt na boardzie —
             # zero side-effectu schedulera. `state=idle` nie dopisuje juz do

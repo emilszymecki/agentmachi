@@ -1349,12 +1349,12 @@ def test_status_tracked_in_snapshot(srv):
         assert not hasattr(server, "idle")   # (A3) offer machinery wyciete — brak idle
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 2.0, "state": "working",
-                                    "task_id": "t9"}))
+                                    "subject": "t9"}))
         await asyncio.sleep(0.1)
         snap = server._participants_snapshot()
         by_nick = {p["nick"]: p for p in snap}
         assert by_nick["beta"]["status"] == {"state": "working",
-                                             "task_id": "t9"}
+                                             "subject": "t9"}
         # dowolny wolny tekst (spoza kanonu) jest teraz akceptowany
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 2.5, "state": "spie"}))
@@ -1374,8 +1374,8 @@ def test_status_tracked_in_snapshot(srv):
 def test_status_subject_on_board(srv):
     # B1 (laka-nie-obora): board niesie subject obok state/note jako plaska
     # mapa deklaracji. subject = "nad czym pracuje"; zagniezdzony w
-    # participant["status"] (jak state/note), NIE top-level. task_id (martwe
-    # pole scheduler-era) wspolistnieje nieszkodliwie do osobnego cleanupu.
+    # participant["status"] (jak state/note), NIE top-level. task_id
+    # (scheduler-era) zretirowane — subject je zastapil, board = {state,subject,note}.
     async def scenario(server):
         ws_b, _ = await hello("beta", "tb", instance="ib")
         await ws_b.send(json.dumps({"type": "status", "from": "beta", "ts": 1.0,
@@ -1416,9 +1416,9 @@ def test_orchestrator_sets_others_status_humans_see_live(srv):
         gamma, _ = await hello("gamma", "tg")
         await beta.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 0.0, "target": "gamma",
-                                    "state": "working", "task_id": "C"}))
+                                    "state": "working", "subject": "C"}))
         await asyncio.sleep(0.1)
-        assert server.status["gamma"] == {"state": "working", "task_id": "C"}
+        assert server.status["gamma"] == {"state": "working", "subject": "C"}
         ev = await recv(emil)                       # human widzi na zywo
         assert ev["type"] == "status"
         assert ev["target"] == "gamma" and ev["from"] == "beta"
@@ -1439,6 +1439,7 @@ def test_status_survives_restart_via_replay(srv, tmp_path):
         ws_b, _ = await hello("beta", "tb", instance="ib")
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 1.0, "state": "blocked",
+                                    "subject": "audyt logu",
                                     "note": "czekam na decyzje"}))
         await asyncio.sleep(0.1)
         await ws_b.close()
@@ -1447,7 +1448,9 @@ def test_status_survives_restart_via_replay(srv, tmp_path):
     data_dir = asyncio.run(srv(scenario))
     reborn = ChatServer(data_dir=data_dir, tokens=TOKENS, port=PORT + 1)
     snap = {p["nick"]: p for p in reborn._participants_snapshot()}
+    # subject przechodzi przez branch _replay_events (B1 retire: bez task_id)
     assert snap["beta"]["status"] == {"state": "blocked",
+                                       "subject": "audyt logu",
                                        "note": "czekam na decyzje"}
     assert snap["beta"]["connected"] is False
 
@@ -1484,7 +1487,7 @@ def test_status_survives_crash_restart_without_snapshot(srv):
         ws_b, _ = await hello("beta", "tb", instance="ib")
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 1.0, "state": "working",
-                                    "task_id": "t7"}))
+                                    "subject": "t7"}))
         await asyncio.sleep(0.1)
         await ws_b.close()
         # symulacja crasha: BEZ server.stop() (zero snapshotu) — kopiujemy
@@ -1497,7 +1500,30 @@ def test_status_survives_crash_restart_without_snapshot(srv):
     crash_dir = asyncio.run(srv(scenario))
     reborn = ChatServer(data_dir=crash_dir, tokens=TOKENS, port=PORT + 2)
     snap = {p["nick"]: p for p in reborn._participants_snapshot()}
-    assert snap["beta"]["status"] == {"state": "working", "task_id": "t7"}
+    assert snap["beta"]["status"] == {"state": "working", "subject": "t7"}
+
+
+def test_legacy_snapshot_task_id_sanitized_on_restore(tmp_path):
+    # B1 retire: stary snapshot (pre-B1) niesie martwe task_id w status.
+    # Restore MUSI je odsiac (projekcja na state/subject/note), inaczej pole
+    # przetrwaloby restart mimo usuniecia handler/replay. dict(v) by je
+    # przepuscil — dlatego __init__ projektuje kazdy wpis przy restore.
+    async def scenario():
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
+        await s1.start()
+        try:
+            # symulacja pre-B1 stanu: task_id wprost w self.status (dzisiejszy
+            # handler by go odrzucil), utrwalone snapshotem na dysk
+            s1.status["beta"] = {"state": "working", "task_id": "legacy",
+                                 "subject": "audyt", "note": "x"}
+            s1.snapshot()
+        finally:
+            await s1.stop()
+    asyncio.run(scenario())
+    s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT + 3)
+    restored = s2.status["beta"]
+    assert "task_id" not in restored                       # odsiane przy restore
+    assert restored == {"state": "working", "subject": "audyt", "note": "x"}
 
 
 # -- Task 1: bind jest parametrem serwera -----------------------------------

@@ -33,9 +33,9 @@ FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 # schematu juz go nie egzekwuje (patrz _validate_body):
 #   sleeping — smiem czekam na wzmianke (node/agent jeszcze nie obudzony)
 #   idle    — czekam na przydzial pracy (deklaruje sie na kanale)
-#   working — robie taska (opcjonalnie task_id + note co dokladnie)
-#   blocked — stoje, czekam na odpowiedz/decyzje (task_id/note = na co)
-#   review  — skonczylem, czekam na review mojej pracy (task_id)
+#   working — robie cos (opcjonalnie subject = nad czym, + note co dokladnie)
+#   blocked — stoje, czekam na odpowiedz/decyzje (subject/note = na co)
+#   review  — skonczylem, czekam na review mojej pracy (subject = czego)
 #   done    — task zamkniety (deklaracja koncowa, opcjonalna)
 STATUS_STATES = frozenset(
     {"sleeping", "idle", "working", "blocked", "review", "done"})
@@ -115,7 +115,7 @@ def _validate_body(frame, ftype):
         if not isinstance(state, str) or not state or len(state) > 32:
             return ("status: state wymagany (niepusty string, "
                     "maks 32 znaki)")
-        for opt in ("task_id", "note", "subject"):
+        for opt in ("note", "subject"):
             if opt in frame and (not isinstance(frame[opt], str)
                                  or not frame[opt]):
                 return f"status: {opt} jesli podany musi byc niepustym stringiem"
