@@ -151,19 +151,6 @@ def test_hello_ok_without_metadata_emits_nothing_extra(session, capsys):
     assert capsys.readouterr().out == ""
 
 
-@pytest.mark.parametrize("bad", [0, -1, float("nan"), float("inf"), True])
-def test_heartbeat_interval_validated(bad):
-    """Finisz codexa (3): interval musi byc skonczony i > 0."""
-    from chat.client_session import SessionError
-    with pytest.raises(SessionError):
-        send._check_heartbeat_interval(bad)
-
-
-def test_heartbeat_interval_valid_passes():
-    assert send._check_heartbeat_interval(45) == 45.0
-    assert send._check_heartbeat_interval(0.5) == 0.5
-
-
 def test_token_is_optional_in_open_mode(monkeypatch):
     """B6: brak CHAT_TOKEN NIE jest juz bledem — hub w trybie otwartym
     wpuszcza agenta bez sekretu. Wymuszanie tokenu po stronie klienta

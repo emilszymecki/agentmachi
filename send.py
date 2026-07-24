@@ -338,29 +338,6 @@ async def listen(nick):
             session.release_listener_lock()
 
 
-def _check_heartbeat_interval(interval):
-    import math
-    if (isinstance(interval, bool) or not isinstance(interval, (int, float))
-            or not math.isfinite(interval) or interval <= 0):
-        raise SessionError(f"invalid heartbeat interval: {interval!r} "
-                           "(wymagane skonczone > 0)")
-    return float(interval)
-
-
-async def _await_heartbeat_ok(ws, task_id):
-    """Czekaj na WLASCIWE ok (kontrakt serwera: ok z task.id) — inne ramki
-    (chat/backlog itd.) pomijamy. Timeout/blad = sygnal dla petli."""
-    while True:
-        reply = json.loads(await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
-        if not isinstance(reply, dict):
-            continue
-        if reply.get("type") == "error":
-            return reply
-        if (reply.get("type") == "ok"
-                and reply.get("task", {}).get("id") == task_id):
-            return reply
-
-
 async def oneshot_frame(nick, frame):
     """Jednorazowa ramka NIE-chat (status/task_*) na TOZSAMOSCI SESJI —
     ten sam instance_id co listener/heartbeat, wiec ZERO takeoveru i
@@ -381,44 +358,6 @@ async def oneshot_frame(nick, frame):
         except asyncio.TimeoutError:
             return None  # np. status — serwer nie odsyla ACK i to jest OK
 
-
-async def heartbeat_loop(nick, task_id, interval):
-    """Procesik lease (mechanika ze specu): odnawiaj heartbeat co interval,
-    az do kill (worker ubija przy done). Blad serwera = koniec (nie odnawiaj
-    lease taska, ktorego juz nie posiadasz); timeout na ok ORAZ pad sieci =
-    reconnect z backoffem."""
-    interval = _check_heartbeat_interval(interval)
-    token = _require_token()
-    session = _session(nick)  # kursora NIE ruszamy (to nie listener)
-    backoff = BACKOFF_START
-    while True:
-        try:
-            async with websockets.connect(URI) as ws:
-                await do_hello(ws, nick, session, token)
-                backoff = BACKOFF_START
-                while True:
-                    await ws.send(json.dumps({
-                        "type": "heartbeat", "from": nick, "ts": 0.0,
-                        "task_id": task_id}))
-                    reply = await _await_heartbeat_ok(ws, task_id)
-                    if reply.get("type") == "error":
-                        print(f"heartbeat odrzucony: {reply.get('text')}",
-                              file=sys.stderr)
-                        return 1
-                    await asyncio.sleep(interval)
-        except asyncio.TimeoutError:
-            print("[heartbeat-reconnect] brak ok w terminie — ponawiam "
-                  f"polaczenie za {backoff:.0f}s", file=sys.stderr)
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, BACKOFF_MAX)
-        except (websockets.exceptions.ConnectionClosed, OSError) as e:
-            print(f"[heartbeat-reconnect] {e}; ponawiam za {backoff:.0f}s",
-                  file=sys.stderr)
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, BACKOFF_MAX)
-
-
-# --- tryb legacy: stary PoC-hub (czysty broadcast {from,text}, bez hello) ---
 
 async def legacy_send_once(nick, text):
     async with websockets.connect(URI) as ws:
@@ -446,21 +385,10 @@ def main():
                 sys.exit(1)
         elif args == ["--listen"]:
             asyncio.run(listen(os.environ.get("CHAT_NICK", "listener")))
-        elif args and args[0] == "--heartbeat" and len(args) in (2, 3):
-            try:
-                interval = float(args[2]) if len(args) == 3 else 45.0
-            except ValueError:
-                print(f"zly interval: {args[2]!r} (liczba sekund > 0)",
-                      file=sys.stderr)
-                sys.exit(1)
-            code = asyncio.run(heartbeat_loop(
-                os.environ.get("CHAT_NICK", "listener"), args[1], interval))
-            sys.exit(code or 0)
         elif len(args) == 2:
             asyncio.run(send_once(args[0], args[1]))
         else:
             print('usage: send.py <nick> "tekst"  |  send.py --listen  |  '
-                  'send.py --heartbeat <task_id> [interval]  |  '
                   'send.py --legacy ...', file=sys.stderr)
             sys.exit(1)
     except KeyboardInterrupt:

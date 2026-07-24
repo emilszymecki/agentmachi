@@ -683,13 +683,6 @@ def cmd_frame(args):
     return 1 if reply.get("type") == "error" else 0
 
 
-def cmd_heartbeat(args):
-    nick = _agent_env(args)
-    send = _import_send()
-    return asyncio.run(send.heartbeat_loop(nick or "listener",
-                                           args.task_id, args.interval)) or 0
-
-
 def cmd_node(args):
     """Headless node: budzi/wznawia runtime agenta na wzmianke (Task 3).
 
@@ -797,13 +790,6 @@ def _build_parser():
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_frame)
-
-    p = sub.add_parser("heartbeat", help="procesik lease dla taska")
-    p.add_argument("task_id")
-    p.add_argument("interval", nargs="?", type=float, default=45.0)
-    p.add_argument("--nick", default=None)
-    p.add_argument("--name", default=None)
-    p.set_defaults(fn=cmd_heartbeat)
 
     p = sub.add_parser("node", help="headless node: budzi agenta na wzmianke")
     p.add_argument("hub")
