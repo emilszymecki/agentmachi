@@ -18,13 +18,54 @@ Kontrakt (wsad b2-task-resumowalny-klient + review-guard codexa):
   moze byc zrodlem instance_id przy PIERWSZYM utworzeniu sesji, zeby nie
   takeover'owac wlasnego dzialajacego listenera.
 """
-import fcntl
 import hashlib
 import json
 import os
 import re
+import sys
 import uuid
 from pathlib import Path
+
+# fcntl istnieje tylko na Unixie; klient ma dzialac cross-platform (zlapane,
+# gdy PIERWSZY klient Windows padl na `import fcntl` przy ladowaniu modulu —
+# `agentmachi listen` umieral, zanim cokolwiek zrobil, mimo ze `--help`
+# przechodzil). Oba locki (listener-lock i state-lock) ida przez cienka
+# abstrakcje: flock na Unixie, msvcrt.locking na Windows. Semantyka zachowana:
+# exclusive lock per plik; wariant non-blocking rzuca BlockingIOError — a
+# dokladnie to lapie acquire_listener_lock, zamieniajac na ListenerLockHeld.
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock_exclusive(fd, blocking):
+        # msvcrt.locking blokuje region od BIEZACEJ pozycji — kotwiczymy go na
+        # [0, 1), zeby lock i unlock zawsze celowaly w ten sam bajt (plik locka
+        # bywa pusty; Windows dopuszcza lock poza EOF). LK_LOCK ponawia ~10 s i
+        # dopiero wtedy rzuca — dla KROTKIEGO state-locka to bezpieczne (lepiej
+        # blad niz wieczny deadlock).
+        os.lseek(fd, 0, os.SEEK_SET)
+        mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+        try:
+            msvcrt.locking(fd, mode, 1)
+        except OSError as e:
+            # zajete w trybie non-blocking -> ujednolicamy do BlockingIOError,
+            # tego samego typu, ktory rzuca flock(LOCK_NB) na Unixie.
+            raise BlockingIOError(str(e)) from e
+
+    def _unlock(fd):
+        os.lseek(fd, 0, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+else:
+    import fcntl
+
+    def _lock_exclusive(fd, blocking):
+        flags = fcntl.LOCK_EX if blocking else (fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, flags)   # wariant non-blocking rzuca BlockingIOError
+
+    def _unlock(fd):
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 SCHEMA = 1
 MAX_ACTIVATIONS = 200
@@ -93,7 +134,7 @@ class Session:
         fd = os.open(self._listener_lock_path,
                      os.O_WRONLY | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_exclusive(fd, blocking=False)
         except BlockingIOError:
             os.close(fd)
             raise ListenerLockHeld(
@@ -104,7 +145,7 @@ class Session:
 
     def release_listener_lock(self):
         if self._listener_lock_fh is not None:
-            fcntl.flock(self._listener_lock_fh, fcntl.LOCK_UN)
+            _unlock(self._listener_lock_fh)
             os.close(self._listener_lock_fh)
             self._listener_lock_fh = None
 
@@ -218,11 +259,11 @@ class _StateLock:
 
     def __enter__(self):
         self._fd = os.open(self._path, os.O_WRONLY | os.O_CREAT, 0o600)
-        fcntl.flock(self._fd, fcntl.LOCK_EX)
+        _lock_exclusive(self._fd, blocking=True)
         return self
 
     def __exit__(self, *exc):
-        fcntl.flock(self._fd, fcntl.LOCK_UN)
+        _unlock(self._fd)
         os.close(self._fd)
         self._fd = None
         return False
