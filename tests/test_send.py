@@ -384,3 +384,90 @@ def test_resync_reply_also_carries_conversation():
         send._print_event = original
     teksty = [e.get("text") for e in printed if e.get("type") == "chat"]
     assert "ustalenie sprzed snapshotu" in teksty
+
+
+# --- wejscie bez nicka: cala droga klienta (dogfood worker4) --------------
+# Serwer od B6 przyjmuje hello bez 'from' i nadaje nick, ale KLIENT padal
+# lokalnie na _session('') -> SessionError('invalid nick: '') ZANIM hello
+# wyszlo w drut. Bug siedzial w POPRZEK warstw: strona serwera dzialala,
+# kliencka byla martwa, i zaden unit tego nie lapal, bo zaden nie odpalal
+# calej drogi wejscia. Agent na VPS (git clone HEAD) padal tak przy kazdym
+# nickless wejsciu.
+
+def test_boot_identity_is_ephemeral_not_a_session():
+    """_BootIdentity zyje TYLKO na pierwsze hello: duck-typuje to, czego
+    do_hello potrzebuje (instance_id + last_applied_seq=0), ale NIE jest
+    Session — nie ma listener-locka ani kursora. Dlatego po nadaniu nicka
+    listen przechodzi na prawdziwa Session, a gdy hub nicka nie nada,
+    fail-closes zamiast udawac sesje."""
+    boot = send._BootIdentity()
+    assert isinstance(boot.instance_id, str) and boot.instance_id
+    assert boot.last_applied_seq == 0
+    assert not hasattr(boot, "acquire_listener_lock")
+    assert not hasattr(boot, "release_listener_lock")
+
+
+def test_nickless_listen_enters_open_hub_and_gets_assigned_nick(
+        tmp_path, monkeypatch, capsys):
+    """REGRES glowny: 'agentmachi listen' BEZ nicka na otwartym hubie MUSI
+    wejsc — hub nadaje nick, klient go przyjmuje i zaklada pod nim sesje.
+    Dowod calej drogi: powstaje plik sesji nazwany NADANYM nickiem (z pustym
+    nickiem Session by rzucila i pliku by nie bylo) + stderr niesie nadanie."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)   # open mode: bez sekretu
+    monkeypatch.delenv("CHAT_NICK", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    async def scenario():
+        # bind domyslny 127.0.0.1 => open_mode: agent wchodzi bez tokenu/nicka
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            task = asyncio.create_task(send.listen(""))
+            await asyncio.sleep(1.5)   # hello + nadanie nicka + zapis sesji
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())
+
+    sess_files = list((tmp_path / "sess").glob("*.json"))
+    assert sess_files, "brak pliku sesji => klient nie przyjal nadanego nicka"
+    # pusty nick dalby slug fallback 'nick-*'; nadany to 'worker*'
+    assert not any(f.name.startswith("nick-") for f in sess_files), \
+        [f.name for f in sess_files]
+    err = capsys.readouterr().err
+    assert "invalid nick" not in err, err
+    assert "[hub] nadany nick:" in err, err
+
+
+def test_nickless_listen_failcloses_when_hub_assigns_no_nick(monkeypatch):
+    """Review worker2: gdy hub przyjmuje nickless hello, ale nie odsyla
+    nadanego nicka (version-skew), listen NIE moze paln AttributeError —
+    _BootIdentity nie jest sesja. Kontrakt: czysty fail-closed (exit 1),
+    a finally nie siega po None.release_listener_lock()."""
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *a):
+            return False
+
+    async def _fake_hello(ws, nick, session, token, role=None):
+        return {"type": "ok"}   # przyjete, ale BEZ pola 'nick'
+
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _FakeConn())
+    monkeypatch.setattr(send, "do_hello", _fake_hello)
+
+    with pytest.raises(SystemExit) as ei:
+        asyncio.run(send.listen(""))
+    assert ei.value.code == 1

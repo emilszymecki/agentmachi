@@ -29,6 +29,7 @@ import asyncio
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -75,6 +76,17 @@ def _require_token():
 
 def _session(nick):
     return Session(HUB_ID, nick, legacy_instance_file=LEGACY_SESSION_FILE)
+
+
+class _BootIdentity:
+    """Tozsamosc TYMCZASOWA na pierwsze hello, gdy nick nada dopiero hub
+    (B6/B7 open mode). NIE dotyka dysku: Session pod pustym nickiem nie
+    istnieje (client_session.py fail-closed odrzuca ''), a kursor+lock
+    zakladamy DOPIERO pod nadanym nickiem. Bez tego cala sciezka
+    'wejscie bez nicka' padala na _session('') zanim hello wyszlo."""
+    def __init__(self):
+        self.instance_id = uuid.uuid4().hex
+        self.last_applied_seq = 0
 
 
 async def do_hello(ws, nick, session, token, role=None):
@@ -257,7 +269,7 @@ async def listen(nick):
         while True:
             try:
                 async with websockets.connect(URI) as ws:
-                    boot = session or _session("")   # tozsamosc na pierwsze hello
+                    boot = session or _BootIdentity()   # tozsamosc na pierwsze hello
                     reply = await do_hello(ws, nick, boot, token)
                     nadany = reply.get("nick") if isinstance(reply, dict) else None
                     if session is None and nadany:
@@ -268,8 +280,20 @@ async def listen(nick):
                         session.acquire_listener_lock()
                         print(f"[hub] nadany nick: {nick}", file=sys.stderr)
                     elif session is None:
-                        session = boot
-                        session.acquire_listener_lock()
+                        # Weszlismy bez nicka, ale hub przyjal hello i NIE
+                        # odeslal nadanego nicka. _BootIdentity zyje tylko
+                        # na pierwsze hello — nie ma listener-locka ani
+                        # kursora, wiec nie da sie na nim trzymac sesji.
+                        # Fail-closed z czytelnym komunikatem zamiast
+                        # AttributeError przy version-skew z hubem, ktory
+                        # przyjmuje nickless hello, ale nicka nie nadaje
+                        # (review worker2). Tozsamosci nie zgadujemy —
+                        # nick jest autorytatywnie od huba.
+                        print("hello: hub przyjal wejscie bez nicka, ale nie "
+                              "nadal nicka w odpowiedzi — nie moge ustalic "
+                              "trwalej tozsamosci. Zaktualizuj hub albo podaj "
+                              "CHAT_NICK.", file=sys.stderr)
+                        sys.exit(1)
                     _apply_hello_reply(session, reply)
                     _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
@@ -294,17 +318,24 @@ async def listen(nick):
                     return
                 print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
                       f"{backoff:.0f}s od kursora "
-                      f"{session.last_applied_seq}", file=sys.stderr)
+                      f"{session.last_applied_seq if session else 0}", file=sys.stderr)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)
             except OSError as e:
+                # session moze byc None, gdy nickless hello padlo, zanim hub
+                # nadal nick (np. hub chwilowo niedostepny) — kursor jeszcze
+                # nie istnieje, wiec meldujemy 0 zamiast siegac po None.
                 print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
                       f"{backoff:.0f}s od kursora "
-                      f"{session.last_applied_seq}", file=sys.stderr)
+                      f"{session.last_applied_seq if session else 0}", file=sys.stderr)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)
     finally:
-        session.release_listener_lock()
+        # session bywa None, gdy weszlismy bez nicka i hub nicka nie nadal
+        # (fail-closed wyzej) albo pierwsze hello padlo przed nadaniem —
+        # lock wtedy nigdy nie powstal, wiec nie ma czego zwalniac.
+        if session is not None:
+            session.release_listener_lock()
 
 
 def _check_heartbeat_interval(interval):
