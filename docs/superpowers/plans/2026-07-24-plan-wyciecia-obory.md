@@ -240,6 +240,8 @@ opcjonalnym.
 
 **Files:**
 - Modify: `agentmachi/cli.py` — `DEFAULT_RULES` (`~31-50`)
+- Modify: `README.md` — nota migracyjna (Step 1b): zmiana `DEFAULT_RULES` obejmuje NOWE
+  huby; istniejące (np. dogfood) to ŚWIADOMY krok operatora, nie automat
 - Test: `tests/test_cli.py` — asercja treści rules (`~33`)
 
 - [ ] **Step 1: Przepisz rule 9 (i 3)**
@@ -265,12 +267,17 @@ operatora, udokumentowany (README/howto), nie automat:
 1. **Preview** — porównaj `~/.agentmachi/<hub>/data/rules.md` z nowym `DEFAULT_RULES`
    (`diff`), żeby zobaczyć, co się zmieni i czy nie zadepcze własnych dopisków.
 2. **Backup** — `cp rules.md rules.md.bak`.
-3. **Podmiana** — ręcznie (zachowując własne reguły) albo skopiowanie nowego template.
+3. **Podmiana** — ręcznie (zachowując własne reguły) albo regeneracja `rules.md` z
+   `DEFAULT_RULES`. Uwaga o źródle: NIE ma osobnego pliku-template. `DEFAULT_RULES`
+   w `agentmachi/cli.py` to JEDYNE źródło — `_ensure_layout` pisze z niego
+   `data/rules.md` przy pierwszym layoutcie i tylko wtedy. „Nowy template" = nowa
+   treść stałej `DEFAULT_RULES`; regeneracja to skopiowanie tej treści do `rules.md`.
 
-Do planu Fazy C należy TYLKO ten udokumentowany krok + jawna nota w `DEFAULT_RULES`/README,
-że zmiana obejmuje nowe huby. Automatyczne nadpisanie ani helper `agentmachi rules
---migrate` NIE wchodzą teraz — to osobny feature za bramką dogfoodu (bramka: czy
-operatorzy realnie tego potrzebują? na razie ręczny krok wystarcza — less is more).
+Do planu Fazy C należy TYLKO ten udokumentowany krok + jawna nota migracyjna w `README.md`
+(plik jest w Files i w staging Step 4) oraz komentarz przy `DEFAULT_RULES`, że zmiana
+obejmuje nowe huby. Automatyczne nadpisanie ani helper `agentmachi rules --migrate`
+NIE wchodzą teraz — to osobny feature za bramką dogfoodu (bramka: czy operatorzy
+realnie tego potrzebują? na razie ręczny krok wystarcza — less is more).
 
 - [ ] **Step 2: Zaktualizuj `tests/test_cli.py`**
 
@@ -284,7 +291,7 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agentmachi/cli.py tests/test_cli.py
+git add agentmachi/cli.py tests/test_cli.py README.md
 git commit -m "docs(rules): deklaracja zamiast jednego ustroju (brac/delegowac/uzgadniac)"
 ```
 
@@ -408,27 +415,38 @@ wzorca repo (`srv` fixture + `hello`/`recv` z `test_server_integration.py`):
 
 ```python
 def test_self_organization_flow_without_scheduler(srv):
-    """A deleguje do B wzmianka; B przyjmuje i raportuje — czysty chat+status,
-    zero ramek schedulera. Hub tylko routuje i utrwala."""
+    """A deleguje do B wzmianka; B przyjmuje i raportuje status — czysty
+    chat+status, zero ramek schedulera. Hub tylko routuje i utrwala.
+    Tokeny z fixture TOKENS (alfa/beta/gamma/emil). Konstytucyjny kontrakt:
+    wzmianka budzi live TYLKO adresata-agenta, a status to fakt boardu pchany
+    live TYLKO do ludzi (agent go NIE dostaje — server.py:919-922)."""
     async def scenario(server):
-        a, _ = await hello("a", "ta", groups=["workers"])
-        b, _ = await hello("b", "tb", groups=["workers"])
-        c, _ = await hello("c", "tc", groups=["workers"])   # obecny, ale NIE wzmiankowany
-        # A deleguje do B PRZEZ ROZMOWE (wzmianka @b) — zero ramek schedulera
-        await a.send(json.dumps({"type": "chat", "from": "a", "ts": 1.0,
-                                 "text": "@b wez czesc C"}))
-        # DOWOD routingu: B faktycznie dostaje ramke; C (agent nie-wzmiankowany) NIE
-        got = await recv(b)
-        assert got["type"] == "chat" and got["from"] == "a" and "@b" in got["text"]
+        a, _ = await hello("alfa", "ta", groups=["workers"])
+        b, _ = await hello("beta", "tb", groups=["workers"])
+        g, _ = await hello("gamma", "tg", groups=["workers"])  # obecny, NIE wzmiankowany
+        h, _ = await hello("emil", "te", role="human")          # obserwator-czlowiek (rola z configu)
+        # A deleguje do B PRZEZ ROZMOWE (wzmianka @beta) — zero ramek schedulera
+        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
+                                 "text": "@beta wez czesc C"}))
+        # DOWOD routingu wzmianki: B dostaje; czlowiek dostaje (chat leci do ludzi
+        # zawsze, server.py:473); gamma (agent nie-wzmiankowany) NIE.
+        got_b = await recv(b)
+        assert got_b["type"] == "chat" and got_b["from"] == "alfa" and "@beta" in got_b["text"]
+        assert (await recv(h))["text"] == "@beta wez czesc C"   # chat -> ludzie
         with pytest.raises(asyncio.TimeoutError):
-            await recv(c, timeout=0.5)              # wzmianka budzi tylko adresata
-        # B raportuje status working+subject; board to pokazuje (subject = pole po Fazie B)
-        await b.send(json.dumps({"type": "status", "from": "b", "ts": 2.0,
+            await recv(g, timeout=0.4)             # wzmianka budzi tylko adresata
+        # B raportuje status working+subject (subject = pole projekcji po Fazie B, patrz B1)
+        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 2.0,
                                  "state": "working", "subject": "C"}))
-        await recv(a)                               # a odbiera propagacje statusu B (sync)
+        # DOWOD: status to fakt boardu pchany live TYLKO do ludzi.
+        st = await recv(h)                          # czlowiek dostaje status...
+        assert st["type"] == "status" and st["from"] == "beta" and st.get("subject") == "C"
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(a, timeout=0.4)             # ...agent alfa NIE (status nie budzi agentow)
+        # recv(h) statusu jest tez BARIERA sync: serwer przetworzyl status, board aktualny
         board = {p["nick"]: p for p in server._participants_snapshot()}
-        assert board["b"]["status"]["state"] == "working"
-        assert board["b"]["status"]["subject"] == "C"
+        assert board["beta"]["status"]["state"] == "working"
+        assert board["beta"]["status"]["subject"] == "C"
         # DOWOD braku schedulera: realny skan logu, nie komentarz
         types = {e.get("type") for e in server.log.replay()}
         assert not (types & {"task_new", "task_offer", "task_claim",
