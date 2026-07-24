@@ -84,7 +84,7 @@ Disconnect cleanup (`~859-863`) **ZOSTAJE nietknięty** — `57102e9` go celowo 
 Run: `uv run --quiet --with pytest --with websockets python -m pytest tests/test_server_integration.py::test_status_tracked_in_snapshot_and_idle_sync -v`
 Expected: PASS.
 
-- [ ] **Step 5: Pełna suita — zielona (offer machinery jeszcze istnieje, ale nikt jej nie woła)**
+- [ ] **Step 5: Pełna suita — zielona (offer machinery istnieje i ŻYJE — wołają ją `task_new` oraz expiry timer; usuwana atomowo w A3)**
 
 Run: `uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -q`
 Expected: PASS (testy `test_offer_*` które wołały offer przez status=idle mogą wymagać przełączenia na bezpośrednie `task_new` — jeśli padają, przenieś ich trigger; nie usuwaj ich jeszcze, to Task A2).
@@ -102,8 +102,9 @@ git commit -m "refactor(status): status=idle to czysty fakt na boardzie, bez ofe
 > zepsuty runtime. Nowa kolejność: **WEJŚCIE → MACHINERY → QUEUE**. Każdy slice
 > zostawia runtime SPÓJNY: usuwamy najpierw DROGĘ WEJŚCIA ramek, więc kod niżej
 > staje się MARTWY (nikt go nie woła), a martwy kod nie crashuje. Kryterium
-> „zielona suita" wzmacniamy o jawny **RUNTIME-SOUND CHECK** (grep: brak
-> callerów + żywy hub odrzuca task_* czysto).
+> „zielona suita" wzmacniamy o jawny **RUNTIME-SOUND CHECK**: żywy hub odrzuca
+> task_* czysto. UWAGA — po A2 martwe jest tylko WEJŚCIE; `_trigger_offer` ma
+> jeszcze caller (expiry timer) aż do A3, więc NIE oczekuj „braku callera".
 
 > **Rewizja 2a (review codeksa `c5d5ee2`→`af83a0f`):** 6 cross-phase blockerów
 > (replay-constant `_TASK_STATE_EVENTS`, expiry jako żywy caller `_trigger_offer`,
@@ -126,27 +127,27 @@ git commit -m "refactor(status): status=idle to czysty fakt na boardzie, bez ofe
 
 - [ ] **Step 1:** usuń klienta+CLI heartbeat/task (`send.py`, `cli.py`) + ich testy (`test_send.py`, `test_cli.py`, `test_node.py`)
 - [ ] **Step 2:** usuń framing task_*/heartbeat z `chat/protocol.py` + funkcje w `test_protocol.py`
-- [ ] **Step 3:** usuń inbound handlery + dispatcher branche + stałe `_TASK_*` z `chat/server.py`; usuń task-owe testy integracyjne (task_flow/approve/unblock/heartbeat_wire — **NIE** offer)
+- [ ] **Step 3:** usuń inbound handlery + dispatcher branche + stałe `_TASK_REQUIRED_FIELDS`/`_TASK_OP` (`_TASK_STATE_EVENTS` **NIE** usuwaj — zmień nazwę na `_TASK_REPLAY_EVENTS`, replay używa go do A4) z `chat/server.py`; usuń task-owe testy integracyjne (task_flow/approve/unblock/heartbeat_wire — **NIE** offer)
 - [ ] **Step 4:** pełna suita zielona (`uv run ... pytest tests/ -q`)
 - [ ] **Step 5 — RUNTIME-SOUND CHECK:** (a) `_on_task_frame`/`_on_heartbeat` nie istnieją (inbound odcięte); `_trigger_offer` NADAL ma caller (expiry timer) — to OK, machinery żyje do A3, **NIE** oczekuj braku callera; (b) odpal hub na efemerycznym porcie, wyślij ramkę `task_new` → MUSI być czysto odrzucona (error/unknown type), nie crash; hello/chat/status oraz **restart/replay** (expiry+queue nadal żywe) działają
 - [ ] **Step 6:** commit `refactor(core): odetnij inbound task_*/heartbeat (klient, protokol, dispatcher)`
 
 ### Task A3 (MACHINERY): usuń offer + expiry ATOMOWO (żywe po A2 — expiry to caller offera)
 
-Po A2 nic nie woła machinery (brak `_on_task_frame`, brak triggera `task_new`). Ten slice usuwa martwy kod.
+Po A2 expiry timer NADAL woła offer (`_expiry_loop`→`_reap_expired`→`_trigger_offer`). Ten slice usuwa expiry+offer ATOMOWO — caller (`_expiry_loop`/`_reap_expired`/start hook) i callee (`_trigger_offer`/`_offer_loop`) razem, żeby żaden krok nie zostawił wołania w pustkę.
 
 **Files:**
 - Modify: `chat/server.py` — offer: `_offer_loop`, `_offer_event`, `_offer_activation_id`, `_resolve_offer`, `_drop_offers_for_task`, `_pending_offer_keys_for`, `_trigger_offer`, `_requeue_idle_if_connected`, `self.idle`/`_offer_cache`/`_offering` (init `~160-166`), `_restore_offers`/`_dump_offers`, `offer_timeout` param; expiry: `_expiry_loop`, `_reap_expired`, start hook, stop cancel (caller `_reap_expired` + callee `_trigger_offer` giną RAZEM — atomowo); snapshot/restore klucz `offers`; `_replay_events` branche `task_offer`/`offer_resolved` (**NIE** `task_expired_batch` — queue-state, zostaje A4); disconnect `self.idle` cleanup (`~859-863`). **`lease_ttl`/`wip_limit` ZOSTAJĄ** — konstruktor `TaskQueue.restore`/`TaskQueue(...)` ich używa do A4
-- Test: `tests/test_server_integration.py` — 7 offer-testów (przywrócone w A1-fix `12351f3`) + reszta offer/expiry/reap. **Teraz** giną RAZEM z machinery — coverage spójne (to była istota A1-fix: pokrycie żyje póki żyje machinery)
+- Test: `tests/test_server_integration.py` — 7 offer-testów (przywrócone w A1-fix `12351f3`) + offer/reap testy aktywnego reapu (m.in. `test_reap_expired_batch_append_failure_no_partial_log`) giną tu z machinery. **ALE** `test_expiry_event_replays_result_based_no_conflict` testuje `task_expired_batch` REPLAY (queue-state, nie aktywny reap) — **ZOSTAJE do A4** razem z replayem
 
 **Interfaces:**
 - Produkuje: `ChatServer` bez `self.idle`/offer/expiry; `snapshot()`/`resync` bez `offers`; `start()`/`stop()` bez `_expiry_task`/`_offering`.
 
-- [ ] **Step 1:** usuń offer+expiry+reap testy (w tym 7 z A1-fix — teraz giną z machinery)
-- [ ] **Step 2:** usuń offer+expiry kod + `offers` ze snapshot/restore + replay branche + disconnect idle cleanup z `chat/server.py`
+- [ ] **Step 1:** usuń offer + aktywny-reap testy (7 z A1-fix + `test_reap_expired_batch_append_failure_no_partial_log`). **Zachowaj** `test_expiry_event_replays_result_based_no_conflict` — testuje `task_expired_batch` replay, zejdzie dopiero w A4
+- [ ] **Step 2:** usuń offer+expiry kod + `offers` ze snapshot/restore + replay branche `task_offer`/`offer_resolved` (**NIE** `task_expired_batch` — queue-state, zostaje do A4) + disconnect idle cleanup z `chat/server.py`
 - [ ] **Step 3:** pełna suita zielona
 - [ ] **Step 4 — RUNTIME-SOUND:** `grep -n "self.idle\|_trigger_offer\|_offer_\|_expiry" chat/server.py` → zero trafień; hub start/hello/status/snapshot-restart działa
-- [ ] **Step 5:** commit `refactor(core): usun offer/expiry machinery (martwa po odcieciu wejscia)`
+- [ ] **Step 5:** commit `refactor(core): usun offer+expiry machinery atomowo (caller+callee razem)`
 
 ### Task A4 (QUEUE): usuń `TaskQueue` + queue ze snapshotu/replay
 
