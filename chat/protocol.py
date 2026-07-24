@@ -115,7 +115,7 @@ def _validate_body(frame, ftype):
         if not isinstance(state, str) or not state or len(state) > 32:
             return ("status: state wymagany (niepusty string, "
                     "maks 32 znaki)")
-        for opt in ("task_id", "note"):
+        for opt in ("task_id", "note", "subject"):
             if opt in frame and (not isinstance(frame[opt], str)
                                  or not frame[opt]):
                 return f"status: {opt} jesli podany musi byc niepustym stringiem"

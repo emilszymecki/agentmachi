@@ -1371,6 +1371,25 @@ def test_status_tracked_in_snapshot(srv):
     asyncio.run(srv(scenario))
 
 
+def test_status_subject_on_board(srv):
+    # B1 (laka-nie-obora): board niesie subject obok state/note jako plaska
+    # mapa deklaracji. subject = "nad czym pracuje"; zagniezdzony w
+    # participant["status"] (jak state/note), NIE top-level. task_id (martwe
+    # pole scheduler-era) wspolistnieje nieszkodliwie do osobnego cleanupu.
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "status", "from": "beta", "ts": 1.0,
+                                    "state": "working", "subject": "B1 subject",
+                                    "note": "czekam na kontrakt"}))
+        await asyncio.sleep(0.1)
+        by_nick = {p["nick"]: p for p in server._participants_snapshot()}
+        assert by_nick["beta"]["status"]["subject"] == "B1 subject"
+        assert by_nick["beta"]["status"]["note"] == "czekam na kontrakt"
+        assert by_nick["beta"]["status"]["state"] == "working"
+        await ws_b.close()
+    asyncio.run(srv(scenario))
+
+
 def test_status_state_is_free_text(srv):
     # hub nie waliduje przynaleznosci do slownika stanow — "sleeping" (spoza
     # dotychczasowego idle/working/blocked/review) jest przyjmowane wprost.
