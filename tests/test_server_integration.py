@@ -5,6 +5,7 @@ snapshot+restart, activation_id kotwiczony w evencie.
 Serwer per-test na porcie 8891+ (nie 8765 — PoC A na roocie repo).
 """
 import asyncio
+import copy
 import hashlib
 import json
 import socket
@@ -73,6 +74,42 @@ async def recv(ws, timeout=2.0):
 
 CARD = {"goal": "x", "acceptance": "y", "verify": "true", "files": [],
         "head": "h", "brief": "b"}
+
+
+# -- direct-seed helpery (A2 mikro-2): inbound task_new/task_claim zostaly
+# wyciete (laka-nie-obora), ale offer/expiry/queue/replay/snapshot ZYJA do
+# A3/A4 i ich testy nadal potrzebuja zasiac stan taska. Te helpery
+# odwzorowuja DURABILITY BOUNDARY dawnego _on_task_frame — clone -> mutacja na
+# klonie -> _append_durable(result-event z task_state+fingerprint) -> swap
+# live -> _maybe_snapshot — a NIE udaja usunietego handlera (zero walidacji
+# inbound, zero side-effectow oferty). Inwariant: NIGDY _append przed swapem
+# (na granicy #100 snapshotowalby STARA live queue). Side-effecty oferty
+# (idle.remove / _drop_offers_for_task / _trigger_offer) wola test JAWNIE.
+def _persist_task_new(server, card, command_id, now=0.0):
+    trial = copy.deepcopy(server.queue)
+    result = trial.add(card, command_id, now)
+    server._append_durable({"type": "task_new", "from": "seed", "ts": now,
+                            "command_id": command_id, "card": card,
+                            "task_state": result,
+                            "fingerprint": trial.fingerprint_for(command_id)})
+    server.queue = trial
+    server._maybe_snapshot()
+    return result
+
+
+def _persist_task_claim(server, task_id, nick, generation, command_id,
+                        expected_version, now=0.0):
+    trial = copy.deepcopy(server.queue)
+    result = trial.claim(task_id, nick, generation, command_id,
+                         expected_version, now)
+    server._append_durable({"type": "task_claim", "from": nick, "ts": now,
+                            "task_id": task_id, "command_id": command_id,
+                            "expected_task_version": expected_version,
+                            "task_state": result,
+                            "fingerprint": trial.fingerprint_for(command_id)})
+    server.queue = trial
+    server._maybe_snapshot()
+    return result
 
 
 # -- Step 1 (adaptowane: hello niesie teraz opcjonalnie groups) -------------
@@ -349,35 +386,34 @@ def test_stale_socket_rejected_after_takeover(srv):
     asyncio.run(srv(scenario))
 
 
-# -- Nowe: kontrakt wejscia ramek taskowych (niezmiennik f) -----------------
+# -- A2 (laka-nie-obora): inbound task_*/heartbeat WYCIETE — czyste odrzucenie
 
-def test_task_flow_and_malformed_frame_does_not_crash_server(srv):
+def test_inbound_task_new_rejected_cleanly_server_stays_live(srv):
+    # Step 5b A2: po wycieciu wejscia task_new wpada w dispatcher `else` ->
+    # czysty error (nieoczekiwany typ), serwer NIE crashuje, nic nie zapisuje,
+    # a chat i status dzialaja dalej. Kodyfikuje runtime-check zamiast ustnej
+    # weryfikacji ze serwer przezyl.
     async def scenario(server):
         a, _ = await hello("alfa", "ta")
+        b, _ = await hello("beta", "tb")
+        before = server.log.last_seq
         await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
                                  "command_id": "n1", "card": CARD}))
-        ok = await recv(a)
-        assert ok["type"] == "ok" and ok["task"]["status"] == "open"
-        task_id = ok["task"]["id"]
-
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(b)
-        assert claimed["type"] == "ok" and claimed["task"]["status"] == "claimed"
-
-        # zle uformowana ramka taskowa (brak task_id) -> error, bez crasha
-        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                 "command_id": "bad1"}))
         err = await recv(a)
-        assert err["type"] == "error" and err["command_id"] == "bad1"
+        assert err["type"] == "error"                  # odrzucone, nie crash
+        assert server.log.last_seq == before            # task_new NIE zapisany
 
-        # serwer nadal dziala normalnie po zlej ramce
+        # serwer zyje: chat dochodzi do drugiego uczestnika
         await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
                                  "text": "@beta wciaz zyje"}))
         got = await recv(b)
         assert got["text"] == "@beta wciaz zyje"
+
+        # status tez dziala (board pasywny)
+        await a.send(json.dumps({"type": "status", "from": "alfa", "ts": 2.0,
+                                 "state": "working"}))
+        await asyncio.sleep(0.05)
+        assert server.status["alfa"]["state"] == "working"
         for ws in (a, b):
             await ws.close()
     asyncio.run(srv(scenario))
@@ -414,10 +450,7 @@ def test_restart_restores_queue_and_registry_after_snapshot(tmp_path):
         await s1.start()
         ws, reply = await hello("alfa", "ta", instance="i1")
         assert reply["generation"] == 1
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        ack = await recv(ws)
-        assert ack["type"] == "ok"
+        _persist_task_new(s1, CARD, "n1")
         s1.snapshot()
         await ws.close()
         await s1.stop()
@@ -438,196 +471,6 @@ def test_restart_restores_queue_and_registry_after_snapshot(tmp_path):
             await ws2.close(); await ws3.close()
         finally:
             await s2.stop()
-    asyncio.run(scenario())
-
-
-# -- G: brakujace przejscia w protokole — task_approve, task_unblock --------
-
-def test_task_approve_completes_review_cycle_via_frames(srv):
-    # (8) ZMIANA KONTRAKTU B1 (swiadoma): approve wysyla KTOKOLWIEK POZA
-    # assignee — tu approve idzie od gammy (nie od bety, ktora wykonala task).
-    async def scenario(server):
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        ok = await recv(a)
-        task_id = ok["task"]["id"]
-
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(b)
-        v = claimed["task"]["version"]
-
-        await b.send(json.dumps({"type": "task_done", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "d1",
-                                 "expected_task_version": v}))
-        reviewed = await recv(b)
-        assert reviewed["task"]["status"] == "review"
-        v = reviewed["task"]["version"]
-
-        g, _ = await hello("gamma", "tg")          # inny nick niz assignee
-        await g.send(json.dumps({"type": "task_approve", "from": "gamma", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "ap1",
-                                 "expected_task_version": v}))
-        approved = await recv(g)
-        assert approved["type"] == "ok" and approved["task"]["status"] == "done"
-        await a.close(); await b.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
-def test_task_approve_by_assignee_rejected_other_nick_approves(srv):
-    # (8) assignee -> error (samo-approve zabronione w B1); inny nick -> done.
-    async def scenario(server):
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        ok = await recv(a)
-        task_id = ok["task"]["id"]
-
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(b)
-        v = claimed["task"]["version"]
-        await b.send(json.dumps({"type": "task_done", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "d1",
-                                 "expected_task_version": v}))
-        reviewed = await recv(b)
-        v = reviewed["task"]["version"]
-
-        # assignee (beta) probuje samo-approve -> error, task zostaje w review
-        await b.send(json.dumps({"type": "task_approve", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "ap-self",
-                                 "expected_task_version": v}))
-        err = await recv(b)
-        assert err["type"] == "error" and err["command_id"] == "ap-self"
-        assert server.queue.get(task_id)["status"] == "review"  # bez mutacji
-
-        # inny nick (gamma) approve -> done
-        g, _ = await hello("gamma", "tg")
-        await g.send(json.dumps({"type": "task_approve", "from": "gamma", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "ap-other",
-                                 "expected_task_version": v}))
-        approved = await recv(g)
-        assert approved["type"] == "ok" and approved["task"]["status"] == "done"
-        await a.close(); await b.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
-def test_task_unblock_frame_transitions_blocked_to_claimed(srv):
-    async def scenario(server):
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        ok = await recv(a)
-        task_id = ok["task"]["id"]
-
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(b)
-        v = claimed["task"]["version"]
-
-        await b.send(json.dumps({"type": "task_blocked", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "bl1",
-                                 "expected_task_version": v}))
-        blocked = await recv(b)
-        assert blocked["task"]["status"] == "blocked"
-        v = blocked["task"]["version"]
-
-        await b.send(json.dumps({"type": "task_unblock", "from": "beta", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "ub1",
-                                 "expected_task_version": v}))
-        unblocked = await recv(b)
-        assert unblocked["type"] == "ok" and unblocked["task"]["status"] == "claimed"
-        await a.close(); await b.close()
-    asyncio.run(srv(scenario))
-
-
-def test_heartbeat_wire_is_durable_transaction_and_replays(tmp_path, caplog):
-    # Dogfood #1: heartbeat istnial tylko w TaskQueue, bez ramki wire. Minimalny
-    # kontrakt to heartbeat{task_id}; identity/generation pochodza z socketu.
-    # Append-fail nie moze przedluzyc live lease, retry ma zapisac task_state,
-    # a restart odtworzyc przedluzony lease bez zmiany wersji taska.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        await s1.start()
-        await _kill_expiry(s1)
-
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({
-            "type": "task_new", "from": "alfa", "ts": 0.0,
-            "command_id": "hb-new", "card": CARD,
-        }))
-        tid = (await recv(a))["task"]["id"]
-
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({
-            "type": "task_claim", "from": "beta", "ts": 0.0,
-            "task_id": tid, "command_id": "hb-claim",
-            "expected_task_version": 1,
-        }))
-        claimed = (await recv(b))["task"]
-        old_lease = claimed["lease_until"]
-        version = claimed["version"]
-
-        original_append = s1.log.append
-        secret_path = str(s1.log.events_path.resolve())
-        failed = {"done": False}
-
-        def fail_once(frame):
-            if frame.get("type") == "heartbeat" and not failed["done"]:
-                failed["done"] = True
-                raise OSError(f"heartbeat storage fail: {secret_path}")
-            return original_append(frame)
-
-        s1.log.append = fail_once
-        heartbeat = json.dumps({
-            "type": "heartbeat", "from": "podszycie", "ts": 0.0,
-            "task_id": tid,
-        })
-        await b.send(heartbeat)
-        err = await recv(b)
-        assert err["type"] == "error"
-        assert err["text"] == "storage unavailable; retry"
-        assert secret_path not in json.dumps(err)
-        assert secret_path in caplog.text
-        assert s1.queue.get(tid)["lease_until"] == old_lease
-        assert [e for e in s1.log.events_after(0)
-                if e["type"] == "heartbeat"] == []
-
-        s1.log.append = original_append
-        await b.send(heartbeat)
-        ok = await recv(b)
-        renewed = ok["task"]
-        assert ok["type"] == "ok"
-        assert renewed["version"] == version
-        assert renewed["lease_until"] > old_lease
-        events = [e for e in s1.log.events_after(0)
-                  if e["type"] == "heartbeat"]
-        assert len(events) == 1
-        assert events[0]["from"] == "beta"
-        assert events[0]["task_state"] == renewed
-
-        midpoint = (old_lease + renewed["lease_until"]) / 2
-        assert s1._reap_expired(midpoint) is None
-        assert s1.queue.get(tid)["status"] == "claimed"
-
-        await a.close()
-        await b.close()
-        await _crash_stop(s1)
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        replayed = s2.queue.get(tid)
-        assert replayed["status"] == "claimed"
-        assert replayed["version"] == version
-        assert replayed["lease_until"] == renewed["lease_until"]
     asyncio.run(scenario())
 
 
@@ -683,24 +526,6 @@ def test_forged_authoritative_fields_stripped_from_chat_frame(srv):
         assert "groups" not in logged
         assert "role" not in logged
         await a.close(); await b.close()
-    asyncio.run(srv(scenario))
-
-
-def test_forged_authoritative_fields_stripped_from_task_frame(srv):
-    async def scenario(server):
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "mallory", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD,
-                                 "generation": 999, "groups": ["forged"],
-                                 "seq": 999}))
-        ok = await recv(a)
-        assert ok["type"] == "ok"
-        logged = server.log.events_after(0)[-1]
-        assert logged["type"] == "task_new"
-        assert logged["from"] == "alfa"
-        assert "generation" not in logged
-        assert "groups" not in logged
-        await a.close()
     asyncio.run(srv(scenario))
 
 
@@ -768,15 +593,9 @@ def test_resync_snapshot_seq_matches_returned_fresh_state(srv):
                                  "text": "seed"}))    # cokolwiek w logu przed snapshotem
         await asyncio.sleep(0.1)
         server.snapshot()                          # snapshot WCZESNIE (etykieta by byla stara)
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        ok = await recv(a)
-        task_id = ok["task"]["id"]
-        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                 "task_id": task_id, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(a)
-        assert claimed["task"]["status"] == "claimed"
+        task_id = _persist_task_new(server, CARD, "n1")["id"]
+        claimed = _persist_task_claim(server, task_id, "alfa", 1, "c1", 1)
+        assert claimed["status"] == "claimed"
         # kursor sprzed WSZYSTKICH powyzszych eventow -> resync_required
         b, reply = await hello("beta", "tb", last_seq=0)
         assert reply["type"] == "resync_required"
@@ -817,15 +636,9 @@ def test_crash_recovery_replays_events_after_snapshot_without_manual_snapshot(tm
         await s1.start()
         ws, reply = await hello("alfa", "ta", instance="i1")
         assert reply["generation"] == 1
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        ack = await recv(ws)
-        task_id = ack["task"]["id"]
-        await ws.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                  "task_id": task_id, "command_id": "c1",
-                                  "expected_task_version": 1}))
-        claimed = await recv(ws)
-        assert claimed["task"]["status"] == "claimed"
+        task_id = _persist_task_new(s1, CARD, "n1")["id"]
+        claimed = _persist_task_claim(s1, task_id, "alfa", 1, "c1", 1)
+        assert claimed["status"] == "claimed"
         await ws.close()
         await _crash_stop(s1)          # BEZ recznego/automatycznego snapshotu
 
@@ -846,9 +659,7 @@ def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
                          lease_ttl=5.0, offer_timeout=0.3)
         await s1.start()
         ws, _ = await hello("alfa", "ta", instance="i1")
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        await recv(ws)
+        _persist_task_new(s1, CARD, "n1")
         events_on_disk = s1.log.last_seq
         await ws.close()
         await _crash_stop(s1)
@@ -887,9 +698,8 @@ def test_offer_round_robin_new_attempt_after_full_cycle_gets_new_id(srv):
         server.idle.append("beta")
         server.idle.append("gamma")
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)                              # ok ack dla task_new
+        _persist_task_new(server, CARD, "n1")
+        server._trigger_offer()
 
         offer_b1 = await recv(b, timeout=2.0)        # pierwsza oferta dla beta
         id_b1 = offer_b1["activation_id"]
@@ -910,27 +720,20 @@ def test_offer_timeout_race_does_not_lose_offered_nick_from_idle(srv):
         # (A1) seed idle WPROST — status juz go nie zasila; task_new triggeruje.
         server.idle.append("beta")
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        ok1 = await recv(a)
-        task1_id = ok1["task"]["id"]
+        task1_id = _persist_task_new(server, CARD, "n1")["id"]
+        server._trigger_offer()
         offer1 = await recv(b, timeout=2.0)
         assert offer1["task"]["id"] == task1_id
 
         # gamma krad task1 (bezposredni task_claim) zanim minie offer_timeout
         # oferty dla bety — bez fixu bety nigdy nie wraca do self.idle
-        await g.send(json.dumps({"type": "task_claim", "from": "gamma", "ts": 0.0,
-                                 "task_id": task1_id, "command_id": "steal1",
-                                 "expected_task_version": 1}))
-        stolen = await recv(g)
-        assert stolen["task"]["assignee"] == "gamma"
+        stolen = _persist_task_claim(server, task1_id, "gamma", 1, "steal1", 1)
+        assert stolen["assignee"] == "gamma"
 
         await asyncio.sleep(0.6)     # przeczekaj offer_timeout (0.3 z fixture) + margines
 
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 1.0,
-                                 "command_id": "n2", "card": {**CARD, "goal": "drugi"}}))
-        ok2 = await recv(a)
-        task2_id = ok2["task"]["id"]
+        task2_id = _persist_task_new(server, {**CARD, "goal": "drugi"}, "n2")["id"]
+        server._trigger_offer()
         # (F4) beta MUSI dalej byc w idle i dostac oferte na drugi task
         offer2 = await recv(b, timeout=2.0)
         assert offer2["task"]["id"] == task2_id
@@ -951,9 +754,8 @@ def test_idle_nick_removed_on_disconnect_offer_goes_to_live_idle(srv):
         g, _ = await hello("gamma", "tg")
         server.idle.append("gamma")              # (A1) seed WPROST, nie przez status
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)
+        _persist_task_new(server, CARD, "n1")
+        server._trigger_offer()
         offer = await recv(g, timeout=2.0)          # oferta idzie do zywego gamma, nie w prozne
         assert offer["type"] == "task_offer"
         await a.close(); await g.close()
@@ -966,10 +768,7 @@ def test_pending_offer_cache_restored_after_restart(tmp_path):
                          lease_ttl=5.0, offer_timeout=0.3)
         await s1.start()
         ws, _ = await hello("alfa", "ta")
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        ack = await recv(ws)
-        task = ack["task"]
+        task = _persist_task_new(s1, CARD, "n1")
         activation_id = s1._offer_activation_id("beta", task)
         await ws.close()
         await _crash_stop(s1)             # BEZ snapshotu
@@ -998,20 +797,10 @@ def test_replay_ignores_current_wip_policy(tmp_path):
         await s1.start()
         a, _ = await hello("alfa", "ta")
         b, _ = await hello("beta", "tb")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        t1 = (await recv(a))["task"]["id"]
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n2", "card": {**CARD, "goal": "y"}}))
-        t2 = (await recv(a))["task"]["id"]
-        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                 "task_id": t1, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        assert (await recv(a))["task"]["status"] == "claimed"
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": t2, "command_id": "c2",
-                                 "expected_task_version": 1}))
-        assert (await recv(b))["task"]["status"] == "claimed"
+        t1 = _persist_task_new(s1, CARD, "n1")["id"]
+        t2 = _persist_task_new(s1, {**CARD, "goal": "y"}, "n2")["id"]
+        assert _persist_task_claim(s1, t1, "alfa", 1, "c1", 1)["status"] == "claimed"
+        assert _persist_task_claim(s1, t2, "beta", 1, "c2", 1)["status"] == "claimed"
         await a.close(); await b.close()
         await _crash_stop(s1)                       # BEZ snapshotu
 
@@ -1030,13 +819,8 @@ def test_replay_preserves_historical_lease_until(tmp_path):
                          lease_ttl=10.0, offer_timeout=0.3)
         await s1.start()
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        tid = (await recv(a))["task"]["id"]
-        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                 "task_id": tid, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        lease_hist = (await recv(a))["task"]["lease_until"]
+        tid = _persist_task_new(s1, CARD, "n1")["id"]
+        lease_hist = _persist_task_claim(s1, tid, "alfa", 1, "c1", 1)["lease_until"]
         await a.close()
         await _crash_stop(s1)
 
@@ -1058,19 +842,11 @@ def test_expiry_event_replays_result_based_no_conflict(tmp_path):
                          lease_ttl=0.5, offer_timeout=0.3)   # krotki lease -> szybki expire
         await s1.start()
         ws, _ = await hello("alfa", "ta")
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        tid = (await recv(ws))["task"]["id"]
-        await ws.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                  "task_id": tid, "command_id": "c1",
-                                  "expected_task_version": 1}))
-        assert (await recv(ws))["task"]["version"] == 2       # v2 claimed
+        tid = _persist_task_new(s1, CARD, "n1")["id"]
+        assert _persist_task_claim(s1, tid, "alfa", 1, "c1", 1)["version"] == 2   # v2 claimed
         await asyncio.sleep(1.6)      # petla expiry (co 1.0s) reopenuje po lease 0.5
-        await ws.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                  "task_id": tid, "command_id": "c2",
-                                  "expected_task_version": 3}))  # open v3 -> claimed v4
-        reclaimed = await recv(ws)
-        assert reclaimed["task"]["status"] == "claimed" and reclaimed["task"]["version"] == 4
+        reclaimed = _persist_task_claim(s1, tid, "alfa", 1, "c2", 3)  # open v3 -> claimed v4
+        assert reclaimed["status"] == "claimed" and reclaimed["version"] == 4
         await ws.close()
         await _crash_stop(s1)                 # BEZ snapshotu
 
@@ -1091,9 +867,7 @@ def test_pending_offer_survives_clean_stop_and_restart(tmp_path):
                          lease_ttl=5.0, offer_timeout=0.3)
         await s1.start()
         ws, _ = await hello("alfa", "ta")
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        task = (await recv(ws))["task"]
+        task = _persist_task_new(s1, CARD, "n1")
         activation_id = s1._offer_activation_id("beta", task)     # pending offer
         await ws.close()
         await s1.stop()                          # CLEAN stop -> snapshot (z offers)
@@ -1115,9 +889,7 @@ def test_resolved_offer_does_not_revive_after_replay(tmp_path):
                          lease_ttl=5.0, offer_timeout=0.3)
         await s1.start()
         ws, _ = await hello("alfa", "ta")
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        task = (await recv(ws))["task"]
+        task = _persist_task_new(s1, CARD, "n1")
         aid1 = s1._offer_activation_id("beta", task)              # task_offer event
         s1._resolve_offer("beta", task["id"], task["version"], "timeout")  # offer_resolved
         await ws.close()
@@ -1140,9 +912,8 @@ def test_live_task_offer_carries_persistent_event_seq(srv):
         b, _ = await hello("beta", "tb")
         server.idle.append("beta")               # (A1) seed WPROST, nie przez status
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)
+        _persist_task_new(server, CARD, "n1")
+        server._trigger_offer()
         offer = await recv(b, timeout=2.0)
         assert offer["type"] == "task_offer"
         # (4) odbiorca widzi DOKLADNIE trwaly event: seq == seq zapisanego eventu
@@ -1161,9 +932,8 @@ def test_disconnect_in_offer_window_leaves_no_ghost_in_idle(srv):
         server.idle.append("beta")               # (A1) seed WPROST, nie przez status
         await asyncio.sleep(0.1)
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)
+        _persist_task_new(server, CARD, "n1")
+        server._trigger_offer()
         offer = await recv(b, timeout=2.0)          # beta dostaje oferte (popped z idle)
         assert offer["type"] == "task_offer"
         await b.close()                              # disconnect W OKNIE oferty
@@ -1288,9 +1058,8 @@ def test_task_offer_goes_to_one_idle_worker(srv):
         server.idle.append("beta")
         server.idle.append("gamma")
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)                                  # ok dla task_new
+        _persist_task_new(server, CARD, "n1")
+        server._trigger_offer()
         offer = await recv(b)                          # TYLKO beta (pierwsza idle)
         assert offer["type"] == "task_offer"
         assert "activation_id" in offer
@@ -1309,56 +1078,14 @@ def test_offer_timeout_moves_to_next_worker(srv):
         server.idle.append("beta")
         server.idle.append("gamma")
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n2", "card": CARD}))
-        await recv(a)
+        _persist_task_new(server, CARD, "n2")
+        server._trigger_offer()
         await recv(b)                                  # beta dostaje oferte...
         offer_g = await recv(g, timeout=2.0)           # ...ignoruje -> gamma
         assert offer_g["type"] == "task_offer"
         for ws in (a, b, g):
             await ws.close()
     asyncio.run(srv(scenario))
-
-
-# -- (1) cache-hit dedupu NIE moze tworzyc eventu mutacji -------------------
-
-def test_dedup_cache_hit_does_not_append_mutation_event(tmp_path):
-    # (1) task_new n1 -> open v1; claim c1 -> claimed v2; PONOW n1 (ten sam
-    # command_id) -> dedup cache-hit zwraca cached open v1. Cache-hit to
-    # ODPOWIEDZ dla klienta, NIE fakt do logu: gdyby serwer appendowal go
-    # jako nowy task_state event, replay po restarcie zaaplikowalby open v1
-    # PO claimed v2 i cofnal task. Test: retry po claim -> restart -> stan
-    # zostaje claimed v2, tail logu bez zdublowanego task_new.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=0.3)
-        await s1.start()
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        tid = (await recv(a))["task"]["id"]
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": tid, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(b)
-        assert claimed["task"]["status"] == "claimed" and claimed["task"]["version"] == 2
-
-        seq_before_retry = s1.log.last_seq
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))    # PONOW n1
-        retried = await recv(a)
-        assert retried["type"] == "ok"                 # klient dostaje odpowiedz (cached)
-        assert retried["task"]["status"] == "open"     # cached stary wynik
-        assert s1.log.last_seq == seq_before_retry     # cache-hit NIE dopisuje eventu
-        await a.close(); await b.close()
-        await _crash_stop(s1)                           # BEZ snapshotu
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=0.3)
-        t = s2.queue.get(tid)
-        assert t["status"] == "claimed" and t["version"] == 2  # NIE cofniete do open v1
-    asyncio.run(scenario())
 
 
 # -- (2) auto-snapshot NIE moze strzelic w srodku atomowej mutacji oferty ---
@@ -1390,45 +1117,6 @@ def test_auto_snapshot_mid_offer_does_not_lose_pending_offer(tmp_path):
     asyncio.run(scenario())
 
 
-# -- (3) claim oferowanego taska trwale rozstrzyga pending offer TERAZ ------
-
-def test_claim_of_offered_task_resolves_pending_offer_immediately(tmp_path):
-    # (3) task_offer->beta (pending); beta task_claim OK (task claimed);
-    # crash PRZED timeoutem oferty -> restart: task=claimed ORAZ offer nadal
-    # pending, bo offer_resolved bylo appendowane dopiero po sleep-timeout w
-    # _offer_loop. Fix: sukces claim oferowanego taska appenduje offer_resolved
-    # NATYCHMIAST w sciezce task_claim. Test: offer->claim->crash->restart:
-    # task claimed, offer NIE pending.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)   # dlugi timeout: loop nie zdazy
-        await s1.start()
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        task = (await recv(a))["task"]
-        tid = task["id"]
-        b, _ = await hello("beta", "tb")
-        activation_id = s1._offer_activation_id("beta", task)   # pending offer dla bety
-        assert ("beta", tid, 1) in s1._offer_cache
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": tid, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(b)
-        assert claimed["task"]["status"] == "claimed"
-        # claim juz rozstrzygnal oferte trwale (offer_resolved w logu), zanim
-        # jakikolwiek offer_timeout uplynal
-        assert ("beta", tid, 1) not in s1._offer_cache
-        await a.close(); await b.close()
-        await _crash_stop(s1)                                   # BEZ snapshotu
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        assert s2.queue.get(tid)["status"] == "claimed"
-        assert ("beta", tid, 1) not in s2._offer_cache          # offer NIE pending
-    asyncio.run(scenario())
-
-
 # -- (4) resync wire-state musi niesc offers (+ registry) -------------------
 
 def test_resync_required_state_carries_offers(srv):
@@ -1439,9 +1127,7 @@ def test_resync_required_state_carries_offers(srv):
     # kursorem dostaje resync_required z offers w state.
     async def scenario(server):
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        task = (await recv(a))["task"]
+        task = _persist_task_new(server, CARD, "n1")
         activation_id = server._offer_activation_id("beta", task)   # pending offer
         server.snapshot()                                            # kompakcja logu
 
@@ -1515,27 +1201,6 @@ def test_outbound_only_frame_types_rejected_inbound_not_logged(srv):
         await a.close()
     asyncio.run(srv(scenario))
 
-
-def test_malformed_task_frame_rejected_by_schema_keeps_command_id(srv):
-    # (5) task_claim bez task_id odrzucony juz przez schemat validate, a error
-    # nadal niesie command_id (klient moze skorelowac). Serwer dalej zyje.
-    async def scenario(server):
-        a, _ = await hello("alfa", "ta")
-        before = server.log.last_seq
-        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                 "command_id": "bad1"}))   # brak task_id
-        err = await recv(a)
-        assert err["type"] == "error" and err["command_id"] == "bad1"
-        assert server.log.last_seq == before
-        b, _ = await hello("beta", "tb")
-        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
-                                 "text": "@beta wciaz zyje"}))
-        assert (await recv(b))["text"] == "@beta wciaz zyje"
-        await a.close(); await b.close()
-    asyncio.run(srv(scenario))
-
-
-# == RUNDA 5 — durability ofert, atomowa resolution, pelna walidacja inbound ==
 
 # -- A: DURABILITY-BEFORE-PUBLICATION — blad appendu oferty NIE moze wlozyc
 #       niedurable oferty do cache (ktore steruje publikacja w _offer_loop) ----
@@ -1676,33 +1341,6 @@ def test_offer_loop_recovers_after_offer_resolved_append_oserror(srv):
 #       KOGOKOLWIEK) rozstrzyga pending oferty taska; replay wywodzi to z
 #       samego claim, bez zaleznosci od offer_resolved -----------------------
 
-def test_steal_claim_resolves_pending_offer_of_other_target_live(srv):
-    # (B live) oferta -> beta (pending); GAMMA robi poprawny bezposredni claim
-    # tego samego taska. Klucz oferty to (TARGET=beta, task_id, wersja), wiec
-    # resolve tylko po claimerze (gamma) nie trafial klucza bety -> oferta bety
-    # zostawala pending. Fix: udany claim usuwa WSZYSTKIE pending offers
-    # (task_id, wersja-open) niezaleznie od targetu.
-    async def scenario(server):
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        task = (await recv(a))["task"]
-        tid = task["id"]
-        server._offer_activation_id("beta", task)          # pending offer dla bety
-        assert ("beta", tid, 1) in server._offer_cache
-
-        g, _ = await hello("gamma", "tg")
-        await g.send(json.dumps({"type": "task_claim", "from": "gamma", "ts": 0.0,
-                                 "task_id": tid, "command_id": "steal1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(g)
-        assert claimed["task"]["assignee"] == "gamma"
-        # pending bety zniknieta LIVE mimo ze claimowala gamma (inny target)
-        assert ("beta", tid, 1) not in server._offer_cache
-        await a.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
 def test_replay_claim_resolves_pending_offer_without_offer_resolved(tmp_path):
     # (B replay) crash-prefix [task_new, task_offer, task_claim] BEZ
     # offer_resolved (symulacja okna nieatomowosci: claim persisted, resolve
@@ -1714,17 +1352,18 @@ def test_replay_claim_resolves_pending_offer_without_offer_resolved(tmp_path):
                         lease_ttl=5.0, offer_timeout=30.0)
         await s1.start()
         a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        task = (await recv(a))["task"]
+        task = _persist_task_new(s1, CARD, "n1")
         tid = task["id"]
         s1._offer_activation_id("beta", task)              # task_offer + pending (beta,tid,1)
-        # zbuduj recznie ogon [task_claim] BEZ offer_resolved (crash-window)
-        result = s1.queue.claim(tid, "gamma", 1, "c1", 1, 0.0)
-        s1._append({"type": "task_claim", "from": "gamma", "ts": 0.0,
-                    "task_id": tid, "command_id": "c1", "expected_task_version": 1,
-                    "task_state": result,
-                    "fingerprint": s1.queue.fingerprint_for("c1")})
+        # zbuduj recznie ogon [task_claim] BEZ swap/offer_resolved — crash-window:
+        # claim trwaly w logu, ale live queue NIE swapped ani snapshotowana
+        # (celowo, inaczej niz _persist_task_claim; SUT to replay tego ogona).
+        trial = copy.deepcopy(s1.queue)
+        result = trial.claim(tid, "gamma", 1, "c1", 1, 0.0)
+        s1._append_durable({"type": "task_claim", "from": "gamma", "ts": 0.0,
+                            "task_id": tid, "command_id": "c1",
+                            "expected_task_version": 1, "task_state": result,
+                            "fingerprint": trial.fingerprint_for("c1")})
         assert [e for e in s1.log.events_after(0)
                 if e["type"] == "offer_resolved"] == []     # brak offer_resolved w logu
         await a.close()
@@ -1814,10 +1453,11 @@ def test_strict_json_rejects_nested_nan_and_extra_infinity(srv):
         a, _ = await hello("alfa", "ta")
         before = server.log.last_seq
 
-        nan_card = dict(CARD, goal=float("nan"))
+        # nested NaN w ZYWEJ ramce (membership_set.groups) — strict-json odrzuca
+        # niezaleznie od zagniezdzenia/pola, przed jakakolwiek mutacja registry/log
         await a.send(json.dumps({
-            "type": "task_new", "from": "alfa", "ts": 0.0,
-            "command_id": "nan-card", "card": nan_card,
+            "type": "membership_set", "from": "alfa", "ts": 0.0,
+            "target": "beta", "groups": ["workers", float("nan")],
         }))
         err = await recv(a)
         assert err["type"] == "error" and err["text"] == "invalid json"
@@ -1864,122 +1504,6 @@ async def _kill_expiry(server):
         pass
 
 
-# -- #1: durable append PRZED mutacja live queue/dedup ----------------------
-
-def test_task_claim_append_failure_no_live_mutation_no_dedup(tmp_path, caplog):
-    # (Runda 6 #1) mutacja NIE moze dotknac live queue/dedup przed udanym durable
-    # appendem. Injekcja: pierwszy log.append task_claim rzuca -> live NIE
-    # claimed, ZERO eventow task_claim, dedup PUSTY. Retry tego samego command_id
-    # (append juz dziala) -> claimed, 1 event; restart spojny. Na starym kodzie
-    # mutacja szla LIVE przed appendem: append-fail zostawial live=claimed + wpis
-    # dedup -> retry = dedup cache-hit bez appendu -> restart cofal do open v1.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        await s1.start()
-        await _kill_expiry(s1)
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        tid = (await recv(a))["task"]["id"]
-        b, _ = await hello("beta", "tb")
-
-        orig = s1.log.append
-        calls = {"n": 0}
-        secret_path = str(s1.log.events_path.resolve())
-
-        def flaky(frame):
-            if frame.get("type") == "task_claim":
-                calls["n"] += 1
-                if calls["n"] == 1:
-                    raise OSError(
-                        f"dysk pelny na pierwszym task_claim append: {secret_path}")
-            return orig(frame)
-
-        s1.log.append = flaky
-        seq_before = s1.log.last_seq
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": tid, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        err = await recv(b)
-        assert err["type"] == "error" and err["command_id"] == "c1"
-        assert err["text"] == "storage unavailable; retry"
-        assert secret_path not in json.dumps(err)
-        assert secret_path in caplog.text
-        # live NIETKNIETE: task open, zero eventow task_claim, dedup pusty
-        assert s1.queue.get(tid)["status"] == "open"
-        assert s1.log.last_seq == seq_before
-        assert s1.queue.fingerprint_for("c1") is None
-        assert [e for e in s1.log.events_after(0) if e["type"] == "task_claim"] == []
-
-        # retry TEGO SAMEGO command_id (append juz sprawny) -> claimed, 1 event
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": tid, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        ok = await recv(b)
-        assert ok["type"] == "ok" and ok["task"]["status"] == "claimed"
-        assert len([e for e in s1.log.events_after(0)
-                    if e["type"] == "task_claim"]) == 1
-        await a.close(); await b.close()
-        await _crash_stop(s1)
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        t = s2.queue.get(tid)
-        assert t["status"] == "claimed" and t["assignee"] == "beta"
-    asyncio.run(scenario())
-
-
-# -- #2: claim na granicy #100 nie snapshotuje przed resolution ofert --------
-
-def test_claim_at_snapshot_boundary_snapshot_internally_consistent(tmp_path):
-    # (Runda 6 #2) task_claim jako event #100: stary _append snapshotowal PRZED
-    # resolution ofert -> snapshot z task=claimed ORAZ offers=[pending] ->
-    # restart niespojny. Fix: durable task_claim (bez snapshotu) -> usun pending
-    # offers z cache -> jeden _maybe_snapshot. Snapshot na dysku wewnetrznie
-    # spojny: task claimed I zero pending offers dla niego.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        await s1.start()
-        await _kill_expiry(s1)
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        task = (await recv(a))["task"]
-        tid = task["id"]
-        s1._offer_activation_id("beta", task)          # pending offer (task_offer)
-        assert ("beta", tid, 1) in s1._offer_cache
-        b, _ = await hello("beta", "tb")
-        while s1._events_since_snapshot < 99:           # task_claim bedzie #100
-            s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
-        assert s1._events_since_snapshot == 99
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": tid, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        claimed = await recv(b)
-        assert claimed["task"]["status"] == "claimed"
-
-        # SNAPSHOT NA DYSKU spojny: task claimed => zero pending offers dla niego
-        # (stary kod: snapshot #100 przechwytywal offers=[pending] mimo claimed)
-        snap = json.loads((Path(tmp_path) / "snapshot.json").read_text())
-        state = snap["state"]
-        assert any(t["id"] == tid and t["status"] == "claimed"
-                   for t in state["queue"]["tasks"])
-        assert [o for o in state["offers"] if o["task"]["id"] == tid] == []
-        # jeden snapshot na koncu atomowej sekcji (stary kod appendowal jeszcze
-        # offer_resolved PO snapshocie -> _ess=1)
-        assert s1._events_since_snapshot == 0
-
-        await a.close(); await b.close()
-        await _crash_stop(s1)
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0, offer_timeout=30.0)
-        assert s2.queue.get(tid)["status"] == "claimed"
-        assert not any(k[1] == tid for k in s2._offer_cache)   # zero resurrekcji
-    asyncio.run(scenario())
-
-
 # -- expiry event-first: expire na klonie, durable append, potem swap --------
 
 def test_reap_expired_batch_append_failure_no_partial_log(tmp_path):
@@ -1998,20 +1522,10 @@ def test_reap_expired_batch_append_failure_no_partial_log(tmp_path):
         await _kill_expiry(s1)
         a, _ = await hello("alfa", "ta")
         b, _ = await hello("beta", "tb")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        t1 = (await recv(a))["task"]["id"]
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n2", "card": {**CARD, "goal": "y"}}))
-        t2 = (await recv(a))["task"]["id"]
-        await a.send(json.dumps({"type": "task_claim", "from": "alfa", "ts": 0.0,
-                                 "task_id": t1, "command_id": "c1",
-                                 "expected_task_version": 1}))
-        assert (await recv(a))["task"]["status"] == "claimed"
-        await b.send(json.dumps({"type": "task_claim", "from": "beta", "ts": 0.0,
-                                 "task_id": t2, "command_id": "c2",
-                                 "expected_task_version": 1}))
-        assert (await recv(b))["task"]["status"] == "claimed"
+        t1 = _persist_task_new(s1, CARD, "n1")["id"]
+        t2 = _persist_task_new(s1, {**CARD, "goal": "y"}, "n2")["id"]
+        assert _persist_task_claim(s1, t1, "alfa", 1, "c1", 1)["status"] == "claimed"
+        assert _persist_task_claim(s1, t2, "beta", 1, "c2", 1)["status"] == "claimed"
 
         future = time.time() + 1000    # oba lease dawno wygasle
         orig = s1.log.append
@@ -2100,9 +1614,7 @@ def test_offer_resolved_at_snapshot_boundary_no_resurrection(tmp_path):
         await s1.start()
         await _kill_expiry(s1)
         ws, _ = await hello("alfa", "ta")
-        await ws.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                  "command_id": "n1", "card": CARD}))
-        task = (await recv(ws))["task"]
+        task = _persist_task_new(s1, CARD, "n1")
         s1._offer_activation_id("beta", task)          # task_offer + pending
         while s1._events_since_snapshot < 99:           # offer_resolved bedzie #100
             s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
@@ -2248,9 +1760,7 @@ def test_hello_at_snapshot_boundary_restores_registry_generation(tmp_path):
         await s1.start()
         await _kill_expiry(s1)
         a, _ = await hello("alfa", "ta", instance="i1")     # hello #1 + task nizej
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        tid = (await recv(a))["task"]["id"]
+        tid = _persist_task_new(s1, CARD, "n1")["id"]
         while s1._events_since_snapshot < 99:               # kolejny append = #100
             s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
         assert s1._events_since_snapshot == 99

@@ -112,21 +112,15 @@ def _strict_json_loads(raw):
     return json.loads(raw, parse_constant=_reject_json_constant)
 
 
-_TASK_REQUIRED_FIELDS = {
-    "task_new": ("card", "command_id"),
-    "task_claim": ("task_id", "command_id", "expected_task_version"),
-    "task_done": ("task_id", "command_id", "expected_task_version"),
-    "task_blocked": ("task_id", "command_id", "expected_task_version"),
-    "review_changes": ("task_id", "command_id", "expected_task_version"),
-    "task_approve": ("task_id", "command_id", "expected_task_version"),
-    "task_unblock": ("task_id", "command_id", "expected_task_version"),
-}
-
 # Eventy niosace SERWEROWY WYNIK mutacji (task_state) — replay stosuje ten
 # stan WPROST przez queue.apply_replayed (result-based), bez re-execution.
-# Expiry jest od R6 wylacznie atomowym task_expired_batch obslugiwanym osobno
-# w replay; historyczny singular zostaje tylko typem inbound-rejected w protocol.
-_TASK_STATE_EVENTS = frozenset(_TASK_REQUIRED_FIELDS) | {"heartbeat"}
+# Inbound task_*/heartbeat jest WYCIETE (laka-nie-obora, A2), ale STARE LOGI
+# nadal moga te eventy zawierac, wiec replay musi je rozpoznac az do wyciecia
+# queue (A4). Literal, bo _TASK_REQUIRED_FIELDS juz nie istnieje.
+_TASK_REPLAY_EVENTS = frozenset({
+    "task_new", "task_claim", "task_done", "task_blocked",
+    "review_changes", "task_approve", "task_unblock", "heartbeat",
+})
 
 
 class ChatServer:
@@ -217,7 +211,7 @@ class ChatServer:
                 # (result-based), jak pojedynczy reopen.
                 for ts in event["task_states"]:
                     self.queue.apply_replayed(ts, None, None)
-            elif etype in _TASK_STATE_EVENTS:
+            elif etype in _TASK_REPLAY_EVENTS:
                 self.queue.apply_replayed(event["task_state"],
                                           event.get("command_id"),
                                           event.get("fingerprint"))
@@ -920,14 +914,10 @@ class ChatServer:
                 if role == "human" and observer != nick:
                     # live board dla TUI; agenci dostaja tylko backlog/preambule
                     await self._send(observer, frame)
-        elif ftype == "heartbeat":
-            await self._on_heartbeat(frame, nick, sock_gen, ws)
         elif ftype == "kick":
             await self._on_kick(frame, nick, ws)
         elif ftype == "membership_set":
             await self._on_membership_set(frame, requested_groups, nick, ws)
-        elif ftype in _TASK_REQUIRED_FIELDS:
-            await self._on_task_frame(frame, nick, sock_gen, ws)
         else:
             await ws.send(json.dumps(protocol.make_frame(
                 "error", "server", time.time(),
@@ -1020,155 +1010,6 @@ class ChatServer:
         for observer, role in list(self.roles.items()):
             if role == "human" and observer not in {nick, frame["target"]}:
                 await self._send(observer, event)
-
-    async def _on_heartbeat(self, frame, nick, sock_gen, ws):
-        """Minimalny durable heartbeat: task_id + identity przypieta do socketu.
-
-        Duplikat jest nieszkodliwy (ponownie przesuwa lease), wiec nie dokladamy
-        command_id/CAS/dedup. Mutacja nadal spelnia event-first: klon -> append
-        pelnego task_state -> swap. Awaria appendu zostawia live lease bez zmian.
-        """
-        now = time.time()
-        trial = copy.deepcopy(self.queue)
-        try:
-            result = trial.heartbeat(frame["task_id"], nick, sock_gen, now)
-        except TaskError as e:
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", now,
-                text=f"{type(e).__name__}: {e}")))
-            return
-        self._append_durable({**frame, "task_state": result})
-        self.queue = trial
-        self._maybe_snapshot()
-        await ws.send(json.dumps(protocol.make_frame(
-            "ok", "server", now, task=result)))
-
-    _TASK_OP = {
-        "task_claim": "claim", "task_done": "to_review",
-        "task_blocked": "block", "task_unblock": "unblock",
-    }
-
-    def _apply_task_op(self, queue, ftype, frame, nick, sock_gen, now):
-        # Wykonuje mutacje na PODANEJ kolejce (klon transakcji) — zwraca
-        # serwerowy result (task_state) i ustawia queue.last_dedup_hit.
-        # Walidacja (Conflict/StaleGeneration/WIP/TaskError) rzuca STAD, zanim
-        # cokolwiek trwalego dotknie live queue/dedup.
-        if ftype == "task_new":
-            return queue.add(frame["card"], frame["command_id"], now)
-        if ftype == "task_claim":
-            return queue.claim(frame["task_id"], nick, sock_gen,
-                               frame["command_id"], frame["expected_task_version"], now)
-        if ftype == "task_done":
-            return queue.to_review(frame["task_id"], nick, sock_gen,
-                                  frame["command_id"], frame["expected_task_version"], now)
-        if ftype == "task_blocked":
-            return queue.block(frame["task_id"], nick, sock_gen,
-                              frame["command_id"], frame["expected_task_version"], now)
-        if ftype == "review_changes":  # od matki, bez ownera
-            return queue.request_changes(frame["task_id"], frame["command_id"],
-                                        frame["expected_task_version"], now)
-        if ftype == "task_approve":  # (8) B1: approve = KTOKOLWIEK POZA assignee
-            return queue.approve(frame["task_id"], nick, frame["command_id"],
-                                frame["expected_task_version"], now)
-        return queue.unblock(frame["task_id"], nick, sock_gen,  # task_unblock
-                            frame["command_id"], frame["expected_task_version"], now)
-
-    def _peek_cached(self, ftype, frame, nick, sock_gen):
-        # (Runda 6 #1) podglad dedup na ZYWEJ kolejce PRZED deepcopy — retry to
-        # najczestsza sciezka i nie placi kosztu kopii calej kolejki. Fingerprint
-        # budowany TYM SAMYM helperem co mutacja (dedup_fingerprint), wiec
-        # trafienie tu == trafienie w klonie. Zle wejscie (np. nieserializowalna
-        # karta) -> None: pelna sciezka klon-mutacja zwaliduje i zglosi blad.
-        try:
-            if ftype == "task_new":
-                fp = self.queue.dedup_fingerprint("add", card=frame["card"])
-            elif ftype == "review_changes":
-                fp = self.queue.dedup_fingerprint(
-                    "request_changes", task_id=frame["task_id"],
-                    expected_version=frame["expected_task_version"])
-            elif ftype == "task_approve":
-                fp = self.queue.dedup_fingerprint(
-                    "approve", task_id=frame["task_id"], nick=nick,
-                    expected_version=frame["expected_task_version"])
-            else:
-                fp = self.queue.dedup_fingerprint(
-                    self._TASK_OP[ftype], task_id=frame["task_id"], nick=nick,
-                    generation=sock_gen, expected_version=frame["expected_task_version"])
-        except TaskError:
-            return None
-        return self.queue.peek_dedup(frame["command_id"], fp)
-
-    async def _on_task_frame(self, frame, nick, sock_gen, ws):
-        """Transakcyjne, event-first przetwarzanie ramek task_*.
-
-        (Runda 6 #1) PROVISIONAL-THEN-COMMIT: cache-hit (retry) jest
-        short-circuitowany peek_dedup-em na ZYWEJ kolejce PRZED deepcopy; realna
-        mutacja idzie na KLONIE (walidacja Conflict/StaleGeneration/WIP + serwerowy
-        result), potem durable append, i DOPIERO po udanym appendzie klon staje
-        sie live (swap). Nieudany append (OSError) => live queue i dedup
-        NIETKNIETE, retry dziala normalnie (komenda nie zostaje 'zjedzona' przez
-        dedup cache-hit bez trwalego faktu). Crash miedzy append a swap odtworzy
-        fakt z eventu przy replay (jednowatkowy event loop = crash-safe).
-        Deepcopy-per-mutacja to SWIADOMY trade-off dla skali B1 (dziesiatki
-        taskow) — do rewizji przy setkach taskow (clone()/undo-log); YAGNI teraz.
-        """
-        now = time.time()
-        ftype = frame["type"]
-        command_id = frame.get("command_id")
-        missing = [f for f in _TASK_REQUIRED_FIELDS[ftype] if frame.get(f) is None]
-        if missing:
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", now, command_id=command_id,
-                text=f"{ftype}: brakujace pola {missing}")))
-            return
-        # (Runda 4 #1) cache-hit = ODPOWIEDZ, nie fakt: bez deepcopy, appendu,
-        # swapu ani side-effectow (offer/idle/notify).
-        cached = self._peek_cached(ftype, frame, nick, sock_gen)
-        if cached is not None:
-            await ws.send(json.dumps(protocol.make_frame(
-                "ok", "server", now, command_id=command_id, task=cached)))
-            return
-        trial = copy.deepcopy(self.queue)
-        try:
-            result = self._apply_task_op(trial, ftype, frame, nick, sock_gen, now)
-        except TaskError as e:  # Conflict/StaleGeneration sa jego podklasami
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", now, command_id=command_id,
-                text=f"{type(e).__name__}: {e}")))
-            return
-        if trial.last_dedup_hit:
-            # fallback: peek nie zlapal (teoretyczny rozjazd fingerprintu) — klon
-            # jest autorytatywny: cache-hit => bez appendu i bez swapu.
-            await ws.send(json.dumps(protocol.make_frame(
-                "ok", "server", now, command_id=command_id, task=result)))
-            return
-        # (2) trwaly event result-based: PELNY stan taska po mutacji (task_state)
-        # + fingerprint dedup — replay stosuje stan WPROST przez apply_replayed.
-        # durable NAJPIERW (bez snapshotu); rzuca ZANIM swap -> live+dedup nietkniete.
-        self._append_durable({**frame, "task_state": result,
-                              "fingerprint": trial.fingerprint_for(frame["command_id"])})
-        self.queue = trial  # commit: klon (z mutacja + wpisem dedup) staje sie live
-        if ftype == "task_new":
-            self._trigger_offer()
-        elif ftype == "task_claim":
-            if nick in self.idle:
-                self.idle.remove(nick)
-            # (Runda 6 #2) ATOMOWA sekcja claim: task_claim JUZ durable (bez
-            # snapshotu), teraz USUN wszystkie matching pending offers z cache —
-            # BEZ osobnego offer_resolved (udany claim SAM jest trwalym faktem
-            # resolution; replay pop-uje je z task_claim — Runda 5 B; offer_resolved
-            # zostaje WYLACZNIE dla timeoutow/ewikcji). Jeden _maybe_snapshot
-            # ponizej: bez tego auto-snapshot na granicy #100 kompaktowalby
-            # task_claim ZANIM resolution zajdzie -> snapshot task=claimed z
-            # offers=[pending] -> restart niespojny.
-            self._drop_offers_for_task(
-                frame["task_id"], frame["expected_task_version"])
-        self._maybe_snapshot()
-        await ws.send(json.dumps(protocol.make_frame(
-            "ok", "server", now, command_id=command_id, task=result)))
-        if ftype == "review_changes":
-            await self._send(result["assignee"], protocol.make_frame(
-                "review_changes", "server", now, task=result))
 
     # -- oferty (round-robin + timeout) -------------------------------------
     def _offer_activation_id(self, nick, task):
