@@ -382,7 +382,7 @@ def test_inbound_task_new_rejected_cleanly_server_stays_live(srv):
     asyncio.run(srv(scenario))
 
 
-# -- Nowe: restart odtwarza queue+registry po snapshocie ---------------------
+# -- Nowe: restart odtwarza registry po snapshocie --------------------------
 
 def test_restart_restores_registry_after_snapshot(tmp_path):
     async def scenario():
@@ -600,10 +600,6 @@ def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
     asyncio.run(scenario())
 
 
-# -- (2) SEDNO: replay result-based, niezalezny od biezacej polityki --------
-
-# -- (1) expiry jako trwaly, replayowalny event -----------------------------
-
 # -- (6) brak okna wycieku przy takeover (_close_stale_sockets) --------------
 
 def test_close_stale_sockets_evicts_from_conns_before_first_await(tmp_path):
@@ -697,13 +693,6 @@ def test_hello_last_seq_beyond_server_errors(srv):
     asyncio.run(srv(scenario))
 
 
-# -- Task 7: oferty round-robin — warianty z briefu (nie pokryte przez F) ----
-
-async def send_status_idle(ws, nick):
-    await ws.send(json.dumps({"type": "status", "from": nick, "ts": 0.0,
-                              "state": "idle"}))
-
-
 # -- (5) walidacja inbound per typ ramki (schematy, nie 3 wyjatki) ----------
 
 def test_fyi_without_text_rejected_not_logged(srv):
@@ -763,9 +752,6 @@ def test_outbound_only_frame_types_rejected_inbound_not_logged(srv):
         await a.close()
     asyncio.run(srv(scenario))
 
-
-# -- A: DURABILITY-BEFORE-PUBLICATION — blad appendu oferty NIE moze wlozyc
-#       niedurable oferty do cache (ktore steruje publikacja w _offer_loop) ----
 
 # -- C: walidacja inbound pelna — type nie-str, ts NaN, pierwsze hello przez
 #       wspolny schemat ------------------------------------------------------
@@ -837,8 +823,8 @@ def test_nan_ts_frame_rejected_not_logged(srv):
 
 def test_strict_json_rejects_nested_nan_and_extra_infinity(srv):
     # Python json.loads domyslnie akceptuje NaN/Infinity. Brama strict JSON ma
-    # odrzucic je niezaleznie od zagniezdzenia/pola, zanim zmienia room_seq lub
-    # kolejke; poprawny socket po hello pozostaje przy tym uzywalny.
+    # odrzucic je niezaleznie od zagniezdzenia/pola, zanim zmienia room_seq
+    # lub trafi do logu; poprawny socket po hello pozostaje przy tym uzywalny.
     async def scenario(server):
         a, _ = await hello("alfa", "ta")
         before = server.log.last_seq
@@ -878,9 +864,6 @@ def test_strict_json_rejects_nan_in_first_hello_without_side_effects(srv):
         assert "alfa" not in server.conns
         await ws.close()
     asyncio.run(srv(scenario))
-
-
-# == RUNDA 6 — event-first (provisional-then-commit) mutacje taskow ==========
 
 
 # -- Runda 7: Registry durability w hello (provisional-then-commit) ----------

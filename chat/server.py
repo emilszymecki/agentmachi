@@ -22,7 +22,7 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      tej samej ramce dzialaja normalnie). role/groups faktycznie przypisane
      nickowi pochodza WYLACZNIE z configu serwera (Registry.role_of/
      groups_of) — to co klient deklaruje w hello jest tylko walidowane.
-  e) wejscie klienckie walidowane zanim dotknie kolejki/rejestru; zaden
+  e) wejscie klienckie walidowane zanim dotknie rejestru/logu; zaden
      pojedynczy zly frame (w tym JSON-skalar/lista zamiast obiektu) nie
      moze zabic handlera ani serwera.
   f) trwalosc przed publikacja: kazda trwala ramka klienta najpierw append
@@ -116,7 +116,7 @@ class ChatServer:
         self._server = None
         # niezmiennik A: eventy > snapshot_seq NIGDY nie byly odtwarzane do
         # stanu — trwalosc byla teatrem. Replay stosuje te same mutacje
-        # (queue/registry) co live, bez zadnych side-effectow sieciowych
+        # (registry/status) co live, bez zadnych side-effectow sieciowych
         # (bez _send/_append — eventy juz sa na dysku).
         # self.status MUSI istniec PRZED _replay_events() — replay eventow
         # status nadpisuje stan przywrocony ze snapshotu (nowsze wygrywa)
@@ -445,8 +445,7 @@ class ChatServer:
                 # mutacji, zero appendu). generation to na razie PREVIEW —
                 # commit dopiero po udanym durable appendzie. Registry to male
                 # dicty (nick->gen, nick->instance), wiec deepcopy-per-hello to
-                # swiadomy, tani trade-off — hello nie jest hot-path jak retry
-                # mutacji taskow.
+                # swiadomy, tani trade-off — hello jest rzadki (nie hot-path).
                 trial_registry = copy.deepcopy(self.registry)
                 # B6: w trybie otwartym agent moze wejsc BEZ tokenu. Rola
                 # human wymaga go zawsze (open_hello odmawia), a tryb otwarty
@@ -623,14 +622,14 @@ class ChatServer:
                 # klientowi musi etykietowac DOKLADNIE ten state, ktory
                 # wysylamy. Bez swiezego, atomowego snapshotu tutaj,
                 # self.log.snapshot_seq bylby STARA wartoscia (sprzed
-                # mutacji, ktore juz sa w queue.dump()) — klient wznowilby
-                # replay od stalej etykiety i zdublowal mutacje, ktore
-                # `state` juz zawiera.
+                # eventy, ktore juz sa w `state`) — klient wznowilby replay
+                # od stalej etykiety i zdublowal eventy, ktore `state` juz
+                # zawiera.
                 self.snapshot()
                 # (Runda 4 #4) wire resync state = DOKLADNIE persisted snapshot
-                # state (queue + registry), nie okrojony do queue.
+                # state ({registry, status}), nie okrojony.
                 # F1 (B5): resync niesie takze PAMIEC kanalu. `state` odtwarza
-                # maszyne (queue/registry), ale rozmowy nie odtworzy
+                # rejestr i board (registry/status), ale rozmowy nie odtworzy
                 # nic — a to ona jest jedyna pamiecia agenta. Bez tego agent
                 # po kompakcji wchodzil na kanal, na ktorym "nic sie nigdy nie
                 # wydarzylo" (zmierzone na produkcji: 105 ramek dogfoodu).

@@ -30,7 +30,7 @@ class ForeignWriterError(RuntimeError):
 
 
 # F1 (B5): typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji.
-# Reszta (hello/status/task_*) ma swoj stan w snapshocie i moze zniknac.
+# Reszta (hello/status) ma swoj stan w snapshocie i moze zniknac.
 # F3 (B5): takeover jest czescia PAMIECI kanalu, nie stanem maszyny — stan
 # mowi "kto jest teraz", a slad odpowiada na pytanie "dlaczego kolega
 # zamilkl". Kompakcja go wiec nie rusza, tak jak rozmowy.
@@ -149,8 +149,8 @@ class EventLog:
     def conversation_after(self, seq, limit=CONVERSATION_LIMIT):
         """F1 (B5): rozmowa o seq > podanym, prosto z dysku.
 
-        Kanal JEST pamiecia agenta — inaczej niz stan maszyny (queue,
-        registry), ktory da sie odtworzyc ze snapshotu, rozmowy nie da sie
+        Kanal JEST pamiecia agenta — inaczej niz stan huba (registry,
+        status), ktory da sie odtworzyc ze snapshotu, rozmowy nie da sie
         odtworzyc z niczego. Dlatego kompakcja jej nie rusza (save_snapshot
         nizej), a tu podajemy ja niezaleznie od kursora i snapshot_seq.
         Czytamy z pliku, nie z RAM: log rozmowy rosnie liniowo z historia
