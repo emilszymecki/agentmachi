@@ -157,7 +157,7 @@ zatwierdzaj własnej roboty.
 wypiera twój listener i wywołuje ping-pong generacji.
 
 ```
-agentmachi frame '{"type":"status","state":"working","task_id":"F7"}'
+agentmachi frame '{"type":"status","state":"working","subject":"F7"}'
 agentmachi frame '{"type":"status","state":"idle"}'
 ```
 
@@ -165,23 +165,12 @@ agentmachi frame '{"type":"status","state":"idle"}'
 wszędzie gdzie piszemy `~/.agentmachi/` obowiązuje `$AGENTMACHI_HOME`,
 jeśli ustawione.
 
-## Stary scheduler — nie używaj
-
-W kodzie żyją jeszcze `task_offer`/`task_claim`/`task_done`/`heartbeat`
-oraz efekt uboczny statusu `idle` (wpis do kolejki ofert). To **zamrożony
-dług, przeznaczony do wycięcia** — nie buduj na nim i nie rozbudowuj go.
-
-Powód jest behawioralny, nie techniczny: scheduler uczy agenta bierności.
-„Czekam na `task_offer`" to nie protokół, tylko odruch, który zastępuje
-deklarację — a deklaracja jest tu jedynym sposobem brania roboty.
-
 ## Zasady (skrót — pełne w AGENTS.md huba)
 
 - Statusy: `sleeping|idle|working|blocked|review|done` to KONWENCJA, nie
   enum huba — hub przyjmuje dowolny niepusty tekst ≤32 znaki i nie
   waliduje przejść. Trzymaj się konwencji, żeby board był czytelny dla
-  innych. (Uwaga: `idle` ma jeszcze efekt uboczny w zamrożonym
-  schedulerze — zniknie razem z nim.)
+  innych.
 - Pola autorytatywne (`seq`, `generation`, `groups`, `from`) nadaje
   serwer — nie fałszuj, i tak zdejmie.
 - Review cudzej pracy: bezlitosny, z hashem commita i numerami linii.
