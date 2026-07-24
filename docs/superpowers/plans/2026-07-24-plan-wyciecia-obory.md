@@ -181,7 +181,8 @@ to konwencja czytelności; board nie wygasza wpisów).
 
 **Files:**
 - Modify: `chat/protocol.py` — walidacja `status` (`~119-131`): dopuść opcjonalne `subject` (niepusty str, jak `note`)
-- Modify: `chat/server.py` — handler `status` (`~914-915`): dołóż `subject` do zapisywanych kluczy; `_replay_events` status (`~199-201`): to samo; `_participants_snapshot` (`~392-396`): przenieś `subject` (i `note`) z `self.status` na poziom wpisu uczestnika, żeby board był płaską mapą
+- Modify: `chat/server.py` — handler `status` (`~914-915`): dołóż `subject` do zapisywanych kluczy; `_replay_events` status (`~199-201`): to samo. **BLOCKER2: `_participants_snapshot` (`~392-396`) NIE ruszaj** — `participant["status"]` zostaje OBIEKTEM, `subject` jest w nim ZAGNIEŻDŻONY (`status.subject`, obok `state`/`note`); tak już czytają board `chat/server.py` i `tui.py` (mniej regresji niż top-level, zgodne z testem `board[nick]["status"]["subject"]`)
+- Modify: `tui.py` — jeśli renderuje board/status, uwzględnij `status.subject` (live presence czyta zagnieżdżony obiekt status)
 - Test: `tests/test_server_integration.py` — dodaj test `test_status_subject_on_board`
 
 **Interfaces:**
@@ -251,6 +252,25 @@ W `DEFAULT_RULES` zmień punkt 9 na neutralny:
    nizszy seq, przegrany sie wycofuje. Log jest arbitrem, nie glosowanie.
 ```
 W punkcie 3 dopisz, że orchestrator jest ROLĄ, którą agenci mogą przyjąć — nie wymogiem systemu.
+
+- [ ] **Step 1b: Istniejące huby — migracja ŚWIADOMA, nie cicha (fix codex C1)**
+
+`_ensure_layout` zapisuje `data/rules.md` TYLKO gdy plik nie istnieje — więc zmiana
+`DEFAULT_RULES` dotyczy WYŁĄCZNIE nowych hubów. Istniejące huby (np. dogfood)
+zachowają stare rules.md, i tak MA być: rules bywają ręcznie dostosowane per hub, a
+konstytucja mówi, że decyzje o infrastrukturze należą do człowieka — **nie
+nadpisujemy custom rules po cichu**. Migracja istniejącego huba to ŚWIADOMY krok
+operatora, udokumentowany (README/howto), nie automat:
+
+1. **Preview** — porównaj `~/.agentmachi/<hub>/data/rules.md` z nowym `DEFAULT_RULES`
+   (`diff`), żeby zobaczyć, co się zmieni i czy nie zadepcze własnych dopisków.
+2. **Backup** — `cp rules.md rules.md.bak`.
+3. **Podmiana** — ręcznie (zachowując własne reguły) albo skopiowanie nowego template.
+
+Do planu Fazy C należy TYLKO ten udokumentowany krok + jawna nota w `DEFAULT_RULES`/README,
+że zmiana obejmuje nowe huby. Automatyczne nadpisanie ani helper `agentmachi rules
+--migrate` NIE wchodzą teraz — to osobny feature za bramką dogfoodu (bramka: czy
+operatorzy realnie tego potrzebują? na razie ręczny krok wystarcza — less is more).
 
 - [ ] **Step 2: Zaktualizuj `tests/test_cli.py`**
 
@@ -381,29 +401,60 @@ przez człowieka. Ten test dowodzi, że hub UMOŻLIWIA przebieg, nie prowadząc 
 **Interfaces:**
 - Consumes: `ChatServer` (bez schedulera), routing wzmianek, trwały log, presence, board.
 
-- [ ] **Step 1: Napisz test przebiegu (bez task_*/offer)**
+- [ ] **Step 1: Napisz test przebiegu — ASERCJE, nie komentarze (fix codex E1)**
+
+Test ma DOWODZIĆ routingu i braku schedulera, nie opisywać ich komentarzem. Używa
+wzorca repo (`srv` fixture + `hello`/`recv` z `test_server_integration.py`):
 
 ```python
-def test_self_organization_flow_without_scheduler():
-    """Agent A prosi o pomoc wzmianka; B przyjmuje i raportuje — czysty chat+status,
+def test_self_organization_flow_without_scheduler(srv):
+    """A deleguje do B wzmianka; B przyjmuje i raportuje — czysty chat+status,
     zero ramek schedulera. Hub tylko routuje i utrwala."""
-    async def scenario():
-        srv = ChatServer(data_dir=..., tokens={
-            "a": {..., "groups": ["workers"]}, "b": {..., "groups": ["workers"]}}, port=port)
-        await srv.start()
-        try:
-            # a i b laczą sie (hello). a wysyla chat z @b (delegacja przez rozmowe).
-            # b ustawia status working+subject "C". a widzi b na boardzie jako working/C.
-            board = {p["nick"]: p for p in srv._participants_snapshot()}
-            assert board["b"]["status"]["state"] == "working"
-            assert board["b"]["status"]["subject"] == "C"
-            # log zawiera wzmianke @b (trwalosc rozmowy)
-            # brak jakiegokolwiek eventu task_*/offer w logu
-            assert not hasattr(srv, "queue")
-        finally:
-            await srv.stop()
-    asyncio.run(scenario())
+    async def scenario(server):
+        a, _ = await hello("a", "ta", groups=["workers"])
+        b, _ = await hello("b", "tb", groups=["workers"])
+        c, _ = await hello("c", "tc", groups=["workers"])   # obecny, ale NIE wzmiankowany
+        # A deleguje do B PRZEZ ROZMOWE (wzmianka @b) — zero ramek schedulera
+        await a.send(json.dumps({"type": "chat", "from": "a", "ts": 1.0,
+                                 "text": "@b wez czesc C"}))
+        # DOWOD routingu: B faktycznie dostaje ramke; C (agent nie-wzmiankowany) NIE
+        got = await recv(b)
+        assert got["type"] == "chat" and got["from"] == "a" and "@b" in got["text"]
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(c, timeout=0.5)              # wzmianka budzi tylko adresata
+        # B raportuje status working+subject; board to pokazuje (subject = pole po Fazie B)
+        await b.send(json.dumps({"type": "status", "from": "b", "ts": 2.0,
+                                 "state": "working", "subject": "C"}))
+        await recv(a)                               # a odbiera propagacje statusu B (sync)
+        board = {p["nick"]: p for p in server._participants_snapshot()}
+        assert board["b"]["status"]["state"] == "working"
+        assert board["b"]["status"]["subject"] == "C"
+        # DOWOD braku schedulera: realny skan logu, nie komentarz
+        types = {e.get("type") for e in server.log.replay()}
+        assert not (types & {"task_new", "task_offer", "task_claim",
+                             "task_done", "heartbeat"})
+        assert not hasattr(server, "queue")
+    asyncio.run(srv(scenario))
 ```
+
+- [ ] **Step 1b: Trwałość po restarcie — DOWÓD, nie założenie (fix codex E1)**
+
+Osobny test wg wzorca restart z `test_server_integration.py` (dwa `ChatServer` nad tym
+samym `tmp_path`): po przebiegu `s1.stop()`, nowy `s2 = ChatServer(ten sam data_dir)`
+odtwarza board i rozmowę z logu/snapshotu:
+
+```python
+def test_selforg_state_survives_restart(tmp_path):
+    # s1: a@b + status B working/C jak wyżej; s1.stop()
+    # s2 = ChatServer(data_dir=tmp_path, ...); await s2.start()
+    board = {p["nick"]: p for p in s2._participants_snapshot()}
+    assert board["b"]["status"]["state"] == "working" and board["b"]["status"]["subject"] == "C"
+    conv = s2.log.conversation_after(0)             # rozmowa przetrwała
+    assert any(e.get("type") == "chat" and "@b" in e.get("text", "") for e in conv)
+```
+
+Sam brak pola `queue` + wpis w logu NIE dowodzi samoorganizacji — dowodem jest ROUTING
+(B dostaje, C nie), TRWAŁOŚĆ po restarcie i ZERO ramek schedulera.
 
 - [ ] **Step 2: Uruchom — PASS (hub już to umożliwia po Fazach A–B)**
 
