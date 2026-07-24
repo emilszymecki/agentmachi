@@ -388,7 +388,10 @@ recent = [t for t in wake_times if now - t < self._window]
 if not sender_is_human and len(recent) >= self.max_wakes_per_hour:
     return min(recent) + self._window
 ```
-Dodaj `self._window` (default 3600.0) w `__init__` i użyj też w prune (`~250` po stronie `_handle_wake` zostaje bez zmian — to append historii, nie blokada).
+Dodaj `self._window` (default 3600.0) w `__init__`; użyj go w `check()` ORAZ w prune
+`wake_times` w `_handle_wake` (`~255`): `limiter._window` zamiast hardcoded `3600.0`, żeby
+check i historia miały jedno źródło prawdy. Prune to append historii (nie blokada), ale
+jego okno musi być spójne z oknem capa — dlatego też przez `limiter._window`.
 
 - [ ] **Step 4: Env-config w cli.py**
 
