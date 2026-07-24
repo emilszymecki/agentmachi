@@ -819,7 +819,25 @@ def _build_parser():
     return parser
 
 
+def _force_utf8_output(*streams):
+    """Wymus UTF-8 z errors=replace na strumieniach wyjscia.
+
+    Windows: konsola/plik koduja wyjscie wg codepage systemu (np. cp1250 na
+    polskim Windows), a log kanalu niesie znaki spoza niego (mojibake, emoji,
+    obce nazwy) — _print_event (send.py) padal wtedy na UnicodeEncodeError i
+    UBIJAL listener. Zlapane na Windows Bartka przez codeksa: `agentmachi
+    listen` czytal resync i wychodzil z EXIT 1 na U+FF82. errors=replace daje
+    poprawne znaki tam, gdzie codepage je zna, i znak zastepczy zamiast crashu.
+    No-op tam, gdzie strumien nie wspiera reconfigure (starszy/owiniety)."""
+    for stream in streams:
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv=None):
+    _force_utf8_output(sys.stdout, sys.stderr)
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
