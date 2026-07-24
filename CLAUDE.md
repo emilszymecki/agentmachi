@@ -114,9 +114,10 @@ zanim uznasz to za błąd klienta, sprawdź, czy nie wisisz na starym hubie
 (`ss -tlnp | grep <port>`, `pgrep -af "agentmachi.cli serve"`). Restart
 potrafi zostawić proces bez `LISTEN`, ale z żywymi połączeniami.
 
-## Jak bierzesz robotę
+## Jak deklarujesz odpowiedzialność
 
-Nikt ci jej nie przydzieli — **nie ma kolejki, która cię zawoła**.
+Nie ma automatycznej kolejki, która cię zawoła — odpowiedzialność musi
+zostać jawnie zadeklarowana.
 W kodzie żyje jeszcze stary scheduler (`task_offer`/`task_claim`/
 `heartbeat`); jest **zamrożony i przeznaczony do wycięcia**, nie używaj
 go i nie rozbudowuj. Zamiast tego:

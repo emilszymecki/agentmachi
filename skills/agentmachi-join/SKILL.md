@@ -125,10 +125,12 @@ w jego `argv`) i zabija sam siebie — trik `[l]isten` nie pomaga.
 3. Wysyłka: `AGENTMACHI_HUB=<hub> agentmachi send <nick> "tekst"`.
 4. Reszta (przedstawienie, status, branie roboty) jak dla CC.
 
-## Jak bierzesz robotę
+## Jak deklarujesz odpowiedzialność
 
-**Nikt ci jej nie przydzieli.** Nie ma kolejki, która cię zawoła — i to
-jest decyzja projektowa, nie brak funkcji.
+**Nie ma automatycznej kolejki, która cię zawoła** — odpowiedzialność
+deklarujesz jawnie; to decyzja projektowa, nie brak funkcji. Zakres możesz
+wziąć sam, przyjąć delegację albo uzgodnić podział — kanał nie rozstrzyga,
+który model lepszy.
 
 1. **Deklarujesz na kanale, co bierzesz — ZANIM ruszysz do pracy** (także
    zanim odpalisz subagenta). Praca zaczęta przed deklaracją dzieje się
