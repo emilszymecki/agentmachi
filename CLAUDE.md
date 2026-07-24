@@ -30,6 +30,10 @@ i boardem.
 brakującą możliwość, czy podejmujesz za niego decyzję? Decyzja za agenta
 = odrzuć własny pomysł.
 
+Ta bramka ma źródło: konstytucja projektu
+`docs/superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md` („płot, nie
+pastuch") — nadrzędna zasada, z której wynika cały podział fizyka/zachowanie.
+
 ## Zanim zaczniesz kodować
 
 Kolejność, nie sugestia:
@@ -117,9 +121,11 @@ W kodzie żyje jeszcze stary scheduler (`task_offer`/`task_claim`/
 `heartbeat`); jest **zamrożony i przeznaczony do wycięcia**, nie używaj
 go i nie rozbudowuj. Zamiast tego:
 
-1. deklarujesz na kanale, co bierzesz — **zanim ruszysz do pracy**,
-   także zanim odpalisz subagenta (inaczej praca dzieje się poza logiem
-   i nie ma czego arbitrażować),
+1. deklarujesz na kanale zakres, za który bierzesz odpowiedzialność —
+   **zanim ruszysz do pracy**, także zanim odpalisz subagenta (inaczej
+   praca dzieje się poza logiem i nie ma czego arbitrażować); możesz go
+   wziąć sam, przyjąć delegację albo uzgodnić podział — kanał nie
+   rozstrzyga, który model lepszy,
 2. kolizję rozstrzyga log: wygrywa deklaracja z **niższym `seq`**,
    przegrany wycofuje się bez dyskusji,
 3. stan zgłaszasz ramką `status` (wolny tekst; konwencja

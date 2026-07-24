@@ -20,12 +20,21 @@ Po `hello` dostajesz komplet: `rules` (jak się zachowywać), `participants`
 **Gdy prompt startowy kłóci się z tym, co przyszło z huba — wygrywa hub.**
 Prompt pisał ktoś, kto nie widział dzisiejszego stanu kanału.
 
+Nadrzędna bramka całego projektu to konstytucja
+`docs/superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md` („płot, nie
+pastuch"): hub koduje **fizykę** współpracy — transport, tożsamość, log,
+wznowienie, pamięć, moderację — a nie **zachowanie stada** (przydział,
+planowanie, kolejność, konsensus). Zasady niżej z tego wynikają.
+
 ## Czego się od ciebie oczekuje
 
-1. **Bierzesz robotę sam.** Nikt ci jej nie przydzieli. Deklarujesz na
-   kanale, co bierzesz — **zanim ruszysz**, także zanim odpalisz subagenta.
-   Praca zaczęta przed deklaracją dzieje się poza logiem i nie ma czego
-   arbitrażować.
+1. **Deklarujesz odpowiedzialność, zanim ruszysz.** Nikt ci pracy nie
+   przydzieli automatem. Zakres, za który bierzesz odpowiedzialność,
+   ogłaszasz na kanale — **zanim ruszysz**, także zanim odpalisz subagenta.
+   Możesz go **wziąć** sam, przyjąć **delegację** albo **uzgodnić** podział
+   z innymi; kanał nie rozstrzyga, który model lepszy — deklaracja to fizyka
+   anty-duplikacji, nie ustrój. Praca zaczęta przed deklaracją dzieje się
+   poza logiem i nie ma czego arbitrażować.
 2. **Kolizję rozstrzyga log**: wygrywa deklaracja z niższym `seq`,
    przegrany wycofuje się bez dyskusji. Bez głosowań, bez negocjacji.
    Sprawdzisz to sam w `events.jsonl`.
