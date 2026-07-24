@@ -79,20 +79,6 @@ def test_validate_status_target_optional_but_nonempty_string_if_present():
     assert protocol.validate({**base, "target": 7}) is not None        # nie-str
 
 
-def test_validate_heartbeat_requires_nonempty_task_id_only():
-    assert protocol.validate({
-        "type": "heartbeat", "from": "beta", "ts": 1.0,
-        "task_id": "t1",
-    }) is None
-    assert protocol.validate({
-        "type": "heartbeat", "from": "beta", "ts": 1.0,
-    }) is not None
-    assert protocol.validate({
-        "type": "heartbeat", "from": "beta", "ts": 1.0,
-        "task_id": "",
-    }) is not None
-
-
 def test_validate_membership_set_requires_target_and_group_list():
     base = {"type": "membership_set", "from": "emil", "ts": 1.0}
     assert protocol.validate({**base, "target": "beta", "groups": []}) is None
@@ -103,18 +89,13 @@ def test_validate_membership_set_requires_target_and_group_list():
     assert protocol.validate({**base, "target": "beta", "groups": [""]}) is not None
 
 
-def test_validate_task_frames_require_command_id_and_task_id_where_relevant():
-    # task_new: tylko command_id (task_id jeszcze nie istnieje)
-    assert protocol.validate({"type": "task_new", "from": "a", "ts": 1.0}) is not None
-    assert protocol.validate({"type": "task_new", "from": "a", "ts": 1.0,
-                              "command_id": "n1", "card": {}}) is None
-    # task_claim: command_id + task_id
-    assert protocol.validate({"type": "task_claim", "from": "a", "ts": 1.0,
-                              "command_id": "c1"}) is not None      # brak task_id
-    assert protocol.validate({"type": "task_claim", "from": "a", "ts": 1.0,
-                              "task_id": "t1"}) is not None          # brak command_id
-    assert protocol.validate({"type": "task_claim", "from": "a", "ts": 1.0,
-                              "command_id": "c1", "task_id": "t1"}) is None
+def test_validate_inbound_task_and_heartbeat_now_unknown():
+    # laka-nie-obora (A2/A3): inbound task_*/heartbeat WYCIETE — dawne typy
+    # zlecen taskowych sa teraz NIEZNANE, klient nie moze ich przyslac.
+    for ftype in ("task_new", "task_claim", "task_done", "task_blocked",
+                  "review_changes", "task_approve", "task_unblock", "heartbeat"):
+        assert protocol.validate({"type": ftype, "from": "a", "ts": 1.0}) == \
+            f"unknown type: {ftype}"
 
 
 def test_validate_rejects_outbound_only_types_inbound_but_known():

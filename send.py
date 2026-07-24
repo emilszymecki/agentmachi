@@ -339,8 +339,8 @@ async def listen(nick):
 
 
 async def oneshot_frame(nick, frame):
-    """Jednorazowa ramka NIE-chat (status/task_*) na TOZSAMOSCI SESJI —
-    ten sam instance_id co listener/heartbeat, wiec ZERO takeoveru i
+    """Jednorazowa ramka NIE-chat (status/membership_set/kick) na TOZSAMOSCI
+    SESJI — ten sam instance_id co listener, wiec ZERO takeoveru i
     zero ping-ponga generacji (bug znaleziony testem skilla: one-shot
     z innym instance wypieral listener i gubil lease). Kursora nie rusza.
     Zwraca odpowiedz serwera (ok/error) albo None (np. status bez ACK)."""

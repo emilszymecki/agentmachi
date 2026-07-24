@@ -79,7 +79,7 @@ CARD = {"goal": "x", "acceptance": "y", "verify": "true", "files": [],
 # -- direct-seed helpery (A2 mikro-2): inbound task_new/task_claim zostaly
 # wyciete (laka-nie-obora), ale offer/expiry/queue/replay/snapshot ZYJA do
 # A3/A4 i ich testy nadal potrzebuja zasiac stan taska. Te helpery
-# odwzorowuja DURABILITY BOUNDARY dawnego _on_task_frame — clone -> mutacja na
+# odwzorowuja DURABILITY BOUNDARY dawnej inbound-owej sciezki task_* — clone -> mutacja na
 # klonie -> _append_durable(result-event z task_state+fingerprint) -> swap
 # live -> _maybe_snapshot — a NIE udaja usunietego handlera (zero walidacji
 # inbound, zero side-effectow oferty). Inwariant: NIGDY _append przed swapem
@@ -1668,8 +1668,8 @@ def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path, caplog)
         await bad.send(json.dumps({"type": "hello", "from": "alfa", "ts": 0.0,
                                    "instance_id": "i1", "token": "ta",
                                    "last_seq": 0}))
-        # niezmiennik f: storage-fail daje czysta ramke error (spojnie z task_*),
-        # nie brutalne 1011 — dopiero POTEM graceful close
+        # niezmiennik f: storage-fail daje czysta ramke error (jednolity
+        # kontrakt kazdej ramki), nie brutalne 1011 — dopiero POTEM graceful close
         err = json.loads(await asyncio.wait_for(bad.recv(), timeout=2.0))
         assert err["type"] == "error"
         assert err["text"] == "storage unavailable; retry"

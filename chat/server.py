@@ -41,8 +41,9 @@ Kluczowe niezmienniki (review tercetu, wiazace):
   f) wejscie klienckie walidowane zanim dotknie kolejki/rejestru; zaden
      pojedynczy zly frame (w tym JSON-skalar/lista zamiast obiektu) nie
      moze zabic handlera ani serwera.
-  g) trwalosc przed publikacja: chat/task_*/hello najpierw append (dostaje
-     seq), potem dostarczenie/odpowiedz. Pola seq/generation/groups/role/
+  g) trwalosc przed publikacja: kazda trwala ramka (chat/hello/status/
+     membership_set/kick) najpierw append (dostaje seq), potem dostarczenie/
+     odpowiedz. Pola seq/generation/groups/role/
      from sa nadpisywane przez serwer na KAZDEJ ramce klienta przed
      zapisem — nigdy nie przechodza z ramki do logu/odbiorcow.
 """
@@ -61,7 +62,7 @@ import websockets
 from . import protocol
 from .identity import AuthError, Registry
 from .store import EventLog, ForeignWriterError
-from .tasks import TaskError, TaskQueue
+from .tasks import TaskQueue
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
 OFFER_IO_RETRY_MIN = 0.05
@@ -680,8 +681,8 @@ class ChatServer:
                     groups=list(groups), role=role))
             except OSError:
                 # niezmiennik f: awaria storage (dysk pelny) na hello NIE moze
-                # zabic handlera brutalnym 1011 — to laczy sie z zachowaniem
-                # task_* (czysta ramka error + graceful close). Stan pozostaje
+                # zabic handlera brutalnym 1011 — kontrakt jest jednolity dla
+                # kazdej ramki (czysta ramka error + graceful close). Stan pozostaje
                 # czysty (klon wyrzucony, registry nietkniety, zero side-effektow
                 # bo sa PO tym appendzie), a klient odroznia storage-fail od padu
                 # sieci i moze legalnie retry. Pelny wyjatek (w tym sciezka FS)
@@ -873,9 +874,9 @@ class ChatServer:
             return True  # zamknij petle tego (juz nieaktualnego) polaczenia
         err = protocol.validate(frame)
         if err:
-            # (Runda 4 #5) walidacja schematu per typ wyprzedza _on_task_frame,
-            # wiec error MUSI niesc command_id (dla task_*), by klient mogl
-            # skorelowac odrzucenie (None dla typow bez command_id — nieszkodliwe).
+            # error niesie command_id z ramki, jesli byl — aktualne typy inbound
+            # go nie uzywaja (-> None, nieszkodliwe); pole zostaje dla korelacji,
+            # gdyby ktorys przyszly typ znow go wprowadzil.
             await ws.send(json.dumps(protocol.make_frame(
                 "error", "server", time.time(),
                 command_id=frame.get("command_id"), text=err)))

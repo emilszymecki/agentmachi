@@ -3,16 +3,17 @@ import math
 import re
 import sys
 
-# (Runda 4 #5) Rozdzial typow: INBOUND to jedyne typy, ktore klient moze
-# przyslac. OUTBOUND to typy WYLACZNIE serwerowe — albo generowane w locie
-# (task_offer/backlog/resync_required/error/ok), albo trwale eventy stanu
-# zapisywane przez serwer (task_expired_batch/offer_resolved). Historyczny
-# task_expired singular pozostaje znanym outbound-only tylko po to, by validate
-# jawnie odrzucal go inbound-em; serwer go juz nie generuje ani nie replayuje.
+# (Runda 4 #5 / laka-nie-obora A2) Rozdzial typow: INBOUND to jedyne typy,
+# ktore klient moze przyslac. Inbound task_*/heartbeat zostaly WYCIETE —
+# task_new/claim/done/... to teraz typy NIEZNANE (validate: unknown type),
+# serwer nie przyjmuje zlecen taskowych od klienta. OUTBOUND to typy WYLACZNIE
+# serwerowe: generowane w locie (task_offer/backlog/resync_required/error/ok)
+# albo trwale eventy stanu (task_expired_batch/offer_resolved), ktore replay
+# czyta ze starych logow do wyciecia kolejki (A4). Historyczny task_expired
+# singular zostaje outbound-only tylko po to, by validate jawnie odrzucal go
+# inbound-em.
 INBOUND_FRAME_TYPES = {
-    "hello", "chat", "fyi", "status", "heartbeat", "membership_set", "kick",
-    "task_new", "task_claim", "task_done", "task_blocked",
-    "review_changes", "task_approve", "task_unblock",
+    "hello", "chat", "fyi", "status", "membership_set", "kick",
 }
 OUTBOUND_FRAME_TYPES = {
     "task_offer", "backlog", "resync_required", "error", "ok",
@@ -39,13 +40,6 @@ FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 STATUS_STATES = frozenset(
     {"sleeping", "idle", "working", "blocked", "review", "done"})
 
-# task_* inbound wymagaja command_id (wszystkie) i task_id (poza task_new,
-# ktory taska dopiero tworzy). Glebsza walidacja (card/expected_task_version/
-# CAS/WIP/lease) nalezy do TaskQueue — validate to tylko schemat framingu.
-_TASK_INBOUND = INBOUND_FRAME_TYPES & {
-    "task_new", "task_claim", "task_done", "task_blocked",
-    "review_changes", "task_approve", "task_unblock",
-}
 _MENTION = re.compile(r"(?:^|\s)@(\w+)")
 _GROUP = re.compile(r"(?:^|\s)\$(\w+)")
 
@@ -129,11 +123,6 @@ def _validate_body(frame, ftype):
                                   or not frame["target"]):
             return "status: target jesli podany musi byc niepustym stringiem"
         return None
-    if ftype == "heartbeat":
-        task_id = frame.get("task_id")
-        if not isinstance(task_id, str) or not task_id:
-            return "heartbeat: task_id wymagany (niepusty string)"
-        return None
     if ftype == "kick":
         # B6: moderacja czlowieka. Zadnych pol poza target — powod, ban,
         # czas trwania to stan, ktorego nie potrzebujemy (kick nie jest
@@ -150,15 +139,6 @@ def _validate_body(frame, ftype):
         if not isinstance(groups, list) or not all(
                 isinstance(group, str) and group for group in groups):
             return "membership_set: groups wymagane (lista niepustych stringow)"
-        return None
-    if ftype in _TASK_INBOUND:
-        command_id = frame.get("command_id")
-        if not isinstance(command_id, str) or not command_id:
-            return f"{ftype}: command_id wymagany (niepusty string)"
-        if ftype != "task_new":
-            task_id = frame.get("task_id")
-            if not isinstance(task_id, str) or not task_id:
-                return f"{ftype}: task_id wymagany (niepusty string)"
         return None
     # hello: token/instance_id/last_seq/groups/role waliduje serwer (identity)
     return None
