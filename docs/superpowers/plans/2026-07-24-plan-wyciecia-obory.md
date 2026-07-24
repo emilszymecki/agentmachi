@@ -265,28 +265,37 @@ nadpisujemy custom rules po cichu**. Migracja istniejącego huba to ŚWIADOMY kr
 operatora, udokumentowany (README/howto), nie automat:
 
 Wszystkie kroki przez **Python** — napędza huba, więc jest na każdym OS; `diff`/`cp`
-NIE są cross-platform (w PowerShell `diff` to alias `Compare-Object`, nie unified diff;
-`cp` bywa aliasem `Copy-Item` tylko w PowerShell, nie w cmd.exe). Wejdź najpierw do
-katalogu danych huba (Unix: `~/.agentmachi/<hub>/data/`, Windows:
-`%USERPROFILE%\.agentmachi\<hub>\data\`), żeby operować gołymi nazwami plików — `~` nie
-rozwija się w PowerShell ani wewnątrz stringów Pythona:
+NIE są cross-platform (w PowerShell `diff` to alias `Compare-Object`, nie unified diff).
+Ścieżek NIE zgadujemy: `agentmachi.cli.hub_dir(<hub>)` jest autorytatywne i honoruje
+`AGENTMACHI_HOME` — hardcoded `~/.agentmachi` czy `%USERPROFILE%\...` je ignoruje i myli
+cmd.exe (`%USERPROFILE%`) z PowerShell (`$env:USERPROFILE`). Uruchamiaj z dowolnego
+katalogu; nazwę huba podaj argumentem (`<hub>` = podmień na swoją):
 
-1. **Wygeneruj nowy template** z `DEFAULT_RULES` do pliku obok:
+1. **Wygeneruj nowy template** z `DEFAULT_RULES` do pliku roboczego w bieżącym katalogu
+   (NIE w live data dir — nie zostawiamy śmieci przy hubie):
    ```bash
    python -c "from agentmachi.cli import DEFAULT_RULES; import pathlib; pathlib.Path('rules.new.md').write_text(DEFAULT_RULES, encoding='utf-8')"
    ```
-2. **Preview** — unified diff na każdym OS (co się zmieni i czy nie zadepcze dopisków):
+2. **Preview** — unified diff żywego `rules.md` (ścieżka z `hub_dir`) vs nowego, na każdym OS:
    ```bash
-   python -c "import difflib,sys; a=open('rules.md',encoding='utf-8').readlines(); b=open('rules.new.md',encoding='utf-8').readlines(); sys.stdout.writelines(difflib.unified_diff(a,b,'rules.md','rules.new.md'))"
+   python -c "import sys,difflib; from agentmachi.cli import hub_dir; cur=hub_dir(sys.argv[1])/'data'/'rules.md'; a=cur.read_text(encoding='utf-8').splitlines(keepends=True); b=open('rules.new.md',encoding='utf-8').read().splitlines(keepends=True); sys.stdout.writelines(difflib.unified_diff(a,b,str(cur),'rules.new.md'))" <hub>
    ```
-3. **Backup** przed podmianą:
+3. **Backup** — MUSI failować gdy cel istnieje (zero cichego overwrite: drugie uruchomienie
+   nie może skasować jedynej kopii pre-migracyjnej), z jawną weryfikacją:
    ```bash
-   python -c "import shutil; shutil.copyfile('rules.md','rules.md.bak')"
+   python -c "import sys,shutil; from agentmachi.cli import hub_dir; src=hub_dir(sys.argv[1])/'data'/'rules.md'; dst=src.parent/'rules.md.bak'; sys.exit('ODMOWA: '+str(dst)+' juz istnieje — przenies/usun recznie') if dst.exists() else None; shutil.copyfile(src,dst); print('backup OK ->', dst)" <hub>
    ```
-4. **Podmiana** — ręcznie (zachowując własne reguły) albo zastąp `rules.md` treścią
-   `rules.new.md`. Źródło: NIE ma osobnego pliku-template — `DEFAULT_RULES` w
-   `agentmachi/cli.py` to JEDYNE źródło, z którego `_ensure_layout` pisze `data/rules.md`
-   przy pierwszym layoutcie i tylko wtedy. „Nowy template" = nowa treść tej stałej.
+4. **Podmiana** — dwie drogi, w obu na końcu usuwamy temp:
+   - masz własne dopiski → wedle preview zmerguj ręcznie nowe reguły do żywego `rules.md`,
+     potem `rules.new.md` skasuj;
+   - czysty template → skopiuj i posprzątaj jednym krokiem:
+     ```bash
+     python -c "import sys,shutil,pathlib; from agentmachi.cli import hub_dir; shutil.copyfile('rules.new.md', hub_dir(sys.argv[1])/'data'/'rules.md'); pathlib.Path('rules.new.md').unlink(); print('podmienione + rules.new.md usuniete')" <hub>
+     ```
+
+   Źródło: NIE ma osobnego pliku-template — `DEFAULT_RULES` w `agentmachi/cli.py` to JEDYNE
+   źródło, z którego `_ensure_layout` pisze `data/rules.md` przy pierwszym layoutcie i tylko
+   wtedy. „Nowy template" = nowa treść tej stałej.
 
 Do planu Fazy C należy TYLKO ten udokumentowany krok + jawna nota migracyjna w `README.md`
 (plik jest w Files i w staging Step 4) oraz komentarz przy `DEFAULT_RULES`, że zmiana
