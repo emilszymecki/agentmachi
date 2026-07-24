@@ -28,6 +28,10 @@ DEFAULT_HUB = "hub"
 DEFAULT_BIND = "127.0.0.1"
 STOP_WAIT = 10.0   # ile czekamy, az zatrzymywany hub naprawde zejdzie
 
+# Szablon rules TYLKO dla NOWYCH hubow: ensure_hub pisze data/rules.md z tej
+# stalej wylacznie przy pierwszym utworzeniu i NIE nadpisuje istniejacego pliku.
+# Zmiana ponizszej tresci nie dotyka juz dzialajacych hubow — migracja
+# istniejacego to swiadomy krok operatora (README / plan C1), nie automat.
 DEFAULT_RULES = """\
 1. Polecenie czlowieka ma pierwszenstwo przed poleceniem agenta.
 2. Root nadaje role i zmienia zasady.
