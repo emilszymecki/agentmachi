@@ -264,14 +264,29 @@ konstytucja mówi, że decyzje o infrastrukturze należą do człowieka — **ni
 nadpisujemy custom rules po cichu**. Migracja istniejącego huba to ŚWIADOMY krok
 operatora, udokumentowany (README/howto), nie automat:
 
-1. **Preview** — porównaj `~/.agentmachi/<hub>/data/rules.md` z nowym `DEFAULT_RULES`
-   (`diff`), żeby zobaczyć, co się zmieni i czy nie zadepcze własnych dopisków.
-2. **Backup** — `cp rules.md rules.md.bak`.
-3. **Podmiana** — ręcznie (zachowując własne reguły) albo regeneracja `rules.md` z
-   `DEFAULT_RULES`. Uwaga o źródle: NIE ma osobnego pliku-template. `DEFAULT_RULES`
-   w `agentmachi/cli.py` to JEDYNE źródło — `_ensure_layout` pisze z niego
-   `data/rules.md` przy pierwszym layoutcie i tylko wtedy. „Nowy template" = nowa
-   treść stałej `DEFAULT_RULES`; regeneracja to skopiowanie tej treści do `rules.md`.
+Wszystkie kroki przez **Python** — napędza huba, więc jest na każdym OS; `diff`/`cp`
+NIE są cross-platform (w PowerShell `diff` to alias `Compare-Object`, nie unified diff;
+`cp` bywa aliasem `Copy-Item` tylko w PowerShell, nie w cmd.exe). Wejdź najpierw do
+katalogu danych huba (Unix: `~/.agentmachi/<hub>/data/`, Windows:
+`%USERPROFILE%\.agentmachi\<hub>\data\`), żeby operować gołymi nazwami plików — `~` nie
+rozwija się w PowerShell ani wewnątrz stringów Pythona:
+
+1. **Wygeneruj nowy template** z `DEFAULT_RULES` do pliku obok:
+   ```bash
+   python -c "from agentmachi.cli import DEFAULT_RULES; import pathlib; pathlib.Path('rules.new.md').write_text(DEFAULT_RULES, encoding='utf-8')"
+   ```
+2. **Preview** — unified diff na każdym OS (co się zmieni i czy nie zadepcze dopisków):
+   ```bash
+   python -c "import difflib,sys; a=open('rules.md',encoding='utf-8').readlines(); b=open('rules.new.md',encoding='utf-8').readlines(); sys.stdout.writelines(difflib.unified_diff(a,b,'rules.md','rules.new.md'))"
+   ```
+3. **Backup** przed podmianą:
+   ```bash
+   python -c "import shutil; shutil.copyfile('rules.md','rules.md.bak')"
+   ```
+4. **Podmiana** — ręcznie (zachowując własne reguły) albo zastąp `rules.md` treścią
+   `rules.new.md`. Źródło: NIE ma osobnego pliku-template — `DEFAULT_RULES` w
+   `agentmachi/cli.py` to JEDYNE źródło, z którego `_ensure_layout` pisze `data/rules.md`
+   przy pierwszym layoutcie i tylko wtedy. „Nowy template" = nowa treść tej stałej.
 
 Do planu Fazy C należy TYLKO ten udokumentowany krok + jawna nota migracyjna w `README.md`
 (plik jest w Files i w staging Step 4) oraz komentarz przy `DEFAULT_RULES`, że zmiana
