@@ -8,17 +8,12 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      z innym instance_id) serwer zamyka stare sockety NATYCHMIAST (przy
      samym hello, nie dopiero przy ich kolejnej ramce); per-ramkowy check
      generacji zostaje jako druga linia obrony.
-  b) snapshot niesie {"queue": ..., "registry": ..., "status": ...} —
-     restart odtwarza je i DODATKOWO replay'uje kazdy event > snapshot_seq.
-     Replay jest RESULT-BASED (nie re-execution): kazdy event mutacji taska
-     niesie serwerowy wynik (task_state) i jest APLIKOWANY wprost przez
-     queue.apply_replayed — bez ponownej walidacji WIP/lease/CAS i bez
-     zaleznosci od biezacej polityki (wip_limit/lease_ttl moga sie zmienic
-     miedzy restartami; lease_until odtwarzany HISTORYCZNY). Historyczny
-     task_expired_batch w starym logu nadal replayuje sie result-based (do
-     wyciecia kolejki w A4). resync_required robi swiezy,
-     atomowy snapshot() PRZED odpowiedzia, zeby zwracany snapshot_seq
-     zawsze etykietowal dokladnie ten state.
+  b) snapshot niesie {"registry": ..., "status": ...} — restart odtwarza je
+     i DODATKOWO replay'uje kazdy event > snapshot_seq (registry z hello/
+     membership, status z deklaracji). Kolejka zadaniowa wycieta (laka-nie-
+     obora, A4): stary log z task_*/task_expired_batch jest pomijany.
+     resync_required robi swiezy, atomowy snapshot() PRZED odpowiedzia, zeby
+     zwracany snapshot_seq zawsze etykietowal dokladnie ten state.
   c) snapshot po kazdych SNAPSHOT_EVERY=100 eventach (licznik zasiany przy
      starcie liczba eventow juz w logu po snapshot_seq) ORAZ przy stop()
      (w tym Ctrl+C/SIGTERM — patrz main()/finally).
@@ -50,7 +45,6 @@ import websockets
 from . import protocol
 from .identity import AuthError, Registry
 from .store import EventLog, ForeignWriterError
-from .tasks import TaskQueue
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
@@ -99,20 +93,8 @@ def _strict_json_loads(raw):
     return json.loads(raw, parse_constant=_reject_json_constant)
 
 
-# Eventy niosace SERWEROWY WYNIK mutacji (task_state) — replay stosuje ten
-# stan WPROST przez queue.apply_replayed (result-based), bez re-execution.
-# Inbound task_*/heartbeat jest WYCIETE (laka-nie-obora, A2), ale STARE LOGI
-# nadal moga te eventy zawierac, wiec replay musi je rozpoznac az do wyciecia
-# queue (A4). Literal, bo _TASK_REQUIRED_FIELDS juz nie istnieje.
-_TASK_REPLAY_EVENTS = frozenset({
-    "task_new", "task_claim", "task_done", "task_blocked",
-    "review_changes", "task_approve", "task_unblock", "heartbeat",
-})
-
-
 class ChatServer:
-    def __init__(self, data_dir, tokens, port, bind="127.0.0.1", wip_limit=3,
-                 lease_ttl=120.0, open_mode=None):
+    def __init__(self, data_dir, tokens, port, bind="127.0.0.1", open_mode=None):
         self.port = port
         self.bind = bind
         # B6: tryb otwarty (agent bez tokenu) wlacza sie SAM przy bindzie,
@@ -124,13 +106,9 @@ class ChatServer:
         snap = self.log.load_snapshot()
         if snap:
             state, _snapshot_seq = snap
-            self.queue = TaskQueue.restore(
-                state.get("queue", {"next_id": 0, "tasks": []}),
-                wip_limit=wip_limit, lease_ttl=lease_ttl)
             self.registry = Registry.restore(tokens, state.get("registry", {}))
             restored_status = state.get("status", {})
         else:
-            self.queue = TaskQueue(wip_limit=wip_limit, lease_ttl=lease_ttl)
             self.registry = Registry(tokens)
         self.conns = {}        # nick -> set[ws]
         self.roles = {}        # nick -> role
@@ -161,11 +139,10 @@ class ChatServer:
         self._events_since_snapshot = len(self.log.replay())
 
     def _replay_events(self):
-        # Replay result-based: eventy > snapshot_seq odtwarzaja stan BEZ
-        # re-execution i BEZ zaleznosci od biezacej polityki (wip_limit/
-        # lease_ttl mogly sie zmienic miedzy restartami). Kazdy event mutacji
-        # niesie serwerowy wynik (task_state) — apply_replayed wstawia go
-        # wprost. Rejestr (hello) odtwarzany osobno.
+        # Replay: eventy > snapshot_seq odtwarzaja stan (registry z hello/
+        # membership, status z deklaracji) BEZ re-execution i side-effectow
+        # sieciowych. Kolejka zadaniowa wycieta (A4) — stary log z task_*/
+        # task_expired_batch jest pomijany.
         for event in self.log.replay():
             etype = event.get("type")
             if etype == "status":
@@ -180,19 +157,10 @@ class ChatServer:
                 # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
                 if event["target"] in self.registry.tokens:
                     self.registry.set_groups(event["target"], event["groups"])
-            elif etype == "task_expired_batch":
-                # (Runda 6) JEDEN atomowy event niosacy task_states WSZYSTKICH
-                # taskow wygaslych w danej petli expiry — aplikujemy kazdy wprost
-                # (result-based), jak pojedynczy reopen. Offer machinery wyciete
-                # (A3): offer-eventy w STARYM logu nie maja juz elif
-                # i sa po prostu pomijane (queue-state i tak wynika z task_*).
-                for ts in event["task_states"]:
-                    self.queue.apply_replayed(ts, None, None)
-            elif etype in _TASK_REPLAY_EVENTS:
-                self.queue.apply_replayed(event["task_state"],
-                                          event.get("command_id"),
-                                          event.get("fingerprint"))
-            # chat/fyi/status/ok/error i stare offer-eventy: bez mutacji queue
+            # chat/fyi/status/ok/error i stare task_*/offer/expiry-eventy: bez
+            # mutacji — cala kolejka wycieta (laka-nie-obora, A4). Stary log z
+            # task_new/task_claim/task_expired_batch/offer jest po prostu pomijany;
+            # zostaje tylko registry (hello/membership) i status.
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
@@ -230,8 +198,7 @@ class ChatServer:
         i DOBRZE: wolimy hub bez kompakcji niz skasowana rozmowe. Glosny log
         operatora, zycie huba bez zmian."""
         try:
-            self._save_snapshot_unchecked({"queue": self.queue.dump(),
-                                 "registry": self.registry.dump(),
+            self._save_snapshot_unchecked({"registry": self.registry.dump(),
                                  "status": dict(self.status)})
         except ForeignWriterError:
             LOGGER.error(
@@ -471,8 +438,8 @@ class ChatServer:
                 # (registry.role_of/groups_of), nigdy z deklaracji klienta.
                 self._validate_groups(frame.get("groups"))
                 self._validate_role(frame.get("role"))
-                # (Runda 7) PROVISIONAL-THEN-COMMIT dla Registry (wzorzec R6 dla
-                # TaskQueue): hello mutuje tozsamosc (bump generacji + zapis
+                # (Runda 7) PROVISIONAL-THEN-COMMIT dla Registry: hello mutuje
+                # tozsamosc (bump generacji + zapis
                 # instance) na KLONIE, nie na live. AuthError leci Z KLONA ZANIM
                 # cokolwiek trwalego/live sie zmieni (auth-fail => error, zero
                 # mutacji, zero appendu). generation to na razie PREVIEW —
@@ -674,8 +641,8 @@ class ChatServer:
                                  # nicka, ktory po kompakcji trafia na resync,
                                  # inaczej nigdy nie pozna przydzielonego nicka)
                     snapshot_seq=self.log.snapshot_seq,
-                    state={"queue": self.queue.dump(),
-                           "registry": self.registry.dump()},
+                    state={"registry": self.registry.dump(),
+                           "status": dict(self.status)},
                     conversation=self.log.conversation_after(last_seq),
                     generation=generation, role=role, groups=list(groups), **extra)
             else:

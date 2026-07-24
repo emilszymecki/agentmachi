@@ -3,21 +3,17 @@ import math
 import re
 import sys
 
-# (Runda 4 #5 / laka-nie-obora A2/A3) Rozdzial typow: INBOUND to jedyne typy,
-# ktore klient moze przyslac. Inbound task_*/heartbeat zostaly WYCIETE —
-# task_new/claim/done/... to teraz typy NIEZNANE (validate: unknown type),
-# serwer nie przyjmuje zlecen taskowych od klienta. OUTBOUND to typy WYLACZNIE
-# serwerowe: generowane w locie (backlog/resync_required/error/ok) albo trwale
-# eventy stanu kolejki (task_expired_batch), ktore replay czyta ze starych
-# logow do wyciecia kolejki (A4). Offer machinery wyciete (A3): task_offer/
-# offer_resolved juz nie istnieja. Historyczny task_expired singular zostaje
-# outbound-only tylko po to, by validate jawnie odrzucal go inbound-em.
+# (Runda 4 #5 / laka-nie-obora A2/A3/A4) Rozdzial typow: INBOUND to jedyne
+# typy, ktore klient moze przyslac. OUTBOUND to typy WYLACZNIE serwerowe,
+# generowane w locie (backlog/resync_required/error/ok). Cala obora wycieta —
+# juz nie istnieja: inbound task_*/heartbeat (A2, teraz unknown type), offer
+# machinery task_offer/offer_resolved (A3), kolejka zadaniowa task_expired/
+# task_expired_batch (A4). Serwer nie planuje pracy; board = state/subject/note.
 INBOUND_FRAME_TYPES = {
     "hello", "chat", "fyi", "status", "membership_set", "kick",
 }
 OUTBOUND_FRAME_TYPES = {
     "backlog", "resync_required", "error", "ok",
-    "task_expired", "task_expired_batch",
     "presence",  # efemeryczny (bez seq): nick wszedl/wypadl z polaczenia
     "takeover",  # F3: TRWALY slad wyparcia nicka przez nowsze hello
 }

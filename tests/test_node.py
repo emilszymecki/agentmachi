@@ -149,7 +149,7 @@ def srv(tmp_path):
 
     async def _run(coro):
         server = ChatServer(data_dir=tmp_path / "hub-data", tokens=TOKENS,
-                            port=PORT, lease_ttl=5.0)
+                            port=PORT)
         await server.start()
         try:
             return await asyncio.wait_for(coro(server), timeout=10)

@@ -5,7 +5,6 @@ snapshot+restart, replay result-based, pasywny board.
 Serwer per-test na porcie 8891+ (nie 8765 — PoC A na roocie repo).
 """
 import asyncio
-import copy
 import hashlib
 import json
 import socket
@@ -43,7 +42,7 @@ PORT = _free_port()
 def srv(tmp_path):
     async def _run(coro):
         server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                             lease_ttl=5.0)
+                             )
         await server.start()
         try:
             return await asyncio.wait_for(coro(server), timeout=10)
@@ -74,41 +73,6 @@ async def recv(ws, timeout=2.0):
 
 CARD = {"goal": "x", "acceptance": "y", "verify": "true", "files": [],
         "head": "h", "brief": "b"}
-
-
-# -- direct-seed helpery (A2 mikro-2): inbound task_new/task_claim zostaly
-# wyciete (laka-nie-obora); queue/replay/snapshot ZYJA do A4 i ich testy
-# nadal potrzebuja zasiac stan taska. Te helpery
-# odwzorowuja DURABILITY BOUNDARY dawnej inbound-owej sciezki task_* — clone -> mutacja na
-# klonie -> _append_durable(result-event z task_state+fingerprint) -> swap
-# live -> _maybe_snapshot — a NIE udaja usunietego handlera (zero walidacji
-# inbound). Inwariant: NIGDY _append przed swapem (na granicy #100
-# snapshotowalby STARA live queue).
-def _persist_task_new(server, card, command_id, now=0.0):
-    trial = copy.deepcopy(server.queue)
-    result = trial.add(card, command_id, now)
-    server._append_durable({"type": "task_new", "from": "seed", "ts": now,
-                            "command_id": command_id, "card": card,
-                            "task_state": result,
-                            "fingerprint": trial.fingerprint_for(command_id)})
-    server.queue = trial
-    server._maybe_snapshot()
-    return result
-
-
-def _persist_task_claim(server, task_id, nick, generation, command_id,
-                        expected_version, now=0.0):
-    trial = copy.deepcopy(server.queue)
-    result = trial.claim(task_id, nick, generation, command_id,
-                         expected_version, now)
-    server._append_durable({"type": "task_claim", "from": nick, "ts": now,
-                            "task_id": task_id, "command_id": command_id,
-                            "expected_task_version": expected_version,
-                            "task_state": result,
-                            "fingerprint": trial.fingerprint_for(command_id)})
-    server.queue = trial
-    server._maybe_snapshot()
-    return result
 
 
 # -- Step 1 (adaptowane: hello niesie teraz opcjonalnie groups) -------------
@@ -420,23 +384,17 @@ def test_inbound_task_new_rejected_cleanly_server_stays_live(srv):
 
 # -- Nowe: restart odtwarza queue+registry po snapshocie ---------------------
 
-def test_restart_restores_queue_and_registry_after_snapshot(tmp_path):
+def test_restart_restores_registry_after_snapshot(tmp_path):
     async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0)
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
         await s1.start()
         ws, reply = await hello("alfa", "ta", instance="i1")
         assert reply["generation"] == 1
-        _persist_task_new(s1, CARD, "n1")
         s1.snapshot()
         await ws.close()
         await s1.stop()
 
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0)
-        dumped = s2.queue.dump()
-        assert any(t["status"] == "open" and t["card"]["goal"] == "x"
-                   for t in dumped["tasks"])
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
         assert s2.registry.generation_of("alfa") == 1
 
         await s2.start()
@@ -570,17 +528,22 @@ def test_resync_snapshot_seq_matches_returned_fresh_state(srv):
                                  "text": "seed"}))    # cokolwiek w logu przed snapshotem
         await asyncio.sleep(0.1)
         server.snapshot()                          # snapshot WCZESNIE (etykieta by byla stara)
-        task_id = _persist_task_new(server, CARD, "n1")["id"]
-        claimed = _persist_task_claim(server, task_id, "alfa", 1, "c1", 1)
-        assert claimed["status"] == "claimed"
+        # trwaly status PO snapshotcie — etykieta snapshot_seq musi go objac
+        await a.send(json.dumps({"type": "status", "from": "alfa", "ts": 0.0,
+                                 "state": "working", "subject": "audyt"}))
+        await asyncio.sleep(0.05)
         # kursor sprzed WSZYSTKICH powyzszych eventow -> resync_required
         b, reply = await hello("beta", "tb", last_seq=0)
         assert reply["type"] == "resync_required"
         # (B) etykieta snapshot_seq MUSI odzwierciedlac faktyczny, swiezy
-        # stan (claim juz w srodku), nie stara wartosc sprzed claima
+        # stan (status juz w srodku), nie stara wartosc sprzed niego
         assert reply["snapshot_seq"] == server.log.last_seq
-        state_tasks = reply["state"]["queue"]["tasks"]
-        assert any(t["id"] == task_id and t["status"] == "claimed" for t in state_tasks)
+        # (A4) resync wire state = DOKLADNIE {registry, status} (queue wyciete,
+        # status dodane — dzis wire pomijal status)
+        state = reply["state"]
+        assert set(state) == {"registry", "status"}
+        assert state["status"]["alfa"]["subject"] == "audyt"
+        assert "alfa" in state["registry"]["gen"]
         # replay od zwroconego snapshot_seq nie dubluje niczego juz w state
         assert server.log.events_after(reply["snapshot_seq"]) == []
         await a.close(); await b.close()
@@ -599,41 +562,37 @@ async def _crash_stop(server):
 
 def test_crash_recovery_replays_events_after_snapshot_without_manual_snapshot(tmp_path):
     async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0)
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
         await s1.start()
         ws, reply = await hello("alfa", "ta", instance="i1")
         assert reply["generation"] == 1
-        task_id = _persist_task_new(s1, CARD, "n1")["id"]
-        claimed = _persist_task_claim(s1, task_id, "alfa", 1, "c1", 1)
-        assert claimed["status"] == "claimed"
+        # trwaly status jako event PO (braku) snapshotu — musi wrocic z replay
+        await ws.send(json.dumps({"type": "status", "from": "alfa", "ts": 0.0,
+                                  "state": "working", "subject": "audyt"}))
+        await asyncio.sleep(0.05)
         await ws.close()
         await _crash_stop(s1)          # BEZ recznego/automatycznego snapshotu
 
         # "restart": nowy ChatServer nad tym samym data_dir, zero snapshotu
         # na dysku — caly stan musi wrocic z samego logu eventow (replay)
         assert not (Path(tmp_path) / "snapshot.json").exists()
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0)
-        t = s2.queue.get(task_id)
-        assert t["status"] == "claimed" and t["assignee"] == "alfa"
-        assert s2.registry.generation_of("alfa") == 1     # (hello -> registry odtworzone)
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
+        assert s2.registry.generation_of("alfa") == 1     # hello -> registry z replay
+        assert s2.status["alfa"]["subject"] == "audyt"    # status z replay
     asyncio.run(scenario())
 
 
 def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
     async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0)
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
         await s1.start()
         ws, _ = await hello("alfa", "ta", instance="i1")
-        _persist_task_new(s1, CARD, "n1")
+        s1._append({"type": "fyi", "from": "alfa", "ts": 0.0, "text": "x"})
         events_on_disk = s1.log.last_seq
         await ws.close()
         await _crash_stop(s1)
 
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=5.0)
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
         # (A3) licznik snapshot-co-100 startuje od liczby eventow juz w logu,
         # nie od zera — inaczej po restarcie trzeba by 100 NOWYCH eventow
         # zanim serwer w ogole rozwazy pierwszy snapshot po starcie
@@ -643,92 +602,14 @@ def test_crash_recovery_snapshot_counter_seeded_from_replayed_events(tmp_path):
 
 # -- (2) SEDNO: replay result-based, niezalezny od biezacej polityki --------
 
-def test_replay_ignores_current_wip_policy(tmp_path):
-    # (2a) dwa claimy przy wip_limit=2, restart z wip_limit=1 -> konstruktor
-    # NIE crashuje (replay result-based nie re-waliduje WIP), oba claimed.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         wip_limit=2, lease_ttl=5.0)
-        await s1.start()
-        a, _ = await hello("alfa", "ta")
-        b, _ = await hello("beta", "tb")
-        t1 = _persist_task_new(s1, CARD, "n1")["id"]
-        t2 = _persist_task_new(s1, {**CARD, "goal": "y"}, "n2")["id"]
-        assert _persist_task_claim(s1, t1, "alfa", 1, "c1", 1)["status"] == "claimed"
-        assert _persist_task_claim(s1, t2, "beta", 1, "c2", 1)["status"] == "claimed"
-        await a.close(); await b.close()
-        await _crash_stop(s1)                       # BEZ snapshotu
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         wip_limit=1, lease_ttl=5.0)  # ciasniejsza polityka
-        assert s2.queue.get(t1)["status"] == "claimed"
-        assert s2.queue.get(t2)["status"] == "claimed"
-    asyncio.run(scenario())
-
-
-def test_replay_preserves_historical_lease_until(tmp_path):
-    # (2b) claim przy lease_ttl=10, restart z lease_ttl=100 -> lease_until
-    # odtworzone HISTORYCZNE (z task_state), nie przeliczone wg nowej polityki.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=10.0)
-        await s1.start()
-        a, _ = await hello("alfa", "ta")
-        tid = _persist_task_new(s1, CARD, "n1")["id"]
-        lease_hist = _persist_task_claim(s1, tid, "alfa", 1, "c1", 1)["lease_until"]
-        await a.close()
-        await _crash_stop(s1)
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=100.0)  # inna polityka lease
-        assert s2.queue.get(tid)["lease_until"] == lease_hist
-    asyncio.run(scenario())
-
-
 # -- (1) expiry jako trwaly, replayowalny event -----------------------------
-
-def test_expiry_event_replays_result_based_no_conflict(tmp_path):
-    # (1) claim(v2) -> expire(v3, open) -> drugi claim(expected=3, v4) ->
-    # crash/restart: konstruktor NIE rzuca Conflict, stan = v4 claimed.
-    # Na starym kodzie expiry byl fyi (nie-replayowalny) -> replay drugiego
-    # claima (expected=3) trafial na v2 claimed -> Conflict w __init__.
-    async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=0.5)   # krotki lease -> szybki expire
-        await s1.start()
-        ws, _ = await hello("alfa", "ta")
-        tid = _persist_task_new(s1, CARD, "n1")["id"]
-        assert _persist_task_claim(s1, tid, "alfa", 1, "c1", 1)["version"] == 2   # v2 claimed
-        # (A3) aktywny reap wyciety — symulujemy expiry BEZPOSREDNIO (SUT to
-        # REPLAY task_expired_batch do A4, nie aktywny reap): expire na klonie ->
-        # durable batch -> swap, dokladnie jak dawny _reap_expired.
-        trial = copy.deepcopy(s1.queue)
-        expired = trial.expire(time.time() + 1.0)   # lease 0.5 juz minal
-        assert len(expired) == 1 and expired[0]["version"] == 3 \
-            and expired[0]["status"] == "open"       # reopen faktycznie zaszedl
-        s1._append_durable({"type": "task_expired_batch", "from": "server",
-                            "ts": 0.0, "task_ids": [t["id"] for t in expired],
-                            "task_states": expired})
-        s1.queue = trial
-        s1._maybe_snapshot()          # wiernie: append -> swap -> maybe_snapshot (jak _reap_expired)
-        reclaimed = _persist_task_claim(s1, tid, "alfa", 1, "c2", 3)  # open v3 -> claimed v4
-        assert reclaimed["status"] == "claimed" and reclaimed["version"] == 4
-        await ws.close()
-        await _crash_stop(s1)                 # BEZ snapshotu
-
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                         lease_ttl=0.5)      # konstruktor NIE rzuca
-        t = s2.queue.get(tid)
-        assert t["status"] == "claimed" and t["version"] == 4 and t["assignee"] == "alfa"
-    asyncio.run(scenario())
-
 
 # -- (6) brak okna wycieku przy takeover (_close_stale_sockets) --------------
 
 def test_close_stale_sockets_evicts_from_conns_before_first_await(tmp_path):
     async def scenario():
         server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                            lease_ttl=5.0)
+                            )
 
         class FakeWS:
             def __init__(self):
@@ -868,12 +749,13 @@ def test_status_with_non_string_state_rejected_not_logged(srv):
 
 
 def test_outbound_only_frame_types_rejected_inbound_not_logged(srv):
-    # (5) task_expired/task_expired_batch to typy WYLACZNIE OUTBOUND/trwale —
-    # NIE moga przyjsc od klienta. validate odrzuca je inbound-em; zero zapisu.
+    # (5) backlog/resync_required/ok/error to typy WYLACZNIE OUTBOUND — NIE moga
+    # przyjsc od klienta. validate odrzuca je inbound-em (znane, nie unknown);
+    # zero zapisu. (Kolejka wycieta w A4: task_expired/batch to juz unknown.)
     async def scenario(server):
         a, _ = await hello("alfa", "ta")
         before = server.log.last_seq
-        for ftype in ("task_expired", "task_expired_batch", "ok", "error"):
+        for ftype in ("backlog", "resync_required", "ok", "error"):
             await a.send(json.dumps({"type": ftype, "from": "alfa", "ts": 0.0}))
             err = await recv(a)
             assert err["type"] == "error"
@@ -977,7 +859,6 @@ def test_strict_json_rejects_nested_nan_and_extra_infinity(srv):
         assert err["type"] == "error" and err["text"] == "invalid json"
 
         assert server.log.last_seq == before
-        assert server.queue.dump()["tasks"] == []
         await a.close()
     asyncio.run(srv(scenario))
 
@@ -1014,7 +895,7 @@ def test_hello_append_failure_no_registry_bump_no_socket_close(tmp_path, caplog)
     # live vs replay).
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0)
+                        )
         await s1.start()
 
         orig = s1.log.append
@@ -1069,7 +950,7 @@ def test_takeover_hello_append_failure_keeps_old_socket_and_generation(tmp_path)
     # appendem -> append-fail rozjezdzal tozsamosc (gen=2 niedurable, A martwy).
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0)
+                        )
         await s1.start()
         a1, reply1 = await hello("alfa", "ta", instance="i1")
         assert reply1["generation"] == 1
@@ -1120,13 +1001,11 @@ def test_takeover_hello_append_failure_keeps_old_socket_and_generation(tmp_path)
 def test_hello_at_snapshot_boundary_restores_registry_generation(tmp_path):
     # (Runda 7) hello jako event #100: durable append hello bez auto-snapshotu,
     # potem swap live=klon, na koncu _maybe_snapshot -> snapshot #100 lapie NOWA
-    # generacje (i queue). Restart odtwarza registry generation z tego snapshotu.
+    # generacje registry. Restart odtwarza registry generation z tego snapshotu.
     async def scenario():
-        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0)
+        s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
         await s1.start()
-        a, _ = await hello("alfa", "ta", instance="i1")     # hello #1 + task nizej
-        tid = _persist_task_new(s1, CARD, "n1")["id"]
+        a, _ = await hello("alfa", "ta", instance="i1")     # hello #1
         while s1._events_since_snapshot < 99:               # kolejny append = #100
             s1._append({"type": "fyi", "from": "filler", "ts": 0.0, "text": "f"})
         assert s1._events_since_snapshot == 99
@@ -1135,15 +1014,12 @@ def test_hello_at_snapshot_boundary_restores_registry_generation(tmp_path):
         assert s1._events_since_snapshot == 0                # snapshot #100 strzelil
         snap = json.loads((Path(tmp_path) / "snapshot.json").read_text())
         assert snap["state"]["registry"]["gen"]["beta"] == 1
-        assert any(t["id"] == tid for t in snap["state"]["queue"]["tasks"])
         await a.close(); await b.close()
         await _crash_stop(s1)
 
-        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0)
+        s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT)
         assert s2.registry.generation_of("beta") == 1
         assert s2.registry.generation_of("alfa") == 1
-        assert s2.queue.get(tid) is not None
     asyncio.run(scenario())
 
 
@@ -1154,7 +1030,7 @@ def test_auth_fail_hello_no_registry_mutation_no_event(tmp_path):
     # zbumpowac.
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0)
+                        )
         await s1.start()
         seq_before = s1.log.last_seq
         bad = await websockets.connect(f"ws://localhost:{PORT}")
@@ -1176,7 +1052,7 @@ def test_auth_fail_hello_no_registry_mutation_no_event(tmp_path):
 def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0)
+                        )
         await s1.start()
         human, _ = await hello("emil", "te", role="human")
         beta, _ = await hello("beta", "tb")
@@ -1264,7 +1140,7 @@ def test_membership_set_is_event_first_transferable_and_replayed(tmp_path):
 
         # Bez clean snapshotu: replay eventow zachowuje przekazanie funkcji.
         s2 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
-                        lease_ttl=5.0)
+                        )
         assert s2.registry.groups_of("beta") == ["workers"]
         assert s2.registry.groups_of("gamma") == ["head", "admin"]
         assert s2.groups["gamma"] == {"head", "admin"}
