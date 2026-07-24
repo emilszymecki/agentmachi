@@ -393,8 +393,28 @@ class ChatServer:
                  "role": self.registry.role_of(nick),
                  "groups": sorted(self.registry.groups_of(nick)),
                  "connected": bool(self.conns.get(nick)),
-                 "status": self.status.get(nick)}
+                 "status": self.status.get(nick),
+                 "addr": self._peer_host(nick)}
                 for nick in sorted(znani | set(self.conns))]
+
+    def _peer_host(self, nick):
+        """Adres peera dla boardu (machine-id): host socketu, ktory hub WIDZI
+        — klient go nie podaje, wiec nie da sie go podrobic (inwariant: pola
+        autorytatywne nadaje serwer, nie ramka klienta). Odpowiada na pytanie
+        'kto jest na ktorej maszynie', ktorego z samego kanalu nie da sie
+        wyczytac (dwie lokalne instancje wygladaja jak dwie zdalne — nauka
+        z B5). Zrodlo to ws.remote_address, dokladnie to, ktorego B7 uzywa do
+        wiazania nick->adres — zero nowego kola. Ma sens TYLKO przy bindzie na
+        tailnet; przy loopback/proxy remote_address nie rozroznia podmiotow,
+        wiec zwracamy None zamiast falszywej informacji."""
+        if not _bind_is_tailnet(self.bind):
+            return None
+        for ws in self.conns.get(nick, ()):
+            peer = getattr(ws, "remote_address", None)
+            host = peer[0] if peer else None
+            if host and host not in ("127.0.0.1", "::1", "localhost"):
+                return host
+        return None
 
     def _wolny_nick(self, prefix="worker"):
         """Pierwszy nick, ktorego nikt nie trzyma — propozycja dla wchodzacego."""
