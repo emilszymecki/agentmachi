@@ -105,6 +105,32 @@ git commit -m "refactor(status): status=idle to czysty fakt na boardzie, bez ofe
 > „zielona suita" wzmacniamy o jawny **RUNTIME-SOUND CHECK** (grep: brak
 > callerów + żywy hub odrzuca task_* czysto).
 
+> **KOREKTA 2a-fix (re-review codeksa `c5d5ee2` — 6 cross-phase blockerów; każdy
+> to realny crash/sprzeczność w oryginalnym rozpisie poniżej — stosuj TE reguły):**
+> - **A2 NIE czyni machinery martwej.** Expiry timer (`_expiry_loop` start hook
+>   `~258` → `_reap_expired` → `_trigger_offer` `~367`) to ŻYWY caller offera.
+>   Więc A2 odcina TYLKO wejście (klient/protokół/inbound handlery/dispatcher);
+>   expiry+offer ŻYJĄ do A3. Skreśl z A2 „RUNTIME-SOUND CHECK" twierdzenie
+>   „`_trigger_offer` bez callera" — caller istnieje (expiry). Poprawny check A2:
+>   task_* czysto odrzucane; hello/chat/status działają.
+> - **A2 zachowuje replay-constant.** `_TASK_STATE_EVENTS` jest używany przez
+>   `_replay_events` (`~220`) do A4 — NIE usuwaj go w A2 (crash restartu/replay).
+>   Zmień nazwę na `_TASK_REPLAY_EVENTS`, usuń dopiero w A4 z queue-replay.
+> - **A3 usuwa expiry+offer ATOMOWO** (caller `_reap_expired`/`_expiry_loop`/
+>   start hook + callee `_trigger_offer`/`_offer_loop` razem) + offer-cache replay
+>   (`task_offer`/`offer_resolved`) + `self.idle` + disconnect idle cleanup. A3
+>   usuwa z parametrów TYLKO `offer_timeout`. **`lease_ttl`/`wip_limit` ZOSTAJĄ**
+>   (konstruktor `TaskQueue.restore`/`TaskQueue(...)` ich używa do A4). **Replay
+>   `task_expired_batch` ZOSTAJE do A4** (queue autorytatywna — inaczej wygasłe
+>   leasy odtworzą się jako leased).
+> - **A4 usuwa** `lease_ttl`/`wip_limit`, replay `task_expired_batch`,
+>   `_TASK_REPLAY_EVENTS` — RAZEM z `chat/tasks.py` i `self.queue`.
+> - **A4 acceptance BEZ `subject`** — `subject` powstaje dopiero w Fazie B; na
+>   końcu Fazy A użyj `status` state/note (nie subject).
+> - **A1 (wykonane, `57102e9`): disconnect-cleanup `self.idle` ZOSTAJE** — commit
+>   celowo go zachował; usuwa go A3 razem z machinery. Task A1 poniżej NIE może
+>   zawierać kroku kasującego disconnect cleanup (plan nie przeczy kodowi).
+
 ### Task A2 (WEJŚCIE): odetnij inbound task_*/heartbeat — klient, protokół, dispatcher
 
 **Files:**
