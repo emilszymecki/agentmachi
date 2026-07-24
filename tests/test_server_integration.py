@@ -1390,6 +1390,24 @@ def test_status_subject_on_board(srv):
     asyncio.run(srv(scenario))
 
 
+def test_status_with_task_id_rejected_not_logged_not_on_board(srv):
+    # B1 retire: task_id wycofane -> validate ODRZUCA, wiec ramka NIE trafia
+    # ani na dysk (handler _append) ani na board ani do live broadcastu. Sam
+    # board-drop nie wystarczyl: handler utrwala cala ramke PRZED projekcja,
+    # wiec legacy task_id wyciekalby do logu i do ludzi (P1 codex).
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        before = server.log.last_seq
+        await ws_b.send(json.dumps({"type": "status", "from": "beta", "ts": 1.0,
+                                    "state": "working", "task_id": "legacy"}))
+        err = await recv(ws_b)
+        assert err["type"] == "error"
+        assert server.log.last_seq == before          # nie utrwalone (durable gate)
+        assert "beta" not in server.status             # zero mutacji boardu
+        await ws_b.close()
+    asyncio.run(srv(scenario))
+
+
 def test_status_state_is_free_text(srv):
     # hub nie waliduje przynaleznosci do slownika stanow — "sleeping" (spoza
     # dotychczasowego idle/working/blocked/review) jest przyjmowane wprost.

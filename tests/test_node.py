@@ -311,7 +311,7 @@ def test_wake_prompt_contains_fresh_board(tmp_path, srv):
         gamma, _ = await hello("gamma", "tg")
         await gamma.send(json.dumps({"type": "status", "from": "gamma",
                                      "ts": 0.0, "state": "working",
-                                     "task_id": "C"}))
+                                     "subject": "C"}))
         await asyncio.sleep(0.2)
         emil, _ = await hello("emil", "te", role="human")
         await emil.send(json.dumps({"type": "chat", "from": "emil",

@@ -89,9 +89,10 @@ def test_validate_status_subject_and_note_optional_nonempty_string():
     assert protocol.validate({**base, "subject": ""}) is not None       # puste
     assert protocol.validate({**base, "subject": []}) is not None       # nie-str
     assert protocol.validate({**base, "note": ""}) is not None
-    # task_id nie jest juz walidowanym polem statusu (zretirowane); jako
-    # nieznane pole nie wywala walidacji — po prostu ignorowane, nie zapisywane
-    assert protocol.validate({**base, "task_id": "legacy"}) is None
+    # task_id ZRETIROWANE — validate ODRZUCA je jawnie (nie ciche unknown),
+    # zeby handler _append/broadcast nie utrwalil go do logu/live zanim
+    # board-projekcja by je odsiala. Sam drop na boardzie nie wystarcza.
+    assert protocol.validate({**base, "task_id": "legacy"}) is not None
 
 
 def test_validate_membership_set_requires_target_and_group_list():

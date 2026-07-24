@@ -115,6 +115,12 @@ def _validate_body(frame, ftype):
         if not isinstance(state, str) or not state or len(state) > 32:
             return ("status: state wymagany (niepusty string, "
                     "maks 32 znaki)")
+        # B1 retire: task_id wycofane — subject je zastapil. Odrzucamy JAWNIE
+        # (nie jako ciche unknown pole), bo handler _append(frame) utrwalilby
+        # cala ramke do logu i broadcastu do ludzi zanim board-projekcja by je
+        # odsiala; sam drop na boardzie nie wystarcza, zeby task_id nie wyciekl.
+        if "task_id" in frame:
+            return "status: task_id wycofane; uzyj subject"
         for opt in ("note", "subject"):
             if opt in frame and (not isinstance(frame[opt], str)
                                  or not frame[opt]):
