@@ -33,14 +33,26 @@ def test_state_roundtrip_atomic_0600(tmp_path):
 
 
 def test_rate_limit_max_wakes_per_hour():
+    # Etap5: cap godzinowy chroni zasoby PRZED petla AGENTOW (nie przed
+    # czlowiekiem — patrz test human ponizej). Agent-sender jest capowany.
     rl = RateLimiter(max_wakes_per_hour=2, cooldown_after_agent_wake=60.0)
     now = 10_000.0
-    assert rl.check(now, [], sender_is_human=True) is None
-    times = [now - 30, now - 10]
-    blocked_until = rl.check(now, times, sender_is_human=True)
+    assert rl.check(now, [], sender_is_human=False) is None
+    times = [now - 30, now - 10]                              # cap=2 osiagniety
+    blocked_until = rl.check(now, times, sender_is_human=False)
     assert blocked_until == (now - 30) + 3600.0
     # stare wake'i wypadaja z okna
-    assert rl.check(now, [now - 3700, now - 3650], sender_is_human=True) is None
+    assert rl.check(now, [now - 3700, now - 3650], sender_is_human=False) is None
+
+
+def test_human_mention_not_capped_by_hourly_limit():
+    # Etap5 (D1): czlowiek MODERUJE — jego wzmianka budzi BEZ limitu godzinowego.
+    # Rate-limit to circuit breaker dla petli agentow, nie dla czlowieka.
+    rl = RateLimiter(max_wakes_per_hour=2, cooldown_after_agent_wake=60.0)
+    now = 10_000.0
+    over_cap = [now - 30, now - 10]                           # cap juz przekroczony
+    assert rl.check(now, over_cap, sender_is_human=False) is not None  # agent: zablokowany
+    assert rl.check(now, over_cap, sender_is_human=True) is None        # czlowiek: przechodzi
 
 
 def test_cooldown_after_agent_wake():
@@ -262,17 +274,20 @@ def test_node_rate_limits_repeated_wakes(tmp_path, srv):
             state_path=state_path, runtime=rt, humans={"emil"},
             limiter=limiter))
         await asyncio.sleep(0.2)  # niech node zdazy hello+wejsc w live-loop
-        emil, _ = await hello("emil", "te", role="human")
+        # sender = AGENT (gamma): cap godzinowy dotyczy petli agentow. Wzmianka
+        # CZLOWIEKA jest po D1 zwolniona z capa (Etap5), wiec cap testujemy
+        # agentem — inaczej wszystkie 3 obudzilyby node bez limitu.
+        gamma_sender, _ = await hello("gamma", "tg", groups=["workers"])
         for i in range(3):
-            await emil.send(json.dumps({"type": "chat", "from": "emil",
-                                        "ts": 0.0, "text": f"@beta runda {i}"}))
+            await gamma_sender.send(json.dumps({"type": "chat", "from": "gamma",
+                                                "ts": 0.0, "text": f"@beta runda {i}"}))
         # tylko 2 pierwsze wzmianki odpalaja runtime (max_wakes_per_hour=2)
         await _wait_for(lambda: prompts.exists()
                         and prompts.read_text().count("WAKE") == 2)
         await asyncio.sleep(0.3)  # daj petli node'a szanse przetworzyc 3cia (blokowana)
 
-        # swiezy obserwator: backlog niefiltrowany, widzi WSZYSTKO od huba
-        obs, reply = await hello("gamma", "tg", last_seq=0)
+        # swiezy obserwator (emil): backlog niefiltrowany, widzi WSZYSTKO od huba
+        obs, reply = await hello("emil", "te", role="human", last_seq=0)
         chats = [f for f in reply["backlog"] if f.get("type") == "chat"]
         by_text = {f["text"]: f["seq"] for f in chats}
         rate_limited = [f for f in chats if f["from"] == "beta"
@@ -289,7 +304,7 @@ def test_node_rate_limits_repeated_wakes(tmp_path, srv):
             await node
         except asyncio.CancelledError:
             pass
-        await emil.close(); await obs.close()
+        await gamma_sender.close(); await obs.close()
     asyncio.run(srv(run))
 
 

@@ -804,9 +804,12 @@ def _build_parser():
     p.add_argument("--workspace", required=True)
     p.add_argument("--humans", default="human",
                    help="nicki ludzi (przecinki) — cooldown nie dotyczy ich wzmianek")
-    p.add_argument("--max-wakes-per-hour", type=int, default=6)
-    p.add_argument("--cooldown", type=float, default=60.0)
-    p.add_argument("--max-wake-duration", type=float, default=1200.0)
+    p.add_argument("--max-wakes-per-hour", type=int,
+                   default=int(os.environ.get("MAX_AGENT_WAKES_PER_HOUR", "6")))
+    p.add_argument("--cooldown", type=float,
+                   default=float(os.environ.get("AGENT_WAKE_COOLDOWN", "60")))
+    p.add_argument("--max-wake-duration", type=float,
+                   default=float(os.environ.get("MAX_WAKE_DURATION", "1200")))
     p.set_defaults(fn=cmd_node)
 
     return parser

@@ -96,11 +96,16 @@ class RateLimiter:
             raise ValueError("limity musza byc dodatnie")
         self.max_wakes_per_hour = max_wakes_per_hour
         self.cooldown = cooldown_after_agent_wake
+        self._window = 3600.0        # okno capa godzinowego (sekundy)
 
     def check(self, now, wake_times, sender_is_human):
-        recent = [t for t in wake_times if now - t < 3600.0]
-        if len(recent) >= self.max_wakes_per_hour:
-            return min(recent) + 3600.0
+        recent = [t for t in wake_times if now - t < self._window]
+        # Etap5: cap godzinowy to circuit breaker chroniacy zasoby PRZED petla
+        # AGENTOW, gdy nikt nie patrzy — NIE przed czlowiekiem. Czlowiek
+        # MODERUJE; jego wzmianka budzi bez limitu (cooldown tez go nie dotyczy,
+        # nizej). Bez tego moderacja czlowieka dusila sie na wlasnym bezpieczniku.
+        if not sender_is_human and len(recent) >= self.max_wakes_per_hour:
+            return min(recent) + self._window
         if not sender_is_human and recent:
             last = max(recent)
             if now - last < self.cooldown:
