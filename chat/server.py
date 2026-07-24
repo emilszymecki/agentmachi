@@ -41,9 +41,8 @@ Kluczowe niezmienniki (review tercetu, wiazace):
   f) wejscie klienckie walidowane zanim dotknie kolejki/rejestru; zaden
      pojedynczy zly frame (w tym JSON-skalar/lista zamiast obiektu) nie
      moze zabic handlera ani serwera.
-  g) trwalosc przed publikacja: kazda trwala ramka (chat/hello/status/
-     membership_set/kick) najpierw append (dostaje seq), potem dostarczenie/
-     odpowiedz. Pola seq/generation/groups/role/
+  g) trwalosc przed publikacja: kazda trwala ramka klienta najpierw append
+     (dostaje seq), potem dostarczenie/odpowiedz. Pola seq/generation/groups/role/
      from sa nadpisywane przez serwer na KAZDEJ ramce klienta przed
      zapisem — nigdy nie przechodza z ramki do logu/odbiorcow.
 """
@@ -681,8 +680,8 @@ class ChatServer:
                     groups=list(groups), role=role))
             except OSError:
                 # niezmiennik f: awaria storage (dysk pelny) na hello NIE moze
-                # zabic handlera brutalnym 1011 — kontrakt jest jednolity dla
-                # kazdej ramki (czysta ramka error + graceful close). Stan pozostaje
+                # zabic handlera brutalnym 1011 — hello odpowiada czysta ramka
+                # error i dopiero potem graceful close. Stan pozostaje
                 # czysty (klon wyrzucony, registry nietkniety, zero side-effektow
                 # bo sa PO tym appendzie), a klient odroznia storage-fail od padu
                 # sieci i moze legalnie retry. Pelny wyjatek (w tym sciezka FS)
