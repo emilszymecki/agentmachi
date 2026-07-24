@@ -96,115 +96,69 @@ git add chat/server.py tests/test_server_integration.py
 git commit -m "refactor(status): status=idle to czysty fakt na boardzie, bez oferty"
 ```
 
-### Task A2: Usuń offer + expiry machinery
+> **BLOCKER1 fix (review codeksa 8868d9a):** oryginalny podział A2=machinery,
+> A3=handlery był NIEbezpieczny — A2 usuwał `_trigger_offer`, które
+> `_on_task_frame` (A3) nadal woła; commit „zielony przez skasowane testy" miał
+> zepsuty runtime. Nowa kolejność: **WEJŚCIE → MACHINERY → QUEUE**. Każdy slice
+> zostawia runtime SPÓJNY: usuwamy najpierw DROGĘ WEJŚCIA ramek, więc kod niżej
+> staje się MARTWY (nikt go nie woła), a martwy kod nie crashuje. Kryterium
+> „zielona suita" wzmacniamy o jawny **RUNTIME-SOUND CHECK** (grep: brak
+> callerów + żywy hub odrzuca task_* czysto).
+
+### Task A2 (WEJŚCIE): odetnij inbound task_*/heartbeat — klient, protokół, dispatcher
 
 **Files:**
-- Modify: `chat/server.py` — offer: `_offer_loop` (`~1270-1311`), `_offer_event` (`~1181-1216`), `_offer_activation_id` (`~1178-1179`), `_resolve_offer` (`~1237-1257`), `_drop_offers_for_task` (`~1225-1235`), `_pending_offer_keys_for` (`~1218-1223`), `_trigger_offer` (`~1259-1261`), `_requeue_idle_if_connected` (`~1263-1268`), `_offer_cache`/`_offering`/`self.idle` (init `~160-166`), `_restore_offers`/`_dump_offers` (`~238-247`), `offer_timeout` (`~134,142`); expiry: `_expiry_loop` (`~331-342`), `_reap_expired` (`~344-367`), start hook (`~258`), stop cancel (`~261-269`), `lease_ttl`/`wip_limit` params (`~133`)
-- Modify: `chat/server.py` — snapshot (`~289-305`) i restore (`~144-165`): usuń klucz `offers`; `_replay_events` (`~187-234`): usuń branche `task_offer`/`offer_resolved`/`task_expired_batch`
-- Test: `tests/test_server_integration.py` — usuń rodzinę `test_offer_*`, `test_*_offer_*`, `test_reap_expired_*`, `test_expiry_*`, `test_activation_id_retry_identical_new_offer_different` (`~388`)
-
-**Interfaces:**
-- Produkuje: `ChatServer` bez `self.idle`, bez pętli ofert i expiry; `snapshot()`/`resync` bez klucza `offers`; `start()`/`stop()` bez `_expiry_task`/`_offering`.
-
-- [ ] **Step 1: Usuń testy ofert/expiry**
-
-Skasuj z `tests/test_server_integration.py` funkcje: `test_offer_*`, `test_*_offer_*`, `test_expiry_*`, `test_reap_expired_batch_append_failure_no_partial_log`, `test_activation_id_retry_identical_new_offer_different`. (Zachowaj `test_restart_restores_queue_and_registry_after_snapshot` — przejdzie do Task A3, bo dotyczy queue+registry.)
-
-- [ ] **Step 2: Usuń kod offer + expiry z `chat/server.py`**
-
-Usuń metody i pola wymienione w **Files** powyżej. W `start()` usuń `self._expiry_task = asyncio.ensure_future(self._expiry_loop())`. W `stop()` usuń cancel `_offering`/`_expiry_task`. W `snapshot()` usuń `"offers": self._dump_offers()`. W `__init__` usuń restore `offers`/`_offer_cache`. W `_replay_events` usuń branche `task_offer`/`offer_resolved`/`task_expired_batch`. Z konstruktora usuń parametry `offer_timeout`, `lease_ttl`, `wip_limit` (przejdą też przez TaskQueue w A3).
-
-- [ ] **Step 3: Pełna suita — zielona**
-
-Run: `uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -q`
-Expected: PASS. Jeśli jakiś test snapshotu porównuje dokładny kształt state dict z `offers` — zaktualizuj oczekiwany kształt (bez `offers`).
-
-- [ ] **Step 4: Weryfikacja fizyki na żywym hubie (efemeryczny port)**
-
-Odpal test integracyjny startu huba + hello + status + snapshot/restart. Potwierdź, że resume po restarcie działa BEZ queue/offers (kursor, registry, status wracają).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add chat/server.py tests/test_server_integration.py
-git commit -m "refactor(core): usun oferty, leasy, expiry i round-robin z huba"
-```
-
-### Task A3: Usuń task handlery, `chat/tasks.py`, queue ze snapshotu i protokołu
-
-**Files:**
-- Delete: `chat/tasks.py` (cały, 390 linii — samodzielny automat, zero importów projektu)
-- Delete: `tests/test_tasks.py` (cały — 39 funkcji `TaskQueue`)
-- Modify: `chat/server.py` — import `chat.tasks` (`~64`); `_TASK_REQUIRED_FIELDS` (`~115-123`), `_TASK_STATE_EVENTS` (`~125-129`), `_TASK_OP` (`~1050-1053`); handlery `_on_task_frame` (`~1105-1175`), `_on_heartbeat` (`~1028-1048`), `_apply_task_op` (`~1055-1078`), `_peek_cached` (`~1080-1103`); branche task_*/heartbeat w `_on_frame` (`~927-934`); `self.queue`/restore (`~147-149`), snapshot `"queue"` (`~295-298`), resync `"queue"` (`~781-783`), `_replay_events` queue branche (`~214-234`)
+- Modify: `send.py` — `heartbeat_loop` (`~385-408`), `_await_heartbeat_ok` (`~350-362`), `_check_heartbeat_interval` (`~341-348`); w `oneshot_frame` (`~364-382`) zostaje `status`, znika task_*
+- Modify: `agentmachi/cli.py` — `cmd_heartbeat` (`~686-690`), subparser `heartbeat` (`~801-806`); `frame`/`send` zostają dla `status`
 - Modify: `chat/protocol.py` — inbound task_* (`~13-15`), outbound task_*/offer (`~18-19`), walidacja task_* (`~42-47`, `~158-161`), walidacja `heartbeat` (`~132-135`)
-- Test: `tests/test_server_integration.py` — task-owe funkcje (`test_task_flow_*`, `test_task_approve_*`, `test_task_unblock_*`, `test_heartbeat_wire_*`, `test_replay_*`, `test_restart_restores_queue_*`); `tests/test_protocol.py` — funkcje task_*/heartbeat framing
+- Modify: `chat/server.py` — dispatcher branche task_*/heartbeat w `_on_frame` (`~927-934`); handlery `_on_task_frame`/`_on_heartbeat`/`_apply_task_op`/`_peek_cached`; stałe `_TASK_REQUIRED_FIELDS`/`_TASK_STATE_EVENTS`/`_TASK_OP`
+- Test: `tests/test_send.py` (heartbeat/task), `tests/test_protocol.py` (task_*/heartbeat framing), `tests/test_server_integration.py` (`test_task_flow_*`, `test_task_approve_*`, `test_task_unblock_*`, `test_heartbeat_wire_*` — NIE offer, offer→A3), `tests/test_cli.py`/`test_node.py` (heartbeat w help)
 
 **Interfaces:**
-- Produkuje: `_on_frame` bez branchy task_*/heartbeat; `ChatServer` bez `self.queue`; snapshot/resync state dict = `{registry, status}` (bez `queue`, bez `offers`); `protocol` zna tylko ramki fizyki (hello, chat, status, membership_set, kick, ...).
+- Produkuje: klient/CLI bez task_*/heartbeat; protokół zna tylko fizykę (hello/chat/status/membership_set/kick); `_on_frame` bez branchy task_*/heartbeat. Machinery offer/queue ISTNIEJE, ale jest MARTWA (usuwana w A3/A4).
 
-- [ ] **Step 1: Usuń pliki tasków i ich testy**
+- [ ] **Step 1:** usuń klienta+CLI heartbeat/task (`send.py`, `cli.py`) + ich testy (`test_send.py`, `test_cli.py`, `test_node.py`)
+- [ ] **Step 2:** usuń framing task_*/heartbeat z `chat/protocol.py` + funkcje w `test_protocol.py`
+- [ ] **Step 3:** usuń inbound handlery + dispatcher branche + stałe `_TASK_*` z `chat/server.py`; usuń task-owe testy integracyjne (task_flow/approve/unblock/heartbeat_wire — **NIE** offer)
+- [ ] **Step 4:** pełna suita zielona (`uv run ... pytest tests/ -q`)
+- [ ] **Step 5 — RUNTIME-SOUND CHECK:** (a) `grep -n "_trigger_offer\|_on_task_frame" chat/server.py` — `_trigger_offer` bez callera (martwe, OK), `_on_task_frame` nie istnieje; (b) odpal hub na efemerycznym porcie, wyślij ramkę `task_new` → MUSI być czysto odrzucona (error/unknown type), nie crash; hello/chat/status działają
+- [ ] **Step 6:** commit `refactor(core): odetnij inbound task_*/heartbeat (klient, protokol, dispatcher)`
 
-```bash
-git rm chat/tasks.py tests/test_tasks.py
-```
+### Task A3 (MACHINERY): usuń offer + expiry (martwe po A2)
 
-- [ ] **Step 2: Usuń task-owe testy integracyjne i protokołowe**
-
-Skasuj z `tests/test_server_integration.py` funkcje task/heartbeat/replay/restart-queue (lista w **Files**). Z `tests/test_protocol.py` usuń funkcje walidujące framing task_*/heartbeat.
-
-- [ ] **Step 3: Wytnij handlery i queue z `chat/server.py`**
-
-Usuń import `chat.tasks`, stałe `_TASK_*`, `_TASK_OP`, metody `_on_task_frame`/`_on_heartbeat`/`_apply_task_op`/`_peek_cached`, branche task_*/heartbeat z `_on_frame`, `self.queue`+restore, klucz `"queue"` ze `snapshot()` i `resync_required`, branche queue w `_replay_events`.
-
-- [ ] **Step 4: Wytnij framing z `chat/protocol.py`**
-
-Usuń zbiory typów task_*/outbound-offer, walidację task_* i `heartbeat`.
-
-- [ ] **Step 5: Pełna suita — zielona**
-
-Run: `uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -q`
-Expected: PASS. Zaktualizuj testy snapshotu porównujące kształt state (teraz `{registry, status}`).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add -A
-git commit -m "refactor(core): usun TaskQueue, handlery task_* i framing kolejki"
-```
-
-### Task A4: Usuń klienta heartbeat/task (send.py, cli.py)
+Po A2 nic nie woła machinery (brak `_on_task_frame`, brak triggera `task_new`). Ten slice usuwa martwy kod.
 
 **Files:**
-- Modify: `send.py` — `heartbeat_loop` (`~385-408`), `_await_heartbeat_ok` (`~350-362`), `_check_heartbeat_interval` (`~341-348`); w `oneshot_frame` (`~364-382`) zostaje wysyłka `status` (fizyka board), znika wysyłka task_*
-- Modify: `agentmachi/cli.py` — `cmd_heartbeat` (`~686-690`), subparser `heartbeat` (`~801-806`); subparser `frame` (`~794-799`) zostaje dla `status`
-- Test: `tests/test_send.py` — funkcje heartbeat/task; `tests/test_cli.py` i `tests/test_node.py` — pojedyncze wzmianki `heartbeat` w help
+- Modify: `chat/server.py` — offer: `_offer_loop`, `_offer_event`, `_offer_activation_id`, `_resolve_offer`, `_drop_offers_for_task`, `_pending_offer_keys_for`, `_trigger_offer`, `_requeue_idle_if_connected`, `self.idle`/`_offer_cache`/`_offering` (init `~160-166`), `_restore_offers`/`_dump_offers`, `offer_timeout` param; expiry: `_expiry_loop`, `_reap_expired`, start hook, stop cancel, `lease_ttl`/`wip_limit` params; snapshot/restore klucz `offers`; `_replay_events` branche `task_offer`/`offer_resolved`/`task_expired_batch`; disconnect `self.idle` cleanup (`~859-863`)
+- Test: `tests/test_server_integration.py` — 7 offer-testów (przywrócone w A1-fix `12351f3`) + reszta offer/expiry/reap. **Teraz** giną RAZEM z machinery — coverage spójne (to była istota A1-fix: pokrycie żyje póki żyje machinery)
 
 **Interfaces:**
-- Produkuje: CLI bez podkomendy `heartbeat`; `send.py` bez pętli heartbeat; `frame`/`send` nadal wysyłają `status` i chat.
+- Produkuje: `ChatServer` bez `self.idle`/offer/expiry; `snapshot()`/`resync` bez `offers`; `start()`/`stop()` bez `_expiry_task`/`_offering`.
 
-- [ ] **Step 1: Usuń testy klienta heartbeat/task**
+- [ ] **Step 1:** usuń offer+expiry+reap testy (w tym 7 z A1-fix — teraz giną z machinery)
+- [ ] **Step 2:** usuń offer+expiry kod + `offers` ze snapshot/restore + replay branche + disconnect idle cleanup z `chat/server.py`
+- [ ] **Step 3:** pełna suita zielona
+- [ ] **Step 4 — RUNTIME-SOUND:** `grep -n "self.idle\|_trigger_offer\|_offer_\|_expiry" chat/server.py` → zero trafień; hub start/hello/status/snapshot-restart działa
+- [ ] **Step 5:** commit `refactor(core): usun offer/expiry machinery (martwa po odcieciu wejscia)`
 
-Z `tests/test_send.py` usuń funkcje heartbeat/task. Z `tests/test_cli.py`/`tests/test_node.py` usuń asercje o podkomendzie `heartbeat` (jeśli sprawdzają help).
+### Task A4 (QUEUE): usuń `TaskQueue` + queue ze snapshotu/replay
 
-- [ ] **Step 2: Usuń kod z send.py i cli.py**
+Queue nie jest wołana po A2 (handlery usunięte). Ten slice usuwa `TaskQueue` i jej serializację.
 
-Usuń `heartbeat_loop`/`_await_heartbeat_ok`/`_check_heartbeat_interval` z `send.py`; `cmd_heartbeat` i subparser `heartbeat` z `cli.py`. Zostaw `oneshot_frame`/`frame` dla `status`.
+**Files:**
+- Delete: `chat/tasks.py` (390 linii), `tests/test_tasks.py` (39 funkcji)
+- Modify: `chat/server.py` — import `chat.tasks` (`~64`); `self.queue`/restore (`~147-149`); snapshot `"queue"` (`~295-298`); resync `"queue"` (`~781-783`); `_replay_events` queue branche (`~214-234`); reszta `_TASK_STATE_EVENTS` jeśli została
+- Test: `tests/test_server_integration.py` — `test_replay_*`, `test_restart_restores_queue_*` (queue-specyficzne; zachowaj registry/status-only warianty restartu)
 
-- [ ] **Step 3: Pełna suita — zielona**
+**Interfaces:**
+- Produkuje: snapshot/resync state = `{registry, status}` (bez `queue`/`offers`); `ChatServer` bez `queue`.
 
-Run: `uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -q`
-Expected: PASS.
-
-- [ ] **Step 4: Weryfikacja na żywym hubie — cały scenariusz**
-
-Odpal hub na efemerycznym porcie; agent wchodzi (`listen`), wysyła `chat` z wzmianką, ustawia `status` (`frame`), znika i wraca (resume z kursora). Potwierdź, że wszystko działa BEZ jakiejkolwiek ramki task_*/heartbeat. To realizuje kryterium FAZY A.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add send.py agentmachi/cli.py tests/
-git commit -m "refactor(client): usun heartbeat i wysylke task_* z klienta i CLI"
-```
+- [ ] **Step 1:** `git rm chat/tasks.py tests/test_tasks.py`
+- [ ] **Step 2:** usuń queue/replay/restart-queue testy integracyjne (zostaw registry/status restart)
+- [ ] **Step 3:** usuń import + `self.queue` + snapshot/resync `"queue"` + replay branche z `chat/server.py`
+- [ ] **Step 4:** pełna suita zielona; zaktualizuj testy snapshotu porównujące kształt state (teraz `{registry, status}`)
+- [ ] **Step 5 — RUNTIME-SOUND + KRYTERIUM FAZY A:** hub start/hello/chat/status/resume BEZ queue; przejdź scenariusz współpracy (agent deklaruje status+subject, drugi widzi na boardzie) BEZ jakiejkolwiek ramki task_*/heartbeat
+- [ ] **Step 6 — STAGING JAWNY (P1 codex, nie `git add -A`):** `git add chat/tasks.py tests/test_tasks.py chat/server.py tests/test_server_integration.py` → `git diff --cached --name-status` (potwierdź brak untracked logów/session z testów Windows) → commit `refactor(core): usun TaskQueue i serializacje kolejki`
 
 ---
 
