@@ -217,7 +217,11 @@ class EventLog:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
-        tmp.rename(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
+        # os.replace (Path.replace), nie rename: nadpisuje istniejacy cel
+        # atomowo na Unix I Windows. rename na Windows rzucal FileExistsError
+        # (WinError 183), gdy snapshot.json juz istnial — hub padal w teardown
+        # na Windows (zlapane przez codeksa). Atomowosc zachowana na obu OS.
+        tmp.replace(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
         self.snapshot_seq = seq
         # F1 (B5): rozmowa NIE podlega kompakcji. Stan maszyny odtwarza sie
         # ze snapshotu, rozmowy nie odtworzy nic — a to ona jest pamiecia
@@ -238,7 +242,7 @@ class EventLog:
                 f.write(json.dumps(e, allow_nan=False) + "\n")
             f.flush()
             os.fsync(f.fileno())
-        events_tmp.rename(self.events_path)  # atomowo; crash w polowie nie obcina eventow
+        events_tmp.replace(self.events_path)  # atomowo (os.replace: nadpisuje na Unix I Windows; rename rzucal WinError 183); crash w polowie nie obcina eventow
 
     def load_snapshot(self):
         if not self.snapshot_path.exists():
