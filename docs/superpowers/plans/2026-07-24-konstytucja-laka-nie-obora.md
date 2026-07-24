@@ -100,6 +100,10 @@ zespołem. **Serwer nie może zamrozić dzisiejszego wyobrażenia o współpracy
 
 ## Plan prac
 
+> **Wykonawczy plan task-po-tasku** (dokładne pliki, kroki TDD, kryteria
+> ukończenia, self-review): [2026-07-24-plan-wyciecia-obory.md](2026-07-24-plan-wyciecia-obory.md).
+> Poniżej etapy koncepcyjnie — tam rozbite na taski gotowe do wykonania.
+
 ### Etap 1 — usunięcie schedulera
 
 Usunąć aktywną ścieżkę: `TaskQueue`; `task_new`; `task_offer`; `task_claim`;
