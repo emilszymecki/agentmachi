@@ -710,6 +710,7 @@ def test_expiry_event_replays_result_based_no_conflict(tmp_path):
                             "ts": 0.0, "task_ids": [t["id"] for t in expired],
                             "task_states": expired})
         s1.queue = trial
+        s1._maybe_snapshot()          # wiernie: append -> swap -> maybe_snapshot (jak _reap_expired)
         reclaimed = _persist_task_claim(s1, tid, "alfa", 1, "c2", 3)  # open v3 -> claimed v4
         assert reclaimed["status"] == "claimed" and reclaimed["version"] == 4
         await ws.close()

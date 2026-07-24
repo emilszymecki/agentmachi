@@ -27,10 +27,10 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      tej samej ramce dzialaja normalnie). role/groups faktycznie przypisane
      nickowi pochodza WYLACZNIE z configu serwera (Registry.role_of/
      groups_of) — to co klient deklaruje w hello jest tylko walidowane.
-  f) wejscie klienckie walidowane zanim dotknie kolejki/rejestru; zaden
+  e) wejscie klienckie walidowane zanim dotknie kolejki/rejestru; zaden
      pojedynczy zly frame (w tym JSON-skalar/lista zamiast obiektu) nie
      moze zabic handlera ani serwera.
-  g) trwalosc przed publikacja: kazda trwala ramka klienta najpierw append
+  f) trwalosc przed publikacja: kazda trwala ramka klienta najpierw append
      (dostaje seq), potem dostarczenie/odpowiedz. Pola seq/generation/groups/role/
      from sa nadpisywane przez serwer na KAZDEJ ramce klienta przed
      zapisem — nigdy nie przechodza z ramki do logu/odbiorcow.
@@ -655,12 +655,9 @@ class ChatServer:
                 # `state` juz zawiera.
                 self.snapshot()
                 # (Runda 4 #4) wire resync state = DOKLADNIE persisted snapshot
-                # state (queue + registry + offers), nie okrojony do queue.
-                # Snapshot niesie offers (pending activations); gdyby resync
-                # wysylal sam queue, klient z za starym kursorem nie odzyskalby
-                # pending ofert po kompakcji.
+                # state (queue + registry), nie okrojony do queue.
                 # F1 (B5): resync niesie takze PAMIEC kanalu. `state` odtwarza
-                # maszyne (queue/registry/offers), ale rozmowy nie odtworzy
+                # maszyne (queue/registry), ale rozmowy nie odtworzy
                 # nic — a to ona jest jedyna pamiecia agenta. Bez tego agent
                 # po kompakcji wchodzil na kanal, na ktorym "nic sie nigdy nie
                 # wydarzylo" (zmierzone na produkcji: 105 ramek dogfoodu).
@@ -905,7 +902,7 @@ class ChatServer:
             if role == "human" and observer not in {nick, frame["target"]}:
                 await self._send(observer, event)
 
-    # -- oferty (round-robin + timeout) -------------------------------------
+
 def main():
     tokens_path = os.environ.get("CHAT_TOKENS", "tokens.json")
     tokens = json.loads(Path(tokens_path).read_text())
