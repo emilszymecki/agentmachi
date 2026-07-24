@@ -878,85 +878,6 @@ def test_task_offer_event_persists_activation_id_and_seq(srv):
     asyncio.run(srv(scenario))
 
 
-def test_offer_round_robin_new_attempt_after_full_cycle_gets_new_id(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
-        await g.send(json.dumps({"type": "status", "from": "gamma", "ts": 0.0, "state": "idle"}))
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)                              # ok ack dla task_new
-
-        offer_b1 = await recv(b, timeout=2.0)        # pierwsza oferta dla beta
-        id_b1 = offer_b1["activation_id"]
-        offer_g = await recv(g, timeout=2.0)         # beta nie wzieła -> gamma
-        offer_b2 = await recv(b, timeout=2.0)        # gamma tez nie -> NOWA proba dla beta
-        id_b2 = offer_b2["activation_id"]
-        # (F2) nowa proba (po pelnym okrazeniu beta->gamma->beta) to NOWY
-        # event/id, a nie sklejenie z pierwsza oferta dla bety
-        assert id_b2 != id_b1
-        await a.close(); await b.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
-def test_offer_timeout_race_does_not_lose_offered_nick_from_idle(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        ok1 = await recv(a)
-        task1_id = ok1["task"]["id"]
-        offer1 = await recv(b, timeout=2.0)
-        assert offer1["task"]["id"] == task1_id
-
-        # gamma krad task1 (bezposredni task_claim) zanim minie offer_timeout
-        # oferty dla bety — bez fixu bety nigdy nie wraca do self.idle
-        await g.send(json.dumps({"type": "task_claim", "from": "gamma", "ts": 0.0,
-                                 "task_id": task1_id, "command_id": "steal1",
-                                 "expected_task_version": 1}))
-        stolen = await recv(g)
-        assert stolen["task"]["assignee"] == "gamma"
-
-        await asyncio.sleep(0.6)     # przeczekaj offer_timeout (0.3 z fixture) + margines
-
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 1.0,
-                                 "command_id": "n2", "card": {**CARD, "goal": "drugi"}}))
-        ok2 = await recv(a)
-        task2_id = ok2["task"]["id"]
-        # (F4) beta MUSI dalej byc w idle i dostac oferte na drugi task
-        offer2 = await recv(b, timeout=2.0)
-        assert offer2["task"]["id"] == task2_id
-        await a.close(); await b.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
-def test_idle_nick_removed_on_disconnect_offer_goes_to_live_idle(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
-        await asyncio.sleep(0.1)
-        await b.close()
-        await asyncio.sleep(0.1)
-        # (F5) rozlaczony nick (bez zadnego socketu) wypada z self.idle
-        assert "beta" not in server.idle
-
-        g, _ = await hello("gamma", "tg")
-        await g.send(json.dumps({"type": "status", "from": "gamma", "ts": 0.0, "state": "idle"}))
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)
-        offer = await recv(g, timeout=2.0)          # oferta idzie do zywego gamma, nie w prozne
-        assert offer["type"] == "task_offer"
-        await a.close(); await g.close()
-    asyncio.run(srv(scenario))
-
-
 def test_pending_offer_cache_restored_after_restart(tmp_path):
     async def scenario():
         s1 = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=PORT,
@@ -1132,49 +1053,7 @@ def test_resolved_offer_does_not_revive_after_replay(tmp_path):
 
 # -- (4) live task_offer = trwaly event z seq -------------------------------
 
-def test_live_task_offer_carries_persistent_event_seq(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)
-        offer = await recv(b, timeout=2.0)
-        assert offer["type"] == "task_offer"
-        # (4) odbiorca widzi DOKLADNIE trwaly event: seq == seq zapisanego eventu
-        offer_events = [e for e in server.log.events_after(0) if e["type"] == "task_offer"]
-        assert "seq" in offer
-        assert offer["seq"] == offer_events[-1]["seq"]
-        await a.close(); await b.close()
-    asyncio.run(srv(scenario))
-
-
 # -- (5) brak ducha w idle przy disconnect w oknie oferty --------------------
-
-def test_disconnect_in_offer_window_leaves_no_ghost_in_idle(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        await b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0, "state": "idle"}))
-        await asyncio.sleep(0.1)
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)
-        offer = await recv(b, timeout=2.0)          # beta dostaje oferte (popped z idle)
-        assert offer["type"] == "task_offer"
-        await b.close()                              # disconnect W OKNIE oferty
-        await asyncio.sleep(0.6)                     # przeczekaj offer_timeout (0.3) + margines
-        # (5) beta nie wraca do idle jako "duch" — brak zywego socketu
-        assert "beta" not in server.idle
-        # kolejna oferta idzie do ZYWEGO nicka (task wciaz open)
-        g, _ = await hello("gamma", "tg")
-        await g.send(json.dumps({"type": "status", "from": "gamma", "ts": 0.0, "state": "idle"}))
-        offer_g = await recv(g, timeout=2.0)
-        assert offer_g["type"] == "task_offer"
-        await a.close(); await g.close()
-    asyncio.run(srv(scenario))
-
 
 # -- (6) brak okna wycieku przy takeover (_close_stale_sockets) --------------
 
@@ -1275,46 +1154,6 @@ async def send_status_idle(ws, nick):
     await ws.send(json.dumps({"type": "status", "from": nick, "ts": 0.0,
                               "state": "idle"}))
 
-
-def test_task_offer_goes_to_one_idle_worker(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        await send_status_idle(b, "beta")
-        await send_status_idle(g, "gamma")
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n1", "card": CARD}))
-        await recv(a)                                  # ok dla task_new
-        offer = await recv(b)                          # TYLKO beta (pierwsza idle)
-        assert offer["type"] == "task_offer"
-        assert "activation_id" in offer
-        with pytest.raises(asyncio.TimeoutError):
-            await recv(g, timeout=0.2)                 # gamma spi — no herd
-        for ws in (a, b, g):
-            await ws.close()
-    asyncio.run(srv(scenario))
-
-
-def test_offer_timeout_moves_to_next_worker(srv):
-    async def scenario(server):
-        b, _ = await hello("beta", "tb")
-        g, _ = await hello("gamma", "tg")
-        await send_status_idle(b, "beta")
-        await send_status_idle(g, "gamma")
-        a, _ = await hello("alfa", "ta")
-        await a.send(json.dumps({"type": "task_new", "from": "alfa", "ts": 0.0,
-                                 "command_id": "n2", "card": CARD}))
-        await recv(a)
-        await recv(b)                                  # beta dostaje oferte...
-        offer_g = await recv(g, timeout=2.0)           # ...ignoruje -> gamma
-        assert offer_g["type"] == "task_offer"
-        for ws in (a, b, g):
-            await ws.close()
-    asyncio.run(srv(scenario))
-
-
-# == RUNDA 4 — spojnosc log/stan i walidacja inbound ========================
 
 # -- (1) cache-hit dedupu NIE moze tworzyc eventu mutacji -------------------
 
@@ -2455,18 +2294,19 @@ def test_agent_hello_receives_participants_snapshot(srv):
 # -- statusy agentow (kanon: sleeping/idle/working/blocked/review/done,
 #    ale to WOLNY TEKST — hub nie waliduje przynaleznosci do enuma) --------
 
-def test_status_tracked_in_snapshot_and_idle_sync(srv):
+def test_status_tracked_in_snapshot(srv):
+    # (A1, laka-nie-obora) status jest CZYSTYM faktem na boardzie — usuniete
+    # asercje server.idle: sync status->idle->offer byl swiadomie wycinanym
+    # side-effectem schedulera. Board sledzi stan, nie wyzwala pracy.
     async def scenario(server):
         ws_b, _ = await hello("beta", "tb", instance="ib")
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 1.0, "state": "idle"}))
         await asyncio.sleep(0.1)
-        assert "beta" in server.idle
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 2.0, "state": "working",
                                     "task_id": "t9"}))
         await asyncio.sleep(0.1)
-        assert "beta" not in server.idle  # working = nie oferuj
         snap = server._participants_snapshot()
         by_nick = {p["nick"]: p for p in snap}
         assert by_nick["beta"]["status"] == {"state": "working",

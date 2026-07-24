@@ -913,13 +913,9 @@ class ChatServer:
             frame["seq"] = seq
             self.status[target] = {k: frame[k] for k in
                                    ("state", "task_id", "note") if k in frame}
-            if frame.get("state") == "idle":
-                if target == nick and nick not in self.idle:
-                    self.idle.append(nick)
-                    self._trigger_offer()
-            elif target in self.idle:
-                # working/blocked/review = nie oferuj mi taskow
-                self.idle.remove(target)
+            # Etap 1 (laka-nie-obora): status to CZYSTY fakt na boardzie —
+            # zero side-effectu schedulera. `state=idle` nie dopisuje juz do
+            # kolejki round-robin ani nie wyzwala oferty. Board jest pasywny.
             for observer, role in list(self.roles.items()):
                 if role == "human" and observer != nick:
                     # live board dla TUI; agenci dostaja tylko backlog/preambule
