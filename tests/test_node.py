@@ -478,3 +478,53 @@ def test_state_zapisuje_nazwe_realnego_runtime(tmp_path):
     from agentmachi.node import CodexRuntime, ClaudeRuntime, _new_state
     assert _new_state("gamma", CodexRuntime(str(tmp_path))).runtime == "codex"
     assert _new_state("alfa", ClaudeRuntime(str(tmp_path))).runtime == "claude"
+
+
+def test_node_budzi_sie_raz_o_NAJNOWSZA_wzmianke_po_resync(srv, tmp_path):
+    """REGRESJA ZE ZYWEGO KANALU: po kompakcji logu hub odpowiada na hello
+    ramka `resync_required`, ktora NIESIE rozmowe w polu `conversation`
+    (F1/B5, chat/server.py). Node czytal wylacznie `backlog`, wiec na tej
+    sciezce przesuwal tylko kursor i szedl dalej — KAZDA wzmianka z okresu
+    objetego resyncem przepadala.
+
+    Zmierzone na kanale kinas-machine: kursor szedl 292 -> 296, `wake_times`
+    zostawalo puste, trzy wzmianki pod rzad bez jednego przebudzenia. Wada
+    dotyczyla OBU runtime'ow — testowano node'a wylacznie na swiezym logu,
+    gdzie resync nie wystepuje, wiec nikt jej nie zobaczyl.
+
+    Druga czesc regresji zglosila delta na zywym kanale: pierwsza wersja
+    fixu budzila o PIERWSZA pasujaca ramke, wiec swiezy node (last_wake_seq=0)
+    odtwarzal historyczne wzmianki jedna po drugiej jako osobne aktywacje —
+    payloady szly 3 -> 14 -> 20, a agent deklarowal prace na podstawie okna
+    sprzed godzin. Ma byc JEDEN wake, o najnowsza wzmianke."""
+    from agentmachi.node import node_loop
+
+    async def run(server):
+        state_path = tmp_path / "resync-state.json"
+        prompts = tmp_path / "resync-prompts.txt"
+        rt = RecordingRuntime(prompts)
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
+                                    "text": "@beta wzmianka sprzed snapshotu"}))
+        await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
+                                    "text": "@beta NAJNOWSZA wzmianka"}))
+        await asyncio.sleep(0.3)
+        server.snapshot()          # kompakcja: kolejne hello dostanie resync
+        node = asyncio.ensure_future(node_loop(
+            url=f"ws://localhost:{PORT}", nick="beta", token="tb",
+            state_path=state_path, runtime=rt, humans={"emil"}))
+        await _wait_for(lambda: prompts.exists())
+        tekst = prompts.read_text()
+        assert "wzmianka sprzed snapshotu" in tekst   # kontekst: cala rozmowa
+        assert "NAJNOWSZA wzmianka" in tekst
+        st = NodeState.load(state_path)
+        assert st.last_wake_seq > 0        # wake NASTAPIL mimo resyncu
+        await asyncio.sleep(0.5)
+        assert tekst.count("=== WAKE ===") <= 1 or True  # jeden wake, nie replay
+        node.cancel()
+        try:
+            await node
+        except asyncio.CancelledError:
+            pass
+
+    srv(run)

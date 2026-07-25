@@ -35,6 +35,7 @@ petli/reconnect je zlapie), nie parsuje odpowiedzi agenta, nie zarzadza
 worktree.
 """
 import asyncio
+import sys
 import dataclasses
 import json
 import os
@@ -395,12 +396,36 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
         rules = reply.get("rules")
         participants = reply.get("participants", [])
         if reply.get("type") == "resync_required":
-            # historia skompaktowana: kursor kontekstu = snapshot_seq,
-            # stanu kolejki/rejestru node nie obchodzi (nie ma wlasnej
-            # kopii taskow) — jedzie dalej od tego punktu.
+            # Historia skompaktowana. Hub NIE zostawia nas wtedy bez pamieci:
+            # resync niesie rozmowe w polu `conversation` (F1/B5 —
+            # chat/server.py). Wczesniej node czytal wylacznie `backlog`,
+            # przesuwal kursor na snapshot_seq i szedl dalej — czyli KAZDA
+            # wzmianka z okresu objetego resyncem przepadala bez sladu.
+            #
+            # Zmierzone na zywym kanale: kursor przesuwal sie 292 -> 296,
+            # `wake_times` zostawalo puste, a agent nie budzil sie ani razu
+            # mimo trzech wzmianek pod rzad. Wygladalo to na wine adaptera
+            # Codeksa; bylo wada wspolna dla obu runtime'ow, ktorej nikt nie
+            # zobaczyl, bo node testowano na swiezym logu bez kompakcji.
+            rozmowa = [f for f in reply.get("conversation", []) if isinstance(f, dict)]
+            budzace = [f for f in rozmowa
+                       if _should_wake(f, nick, groups, state.last_wake_seq)]
+            if budzace:
+                # OSTATNIA, nie pierwsza. Swiezy node ma last_wake_seq=0, wiec
+                # po resyncu pasuje mu KAZDA historyczna wzmianka — obudzony
+                # pierwsza dostaje w preambule "obudzila cie ramka seq=3"
+                # sprzed godzin, mimo ze realnym sygnalem bylo ostatnie seq.
+                # Zglosila delta na zywym kanale: wake zadzialal, ale agent
+                # zadeklarowal prace na podstawie nieaktualnego okna i musial
+                # sie wycofac. Kontekst i tak obejmuje cala `rozmowa`.
+                await _handle_wake(ws, nick, budzace[-1], state, state_path,
+                                   runtime, humans, limiter, now, groups,
+                                   rules, participants, rozmowa)
             snapshot_seq = reply.get("snapshot_seq")
             if isinstance(snapshot_seq, int) and not isinstance(snapshot_seq, bool):
-                state.last_context_seq = snapshot_seq
+                # kursor dopiero PO obsluzeniu wzmianek — inaczej przeskoczylby
+                # nad nimi i te same ramki nigdy by juz nie wrocily
+                state.last_context_seq = max(state.last_context_seq, snapshot_seq)
                 state.save(state_path)
         else:
             backlog = [f for f in reply.get("backlog", []) if isinstance(f, dict)]
@@ -423,10 +448,18 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
                 return
 
 
+def _log(msg):
+    """Diagnostyka node'a na stderr. Node bez tego jest czarna skrzynka:
+    proces zyje, kursor stoi, plik logu ma zero bajtow — nie da sie odroznic
+    'czeka na wzmianke' od 'padl i retry'uje w kolko'."""
+    print(f"[node] {msg}", file=sys.stderr, flush=True)
+
+
 async def node_loop(url, nick, token, state_path, runtime, humans,
                     limiter=None, now=time.time):
     limiter = limiter or RateLimiter()
     backoff = BACKOFF_START
+    _log(f"node startuje: nick={nick} runtime={getattr(runtime, 'name', '?')} url={url}")
     while True:
         try:
             # Normalny (nie-wyjatkowy) powrot z _one_connection oznacza
@@ -439,6 +472,12 @@ async def node_loop(url, nick, token, state_path, runtime, humans,
                                   humans, limiter, now)
             backoff = BACKOFF_START
         except (OSError, asyncio.TimeoutError,
-                websockets.exceptions.ConnectionClosed):
+                websockets.exceptions.ConnectionClosed) as e:
+            # BEZ TEJ LINII node jest nieodrozninalny od dzialajacego: proces
+            # zyje, kursor stoi, log pusty. Zmierzone na zywym kanale —
+            # diagnoza "node sie nie laczy" byla falszywa, bo brak logu
+            # wygladal jak brak polaczenia.
+            _log(f"polaczenie przerwane ({type(e).__name__}: {e}); "
+                 f"ponowie za {backoff:.0f}s")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, BACKOFF_MAX)
