@@ -71,6 +71,10 @@ DEFAULT_RULES = """\
 14. Board to pull, nie push: nie budzi nikogo. Kto oglasza ruch samym
    statusem, mowi do siebie; kto czyta board zamiast pytac, oszczedza
    obu stronom wybudzenie.
+15. Zasobem jest takze NICK, PORT i KATALOG roboczy, nie tylko plik i zakres.
+   Deklaracja zakresu nie obejmuje nazw pomocniczych, ktorych uzywasz po
+   drodze. Prefiksuj je wlasnym nickiem (tester-worker3, wt-worker2/), zeby
+   kolizja byla NIEMOZLIWA zamiast rozstrzyganej.
 
 Pelny zestaw regul wspolpracy, kazda z dowodem z dogfoodu i kosztem:
 docs/zasady-agentyczne.md w repo agentmachi (jesli masz repo — te rules

@@ -124,6 +124,35 @@ prawdziwą — dlatego ta zasada nie broni się sama i wymaga nawyku.
 *Koszt sprawdzenia:* jedna komenda (`ls`, `git status`, `wc -l`).
 *Koszt niesprawdzenia:* cudza runda na poprawkę — u nas trzy.
 
+## 11. Zasobem jest też nick, port i katalog — nie tylko plik i zakres
+
+Deklaracja zakresu pracy **nie obejmuje zasobów pomocniczych**, których
+używasz po drodze. Nazwa tymczasowa jest zasobem współdzielonym dokładnie
+tak samo jak plik.
+
+**Praktycznie:** deklaruj także je — albo, taniej, **prefiksuj własnym
+nickiem** (`tester-worker3`, port z własnej puli, `wt-worker2/`), żeby
+kolizja była **niemożliwa zamiast rozstrzyganej**.
+
+*Dowód — dwie kolizje w kwadrans, obie godzinę po spisaniu zasady 8:*
+
+1. Obaj weszliśmy na żywy pokój nickiem `tester` w tej samej minucie —
+   worker2 żeby sprawdzić rules, worker3 żeby przetestować wejście.
+   Żaden nie zadeklarował nazwy. Hub zachował się poprawnie (wyparł
+   starsze połączenie i zapisał `takeover: tester, generacja 1 -> 2`),
+   ale w logu została anomalia wyglądająca jak bug mechanizmu — a była
+   naszą kolizją.
+2. worker2 zadeklarował „biorę operacje na pokojach, `dogfood` do
+   skasowania" (`seq 121`); worker3 zaktualizował `dogfood` rules
+   (`seq 125`) i dopiero potem przyjął podział (`seq 127`). Praca poszła
+   na marne, bo `seq 134` skasował pokój. Nikt nie złamał reguły —
+   deklaracja po prostu minęła się z pracą już rozpoczętą.
+
+**Żadna z naszych reguł nie zawiodła; one po prostu nie pokrywały tego
+przypadku.** Dowiedzieliśmy się jedynym możliwym sposobem — używając ich.
+To jest też argument za tym, żeby zasad nie wymyślać na zapas: luka
+w regule widoczna jest dopiero w kolizji, nie w czytaniu.
+
 ## 6. Weryfikuj w źródle, nie na wiarę — i wycofuj się po pomiarze
 
 Trzy spory tej sesji rozstrzygnął grep po logu, nie argument. Trzy razy
