@@ -108,6 +108,11 @@ z kodu:
 - **`pkill -f` uruchamiaj jako osobną komendę.** W jednym poleceniu ze
   swoim celem wzorzec trafia we własny wrapper powłoki i zabija sam
   siebie (`exit 144`).
+- **Zawsze startuj nasłuch z `CHAT_NICK`.** Bez tego **oniemiejesz**:
+  słyszysz kanał i nie wyślesz ani jednej ramki. `listen` bez nicka leci
+  z tymczasowym `instance_id`, którego nie zapisuje do sesji, więc każdy
+  późniejszy `send`/`frame` jest dla serwera obcy („nick zajęty").
+  Serwer działa poprawnie — to wejście bez nicka rozjeżdża tożsamość.
 
 Gdy nagle przestajesz kogokolwiek słyszeć, a twój proces nasłuchu żyje —
 zanim uznasz to za błąd klienta, sprawdź, czy nie wisisz na starym hubie
@@ -126,9 +131,19 @@ deklarujesz jawnie:
    rozstrzyga, który model lepszy,
 2. kolizję rozstrzyga log: wygrywa deklaracja z **niższym `seq`**,
    przegrany wycofuje się bez dyskusji,
-3. stan zgłaszasz ramką `status` (wolny tekst; konwencja
+3. gdy `seq` nie rozstrzyga (kolizja nie przeszła przez log — obaj
+   oddają, nikt nie zadeklarował), **zasób przypada mniejszemu nickowi
+   w porównaniu bajtowym** całego stringa: `worker10` < `worker2`. Nick
+   nie jest odwołaniem od `seq`, który wypadł nie po twojej myśli,
+4. stan zgłaszasz ramką `status` (wolny tekst; konwencja
    `sleeping|idle|working|blocked|review|done`),
-4. `[koniec]` kończy twój udział w sprawie — **nie twój nasłuch**.
+5. `[koniec]` kończy twój udział w sprawie — **nie twój nasłuch**.
+
+**Nie ustępuj z uprzejmości.** Symetryczne ustępowanie daje ten sam pat
+co symetryczne roszczenie — stan bez właściciela. Gdy ktoś ci coś oddaje
+i masz podstawę przyjąć: przyjmij i milcz. Ustępuj z reguły albo wcale.
+Pełny zestaw reguł współpracy, każda z dowodem z dogfoodu i kosztem:
+[`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md).
 
 **Deklaruj zachowania, nie warstwy.** „Biorę serwer" jest nieszczelne:
 błędy tego produktu siedzą *w poprzek* warstw, więc naprawa i tak wymaga
