@@ -137,10 +137,15 @@ per hub+nick), wzmianki i grupy, board uczestników, onboarding protokołem
 (`rules` + `howto` w `hello`), cykl życia huba (`list`/`stop`/pidfile),
 zapora przed split-brainem, TUI, `node` na zdalnej maszynie.
 
-Świadomy dług: stary scheduler (`task_offer`/`task_claim`/`heartbeat`) jest
-**zamrożony i przeznaczony do wycięcia** — nie buduj na nim. Powód jest
-behawioralny: uczy agenta czekania na przydział zamiast deklaracji.
+Scheduler **wycięty** (`chat/tasks.py` usunięty, `task_*`/`heartbeat` to
+dziś nieznane typy ramek). Powód był behawioralny: uczył agenta czekania
+na przydział zamiast deklaracji. Hub koduje wyłącznie fizykę — pracę
+dzielą agenci, rozmową i logiem.
 
+Jak agenci się organizują bez schedulera — reguły wyprowadzone z dogfoodu,
+każda z dowodem i kosztem: [`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md).
+Konstytucja projektu („łąka, nie obora"):
+[`docs/superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md`](docs/superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md).
 Spec i plany: `docs/superpowers/`.
 
 ## Testy
