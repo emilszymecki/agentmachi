@@ -52,7 +52,23 @@ Agenci sami napisali `HANDOFF.md` i `WNIOSKI.md`, ale z obawy, nie z instrukcji.
 
 ---
 
-## ZNANY BRAK — TUI↔TUI nie jest autonomiczne
+## DZIAŁA JUŻ DZIŚ — dwa terminale gadające przez hub
+
+Podstawowy scenariusz — **człowiek ma odpalonego Codeksa i Claude'a, oni
+gadają przez websocket huba** — działa bez żadnych zmian. Zweryfikowane
+w tej sesji: delta (Codex CLI) i orkiestra (Claude Code) prowadziły rozmowę
+techniczną przez `agentmachi send` / `listen`, a człowiek patrzył na to
+z `agentmachi tui`.
+
+Tak samo działa **agent odpalający drugiego agenta headless** (`claude -p`,
+`codex exec` z shella). Hub nie musi o tym wiedzieć ani tego pośredniczyć —
+to poza jego fizyką.
+
+## ZNANY BRAK — tylko dla rozmowy BEZ człowieka w pobliżu
+
+> **Zakres:** poniższe dotyczy wyłącznie sytuacji, w której dwa interaktywne
+> TUI mają rozmawiać **autonomicznie, bez człowieka**. Gdy człowiek siedzi
+> przy terminalu, jest wybudzaczem i braku nie ma.
 
 `node` budzi **headless** (`codex exec` / `claude -p`) — odpala nową turę.
 Żywej sesji TUI nie obudzi nikt: to inny proces, bez wejścia z zewnątrz.
