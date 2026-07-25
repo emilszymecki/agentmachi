@@ -1822,3 +1822,71 @@ def test_b7_loopback_bind_does_not_bind_addr(srv):
         assert r2["type"] in ("ok", "resync_required")
         await ws2.close()
     asyncio.run(srv(scenario))
+
+
+def test_quiet_nie_budzi_agenta_ale_zapisuje_i_dociera_do_czlowieka(srv):
+    """`--quiet` to PUBLIKACJA, nie zawolanie: ramka ma wyladowac w logu
+    i dojsc do ludzi, ale NIE wyrwac agenta z pracy — nawet wzmiankowanego.
+
+    Po co: dzis jedynym sposobem opublikowania czegokolwiek jest obudzenie
+    wszystkich adresatow, wiec autorowi OPLACA SIE pisac dlugo (jedna gesta
+    ramka oszczedza mu trzy rundy pytan). W dogfoodzie kinas-machine dalo to
+    ramki po 2-3 tys. znakow — ekonomia narzedzia premiowala obciazanie
+    innych. To MOZLIWOSC, nie decyzja za agenta: nadawca sam wybiera, czy
+    jego raport ma kogos wyrywac z pracy."""
+
+    async def scenariusz(server):
+        emil, _ = await hello("emil", "te", role="human")
+        alfa, _ = await hello("alfa", "ta", instance="i2")
+        beta, _ = await hello("beta", "tb", instance="i3")
+
+        await beta.send(json.dumps({
+            "type": "chat", "from": "beta", "ts": 0.0,
+            "text": "@alfa raport z pomiarow", "quiet": True}))
+
+        # czlowiek DOSTAJE (moderuje, wiec widzi wszystko)
+        u_emila = await recv(emil)
+        assert u_emila["text"] == "@alfa raport z pomiarow"
+
+        # wzmiankowany agent NIE dostaje pusha
+        with pytest.raises(asyncio.TimeoutError):
+            await recv(alfa, timeout=0.4)
+
+        # ale ramka JEST w logu — alfa znajdzie ja, gdy sama zajrzy
+        assert any(e.get("text") == "@alfa raport z pomiarow"
+                   for e in server.log.conversation_after(0))
+        for ws in (emil, alfa, beta):
+            await ws.close()
+
+    srv(scenariusz)
+
+
+def test_board_pokazuje_ostatnia_ramke_uczestnika(srv):
+    """`connected` mowi tylko, ze gniazdo jest otwarte — a gniazdo zyje
+    niezaleznie od tego, czy ktos po drugiej stronie czyta. W dogfoodzie
+    kinas-machine dwa agenty mialy procesy z uptime 2h, gniazda ESTAB
+    i przesuwajacy sie kursor, a model nie zobaczyl ani jednej ramki; hub
+    raportowal je jako obecne. `last_seq` odroznia 'siedzi cicho' od
+    'oglochl 76 ramek temu' — bez nowego mechanizmu, z danych ktore juz sa
+    w logu."""
+
+    async def scenariusz(server):
+        emil, _ = await hello("emil", "te", role="human")
+        beta, r_beta = await hello("beta", "tb", instance="i2")
+
+        # nikt jeszcze nic nie powiedzial
+        board = {p["nick"]: p for p in server._participants_snapshot()}
+        assert board["beta"]["last_seq"] == 0
+
+        await beta.send(json.dumps({"type": "chat", "from": "beta",
+                                    "ts": 0.0, "text": "@emil jestem"}))
+        await recv(emil)
+
+        board = {p["nick"]: p for p in server._participants_snapshot()}
+        assert board["beta"]["last_seq"] > 0        # beta sie odezwala
+        assert board["beta"]["connected"] is True
+        assert board["gamma"]["last_seq"] == 0      # gamma milczy od poczatku
+        for ws in (emil, beta):
+            await ws.close()
+
+    srv(scenariusz)

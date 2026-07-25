@@ -459,6 +459,70 @@ def cmd_list(args):
     return 0
 
 
+def _wlasne_pidy():
+    """PID-y, ktorych NIGDY nie wolno ubic: my sami i cala nasza linia
+    rodzicow. To jest caly sens tej komendy — `pkill -f <wzorzec>` dopasowuje
+    takze WLASNY wrapper powloki, bo wzorzec siedzi w jego argv, i zabija
+    sam siebie (exit 144). Ostrzezenie o tym jest w skillu od dawna; w jednej
+    sesji dogfoodu weszlo w te pulapke DWOCH agentow, obaj po przeczytaniu
+    ostrzezenia. Dokumentacja nie jest zabezpieczeniem."""
+    swoje = {os.getpid()}
+    pid = os.getppid()
+    while pid and pid > 1 and pid not in swoje:
+        swoje.add(pid)
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                pid = int(f.read().split(") ", 1)[1].split()[1])
+        except (OSError, IndexError, ValueError):
+            break
+    return swoje
+
+
+def cmd_kill(args):
+    """Ubij procesy pasujace do wzorca — bez zabijania samego siebie."""
+    wzorzec = args.wzorzec
+    swoje = _wlasne_pidy()
+    trafione = []
+    for wpis in Path("/proc").iterdir():
+        if not wpis.name.isdigit():
+            continue
+        pid = int(wpis.name)
+        if pid in swoje:
+            continue
+        try:
+            cmdline = (wpis / "cmdline").read_bytes().replace(b"\0", b" ").decode(
+                "utf-8", "replace").strip()
+        except OSError:
+            continue
+        if wzorzec in cmdline:
+            trafione.append((pid, cmdline))
+
+    if not trafione:
+        print(f"agentmachi kill: nic nie pasuje do {wzorzec!r}")
+        return 0
+
+    for pid, cmdline in trafione:
+        print(f"  {pid}  {cmdline[:100]}")
+    if args.dry_run:
+        print(f"(--dry-run: nic nie ubito; {len(trafione)} pasuje)")
+        return 0
+
+    sig = signal.SIGKILL if args.force else signal.SIGTERM
+    ubite = 0
+    for pid, _ in trafione:
+        try:
+            os.kill(pid, sig)
+            ubite += 1
+        except ProcessLookupError:
+            pass          # zdazyl sam sie skonczyc — nie jest bledem
+        except PermissionError:
+            print(f"agentmachi kill: brak uprawnien do {pid}", file=sys.stderr)
+    print(f"agentmachi kill: wyslano {sig.name} do {ubite} "
+          f"proces{'u' if ubite == 1 else 'ow'} "
+          f"(pominieto wlasne: {len(swoje)})")
+    return 0
+
+
 def cmd_stop(args):
     pid = hub_pid(args.name)
     if pid is None:
@@ -683,7 +747,8 @@ def cmd_tui(args):
 def cmd_send(args):
     _agent_env(args)
     send = _import_send()
-    asyncio.run(send.send_once(args.nick, args.text))
+    asyncio.run(send.send_once(args.nick, args.text,
+                               quiet=getattr(args, "quiet", False)))
     return 0
 
 
@@ -799,6 +864,13 @@ def _build_parser():
     p = sub.add_parser("list", help="jakie kanaly istnieja i ktore dzialaja")
     p.set_defaults(fn=cmd_list)
 
+    p = sub.add_parser("kill", help="ubij procesy po wzorcu — BEZ zabijania "
+                                    "samego siebie (pkill -f tego nie umie)")
+    p.add_argument("wzorzec", help="fragment linii polecen, np. 'agentmachi listen'")
+    p.add_argument("--force", action="store_true", help="SIGKILL zamiast SIGTERM")
+    p.add_argument("--dry-run", action="store_true", help="tylko pokaz, nie ubijaj")
+    p.set_defaults(fn=cmd_kill)
+
     p = sub.add_parser("stop", help="zatrzymaj hub (SIGTERM po PID z hub.pid)")
     p.add_argument("--name", default=DEFAULT_HUB)
     p.set_defaults(fn=cmd_stop)
@@ -815,6 +887,8 @@ def _build_parser():
     p.add_argument("nick")
     p.add_argument("text")
     p.add_argument("--name", default=None)
+    p.add_argument("--quiet", action="store_true",
+                   help="opublikuj bez budzenia agentow (ludzie dostaja i tak)")
     p.set_defaults(fn=cmd_send)
 
     p = sub.add_parser("listen", help="resumowalny nasluch (kursor+lock)")

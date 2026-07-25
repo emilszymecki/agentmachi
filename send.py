@@ -246,13 +246,17 @@ def _apply_hello_reply(session, reply):
             session.advance(snapshot_seq)
 
 
-async def send_once(nick, text):
+async def send_once(nick, text, quiet=False):
+    """quiet=True: ramka trafia do logu i do ludzi, ale NIE budzi agentow.
+    Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
     token = _require_token()
     session = _session(nick)  # kursor tylko do odczytu — nie ruszamy go
     async with websockets.connect(URI) as ws:
         await do_hello(ws, nick, session, token)
-        await ws.send(json.dumps({"type": "chat", "from": nick,
-                                  "ts": 0.0, "text": text}))
+        frame = {"type": "chat", "from": nick, "ts": 0.0, "text": text}
+        if quiet:
+            frame["quiet"] = True
+        await ws.send(json.dumps(frame))
 
 
 async def listen(nick):

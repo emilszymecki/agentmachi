@@ -255,11 +255,25 @@ class ChatServer:
         # nie zobaczylby, kogo ma wyrzucic, a inni agenci nie wiedzieliby, ze
         # ktos doszedl. Zrodlem jest suma: konfiguracja + realne polaczenia.
         znani = set(self.registry.tokens) | set(self.registry.roles)
+        # last_seq: numer OSTATNIEJ ramki, ktora ten uczestnik wyslal.
+        # `connected` mowi tylko tyle, ze gniazdo jest otwarte — a gniazdo
+        # zyje niezaleznie od tego, czy ktokolwiek po drugiej stronie czyta.
+        # W dogfoodzie kinas-machine dwa agenty mialy procesy z uptime 2h,
+        # gniazda ESTAB i przesuwajacy sie kursor, a model nie zobaczyl ani
+        # jednej ramki; hub raportowal je jako obecne, czlowiek trzy razy
+        # pytal "czemu stoicie". Dane sa juz w logu — to tylko ich pokazanie,
+        # bez nowego mechanizmu i bez zmian w protokole.
+        ostatnia = {}
+        for e in self.log.conversation_after(0):
+            nadawca, seq = e.get("from"), e.get("seq")
+            if isinstance(seq, int) and not isinstance(seq, bool):
+                ostatnia[nadawca] = max(ostatnia.get(nadawca, 0), seq)
         return [{"nick": nick,
                  "role": self.registry.role_of(nick),
                  "groups": sorted(self.registry.groups_of(nick)),
                  "connected": bool(self.conns.get(nick)),
-                 "status": self.status.get(nick)}
+                 "status": self.status.get(nick),
+                 "last_seq": ostatnia.get(nick, 0)}
                 for nick in sorted(znani | set(self.conns))]
 
     def _wolny_nick(self, prefix="worker"):
@@ -327,6 +341,25 @@ class ChatServer:
     async def _publish_chat(self, event, mentions, groups_mentioned, unknown_groups):
         sender = event["from"]
         targets = set()
+        if event.get("quiet"):
+            # PUBLIKACJA, NIE ZAWOLANIE. Ramka ląduje w logu i dociera do ludzi
+            # (oni i tak dostają wszystko), ale NIE budzi żadnego agenta —
+            # nawet wzmiankowanego.
+            #
+            # Po co: dziś jedynym sposobem opublikowania czegokolwiek jest
+            # obudzenie wszystkich adresatów. Napisanie kosztuje autora raz,
+            # przeczytanie kosztuje każdego wzmiankowanego — więc autorowi
+            # OPŁACA SIĘ pisać długo, bo jedna gęsta ramka oszczędza mu trzy
+            # rundy pytań. W dogfoodzie kinas-machine dało to ramki po 2-3 tys.
+            # znaków. Ekonomia narzędzia premiowała obciążanie innych.
+            #
+            # To jest MOŻLIWOŚĆ, nie decyzja za agenta: nadawca sam wybiera,
+            # czy jego raport ma kogoś wyrywać z pracy, czy poczekać w logu.
+            targets |= {n for n, r in self.roles.items()
+                        if r == "human" and n != sender and n in self.conns}
+            for nick in targets:
+                await self._send(nick, event)
+            return
         if "all" in mentions:
             targets |= set(self.conns) - {sender}
         else:

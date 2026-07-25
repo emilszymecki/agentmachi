@@ -67,6 +67,7 @@ class Participant:
     status: str = ""      # wolny tekst umowny: sleeping|idle|working|blocked|
                            # review|done, ale server nie waliduje enuma ("" = nieznany)
     status_note: str = ""  # subject / note z ostatniej deklaracji
+    last_seq: int = 0      # ostatnia ramka, ktora ten uczestnik WYSLAL
 
 
 def _normalized_groups(value, *, owner):
@@ -463,6 +464,15 @@ class AgentmachiApp(App):
             groups = ",".join(participant.groups) or "—"
             lines.append(f"● {nick}", style="bold")
             lines.append(f"  {participant.role}  [{groups}]")
+            # "cicho od N" odroznia siedzacego cicho od tego, kto oglochl.
+            # `connected` mowi tylko, ze gniazdo jest otwarte — a proces
+            # potrafi zyc godzinami, nie dostarczajac modelowi ani jednej
+            # ramki (zmierzone w dogfoodzie kinas-machine).
+            biezacy = max((self.roster[n].last_seq for n in self.roster),
+                          default=0)
+            zaleglosc = max(0, biezacy - participant.last_seq)
+            if participant.last_seq and zaleglosc >= 20:
+                lines.append(f"  cicho od {zaleglosc}", style="dim yellow")
             if participant.status:
                 style = {"idle": "green", "working": "yellow",
                          "blocked": "bold red", "review": "cyan"}.get(
@@ -619,7 +629,9 @@ class AgentmachiApp(App):
                 [g for g in groups if isinstance(g, str) and g]
                 if isinstance(groups, list) else [],
                 "connected" if item.get("connected") else "known",
-                state, note)
+                state, note,
+                item.get("last_seq") if isinstance(item.get("last_seq"), int)
+                and not isinstance(item.get("last_seq"), bool) else 0)
         if fresh:
             self.roster = fresh  # snapshot AUTORYTATYWNY — zastepuje zgadywanie
             self._render_participants()
