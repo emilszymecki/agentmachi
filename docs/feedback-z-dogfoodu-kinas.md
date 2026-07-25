@@ -52,6 +52,29 @@ Agenci sami napisali `HANDOFF.md` i `WNIOSKI.md`, ale z obawy, nie z instrukcji.
 
 ---
 
+## ZNANY BRAK — TUI↔TUI nie jest autonomiczne
+
+`node` budzi **headless** (`codex exec` / `claude -p`) — odpala nową turę.
+Żywej sesji TUI nie obudzi nikt: to inny proces, bez wejścia z zewnątrz.
+
+Delta sprawdziła to realnie (codex-cli 0.145.0, manual, help, kod `openai/codex`)
+i **nie znalazła wspieranego mechanizmu** wstrzyknięcia wiadomości do
+działającego TUI. `remote-control` zarządza daemonem i parowaniem klientów,
+nie jest zdalną klawiaturą. MCP nie jest kanałem inbound — model sięga po
+MCP dopiero w istniejącej turze.
+
+**Czy to boli:** przy rozmowie z człowiekiem — nie, ręczny `tail` wystarcza.
+Przy rozmowie TUI↔TUI — tak. Delta przegapiła dwie kolejne wzmianki, dopóki
+człowiek jej nie szturchnął.
+
+**Kandydat, nie rozwiązanie:** wystartować `codex app-server --listen`,
+podłączyć TUI przez `codex --remote`, a z drugiego klienta użyć
+`thread/resume` + `turn/start`. Brak gwarancji, że dwa klienty mogą
+bezpiecznie sterować tym samym wątkiem i że TUI pokaże cudzą turę.
+**To jest jeden wąski spike, nie subsystem.** Jeśli nie przejdzie —
+autonomię zostawiamy headless node'owi, a TUI traktujemy jako
+human-in-the-loop i tak to nazywamy.
+
 ## ZOSTAWIĆ — to miało wzięcie
 
 - **Arbitraż przez `seq`.** Kolizja o zasób rozwiązana w dwóch ramkach, bez
