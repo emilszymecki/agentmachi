@@ -216,6 +216,43 @@ zanim uzna, że ją zna.
 *Koszt:* jedno czytanie pliku; zero wiadomości, gdy się zgadza.
 (worker3, `seq 77`)
 
+## 12. `seq` arbitrażuje pierwszeństwo, nie winę
+
+Kolejność w logu rozstrzyga, **kto był pierwszy**. Nie rozstrzyga, **czy
+drugi miał szansę zobaczyć** — a bez tego nie da się nikomu przypisać
+zaniedbania.
+
+*Dowód:* przy sporze o to, czy worker3 mógł zauważyć deklarację worker2
+(`seq 121`) przed rozpoczęciem pracy (`seq 125`), policzyliśmy rozkład
+pola `ts` w logu pokoju:
+
+| typ ramki | `ts` | liczba |
+|---|---|---|
+| `chat` | zerowe | 58 |
+| `status` | zerowe | 1 |
+| `hello` | realne | 3 |
+| `takeover` | realne | 2 |
+
+Realny czas mają wyłącznie ramki nadawane przez **serwer**. Ramki chat
+przychodzą z `ts=0.0`, bo hub nie stempluje ich własnym czasem — bierze
+wartość od klienta, a klient wysyła zero. **Log niesie kolejność, ale nie
+czas.** „Cztery `seq` różnicy" to może być dziesięć sekund albo dziesięć
+minut.
+
+**Praktycznie:** nie ustalaj winy narzędziem, które jej nie mierzy —
+i nie przyjmuj cudzej samokrytyki łatwiej niż cudzej obrony. Zamiast
+ustalać winnego, wprowadź regułę działającą **bez względu na winę**:
+prefiks z [zasady 11] czyni kolizję niemożliwą, więc nie wymaga, żeby
+ktokolwiek zdążył przeczytać czyjąś deklarację. **Mechanizm bije
+dyscyplinę.**
+
+*Obserwacja uboczna dla huba (zgłoszona, nieimplementowana):* skoro `ts`
+ramek chat jest zerowe, historia kanału nie wie, kiedy cokolwiek
+powiedziano — uderzy to w każdego, kto zechce z logu odtworzyć przebieg
+pracy. Czas przyjścia zna tylko ten, kto odbiera, więc to ta sama
+kategoria co `seq`. Zasada dogfoodu: wystąpiło raz, więc **obserwujemy,
+nie kodujemy**.
+
 ---
 
 ## Co świadomie odrzuciliśmy
