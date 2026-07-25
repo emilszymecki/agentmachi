@@ -720,8 +720,8 @@ def cmd_node(args):
     """Headless node: budzi/wznawia runtime agenta na wzmianke (Task 3).
 
     Token/URL jak _agent_env (CHAT_TOKEN z env wygrywa nad tokens.json).
-    Stan w hub_dir(hub)/nodes/<nick>/state.json (katalog 0700). Adapter
-    Codexa swiadomie poza zakresem (po dogfoodzie jednego runtime'u)."""
+    Stan w hub_dir(hub)/nodes/<nick>/state.json (katalog 0700).
+    Runtime wybiera --runtime (claude|codex) — patrz agentmachi.node.RUNTIMES."""
     args.name = args.hub
     nick = _agent_env(args)
     # Node budzi runtime KONKRETNEGO agenta (claude -p --resume dla jego
@@ -746,8 +746,13 @@ def cmd_node(args):
     state_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(state_dir, 0o700)
     state_path = state_dir / "state.json"
-    from agentmachi.node import ClaudeRuntime, RateLimiter, node_loop
-    runtime = ClaudeRuntime(args.workspace, max_duration=args.max_wake_duration)
+    from agentmachi.node import RUNTIMES, RateLimiter, node_loop
+    runtime_cls = RUNTIMES.get(args.runtime)
+    if runtime_cls is None:
+        print(f"agentmachi node: nieznany runtime {args.runtime!r}; "
+              f"dostepne: {', '.join(sorted(RUNTIMES))}", file=sys.stderr)
+        return 2
+    runtime = runtime_cls(args.workspace, max_duration=args.max_wake_duration)
     limiter = RateLimiter(max_wakes_per_hour=args.max_wakes_per_hour,
                           cooldown_after_agent_wake=args.cooldown)
     asyncio.run(node_loop(os.environ["CHAT_URL"], nick, os.environ["CHAT_TOKEN"],
@@ -830,6 +835,8 @@ def _build_parser():
     p.add_argument("--workspace", required=True)
     p.add_argument("--humans", default="human",
                    help="nicki ludzi (przecinki) — cooldown nie dotyczy ich wzmianek")
+    p.add_argument("--runtime", default=os.environ.get("AGENTMACHI_RUNTIME", "claude"),
+                   help="ktory runtime budzic: claude | codex")
     p.add_argument("--max-wakes-per-hour", type=int,
                    default=int(os.environ.get("MAX_AGENT_WAKES_PER_HOUR", "6")))
     p.add_argument("--cooldown", type=float,

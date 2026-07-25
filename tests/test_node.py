@@ -415,3 +415,66 @@ def test_node_reports_runtime_failure_on_channel_and_keeps_going(tmp_path, srv):
             pass
         await emil.close()
     asyncio.run(srv(run))
+
+
+# --- Adapter Codeksa: druga strona neutralnosci wobec harnessu -------------
+
+def test_codex_runtime_reports_thread_id_and_resumes(tmp_path):
+    """Node budzil dotad wylacznie Claude — agent na Codeksie musial recznie
+    pollowac listen i w dogfoodzie kinas-machine przegapil przez to polecenie
+    czlowieka. Ten test pilnuje drugiego adaptera: swiezy watek daje nowy
+    thread_id, a wznowienie niesie ten sam."""
+    from agentmachi.node import CodexRuntime
+    seen = []
+    rt = CodexRuntime(workspace=str(tmp_path), max_duration=10.0,
+                      argv0=[sys.executable,
+                             str(Path(__file__).parent / "fake_codex.py")])
+    code = asyncio.run(rt.run("preambula", session_id=None,
+                              on_session_id=seen.append))
+    assert code == 0 and seen == ["fresh-thread"]
+    code = asyncio.run(rt.run("preambula", session_id="old-thread",
+                              on_session_id=seen.append))
+    assert code == 0 and seen[-1] == "old-thread"
+
+
+def test_codex_runtime_argv_uses_resume_subcommand_not_flag(tmp_path):
+    """Codex wznawia PODKOMENDA `exec resume <id>`, nie flaga `--resume`.
+    Pomylka daje proces, ktory startuje swiezy watek przy kazdym wake i gubi
+    kontekst — bez tego testu wyszloby to dopiero na zywym kanale."""
+    from agentmachi.node import CodexRuntime
+    rt = CodexRuntime(workspace=str(tmp_path), argv0=["codex"])
+    swiezy = rt._argv(None)
+    wznowiony = rt._argv("abc-123")
+    assert swiezy[:2] == ["codex", "exec"] and "resume" not in swiezy
+    assert wznowiony[:2] == ["codex", "exec"]
+    assert wznowiony[-3:] == ["resume", "abc-123", "-"]
+    assert swiezy[-1] == "-" and wznowiony[-1] == "-"   # prompt ze stdin
+    assert "--json" in swiezy and "--json" in wznowiony
+    # KOLEJNOSC: --sandbox jest opcja `exec`, NIE podkomendy `resume`.
+    # Podane po `resume` daje "error: unexpected argument". Zlapane na zywym
+    # CLI, nie na fake'u — dlatego asercja pilnuje pozycji, nie samej obecnosci.
+    assert wznowiony.index("--sandbox") < wznowiony.index("resume")
+
+
+def test_codex_runtime_max_duration_kills_hung_child(tmp_path):
+    """Ten sam sufit rundy co dla Claude — wspolna baza, wiec dowodzimy, ze
+    drugi adapter faktycznie ja dziedziczy, a nie ma wlasnej kopii bez fixow."""
+    from agentmachi.node import CodexRuntime
+    rt = CodexRuntime(workspace=str(tmp_path), max_duration=0.5,
+                      argv0=[sys.executable,
+                             str(Path(__file__).parent / "fake_codex.py"),
+                             "--hang"])
+    big_prompt = "x" * (300 * 1024)
+    start = time.monotonic()
+    code = asyncio.run(asyncio.wait_for(
+        rt.run(big_prompt, session_id=None, on_session_id=lambda sid: None),
+        timeout=5.0))
+    assert code == -9 and time.monotonic() - start < 2.0
+
+
+def test_state_zapisuje_nazwe_realnego_runtime(tmp_path):
+    """state.json agenta na Codeksie nie moze twierdzic, ze to Claude —
+    wznowienie sesji szukaloby jej w niewlasciwym runtime."""
+    from agentmachi.node import CodexRuntime, ClaudeRuntime, _new_state
+    assert _new_state("gamma", CodexRuntime(str(tmp_path))).runtime == "codex"
+    assert _new_state("alfa", ClaudeRuntime(str(tmp_path))).runtime == "claude"

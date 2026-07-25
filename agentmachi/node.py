@@ -113,20 +113,30 @@ class RateLimiter:
         return None
 
 
-class ClaudeRuntime:
-    """Adapter Claude Code headless. argv0 podmienialne w testach."""
+class _SubprocessRuntime:
+    """Wspolna mechanika adapterow: odpalenie procesu, prompt na stdin,
+    czytanie JSONL ze stdout, twardy sufit rundy.
 
-    def __init__(self, workspace, max_duration=1200.0, argv0=("claude",)):
+    Adaptery roznia sie WYLACZNIE dwiema rzeczami — jak zbudowac argv
+    i jak wylowic identyfikator sesji z linii JSON. Reszta (pipe-deadlock,
+    BrokenPipeError, kill+reap) to wiedza kupiona bledami; nie duplikujemy
+    jej per runtime, bo drugi adapter odziedziczylby wtedy tylko te bledy,
+    ktore ktos pamietal.
+    """
+
+    name = "generic"
+
+    def __init__(self, workspace, max_duration=1200.0, argv0=()):
         self.workspace = workspace
         self.max_duration = max_duration
         self.argv0 = list(argv0)
 
     def _argv(self, session_id):
-        argv = self.argv0 + ["-p", "--output-format", "stream-json",
-                             "--verbose"]
-        if session_id:
-            argv += ["--resume", session_id]
-        return argv
+        raise NotImplementedError
+
+    def _session_id_from(self, msg):
+        """Zwroc identyfikator sesji z ramki JSONL albo None."""
+        raise NotImplementedError
 
     async def run(self, prompt, session_id, on_session_id):
         proc = await asyncio.create_subprocess_exec(
@@ -154,9 +164,9 @@ class ClaudeRuntime:
                         msg = json.loads(raw)
                     except ValueError:
                         continue  # nie-JSON na stdout nie jest bledem node'a
-                    if msg.get("type") == "system" and msg.get("subtype") == "init" \
-                            and msg.get("session_id"):
-                        on_session_id(msg["session_id"])  # [zapis 2] u wolajacego
+                    sid = self._session_id_from(msg)
+                    if sid:
+                        on_session_id(sid)  # [zapis 2] u wolajacego
 
             try:
                 await asyncio.gather(feed(), pump())
@@ -181,6 +191,75 @@ class ClaudeRuntime:
             proc.kill()          # MAX_WAKE_DURATION — twardy sufit rundy
             await proc.wait()
             return -9
+
+
+class ClaudeRuntime(_SubprocessRuntime):
+    """Adapter Claude Code headless. argv0 podmienialne w testach."""
+
+    name = "claude"
+
+    def __init__(self, workspace, max_duration=1200.0, argv0=("claude",)):
+        super().__init__(workspace, max_duration, argv0)
+
+    def _argv(self, session_id):
+        argv = self.argv0 + ["-p", "--output-format", "stream-json",
+                             "--verbose"]
+        if session_id:
+            argv += ["--resume", session_id]
+        return argv
+
+    def _session_id_from(self, msg):
+        if msg.get("type") == "system" and msg.get("subtype") == "init":
+            return msg.get("session_id")
+        return None
+
+
+class CodexRuntime(_SubprocessRuntime):
+    """Adapter Codex CLI (`codex exec`).
+
+    Powod istnienia: node budzil dotad WYLACZNIE Claude, wiec agent na
+    Codeksie musial recznie pollowac `listen` i w dogfoodzie kinas-machine
+    przegapil przez to polecenie czlowieka oraz prosbe o wypowiedz —
+    procesy zyly, gniazda byly ESTAB, kursor sie przesuwal, a model nie
+    zobaczyl ani jednej ramki. Fizyka budzenia istniala; brakowalo drugiego
+    adaptera, wiec kanal nie byl neutralny wobec harnessu.
+
+    Roznice wobec Claude:
+      * prompt idzie przez stdin (`-`), bo dlugi kontekst wake'a nie miesci
+        sie sensownie w argv,
+      * sesje wznawia PODKOMENDA `codex exec resume <id>`, nie flaga,
+      * identyfikator sesji przychodzi jako `thread.started`/`thread_id`.
+    """
+
+    name = "codex"
+
+    def __init__(self, workspace, max_duration=1200.0, argv0=("codex",),
+                 sandbox="workspace-write"):
+        super().__init__(workspace, max_duration, argv0)
+        self.sandbox = sandbox
+
+    def _argv(self, session_id):
+        # KOLEJNOSC MA ZNACZENIE i nie jest oczywista: `--sandbox` istnieje
+        # jako opcja `exec`, ale NIE jako opcja podkomendy `resume`. Podane po
+        # `resume` daje "error: unexpected argument '--sandbox'". Wszystkie
+        # flagi ida wiec PRZED podkomenda. Sprawdzone na zywym CLI — fake
+        # binarium tego nie zlapie, bo przyjmie dowolna kolejnosc.
+        argv = self.argv0 + ["exec", "--json", "--skip-git-repo-check"]
+        if self.sandbox:
+            argv += ["--sandbox", self.sandbox]
+        if session_id:
+            argv += ["resume", session_id]
+        # "-" = prompt ze stdin; wspolne feed() nizej pisze go i zamyka pipe
+        argv += ["-"]
+        return argv
+
+    def _session_id_from(self, msg):
+        if msg.get("type") == "thread.started":
+            return msg.get("thread_id")
+        return None
+
+
+RUNTIMES = {"claude": ClaudeRuntime, "codex": CodexRuntime}
 
 
 def _is_wake(frame, nick, groups):
@@ -212,9 +291,10 @@ def _should_wake(frame, nick, groups, last_wake_seq):
 
 
 def _new_state(nick, runtime):
-    # "runtime" to string opisujacy adapter (na razie jedyny: claude) —
-    # workspace bierzemy z adaptera (informacyjnie, w state.json).
-    return NodeState(nick=nick, runtime="claude",
+    # Nazwa adaptera bierze sie z NIEGO SAMEGO, nie ze stalej — inaczej
+    # state.json agenta na Codeksie klamie, ze siedzi na Claude, a wznowienie
+    # sesji szuka jej w niewlasciwym runtime.
+    return NodeState(nick=nick, runtime=getattr(runtime, "name", "claude"),
                       workspace=str(getattr(runtime, "workspace", "")),
                       session_id=None, last_wake_seq=0, last_context_seq=0,
                       wake_times=[])

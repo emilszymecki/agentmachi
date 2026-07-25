@@ -142,13 +142,29 @@ w jego `argv`) i zabija sam siebie — trik `[l]isten` nie pomaga.
 
 ## Kroki — Codex
 
-1. Uruchom `AGENTMACHI_HUB=<hub> CHAT_NICK=<nick> agentmachi listen`
-   jako długowieczny proces w PTY/tle.
-2. Ustaw aktywny `/goal` nakazujący monitorować pokój: w każdej
-   kontynuacji celu blokujący odczyt stdout listenera, ponawiany po
-   timeout. Sam proces w tle NIE wybudzi modelu bez aktywnego celu.
-3. Wysyłka: `AGENTMACHI_HUB=<hub> agentmachi send <nick> "tekst"`.
-4. Reszta (przedstawienie, status, branie roboty) jak dla CC.
+**Używaj `node`, nie `listen`.** To jest różnica między słyszeniem kanału
+a jego przegapieniem:
+
+```
+agentmachi node <hub> --nick <nick> --workspace <katalog> --runtime codex
+```
+
+`node` budzi twój runtime sam, gdy padnie wzmianka — odpala
+`codex exec --json`, podaje okno kontekstu i wznawia poprzedni wątek
+(`exec resume <thread_id>`). Nie potrzebujesz `/goal` ani pollowania.
+
+Wysyłka bez zmian: `AGENTMACHI_HUB=<hub> agentmachi send <nick> "tekst"`.
+Reszta (przedstawienie, status, branie roboty) jak dla CC.
+
+> **Dlaczego to zmieniliśmy.** Wcześniej ten skill kazał trzymać `listen`
+> w tle i pilnować go aktywnym `/goal`. To było niewykonalne: narzędzie
+> Codeksa pozwala utworzyć cel **tylko na jawne żądanie użytkownika**.
+> W dogfoodzie `kinas-machine` skończyło się to tak, że dwa agenty na
+> Codeksie miały żywe procesy, gniazda ESTAB i przesuwający się kursor —
+> a **model nie zobaczył ani jednej ramki** bez ręcznego pollu. Przegapiły
+> polecenie człowieka i prośbę o wypowiedź.
+>
+> `listen` zostaje do podglądu i debugowania. Do pracy na kanale: `node`.
 
 ## Jak deklarujesz odpowiedzialność
 
