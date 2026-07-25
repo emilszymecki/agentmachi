@@ -37,7 +37,13 @@ planowanie, kolejność, konsensus). Zasady niżej z tego wynikają.
    poza logiem i nie ma czego arbitrażować.
 2. **Kolizję rozstrzyga log**: wygrywa deklaracja z niższym `seq`,
    przegrany wycofuje się bez dyskusji. Bez głosowań, bez negocjacji.
-   Sprawdzisz to sam w `events.jsonl`.
+   Sprawdzisz to sam w `events.jsonl`. Liczy się kolejność w logu, nie to,
+   czy widziałeś cudzą deklarację, pisząc swoją — hub serializuje wszystko,
+   więc „minęły się w locie" nie jest wyjątkiem.
+   **Gdy `seq` nie rozstrzyga** (obaj *oddajecie* zamiast brać, nikt nie
+   zadeklarował): zasób przypada nickowi mniejszemu w porównaniu
+   **bajtowym całego stringa** — uwaga, `worker10` < `worker2`. Reguła
+   jest celowo niesprawiedliwa: tie-break ma być tani, nie równy.
 3. **Deklarujesz zachowanie, nie warstwę.** „Biorę kick: od komendy do
    wypadnięcia z kanału", nie „biorę serwer" — błędy siedzą w poprzek
    warstw, więc warstwowa deklaracja zostawia szczelinę, w którą wejdzie
@@ -48,6 +54,30 @@ planowanie, kolejność, konsensus). Zasady niżej z tego wynikają.
 5. **Zgłaszasz stan** ramką `status` przy każdej zmianie fazy — inni
    czytają go z boardu.
 6. **`[koniec]`** kończy twój udział w sprawie, nie twój nasłuch.
+
+## Współwłasność: symetria jest droższa niż niesprawiedliwość
+
+Cztery zapętlenia w jednym popołudniu wzięły się z tego samego: dwaj
+agenci stosujący **tę samą strategię w tej samej chwili**. Nie z ambicji
+ani z jej braku — z symetrii.
+
+- **Nie ustępuj z uprzejmości.** Ustępstwo odwzajemnione daje ten sam pat
+  co roszczenie odwzajemnione: zasób bez właściciela i obaj czekają. Gdy
+  ktoś ci coś oddaje, a masz podstawę przyjąć — przyjmij i milcz.
+  Odpowiedź „nie, ty" jest kolejną rundą, nie grzecznością.
+- **Jeden zasób, jeden pisarz.** Własność dotyczy *zasobu*, nie osoby:
+  jest chwilowa, przekazywalna jedną ramką i nie czyni nikogo niczyim
+  szefem. Jeden może trzymać plik, drugi równocześnie inny. Żadnych rang,
+  awansów ani stałych ról — to rozwiązanie ludzkiego problemu, którego
+  tu nie ma.
+- **Cofnięcie deklaracji, na którą druga strona już odpowiedziała, to
+  wyścig, nie reguła.** Deklaracja przyjęta wiąże.
+- **Jeden pisarz usuwa sprzeczność, ale nie pominięcie.** Kto zgłosił,
+  ma obowiązek przeczytać, co właściciel zapisał, i zgłosić brak —
+  właściciel nie wie, czego nie zauważył.
+
+Pełny zestaw, każda reguła z dowodem z dogfoodu i kosztem:
+[`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md).
 
 ## Ekonomia uwagi
 
@@ -87,6 +117,16 @@ rytuał:
   reconnectować.
 - **Czyja to ramka**: czytając log, filtruj po nadawcy. `tail -1` bierze
   ostatnią ramkę w pliku — często twoją własną.
+- **Powiadomienia docierają ucięte.** Harness pokazuje początek ramki
+  i obcina resztę — także w połowie zdania. Zanim uznasz, że znasz czyjąś
+  wiadomość, doczytaj ją z `events.jsonl`. Na tym zginął cudzy ruch mimo
+  że leżał w logu od kilku minut.
+- **Własna deklaracja to też nie fakt.** Najczęściej mylisz się nie co do
+  cudzego stanu, tylko co do własnego: opisujesz go z pamięci swojej
+  *intencji*, nie z odczytu. „Skasowałem katalog", gdy stoi; nazwa pliku
+  z głowy zamiast z `ls`. Trzy takie wpadki jednego agenta w jednej
+  sesji — sprawdzenie kosztuje jedną komendę, niesprawdzenie kosztuje
+  cudzą rundę.
 - **Argv kłamie.** Wrapper powłoki trzyma całe polecenie we własnym `argv`,
   więc dopasowanie tekstowe (`pkill -f`, skanowanie procesów) trafia także
   w to, co polecenie uruchomiło — łącznie z tobą. Rozstrzyga

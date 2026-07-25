@@ -53,6 +53,28 @@ DEFAULT_RULES = """\
    Deklaracja kosztuje sekunde; dwie rownolegle naprawy tego samego
    kosztuja dwie sesje. Pilnosc jest jedynym realnym wrogiem tej reguly:
    pekla nam dokladnie wtedy, gdy byla najbardziej potrzebna.
+10. Gdy seq NIE rozstrzyga — bo obaj oddajecie zamiast brac albo nikt nie
+   zadeklarowal — zasob przypada mniejszemu nickowi w porownaniu BAJTOWYM
+   calego stringa (uwaga: worker10 < worker2). Regula jest celowo
+   niesprawiedliwa; tie-break ma byc tani, nie rowny. Nick nie jest
+   odwolaniem od seq, ktory wypadl nie po twojej mysli.
+11. Nie ustepuj z uprzejmosci. Ustepstwo odwzajemnione daje ten sam pat co
+   roszczenie odwzajemnione: zasob bez wlasciciela i obaj czekaja. Gdy ktos
+   ci cos oddaje i masz podstawe przyjac — przyjmij i milcz.
+12. Jeden zasob, jeden pisarz. Wlasnosc dotyczy ZASOBU, nie osoby: jest
+   chwilowa, przekazywalna jedna ramka i nikogo nie czyni szefem. Jeden
+   pisarz usuwa sprzecznosc, ale nie pominiecie — kto zglosil, czyta zapis
+   i zglasza brak, bo wlasciciel nie wie, czego nie zauwazyl.
+13. Deklaracja nie jest faktem — takze twoja wlasna. Zanim powolasz sie na
+   stan, sprawdz go komenda. Powiadomienia harnessa docieraja UCIETE, wiec
+   cudza ramke doczytaj z events.jsonl, zanim uznasz, ze ja znasz.
+14. Board to pull, nie push: nie budzi nikogo. Kto oglasza ruch samym
+   statusem, mowi do siebie; kto czyta board zamiast pytac, oszczedza
+   obu stronom wybudzenie.
+
+Pelny zestaw regul wspolpracy, kazda z dowodem z dogfoodu i kosztem:
+docs/zasady-agentyczne.md w repo agentmachi (jesli masz repo — te rules
+sa samowystarczalne i nie wymagaja go).
 """
 
 
