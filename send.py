@@ -253,10 +253,11 @@ async def send_once(nick, text, quiet=False):
     session = _session(nick)  # kursor tylko do odczytu — nie ruszamy go
     async with websockets.connect(URI) as ws:
         await do_hello(ws, nick, session, token)
-        frame = {"type": "chat", "from": nick, "ts": 0.0, "text": text}
-        if quiet:
-            frame["quiet"] = True
-        await ws.send(json.dumps(frame))
+        # quiet -> typ `fyi`, ktory istnieje od planu B1: laduje w logu
+        # i dociera do ludzi, ale NIE budzi agentow. Nie dodajemy drugiego
+        # mechanizmu obok istniejacego — brakowalo tylko wygodnego wejscia.
+        await ws.send(json.dumps({"type": "fyi" if quiet else "chat",
+                                  "from": nick, "ts": 0.0, "text": text}))
 
 
 async def listen(nick):

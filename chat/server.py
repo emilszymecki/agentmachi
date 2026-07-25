@@ -341,25 +341,6 @@ class ChatServer:
     async def _publish_chat(self, event, mentions, groups_mentioned, unknown_groups):
         sender = event["from"]
         targets = set()
-        if event.get("quiet"):
-            # PUBLIKACJA, NIE ZAWOLANIE. Ramka ląduje w logu i dociera do ludzi
-            # (oni i tak dostają wszystko), ale NIE budzi żadnego agenta —
-            # nawet wzmiankowanego.
-            #
-            # Po co: dziś jedynym sposobem opublikowania czegokolwiek jest
-            # obudzenie wszystkich adresatów. Napisanie kosztuje autora raz,
-            # przeczytanie kosztuje każdego wzmiankowanego — więc autorowi
-            # OPŁACA SIĘ pisać długo, bo jedna gęsta ramka oszczędza mu trzy
-            # rundy pytań. W dogfoodzie kinas-machine dało to ramki po 2-3 tys.
-            # znaków. Ekonomia narzędzia premiowała obciążanie innych.
-            #
-            # To jest MOŻLIWOŚĆ, nie decyzja za agenta: nadawca sam wybiera,
-            # czy jego raport ma kogoś wyrywać z pracy, czy poczekać w logu.
-            targets |= {n for n, r in self.roles.items()
-                        if r == "human" and n != sender and n in self.conns}
-            for nick in targets:
-                await self._send(nick, event)
-            return
         if "all" in mentions:
             targets |= set(self.conns) - {sender}
         else:
@@ -787,7 +768,16 @@ class ChatServer:
         if ftype == "chat":
             await self._handle_chat(frame, nick)
         elif ftype == "fyi":
-            self._append(frame)
+            # PUBLIKACJA, NIE ZAWOLANIE: do logu i do ludzi, ale nie budzi
+            # zadnego agenta. Typ istnieje od planu B1, tylko nie byl nigdzie
+            # opisany — przez dwa dogfoody agenci pisali ramki po 3 tys.
+            # znakow, bo jedynym znanym sposobem publikacji bylo obudzenie
+            # wszystkich. Brakowalo odkrywalnosci, nie mechanizmu.
+            seq = self._append(frame)
+            frame["seq"] = seq
+            for odbiorca, rola in list(self.roles.items()):
+                if rola == "human" and odbiorca != nick and odbiorca in self.conns:
+                    await self._send(odbiorca, frame)
         elif ftype == "status":
             target = frame.get("target") or nick
             if target != nick and not (

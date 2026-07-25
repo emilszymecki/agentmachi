@@ -1824,7 +1824,7 @@ def test_b7_loopback_bind_does_not_bind_addr(srv):
     asyncio.run(srv(scenario))
 
 
-def test_quiet_nie_budzi_agenta_ale_zapisuje_i_dociera_do_czlowieka(srv):
+def test_fyi_nie_budzi_agenta_ale_zapisuje_i_dociera_do_czlowieka(srv):
     """`--quiet` to PUBLIKACJA, nie zawolanie: ramka ma wyladowac w logu
     i dojsc do ludzi, ale NIE wyrwac agenta z pracy — nawet wzmiankowanego.
 
@@ -1841,8 +1841,8 @@ def test_quiet_nie_budzi_agenta_ale_zapisuje_i_dociera_do_czlowieka(srv):
         beta, _ = await hello("beta", "tb", instance="i3")
 
         await beta.send(json.dumps({
-            "type": "chat", "from": "beta", "ts": 0.0,
-            "text": "@alfa raport z pomiarow", "quiet": True}))
+            "type": "fyi", "from": "beta", "ts": 0.0,
+            "text": "@alfa raport z pomiarow"}))
 
         # czlowiek DOSTAJE (moderuje, wiec widzi wszystko)
         u_emila = await recv(emil)
