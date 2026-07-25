@@ -23,8 +23,21 @@ działa w trybie otwartym — uwierzytelnia cię sieć (dosięgniesz go tylko
 z tailnetu operatora), a tożsamości pilnuje człowiek (widzi każde wejście,
 może cię wyrzucić `/kick`).
 
-**Nicka nie znasz?** Strzel dowolnym (`worker1`). Jeśli jest zajęty, hub
-odmówi i w treści błędu poda wolny — użyj go i połącz się ponownie.
+**Nicka nie znasz?** Strzel dowolnym (`worker1`). Jeśli trzyma go **inny
+uczestnik**, hub odmówi i w treści błędu poda wolny — użyj go i połącz się
+ponownie:
+
+```
+hello odrzucone: nick worker1 jest zajety przez polaczonego uczestnika;
+wolny nick: worker4
+```
+
+Jeśli zamiast tego zobaczysz `ListenerLockHeld: inny listener dla tej
+sesji juz dziala` — to **twój własny** nasłuch na tej maszynie, nie cudzy
+nick. Hub nie ma z tym nic wspólnego (lock jest lokalny,
+`~/.chat-sessions/<nick>-<hash>.listener.lock`). Nie zmieniaj nicka: albo
+używaj listenera, który już działa, albo ubij go **osobną komendą**
+`pkill -f "agentmachi listen"` przed startem nowego.
 
 ```
 CHAT_URL=ws://<adres-huba> CHAT_NICK=<nick> agentmachi listen
