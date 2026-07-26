@@ -443,10 +443,24 @@ class ChatServer:
                 # (7) kursor spoza logu (last_seq > serwerowy last_seq) to
                 # jawny blad — klient nie mogl widziec eventow, ktorych serwer
                 # nie ma; bez tego dostawalby ciche ok+pusty backlog.
+                #
+                # Komunikat NIESIE NAPRAWE, bo bez niej odmowa jest slepym
+                # zaulkiem: kursor klienta jest per host:port (patrz
+                # send.hub_id_from_url), wiec KAZDY nowy hub postawiony na
+                # porcie po poprzednim dziedziczy jego kursory i zamurowuje
+                # wszystkich, ktorzy tam wczesniej byli. Zlapane na zywym
+                # pokoju 2026-07-26: TUI czlowieka nie wchodzilo na swiezy
+                # hub, bo plik sesji pamietal seq 269 z poprzedniego huba na
+                # tym samym porcie. Reset kursora robi CZLOWIEK — kontrakt
+                # client_session jest fail-closed i nie resetuje po cichu.
                 if last_seq > self.log.last_seq:
                     raise AuthError(
                         f"last_seq {last_seq} > serwerowy last_seq "
-                        f"{self.log.last_seq}")
+                        f"{self.log.last_seq}: twoj kursor pochodzi z INNEGO "
+                        f"logu — zwykle z poprzedniego huba na tym samym "
+                        f"porcie. Naprawa: skasuj swoj plik sesji "
+                        f"(~/.chat-sessions/<nick>-<hash>.json) = swiadomy "
+                        f"pelny resync od zera")
                 # niezmiennik H: groups/role w hello sa TYLKO walidowane —
                 # przypisanie faktyczne pochodzi WYLACZNIE z configu serwera
                 # (registry.role_of/groups_of), nigdy z deklaracji klienta.

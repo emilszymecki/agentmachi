@@ -689,6 +689,11 @@ def test_hello_last_seq_beyond_server_errors(srv):
                                    "last_seq": 999}))   # >> serwerowy last_seq
         err = json.loads(await asyncio.wait_for(bad.recv(), 2.0))
         assert err["type"] == "error"
+        # Odmowa MUSI niesc naprawe. Kursor jest per host:port, wiec nowy hub
+        # na porcie po poprzednim zamurowuje kazdego, kto tam byl — bez tego
+        # zdania czlowiek widzi tylko dwie liczby i pusty pokoj (2026-07-26).
+        assert "chat-sessions" in err["text"], err["text"]
+        assert "skasuj" in err["text"], err["text"]
         await a.close(); await bad.close()
     asyncio.run(srv(scenario))
 

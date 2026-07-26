@@ -172,6 +172,17 @@ def test_hello_error_fails_closed(session):
         asyncio.run(adapter._hello(ws))
 
 
+def test_hello_error_carries_session_path(session):
+    # Sciezke pliku sesji zna WYLACZNIE klient. Bez niej odmowa "kursor
+    # z innego logu" jest slepym zaulkiem: czlowiek nie wie, ktory z
+    # kilkunastu plikow w ~/.chat-sessions/ skasowac (2026-07-26).
+    adapter = _adapter(session)
+    ws = _FakeWs([{"type": "error", "text": "last_seq 269 > serwerowy 19"}])
+    with pytest.raises(tui.FatalHubError) as exc:
+        asyncio.run(adapter._hello(ws))
+    assert str(session.path) in str(exc.value)
+
+
 def test_apply_hello_resync_requires_state(session):
     adapter = _adapter(session)
 

@@ -215,8 +215,13 @@ class HubAdapter:
         if not isinstance(reply, dict):
             raise FatalHubError("hello: odpowiedz huba nie jest obiektem")
         if reply.get("type") == "error":
+            # Sciezke pliku sesji zna WYLACZNIE klient — serwer moze co
+            # najwyzej podac wzorzec. Doklejamy ja do kazdej odmowy hello,
+            # bo najczestsza przyczyna (kursor z poprzedniego huba na tym
+            # samym porcie) naprawia sie kasowaniem dokladnie tego pliku.
             raise FatalHubError(
-                f"hello odrzucone: {reply.get('text', 'nieznany blad')}")
+                f"hello odrzucone: {reply.get('text', 'nieznany blad')} "
+                f"[twoj plik sesji: {self.session.path}]")
         if reply.get("type") not in {"ok", "resync_required"}:
             raise FatalHubError(f"hello: nieoczekiwany typ {reply.get('type')!r}")
         return reply
@@ -296,6 +301,14 @@ class HubAdapter:
                 except asyncio.CancelledError:
                     raise
                 except (FatalHubError, SessionError) as exc:
+                    # Pasek statusu to JEDNA linia — dluzszy powod odmowy
+                    # zostaje w nim uciety i czlowiek widzi "hello odrzucone:"
+                    # bez tresci. Ten sam tekst leci wiec do logu wiadomosci,
+                    # ktory zawija. Zlapane na zywym pokoju 2026-07-26:
+                    # operator widzial pusty pokoj i zadnej przyczyny.
+                    await _maybe_await(on_frame({
+                        "type": "error", "from": "client",
+                        "text": f"FAIL-CLOSED: {exc}"}))
                     await _maybe_await(on_status(f"FAIL-CLOSED: {exc}", False))
                     return
                 except (OSError, websockets.exceptions.ConnectionClosed) as exc:

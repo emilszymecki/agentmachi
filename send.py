@@ -107,8 +107,12 @@ async def do_hello(ws, nick, session, token, role=None):
               "przyjal polaczenie ale milczy (zawieszony?)", file=sys.stderr)
         sys.exit(1)
     if not isinstance(reply, dict) or reply.get("type") == "error":
+        # Sciezke pliku sesji zna tylko klient — serwer podaje wzorzec.
+        # Najczestsza odmowa (kursor z poprzedniego huba na tym samym
+        # porcie) naprawia sie kasowaniem dokladnie tego pliku.
         print(f"hello odrzucone: {reply.get('text', reply) if isinstance(reply, dict) else reply}",
               file=sys.stderr)
+        print(f"twoj plik sesji: {session.path}", file=sys.stderr)
         sys.exit(1)
     return reply
 
