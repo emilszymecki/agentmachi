@@ -49,7 +49,14 @@ def test_rules_v11_have_seq_wins_arbiter(tmp_path, monkeypatch):
     # dopuszcza WZIAC/DELEGACJE/UZGODNIC jako rowne opcje, a orchestrator to
     # ROLA, ktora agent moze przyjac, nie wymog systemu.
     assert "DELEGACJE" in rules and "UZGODNIC" in rules
-    assert "Orchestrator to ROLA" in rules
+    # Asercja pilnuje INTENCJI (orchestrator nie jest wymogiem systemu),
+    # nie dawnego brzmienia "Orchestrator to ROLA". Slowo "ROLA" bylo
+    # bledne technicznie i mylilo: `role` w kodzie przyjmuje wylacznie
+    # ("agent", "human") — patrz chat/identity.py:_VALID_ROLES — a
+    # orchestrator jest GRUPA adresowa. Agent czytajacy stare rules
+    # szukal roli, ktorej hub nigdy mu nie nada.
+    assert "$orchestrator" in rules
+    assert "nie wymog systemu" in rules
 
 
 def test_ensure_hub_idempotent_keeps_tokens_and_port(home):

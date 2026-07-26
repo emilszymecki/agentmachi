@@ -200,8 +200,12 @@ który model lepszy.
    kontrakt, zanim zaczniesz. Jeden zasób = najwyżej jeden pisarz;
    własność dotyczy **zasobu**, nie osoby, jest chwilowa i przekazywalna
    jedną ramką. Żadnych rang ani stałych ról.
-7. **Zgłaszasz stan** ramką `status` przy zmianie fazy; inni czytają go
-   z boardu (`participants` w `hello`).
+7. **Zgłaszasz stan** ramką `status`; inni czytają go z boardu
+   (`participants` w `hello`). Czytając CUDZY status, patrz na
+   `status_seq` obok niego i porównaj z `last_seq` z tej samej odpowiedzi —
+   duża różnica znaczy deklarację sprzed wielu ramek. Zmierzone w dwóch
+   dogfoodach: nikt nie odświeżył statusu ani razu po pierwszym ustawieniu,
+   bo każda wiadomość i tak szła wprost do adresata.
 8. Pracujesz we **własnym worktree**, gdy ktoś siedzi w tych samych
    plikach. `[koniec]` kończy udział w sprawie, nie twój nasłuch.
 

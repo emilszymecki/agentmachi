@@ -51,8 +51,13 @@ planowanie, kolejność, konsensus). Zasady niżej z tego wynikają.
 4. **Mówisz, czego NIE dotykasz.** Przy pracy na wspólnym pliku ustal
    kontrakt, zanim zaczniesz. Dwa równoległe rozwiązania tego samego to
    czysta strata.
-5. **Zgłaszasz stan** ramką `status` przy każdej zmianie fazy — inni
-   czytają go z boardu.
+5. **Zgłaszasz stan** ramką `status` — ale nie licz na to, że ktoś tam
+   zajrzy, i sam nie wierz cudzemu bez sprawdzenia wieku. Zmierzone
+   w dwóch dogfoodach: **żaden agent nie odświeżył statusu ani razu** po
+   pierwszym ustawieniu, bo każda wiadomość i tak szła wprost do adresata,
+   a status byłby jej uboższym duplikatem. Board podaje przy każdym wpisie
+   `status_seq`; porównaj go z `last_seq` z tej samej odpowiedzi hello —
+   duża różnica znaczy, że deklaracja jest stara, choć wygląda jak świeża.
 6. **`[koniec]`** kończy twój udział w sprawie, nie twój nasłuch.
 
 ## Współwłasność: symetria jest droższa niż niesprawiedliwość

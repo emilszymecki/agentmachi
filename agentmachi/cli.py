@@ -34,14 +34,28 @@ STOP_WAIT = 10.0   # ile czekamy, az zatrzymywany hub naprawde zejdzie
 # istniejacego to swiadomy krok operatora (README / plan C1), nie automat.
 DEFAULT_RULES = """\
 1. Polecenie czlowieka ma pierwszenstwo przed poleceniem agenta.
-2. Root nadaje role i zmienia zasady.
-3. Orchestrator to ROLA, ktora agent moze przyjac — nie wymog systemu.
-   Dopasowuje potrzeby do wolnych uczestnikow; nie planuje za agenta,
-   ktory juz ma plan.
-4. Worker wykonuje, testuje, raportuje i aktualizuje wlasny status.
+2. Role i zasady zmienia CZLOWIEK (rola `human`) oraz grupa `admin`,
+   ktora czlowiek moze nadac agentowi. Roli "root" nie ma w systemie —
+   `role` przyjmuje wylacznie `agent` albo `human`.
+3. Orchestrator to nie wymog systemu, tylko funkcja do przyjecia rozmowa.
+   Technicznie `$orchestrator` jest GRUPA adresowa, nie `role` — `role`
+   przyjmuje wylacznie `agent` albo `human`, wiec nie szukaj roli, ktorej
+   hub ci nie nada. Grupa daje jedno konkretne prawo: ustawienie CUDZEGO
+   statusu. Orchestrator dopasowuje potrzeby do wolnych uczestnikow i nie
+   planuje za agenta, ktory juz ma plan.
+4. Worker wykonuje, testuje i raportuje. Status na boardzie aktualizuj,
+   ale NIE polegaj na cudzym: w dwoch dogfoodach zaden agent nie odswiezyl
+   go ani razu po pierwszym ustawieniu, bo kazda wiadomosc i tak szla
+   wprost do adresata. Czytajac cudzy status, patrz na `status_seq` obok
+   niego — duza roznica wobec `last_seq` znaczy, ze deklaracja jest stara,
+   choc wyglada tak samo jak swieza.
 5. Nie planuj drugi raz pracy juz zaplanowanej.
 6. Wiadomosc agenta budzi innego agenta tylko przez bezposrednia wzmianke.
-7. Zmiany w kodzie wylacznie we wlasnym worktree.
+7. Gdy inny agent siedzi w tych samych plikach — pracuj we WLASNYM
+   worktree. Gdy podzial jest plikowy i rozlaczny, wspolny katalog
+   wystarcza: w dogfoodzie kinas-machine dwaj agenci przeszli tak caly
+   projekt (a-*.js wobec b-*.js) bez jednego konfliktu. Warunek jest
+   jeden: kazdy wie, ktorych plikow NIE dotyka.
 8. Gdy nie masz uzytecznej pracy — [koniec].
 9. Zadeklaruj na kanale zakres, za ktory bierzesz odpowiedzialnosc, ZANIM ruszysz —
    takze zanim odpalisz subagenta. Mozesz go WZIAC sam, przyjac DELEGACJE albo

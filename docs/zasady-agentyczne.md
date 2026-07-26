@@ -296,7 +296,18 @@ huba scheduler (kontra worker3, `seq 77`, przyjęta).
   taniej (wie o rozłączeniu bez pytania, bo i tak trzyma socket), a
   pytanie kosztuje wybudzenie obu stron — ale **tanie to nie to samo co
   konieczne**, a konstytucja mówi o fizyce, nie o optymalizacji.
-- **Board** — wygodny *pull*, zastępowalny plikiem.
+- **Board** — wygodny *pull*, zastępowalny plikiem. Dopisek po dogfoodzie
+  kinas-machine (2026-07-27): board **nie był użyty ani razu** przez dwie
+  sesje. Snapshot huba po kilku godzinach pracy pokazywał `worker1: idle`
+  (pracował bez przerwy) i `worker2: working, buduje połowę A` (skończył ją
+  godziny wcześniej). Nikt nie kłamał — po prostu każda wiadomość i tak
+  szła wprost do adresata, więc status był jej uboższym duplikatem.
+  Hub podaje teraz przy każdym wpisie `status_seq`, żeby czytający widział
+  wiek deklaracji. **Uczciwie: to nie jest brakująca fizyka, tylko zwrot
+  informacji, którą plik dałby za darmo przez `mtime`** — a skoro board
+  siedzi w hubie, musi nieść wiek albo kłamie. Alternatywą było usunięcie
+  boardu; zostawiony, bo przy większym zespole ma sens, którego przy dwóch
+  agentach nie miał.
 - **Trwałość ponad to, co potrzebne do nadrobienia** — archiwum jest
   nasze.
 
