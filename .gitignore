@@ -1,19 +1,43 @@
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
-chat-data/
-.chat-session.json
-.chat-agent.json
-.superpowers/
-hub.toml
-tokens.json
-hub.tokens.json
-countdown.log
-countdown.json
-server.log
-hub-8766.log
+.venv/
 agentmachi.egg-info/
 uv.lock
+
+# SEKRETY — wzorce, nie pojedyncze nazwy.
+# Powod: poprzednia wersja wymieniala `tokens.json` i `hub.tokens.json` po
+# nazwie, wiec `alfa.tokens.json` albo `secrets-prod.json` wpadlyby do repo
+# bez ostrzezenia. Audyt (2026-07-26) potwierdzil, ze w historii gita nigdy
+# nie bylo prawdziwego tokenu — i tak ma zostac.
+*.tokens.json
+!hub.tokens.example.json
+tokens.json
+*secrets*.json
+.env
+*.pem
+*.key
+
+# DANE RUNTIME huba i klienta — te MAJA mieszkac w ~/.agentmachi/
+# i ~/.chat-sessions/, nigdy w repo. `chat/server.py` domyslnie pisze do
+# ./chat-data (CWD), wiec uruchomienie go z pominieciem CLI sypie stan
+# prosto tutaj — dlatego wzorce, a nie konkretne katalogi.
+chat-data*/
+.agentmachi/
+.chat-sessions/
+.chat-session.json
+.chat-agent.json
+*.log
+*.pid
+events.jsonl
+snapshot.json
+state.json
+*.tmp
+
+# konfiguracja lokalna
+hub.toml
+.superpowers/
 
 # scratch/PoC z rootu — NIE czesc projektu (prawdziwy serwer to chat/server.py)
 /server.py

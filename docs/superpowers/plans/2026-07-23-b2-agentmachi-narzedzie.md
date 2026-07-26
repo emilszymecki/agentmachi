@@ -1,5 +1,22 @@
 # Plan B2: agentmachi jako samodzielne narzędzie
 
+> ## DOKUMENT HISTORYCZNY — NIE WYKONUJ GO
+>
+> Ten plan jest **zrealizowany i czesciowo UNIEWAZNIONY**. Opisuje budowe
+> schedulera zadan (`TaskQueue`, `task_offer`, `task_claim`, lease, kolejka
+> round-robin), ktory zostal **swiadomie wyciety** z projektu — patrz
+> [konstytucja](2026-07-24-konstytucja-laka-nie-obora.md): *"Agentmachi nie
+> organizuje pracy agentow"*.
+>
+> Otwarte checkboxy ponizej **nie sa lista TODO**. Agent, ktory wykona ten
+> plan "task po tasku", odbuduje mechanizm usuniety w commitach
+> `57102e9`, `0cd9de8`, `e61758b`, `74a6e03`. Naglowek o `executing-plans`
+> dotyczy stanu z lipca i **nie obowiazuje**.
+>
+> Czytaj to wylacznie jako zapis, **jak** powstal transport, log i tozsamosc
+> — te czesci zyja do dzis.
+
+
 Data: 2026-07-23. Autor: beta (solo, po zamknięciu B1).
 Zasada nadrzędna: **LESS IS MORE** — każdy punkt zakresu musi być śladem
 konkretnego bólu z dogfoodu, nie przewidywaniem. Punkt bez bólu = out.

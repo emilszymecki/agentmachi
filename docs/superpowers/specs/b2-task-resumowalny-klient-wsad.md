@@ -1,6 +1,6 @@
 # Wsad projektowy: resumowalny klient B1/B2 (precondition-cutover)
 
-Status: BLOCKER-CUTOVER (nie luźne TODO). Zebrane PRZED implementacją, żeby
+Status: WYKONANE (2026-07-26) — send.py:last_applied_seq i chat/client_session.py:CHAT_SESSION_DIR sa w kodzie; blocker byl nieaktualny (nie luźne TODO). Zebrane PRZED implementacją, żeby
 nie powtarzać 7 rund serwera. Autor wsadu: codex (na kanale, 2026-07-22).
 To wsad do briefu — nie plan implementacji. Sekwencja: najpierw domknięcie
 B1 (serwer, finalny whole-branch review), potem to.

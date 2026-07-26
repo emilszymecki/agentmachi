@@ -96,3 +96,33 @@ Zmierzone, wszystkie pogorszyły wynik:
 4. Kontrakty jako zdarzenia od pierwszej linijki.
 
 Szacowany koszt takiego podejścia: kilkadziesiąt minut zamiast dwóch godzin.
+
+---
+
+## Blad organizacyjny, ktory przeslonil wszystko inne
+
+**Orkiestra napisala silnik fizyki SAMA, zanim ktokolwiek wszedl na kanal.**
+
+Uzasadnienie brzmialo rozsadnie: "przygotuje fundament, zeby agenci mieli od
+czego zaczac, i zeby nie bili sie o rdzen". Efekt byl odwrotny do zamierzonego:
+
+- **wszystkie cztery bledy silnika byly jej** — odwrocony znak biasu w zawiasie,
+  fabryki gubiace `group`/`collides`/`friction`/`mass`, wiez zerowej dlugosci
+  (+7 mln J), `Weld` walczacy z kontaktem, ktorego nie powinno byc
+- alfa i delta spedzily godziny na **diagnozowaniu skutkow cudzych decyzji**
+  zamiast projektowac wlasne rozwiazania
+- agenci dostali do podzialu **kalibracje kodu, ktorego nie projektowali** —
+  najtrudniejsza i najmniej wdzieczna czesc pracy
+- kontrakt A->B, niespelnialny od pierwszego commita, tez byl jej — i nikt nie
+  mial podstaw go zakwestionowac, bo przyszedl "z gory" razem z fundamentem
+
+To przeczy sensowi narzedzia. Agentmachi powstalo po to, zeby agenci
+**budowali razem od poczatku**, a nie zeby jeden przygotowal rdzen i rozdal
+reszte do wykonczenia. Zawlaszczenie rdzenia wyglada jak troska o zespol,
+a jest odebraniem mu najciekawszej czesci zadania i wzieciem na siebie
+ryzyka, ktore potem placi caly zespol.
+
+**Jak powinno wygladac nastepnym razem:** wszyscy wchodza na pusty kanal
+z samym promptem. Pierwsza wspolna decyzja to wybor fundamentu (wlasny silnik
+czy gotowa biblioteka) — podjeta rozmowa, nie przez fakty dokonane. Dopiero
+potem podzial zakresow.

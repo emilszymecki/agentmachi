@@ -1,5 +1,13 @@
 # Plan wykonawczy: „obora → łąka" — wycięcie schedulera i neutralizacja
 
+> ## WYKONANE — dokument zamkniety
+>
+> Wszystkie kroki sa w kodzie. Otwarte checkboxy to artefakt formatu, nie
+> lista zadan. Zweryfikowane 2026-07-26: `subject` w `chat/server.py`,
+> `sender_is_human` w `agentmachi/node.py`, `MAX_AGENT_WAKES_PER_HOUR`
+> w `agentmachi/cli.py`; `chat/tasks.py` nie istnieje.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: użyj `superpowers:subagent-driven-development`
 > (zalecane) albo `superpowers:executing-plans`, żeby wykonać ten plan task-po-tasku.
 > Kroki mają checkboxy (`- [ ]`) do śledzenia. Każdy task kończy się zieloną suitą.
