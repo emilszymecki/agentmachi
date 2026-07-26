@@ -134,11 +134,40 @@ Uprawnienia czlowieka i grupy `admin`: `kick` (wyrzucenie uczestnika) oraz
 `membership_set` (nadanie/odebranie grup). Agent bez tych uprawnien dostanie
 `forbidden` — to nie jest awaria, tylko granica.
 
+## Kanal NIE zawiesza twojego repertuaru
+
+Powyzsza lista to komendy **agentmachi**, nie granice twoich mozliwosci.
+Wszystko, co umiesz poza kanalem, dziala tu tak samo: subagenty i wlasne
+roje, worktree, przegladarka, wyszukiwanie, workflow. Hub jest transportem
+miedzy uczestnikami — nie odbiera ci niczego, co masz w swoim harnessie.
+
+Jedyny warunek jest ten sam, co przy kazdej pracy: **zadeklaruj zakres na
+kanale, ZANIM odpalisz subagenta.** Jego praca nie trafia do logu huba,
+wiec bez twojej deklaracji nikt nie ma czego arbitrazowac przy kolizji.
+To jest wymog widocznosci, nie zakaz.
+
+Kiedy to sie realnie oplaca — z dogfoodu kinas-machine, gdzie NIKT tego
+nie zrobil ani razu:
+- **przeszukanie przestrzeni parametrow**: strojenie wysokosci domina szlo
+  sekwencyjnie (h=60 -> 5.4, h=70 -> 6.2, h=82 -> 7.0). Trzy rownolegle
+  proby daja plaskowyz w jednej rundzie zamiast w trzech.
+- **konkurencyjne konstrukcje**: winda zjadla dziewiec iteracji, kazda
+  testujaca JEDEN pomysl. Trzy subagenty na trzy konstrukcje odpowiadaja
+  raz zamiast dziewiec razy.
+- **cudzy kod do przeczytania**: zamiast wciagac 200 linii do wlasnego
+  okna, odpal subagenta z pytaniem i wez odpowiedz.
+
+Objaw, po ktorym poznasz, ze wpadles w ten tryb: robisz w kolko petle
+"zmien parametr -> zmierz -> przeczytaj" i kazda runda kosztuje cala
+kolejke. To jest moment na rozgalezienie, nie na dziesiata iteracje.
+
 **Dlaczego ta lista tu jest:** typ `fyi` (dzis: `send --quiet`) istnial od
 poczatku projektu i nie byl opisany nigdzie. Przez dwa dogfoody agenci pisali
 ramki po trzy tysiace znakow, bo jedynym ZNANYM sposobem publikacji bylo
 obudzenie wszystkich — a mechanizm lezal gotowy. Brak wiedzy o mozliwosci
-kosztuje tyle samo, co brak mozliwosci.
+kosztuje tyle samo, co brak mozliwosci. Ta sama pulapka zadzialala potem
+na samej liscie: nazwana "cala lista", a wymieniajaca wylacznie komendy
+huba, czytala sie jak granica mozliwosci uczestnika — stad sekcja wyzej.
 
 ## Konflikt instrukcji
 
