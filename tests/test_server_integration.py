@@ -676,6 +676,37 @@ def test_chat_without_text_errors_not_logged_not_delivered(srv):
     asyncio.run(srv(scenario))
 
 
+def test_board_carries_status_age(srv):
+    # Board bez wieku deklaracji KLAMIE, zamiast milczec. Zmierzone na
+    # snapshocie huba po dogfoodzie kinas-machine: "worker1: idle" (pracowal
+    # bez przerwy) i "worker2: working, buduje polowe A" (skonczyl ja wiele
+    # godzin wczesniej). Wieku cudzej deklaracji nie da sie wyliczyc po
+    # stronie klienta — dlatego niesie go serwer, OBOK status, nie w srodku.
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "status", "from": "alfa", "ts": 0.0,
+                                 "state": "working", "subject": "winda"}))
+        await asyncio.sleep(0.15)
+        for i in range(4):
+            await a.send(json.dumps({"type": "chat", "from": "alfa",
+                                     "ts": float(i), "text": f"@beta {i}"}))
+        await asyncio.sleep(0.2)
+        h, ok = await hello("emil", "te", role="human")
+        board = {p["nick"]: p for p in ok["participants"]}
+        # deklaracja zostaje CZYSTA — agent nie deklaruje wlasnego seq
+        assert board["alfa"]["status"] == {"state": "working",
+                                           "subject": "winda"}
+        # ...a jej wiek jest widoczny obok i wskazuje na ramke sprzed czatow
+        wiek = board["alfa"]["status_seq"]
+        assert isinstance(wiek, int) and wiek > 0, board["alfa"]
+        assert wiek < ok["last_seq"], (wiek, ok["last_seq"])
+        assert ok["last_seq"] - wiek >= 4, "status jest starszy o 4 ramki czatu"
+        # kto nigdy nie deklarowal, ma jawnie None — nie zmyslona liczbe
+        assert board["beta"]["status_seq"] is None
+        await a.close(); await h.close()
+    asyncio.run(srv(scenario))
+
+
 def test_hello_last_seq_beyond_server_errors(srv):
     async def scenario(server):
         a, _ = await hello("alfa", "ta")

@@ -121,6 +121,12 @@ class ChatServer:
         # self.status MUSI istniec PRZED _replay_events() — replay eventow
         # status nadpisuje stan przywrocony ze snapshotu (nowsze wygrywa)
         self.status = {}       # nick -> {state, subject?, note?} (ostatnia deklaracja)
+        # Wiek deklaracji trzymany OSOBNO, zeby self.status zostal czysta
+        # projekcja tego, co powiedzial agent — seq nadaje serwer i nie ma
+        # go z czym mieszac. Nie przezywa restartu bez logu i to jest w
+        # porzadku: po odtworzeniu z samego snapshotu wiek jest nieznany,
+        # co uczciwiej opisuje stan niz zmyslona liczba.
+        self.status_seq = {}   # nick -> seq ramki status (metadana serwera)
         if snap:
             # Legacy-snapshot sanityzacja: stary snapshot (pre-B1) niesie martwe
             # task_id w status. Projektujemy KAZDY wpis tylko na dozwolone klucze,
@@ -151,6 +157,8 @@ class ChatServer:
                     self.status[key] = {k: event[k] for k in
                                         ("state", "subject", "note")
                                         if k in event}
+                    if isinstance(event.get("seq"), int):
+                        self.status_seq[key] = event["seq"]
             elif etype == "hello":
                 self.registry.replay_hello(event["from"], event["instance_id"])
             elif etype == "membership_set":
@@ -268,11 +276,26 @@ class ChatServer:
             nadawca, seq = e.get("from"), e.get("seq")
             if isinstance(seq, int) and not isinstance(seq, bool):
                 ostatnia[nadawca] = max(ostatnia.get(nadawca, 0), seq)
+        # status_seq OBOK status, nie w srodku: `status` zostaje czysta
+        # projekcja deklaracji agenta (state/subject/note), a wiek tej
+        # deklaracji jest metadana serwera — tak samo jak last_seq wyzej.
+        # Zmieszanie ich zbilo cztery testy i slusznie: agent nie deklaruje
+        # wlasnego seq, wiec nie ma prawa go tam zobaczyc.
         return [{"nick": nick,
                  "role": self.registry.role_of(nick),
                  "groups": sorted(self.registry.groups_of(nick)),
                  "connected": bool(self.conns.get(nick)),
                  "status": self.status.get(nick),
+                 # Ile ramek temu ta deklaracja powstala. Bez tego board
+                 # KLAMIE zamiast milczec: snapshot huba po dogfoodzie
+                 # kinas-machine pokazywal "worker1: idle" (pracowal caly
+                 # czas) i "worker2: working, buduje polowe A" (skonczyl ja
+                 # wiele godzin wczesniej). Obaj agenci znali regule
+                 # aktualizowania statusu; zaden nie mial powodu, bo kazda
+                 # wiadomosc i tak szla wprost do drugiego.
+                 # Wieku cudzej deklaracji nie da sie wyliczyc po stronie
+                 # klienta — to jedyny powod, dla ktorego jest tutaj.
+                 "status_seq": self.status_seq.get(nick),
                  "last_seq": ostatnia.get(nick, 0)}
                 for nick in sorted(znani | set(self.conns))]
 
@@ -805,9 +828,24 @@ class ChatServer:
             frame["target"] = target  # pole autorytatywne: server-side default
             seq = self._append(frame)
             frame["seq"] = seq
+            # `seq` przy statusie: board bez niego KLAMIE, a nie milczy.
+            # Zmierzone na koncu dogfoodu kinas-machine — snapshot huba po
+            # kilku godzinach pracy dwoch agentow:
+            #   worker1: idle
+            #   worker2: working "core gotowy, buduje polowe A"
+            # Pierwszy pracowal bez przerwy, drugi skonczyl polowe A wiele
+            # godzin wczesniej i budowal co innego. Obaj znali regule 7
+            # i zadnego z nich nie zaktualizowali — bo przy dwoch agentach
+            # kazda wiadomosc i tak szla wprost do drugiego, a status bylby
+            # jej ubozszym duplikatem.
+            # Wiek deklaracji zna WYLACZNIE serwer (agent nie widzi cudzego
+            # zegara ani cudzego seq w chwili zapisu). Nie wygaszamy statusu
+            # i nie wymuszamy aktualizacji — to byloby kodowanie zachowania.
+            # Podajemy fakt i pozwalamy czytajacemu zdecydowac, czy ufa.
             self.status[target] = {k: frame[k] for k in
                                    ("state", "subject", "note")
                                    if k in frame}
+            self.status_seq[target] = seq
             # Etap 1 (laka-nie-obora): status to CZYSTY fakt na boardzie —
             # zero side-effectu schedulera. `state=idle` nie dopisuje juz do
             # kolejki round-robin ani nie wyzwala oferty. Board jest pasywny.

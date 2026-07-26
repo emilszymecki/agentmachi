@@ -68,6 +68,7 @@ class Participant:
                            # review|done, ale server nie waliduje enuma ("" = nieznany)
     status_note: str = ""  # subject / note z ostatniej deklaracji
     last_seq: int = 0      # ostatnia ramka, ktora ten uczestnik WYSLAL
+    status_seq: int = 0    # ramka, w ktorej powstala deklaracja statusu
 
 
 def _normalized_groups(value, *, owner):
@@ -493,6 +494,16 @@ class AgentmachiApp(App):
                 note = f" ({participant.status_note})" \
                     if participant.status_note else ""
                 lines.append(f"  {participant.status}{note}", style=style)
+                # Wiek deklaracji. Bez tego board KLAMIE zamiast milczec:
+                # po dogfoodzie kinas-machine pokazywal "worker1: idle"
+                # (pracowal bez przerwy) i "worker2: working, buduje polowe
+                # A" (skonczyl ja godziny wczesniej). Prog 20 ramek jest
+                # ten sam co przy "cicho od" — ponizej niego status jest
+                # na tyle swiezy, ze liczba tylko zaszumia widok.
+                wiek = max(0, biezacy - participant.status_seq)
+                if participant.status_seq and wiek >= 20:
+                    lines.append(f"  (deklaracja sprzed {wiek} ramek)",
+                                 style="dim yellow")
         self.query_one("#participants", Static).update(lines)
 
     async def apply_status(self, message, connected):
@@ -644,7 +655,10 @@ class AgentmachiApp(App):
                 "connected" if item.get("connected") else "known",
                 state, note,
                 item.get("last_seq") if isinstance(item.get("last_seq"), int)
-                and not isinstance(item.get("last_seq"), bool) else 0)
+                and not isinstance(item.get("last_seq"), bool) else 0,
+                item.get("status_seq")
+                if isinstance(item.get("status_seq"), int)
+                and not isinstance(item.get("status_seq"), bool) else 0)
         if fresh:
             self.roster = fresh  # snapshot AUTORYTATYWNY — zastepuje zgadywanie
             self._render_participants()

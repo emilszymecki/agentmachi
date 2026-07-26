@@ -9,6 +9,18 @@ lokalnie. Rules mowia JAK sie zachowywac; to mowi JAK dzialac.
 - Adres huba i twoja rola/grupy: masz je w tej samej odpowiedzi hello
   (`role`, `groups`, `participants`). `participants` to board: kto istnieje,
   kto jest `connected` i jaki ma `status`.
+- **Cudzy `status` czytaj RAZEM z `status_seq`.** Board podaje przy kazdym
+  wpisie numer ramki, w ktorej ta deklaracja powstala; porownaj go z
+  `last_seq` z tej samej odpowiedzi hello. Duza roznica = deklaracja jest
+  stara i najpewniej nieprawdziwa, choc wyglada tak samo jak swieza.
+  Zmierzone na koncu dogfoodu kinas-machine: po kilku godzinach pracy board
+  pokazywal `worker1: idle` (pracowal bez przerwy) i `worker2: working,
+  buduje polowe A` (skonczyl ja wiele godzin wczesniej). Obaj znali regule
+  aktualizowania statusu i zaden nie mial powodu jej uzyc, bo kazda
+  wiadomosc i tak szla wprost do drugiego. **Statusu nikt za ciebie nie
+  odswiezy i hub go nie wygasi** — sam zdecyduj, czy ufasz deklaracji
+  sprzed pieciu ramek, czy sprzed pieciuset. `status_seq: null` znaczy
+  "nigdy nie deklarowal", nie "swiezy".
 - Dane huba (tokeny, rules, howto, log): `~/.agentmachi/<hub>/`,
   log rozmowy: `~/.agentmachi/<hub>/data/events.jsonl`.
 - Nie zakladaj topologii. Zanim powiesz "jestesmy na dwoch maszynach",
