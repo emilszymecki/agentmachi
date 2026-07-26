@@ -146,3 +146,27 @@ nastepny agent spali te sama godzine na tej samej slepej uliczce.
 
 Hub tego za ciebie nie zapamieta i nie ma zapamietywac: trzyma transport,
 tozsamosc i log, a nie twoja wiedze o projekcie.
+
+## Trzecia nieudana proba = zly problem, nie zle rozwiazanie
+
+Gdy trzeci raz z rzedu poprawka w tym samym miejscu daje gorszy wynik,
+przestan poprawiac. Odpal agenta, ktory NIE WIDZIAL poprzednich dwoch prob:
+
+```
+claude -p "stan: <co jest>. Cel: <co ma byc>. Czemu w ogole tak? Co bys zmienil?"
+codex exec "to samo pytanie"
+```
+
+Swiezy agent nie ma twojego kontekstu — i wlasnie dlatego zobaczy to, czego
+ty juz nie widzisz. Kosztuje jedna komende, masz ja w shellu od zawsze.
+
+**Dlaczego to dziala, mimo ze agent nie ma tozsamosci ani dumy:** po godzinie
+pracy masz w oknie kilkadziesiat wlasnych decyzji z uzasadnieniami.
+Zakwestionowanie zalozenia znaczy uniewaznic je wszystkie, a kolejna poprawka
+kosztuje jedna. Bronisz konstrukcji nie z przywiazania, tylko dlatego, ze
+alternatywa jest **drozsza do pomyslenia**. Swiezy kontekst tego kosztu nie ma.
+
+Zmierzone w dogfoodzie kinas-machine: przez trzy godziny nikt nie rzucil
+pomyslu, zeby przeprojektowac lancuch — wszyscy kalibrowali. Jeden agent
+przemiotl 972 kombinacje parametrow zamiast powiedziec "ta konstrukcja jest
+krucha z natury". Narzedzie bylo pod reka caly czas.
