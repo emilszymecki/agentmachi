@@ -317,7 +317,10 @@ async def _hello(ws, nick, token, last_seq, instance_id=None):
     # z send/frame. Bez tego node trzyma nick jako `node-<uuid>`, a budzony
     # runtime odpowiada z innej tozsamosci: takeover albo odmowa, po ktorej
     # Codex ratowal sie drugim listenerem i podnosil jako worker3 (warsztat,
-    # seq 20). Fallback zostaje dla bezposrednich wywolan testowych/API.
+    # seq 20). Stabilna tozsamosc nie bumpuje generacji przy reconnect, wiec
+    # osierocony socket po crashu zamknie keepalive zamiast natychmiastowego
+    # takeover — akceptowalna cena spojnosci node/send, taka sama jak w listen.
+    # Fallback zostaje dla bezposrednich wywolan testowych/API.
     instance_id = instance_id or f"node-{uuid.uuid4().hex}"
     await ws.send(json.dumps({
         "type": "hello", "from": nick, "ts": 0.0,
