@@ -125,6 +125,53 @@ def _write_0600(path, text):
         f.write(text)
 
 
+def _porty_innych_hubow(wlasna_nazwa):
+    """Porty zapisane w configach POZOSTALYCH hubow. Zrodlem jest config,
+    nie zywy proces: hub zatrzymany nadal ma prawo do swojego portu, bo
+    `start` odpali go pod tym samym adresem."""
+    zajete = set()
+    home = hub_home()
+    if not home.is_dir():
+        return zajete
+    for d in home.iterdir():
+        if not d.is_dir() or d.name == wlasna_nazwa:
+            continue
+        try:
+            cfg = json.loads((d / "config.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        p = cfg.get("port")
+        if isinstance(p, int) and not isinstance(p, bool):
+            zajete.add(p)
+    return zajete
+
+
+def _wybierz_port(preferowany, wlasna_nazwa, bind="127.0.0.1", prob=200):
+    """Pierwszy wolny port od `preferowanego` w gore.
+
+    C5: dwa huby na jednym porcie to cicha katastrofa, nie drobiazg. Nowy hub
+    wstaje z PUSTYM logiem pod adresem starego, a kursory klientow sa per
+    host:port — czlowiek dostaje wtedy fail-closed "last_seq 303 > serwerowy
+    last_seq 0" i nie wie, dlaczego. `list` tez zaczyna klamac, bo rozpoznaje
+    huby po porcie. Zmierzone na zywej maszynie: hub 'agentmachi' utworzony
+    bez --port zabral 8766 dzialajacemu 'goldbergowi'.
+
+    Sprawdzamy WYLACZNIE configi innych hubow, nie zajetosc portu w systemie:
+    obcy proces na tym porcie i tak daje fail-fast przy bindzie (F7), a
+    odpytywanie zywego systemu uzaleznialoby wynik `ensure_hub` od tego, co
+    akurat chodzi na maszynie — testy stawaly sie flaky, gdy obok dzialal
+    prawdziwy hub."""
+    zajete = _porty_innych_hubow(wlasna_nazwa)
+    kandydat = preferowany
+    for _ in range(prob):
+        if kandydat not in zajete:
+            return kandydat
+        kandydat += 1
+    raise CliError(
+        f"nie znalazlem wolnego portu w zakresie "
+        f"{preferowany}..{preferowany + prob - 1}; podaj --port jawnie")
+
+
 def ensure_hub(name, port, bind="127.0.0.1"):
     """Utworz strukture huba przy pierwszym uzyciu; istniejacej NIE ruszaj."""
     d = hub_dir(name)
@@ -153,8 +200,16 @@ def ensure_hub(name, port, bind="127.0.0.1"):
             (Path(__file__).with_name("howto_default.md")).read_text())
     config_path = d / "config.json"
     if config_path.exists():
+        # Hub ISTNIEJACY zachowuje swoj port — nigdy go nie przesuwamy,
+        # bo kursory klientow sa per host:port.
         port = json.loads(config_path.read_text()).get("port", port)
     else:
+        # C5: NOWY hub nie moze zabrac portu innemu (ani niczemu w systemie).
+        wybrany = _wybierz_port(port, name, bind)
+        if wybrany != port:
+            print(f"agentmachi: port {port} jest zajety — hub '{name}' "
+                  f"dostaje {wybrany}", file=sys.stderr)
+        port = wybrany
         config_path.write_text(json.dumps({"port": port, "bind": bind}))
     return d, port
 

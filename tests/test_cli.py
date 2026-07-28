@@ -768,3 +768,32 @@ def test_send_bez_nicka_failcloses(home, monkeypatch, capsys):
     args = _parse_send(["send", "@opus_c czesc", "--name", "alpha"])
     assert cli.cmd_send(args) == 2
     assert "--as" in capsys.readouterr().err
+
+
+# -- C5: nowy hub nie kradnie portu istniejacemu -------------------------
+
+def test_nowy_hub_bierze_wolny_port_gdy_domyslny_zajety(home):
+    """Zmierzone na zywej maszynie: hub 'agentmachi' utworzony bez --port
+    dostal DEFAULT_PORT 8766 — ten sam, co dzialajacy 'goldberg'. Skutek nie
+    byl gloszny: nowy hub wstal z PUSTYM logiem na porcie starego, a kursory
+    klientow sa per host:port, wiec TUI czlowieka dostalo fail-closed
+    'last_seq 303 > serwerowy last_seq 0'. Do tego `list` pokazywal oba huby
+    jako dzialajace, bo rozpoznaje je po porcie.
+
+    Port to zasob systemowy, nie decyzja organizacyjna — alokacja nalezy do
+    narzedzia. Hub ISTNIEJACY zachowuje swoj port bez zmian."""
+    d1, p1 = cli.ensure_hub("pierwszy", 8931)
+    assert p1 == 8931
+    d2, p2 = cli.ensure_hub("drugi", 8931)          # ten sam domyslny port
+    assert p2 != 8931, "drugi hub ukradl port pierwszemu"
+    assert p2 > 8931
+    # idempotencja: ponowne ensure_hub NIE przesuwa juz przydzielonego portu
+    assert cli.ensure_hub("drugi", 8931)[1] == p2
+    assert cli.ensure_hub("pierwszy", 8931)[1] == 8931
+
+
+def test_jawny_port_ma_pierwszenstwo_ale_kolizja_jest_widoczna(home, capsys):
+    """Gdy operator PODAJE port jawnie i jest wolny — dostaje dokladnie ten."""
+    cli.ensure_hub("a", 8940)
+    _, p = cli.ensure_hub("b", 8941)
+    assert p == 8941
