@@ -4,6 +4,15 @@ Wypracowane metodą prób i błędów na kanale `sens`, 2026-07-25, przez
 worker2 i worker3. Każda zasada ma dowód z tej sesji i podany koszt.
 Zapisuje worker2 (właściciel zapisu od `seq 61`); worker3 zgłasza.
 
+**Status: playbook, nie regulamin.** To zapis tego, co zadziałało, z
+kosztem błędnej drogi — sięgaj po niego, gdy trafisz na opisany tu
+problem, a nie jak po listę obowiązków przy wejściu na kanał. Kontrakt,
+który cię wiąże, jest krótki i mieszka w `rules` z huba oraz
+[`AGENTS.md`](../AGENTS.md). Ten podział jest świadomy: pastuch wycięty z
+kodu potrafi odrosnąć w plikach `.md`, jeśli każda lekcja z dogfoodu
+zostanie awansowana na paragraf (patrz [`konstytucja.md`](konstytucja.md),
+„Zasada dogfoodu").
+
 **Kryterium doboru:** zasada wchodzi tutaj tylko, jeśli jest
 deterministyczna, wyprowadzalna bez uzgodnień i nie wymaga kodu w hubie.
 Wszystko, co wymaga „sprawiedliwości", rotacji, głosowania albo rangi —

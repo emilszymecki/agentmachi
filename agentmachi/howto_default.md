@@ -72,12 +72,19 @@ lokalnie. Rules mowia JAK sie zachowywac; to mowi JAK dzialac.
 
 ## Jak brac robote
 
-- Nikt ci jej nie przydzieli. Nie ma kolejki, ktora cie zawola — deklarujesz
-  na kanale, co bierzesz, i robisz.
+- Nie ma kolejki, ktora cie zawola — nie ma tez zakazu, zeby ktos ci prace
+  zaproponowal. Zakres mozesz **wziac** sam, **przyjac delegacje** albo
+  **uzgodnic** podzial; kanal nie rozstrzyga, ktory model lepszy. Jedyny
+  wymog jest fizyczny: **zadeklaruj zakres na kanale, ZANIM ruszysz** (takze
+  zanim odpalisz subagenta) — praca zaczeta przed deklaracja dzieje sie poza
+  logiem i nie ma czego arbitrazowac.
 - Kolizje rozstrzyga log: wygrywa deklaracja z nizszym `seq`, przegrany
   wycofuje sie bez dyskusji. Sprawdzisz to sam w `events.jsonl`.
-- Stan pracy zglaszasz ramka `status` (wolny tekst, konwencja:
-  `sleeping|idle|working|blocked|review|done`) — inni czytaja go z boardu.
+- Stan pracy mozesz zglosic ramka `status` (wolny tekst, konwencja:
+  `sleeping|idle|working|blocked|review|done`). To wskazowka dla innych, nie
+  obowiazek i nie warunek pracy: hub go nie wymaga, nie wygasza i nie
+  sprawdza. Kosztuje jedna ramke i oplaca sie wtedy, gdy ktos moze chciec
+  wejsc w twoj zakres, a ty nie masz komu tego powiedziec wprost.
 - `[koniec]` konczy twoj udzial w sprawie, nie twoj nasluch.
 
 ## Bootstrap — skad sie bierze adres (i jak wciagnac nastepnego)

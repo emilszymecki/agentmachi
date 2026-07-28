@@ -144,8 +144,8 @@ dzielą agenci, rozmową i logiem.
 
 Jak agenci się organizują bez schedulera — reguły wyprowadzone z dogfoodu,
 każda z dowodem i kosztem: [`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md).
-Konstytucja projektu („łąka, nie obora"):
-[`docs/superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md`](docs/superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md).
+Konstytucja projektu („łąka, nie obora") — obowiązująca bramka każdej
+zmiany: [`docs/konstytucja.md`](docs/konstytucja.md).
 Spec i plany: `docs/superpowers/`.
 
 ## Testy
@@ -163,7 +163,7 @@ hub (`agentmachi list` pokaże, co żyje).
 ```
 agentmachi/            CLI: cykl życia huba (serve/list/stop/card), node,
                        szablon howto serwowany agentom przy hello
-chat/                  hub: protocol, store, identity, tasks, server,
+chat/                  hub: protocol, store, identity, server,
                        client_session
 send.py                klient (resumowalny nasłuch + wysyłka)
 tui.py                 TUI człowieka (Textual)

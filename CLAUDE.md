@@ -31,7 +31,7 @@ brakującą możliwość, czy podejmujesz za niego decyzję? Decyzja za agenta
 = odrzuć własny pomysł.
 
 Ta bramka ma źródło: konstytucja projektu
-`docs/superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md` („płot, nie
+`docs/konstytucja.md` („płot, nie
 pastuch") — nadrzędna zasada, z której wynika cały podział fizyka/zachowanie.
 
 ## Zanim zaczniesz kodować

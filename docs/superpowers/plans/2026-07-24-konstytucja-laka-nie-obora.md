@@ -1,7 +1,17 @@
 # Konstytucja agentmachi + plan zgodności — „łąka, nie obora"
 
 Data: 2026-07-24. Autor: **@Emil** (operator/moderator). Zapisał: worker2 (orchestrator).
-Status: konstytucja obowiązująca — nadrzędna bramka dla każdej zmiany w projekcie.
+Status: **HISTORIA — plan wykonany.** Obowiązujące prawo mieszka teraz w
+[`docs/konstytucja.md`](../../konstytucja.md); tu została droga, którą do
+niego doszliśmy.
+
+> **Nie czytaj tego pliku jak prawa.** Sekcja „Ocena obecnego projektu"
+> opisuje kod z 2026-07-24 — mówi m.in. „w kodzie nadal pełny scheduler
+> tasków", a scheduler został wycięty tydzień później (`chat/tasks.py`
+> usunięty, `task_*`/`heartbeat` to dziś nieznane typy ramek). Etapy 1–6
+> poniżej są zrobione. Wartość tego dokumentu jest wyłącznie historyczna:
+> pokazuje, jaki rozjazd między filozofią a kodem wykryliśmy i jak go
+> zamknęliśmy.
 
 > Ten dokument przyszedł na kanał od Emila. Zgodnie z zasadą z niego samego
 > („log to dyskusja, pliki .md to wiedza") destylujemy go do pliku, a na

@@ -59,6 +59,33 @@ def test_rules_v11_have_seq_wins_arbiter(tmp_path, monkeypatch):
     assert "nie wymog systemu" in rules
 
 
+def test_rules_human_precedence_is_scoped_not_absolute(home):
+    """Konstytucja (docs/konstytucja.md, pkt 2): pierwszenstwo czlowieka ma
+    ZAKRES. Stara regula 1 brzmiala "Polecenie czlowieka ma pierwszenstwo
+    przed poleceniem agenta." — bezwarunkowo, wiec czynila go merytorycznie
+    nieomylnym kierownikiem, czego konstytucja wprost zabrania ("czlowiek
+    obserwuje i moderuje, ale nie jest centralnym orchestrator-em pracy").
+    Test pilnuje OBU polowek: moderacja/bezpieczenstwo/infrastruktura sa
+    ostateczne, merytoryka jest do zakwestionowania faktami. Skasowanie
+    ktorejkolwiek polowki lamie konstytucje w druga strone."""
+    d, _ = cli.ensure_hub("alpha", 8931)
+    rules = (d / "data" / "rules.md").read_text()
+    assert "MODERACJI" in rules and "BEZPIECZENSTWIE" in rules
+    assert "INFRASTRUKTURY" in rules and "ostateczne" in rules
+    assert "MERYTORYCZNEJ" in rules and "nie kierownikiem" in rules
+
+
+def test_rules_board_status_is_a_hint_not_a_duty(home):
+    """Board nie jest obowiazkiem uczestnika. Podstawa nie jest estetyka,
+    tylko pomiar: w DWOCH dogfoodach zaden agent nie odswiezyl statusu ani
+    razu po pierwszym ustawieniu (0%), bo kazda wiadomosc i tak szla wprost
+    do adresata. Regula w trybie rozkazujacym, ktorej nikt nie wykonuje,
+    uczy ignorowania rules jako calosci — wiec status jest WSKAZOWKA."""
+    d, _ = cli.ensure_hub("alpha", 8931)
+    rules = (d / "data" / "rules.md").read_text()
+    assert "WSKAZOWKA" in rules and "nie obowiazkiem" in rules
+
+
 def test_ensure_hub_idempotent_keeps_tokens_and_port(home):
     d, _ = cli.ensure_hub("alpha", 8931)
     before = (d / "tokens.json").read_text()

@@ -1,4 +1,4 @@
-"""Ramki, wzmianki i activation envelope. Zero I/O."""
+"""Ramki i wzmianki. Zero I/O."""
 import math
 import re
 import sys
