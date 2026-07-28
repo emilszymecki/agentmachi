@@ -51,12 +51,15 @@ def srv(tmp_path):
     return _run
 
 
-async def hello(nick, token, instance="i1", last_seq=0, role="agent", groups=None):
+async def hello(nick, token, instance="i1", last_seq=0, role="agent",
+                groups=None, context=None):
     ws = await websockets.connect(f"ws://localhost:{PORT}")
-    await ws.send(json.dumps({"type": "hello", "from": nick, "ts": 0.0,
-                              "instance_id": instance, "token": token,
-                              "last_seq": last_seq, "role": role,
-                              "groups": groups or []}))
+    ramka = {"type": "hello", "from": nick, "ts": 0.0,
+             "instance_id": instance, "token": token,
+             "last_seq": last_seq, "role": role, "groups": groups or []}
+    if context is not None:
+        ramka["context"] = context
+    await ws.send(json.dumps(ramka))
     reply = json.loads(await ws.recv())
     return ws, reply
 
@@ -1955,3 +1958,57 @@ def test_board_pokazuje_ostatnia_ramke_uczestnika(srv):
             await ws.close()
 
     srv(scenariusz)
+
+
+# -- C2: wejscie fresh (kanal daje orientacje bez kotwicy) -----------------
+
+def test_hello_fresh_bez_rozmowy_ale_z_orientacja(srv):
+    """C2: agent wpuszczony po niezalezna perspektywe nie moze dostac
+    cudzego rozumowania — po dostarczeniu nie da sie go 'nie przeczytac',
+    kotwica siedzi juz w oknie kontekstu i zadna instrukcja w howto tego
+    nie cofnie. Dostaje za to wszystko, czego potrzebuje do dzialania:
+    rules, howto, board. To jest granica: hub odbiera KOTWICE, nie
+    ORIENTACJE."""
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        for i in range(3):
+            await alfa.send(json.dumps({"type": "chat", "from": "alfa",
+                                        "ts": 0.0,
+                                        "text": f"moja diagnoza {i}"}))
+        await asyncio.sleep(0.1)
+        beta, reply = await hello("beta", "tb", context="fresh")
+        assert reply["type"] == "ok"
+        assert reply.get("backlog") == []
+        assert "moja diagnoza" not in json.dumps(reply)
+        # orientacja zostaje: kto tu jest i jak dzialac
+        assert any(p["nick"] == "alfa" for p in reply["participants"])
+        assert reply["last_seq"] == server.log.last_seq
+        for ws in (alfa, beta):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_hello_fresh_nie_wraca_po_historie_przy_kolejnym_wejsciu(srv):
+    """Kursor po fresh stoi na koncu logu. Bez tego agent pominalby
+    historie raz, a przy najblizszym reconnekcie dostal ja w calosci —
+    czyli niezaleznosc trwalaby do pierwszego padu.
+
+    UWAGA: to test SERWERA i sam NIE WYSTARCZA — bierze kursor recznie
+    z odpowiedzi, czego prawdziwy klient dotad nie robil (send.py przesuwal
+    kursor wylacznie ramkami z backlogu). Kontraktu klienckiego pilnuja
+    testy w test_send.py; bez nich ten test jest zielony przy kliencie,
+    ktory kursor gubi."""
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        await alfa.send(json.dumps({"type": "chat", "from": "alfa",
+                                    "ts": 0.0, "text": "stara diagnoza"}))
+        await asyncio.sleep(0.1)
+        beta, reply = await hello("beta", "tb", context="fresh")
+        kursor = reply["last_seq"]
+        await beta.close()
+        beta2, reply2 = await hello("beta", "tb", instance="i2",
+                                    last_seq=kursor)
+        assert "stara diagnoza" not in json.dumps(reply2)
+        await alfa.close()
+        await beta2.close()
+    asyncio.run(srv(scenario))

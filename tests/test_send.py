@@ -138,10 +138,15 @@ def test_apply_hello_resync_without_state_fails_closed(session, capsys):
 def test_hello_ok_emits_session_metadata_before_backlog(session, capsys):
     """Finisz codexa (2): rules/role/groups/generation emitowane jako JEDNA
     ramka session_metadata PRZED backlogiem."""
+    # C2: `last_seq` dopisane do ramki — nie zmiana intencji testu (broni
+    # KOLEJNOSCI emisji), tylko urealnienie wejscia. Serwer w galezi `ok`
+    # ZAWSZE niesie last_seq (chat/server.py, reply "ok"), wiec ramka bez
+    # niego nie istnieje na drucie; od C2 klient fail-closes na jej brak,
+    # bo to jedyny autorytatywny koniec logu.
     send._apply_hello_reply(session, {
         "type": "ok", "generation": 2, "role": "agent",
         "groups": ["workers"], "rules": "tekst", "rules_hash": "abc",
-        "backlog": [{"from": "a", "text": "x", "seq": 1}]})
+        "backlog": [{"from": "a", "text": "x", "seq": 1}], "last_seq": 1})
     lines = capsys.readouterr().out.splitlines()
     assert "session_metadata" in lines[0] and '"abc"' in lines[0]
     assert lines[1] == "a: x"
@@ -149,7 +154,9 @@ def test_hello_ok_emits_session_metadata_before_backlog(session, capsys):
 
 
 def test_hello_ok_without_metadata_emits_nothing_extra(session, capsys):
-    send._apply_hello_reply(session, {"type": "ok", "backlog": []})
+    # C2: last_seq=0 (pusty log) — patrz komentarz w tescie wyzej.
+    send._apply_hello_reply(session, {"type": "ok", "backlog": [],
+                                      "last_seq": 0})
     assert capsys.readouterr().out == ""
 
 
@@ -451,7 +458,9 @@ def test_nickless_listen_failcloses_when_hub_assigns_no_nick(monkeypatch):
         async def __aexit__(self, *a):
             return False
 
-    async def _fake_hello(ws, nick, session, token, role=None):
+    # C2: atrapa duck-typuje do_hello, wiec przyjmuje takze `context`
+    # (dopisany przy wejsciu fresh). Kontrakt testu bez zmian.
+    async def _fake_hello(ws, nick, session, token, role=None, context=None):
         return {"type": "ok"}   # przyjete, ale BEZ pola 'nick'
 
     monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _FakeConn())
@@ -460,3 +469,86 @@ def test_nickless_listen_failcloses_when_hub_assigns_no_nick(monkeypatch):
     with pytest.raises(SystemExit) as ei:
         asyncio.run(send.listen(""))
     assert ei.value.code == 1
+
+
+# -- C2: kursor konczy na AUTORYTATYWNYM koncu logu ------------------------
+
+def test_hello_ok_z_pustym_backlogiem_przesuwa_kursor_na_wire_last_seq(session):
+    """Autorytatywny koniec logu jest w `last_seq`, NIE w ostatniej ramce
+    backlogu — serwer swiadomie filtruje z drutu cudze hello (54% backlogu
+    w pomiarze B5). Klient, ktory ufa wylacznie ramkom, zostaje z kursorem
+    sprzed filtra i prosi w kolko o to, czego nigdy nie dostanie. Przy
+    wejsciu `context=fresh` backlog jest pusty ZAWSZE, wiec bez tego
+    kontraktu niezaleznosc trwalaby do pierwszego reconnectu."""
+    send._apply_hello_reply(session, {
+        "type": "ok", "backlog": [], "last_seq": 42})
+    assert session.last_applied_seq == 42
+
+
+def test_hello_ok_last_seq_zero_nie_wywraca_wejscia(session):
+    """PUSTY log: Session.advance rzuca SessionError dla seq < 1
+    (chat/client_session.py:221), wiec bezwarunkowe advance wysypywaloby
+    wejscie na swiezym kanale. Zero jest legalne — po prostu nie ma czego
+    przesuwac."""
+    send._apply_hello_reply(session, {
+        "type": "ok", "backlog": [], "last_seq": 0})
+    assert session.last_applied_seq == 0
+
+
+def test_hello_ok_bez_poprawnego_last_seq_failcloses(session):
+    """Fail-closed jak przy resync_required: brak wiarygodnego konca logu
+    znaczy 'nie wiem, gdzie jestem'. Ciche pominiecie przesuniecia to
+    pozniejsza powodz duplikatow albo luka, ktorej nikt nie powiaze
+    z tym wejsciem."""
+    from chat.client_session import SessionError
+    with pytest.raises(SessionError):
+        send._apply_hello_reply(session, {"type": "ok", "backlog": []})
+    with pytest.raises(SessionError):
+        send._apply_hello_reply(session, {
+            "type": "ok", "backlog": [], "last_seq": True})
+    with pytest.raises(SessionError):
+        send._apply_hello_reply(session, {
+            "type": "ok", "backlog": [], "last_seq": -1})
+
+
+def test_fresh_leci_tylko_w_pierwszym_hello(tmp_path, monkeypatch):
+    """Regresja C2: --fresh to jednorazowa decyzja przy STARCIE procesu,
+    nie tryb polaczenia. Gdyby leciala przy kazdym obiegu petli reconnectu,
+    kursor przeskakiwalby na koniec logu po kazdym zerwaniu, a wiadomosci
+    z okna rozlaczenia gineliby dla tego agenta bezpowrotnie.
+
+    Flage gasimy DOPIERO po zastosowaniu poprawnej odpowiedzi — gdy socket
+    padnie wczesniej, kolejna proba nadal ma byc fresh (inaczej niezaleznosc
+    gubi sie przez zwykly retry transportu)."""
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    widziane = []
+
+    class _FakeWs:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration      # natychmiastowy koniec -> reconnect
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return _FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    async def _fake_hello(ws, nick, session, token, role=None, context=None):
+        widziane.append(context)
+        if len(widziane) >= 2:
+            sys.exit(7)                   # przerywa petle reconnectu
+        return {"type": "ok", "backlog": [], "last_seq": 0}
+
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _FakeConn())
+    monkeypatch.setattr(send, "do_hello", _fake_hello)
+    monkeypatch.setattr(send, "_session",
+                        lambda nick: Session("localhost:9999", nick,
+                                             base_dir=tmp_path))
+
+    with pytest.raises(SystemExit):
+        asyncio.run(send.listen("beta", context="fresh"))
+    assert widziane == ["fresh", None]

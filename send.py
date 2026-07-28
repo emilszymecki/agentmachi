@@ -89,12 +89,14 @@ class _BootIdentity:
         self.last_applied_seq = 0
 
 
-async def do_hello(ws, nick, session, token, role=None):
+async def do_hello(ws, nick, session, token, role=None, context=None):
     hello = {
         "type": "hello", "ts": 0.0,
         "instance_id": session.instance_id,
         "last_seq": session.last_applied_seq,
         "role": role or os.environ.get("CHAT_ROLE", "agent")}
+    if context:
+        hello["context"] = context   # "fresh" = wejscie bez historii rozmowy
     if nick:
         hello["from"] = nick         # bez nicka hub nada go sam (B6)
     if token:
@@ -225,6 +227,24 @@ def _apply_hello_reply(session, reply):
         _emit_session_metadata(reply)
         for frame in reply.get("backlog", []):
             apply_frame(session, frame)
+        # C2: kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
+        # ramce backlogu. Roznica to (a) ramki celowo niewyslane na drucie —
+        # serwer filtruje cudze hello, ale w `last_seq` podaje prawdziwy
+        # koniec (por. test_reconnect_with_wire_last_seq_gives_empty_backlog_
+        # no_loop), oraz (b) caly przypadek `context=fresh`, gdzie backlog
+        # jest pusty z definicji. Bez tego agent wchodzacy fresh pominalby
+        # historie raz, a przy pierwszym reconnekcie dostal ja w calosci.
+        wire_last_seq = reply.get("last_seq")
+        if (isinstance(wire_last_seq, bool)
+                or not isinstance(wire_last_seq, int)
+                or wire_last_seq < 0):
+            raise SessionError(
+                f"hello ok bez poprawnego last_seq (dostalem: "
+                f"{wire_last_seq!r}) — kursor NIE przesuniety")
+        # 0 = pusty log: legalne, tylko nie ma czego przesuwac. advance()
+        # wymaga seq >= 1 i rzucilby SessionError na swiezym kanale.
+        if wire_last_seq > 0:
+            session.advance(wire_last_seq)
     elif reply["type"] == "resync_required":
         _emit_session_metadata(reply)
         snapshot_seq = reply.get("snapshot_seq")
@@ -264,8 +284,14 @@ async def send_once(nick, text, quiet=False):
                                   "from": nick, "ts": 0.0, "text": text}))
 
 
-async def listen(nick):
+async def listen(nick, context=None):
     token = _require_token()
+    # C2: `fresh` to JEDNORAZOWA decyzja przy starcie procesu, nie tryb
+    # polaczenia. Gdyby leciala przy kazdym obiegu petli reconnectu, kursor
+    # przeskakiwalby na koniec logu po kazdym zerwaniu — a wiadomosci z okna
+    # rozlaczenia gineliby bezpowrotnie. Gasimy flage dopiero PO zastosowaniu
+    # poprawnej odpowiedzi (nizej), zeby pad przed nia nie zjadl intencji.
+    fresh_pending = context == "fresh"
     # B6: nick moze byc pusty — wtedy hub nada go sam i odesle w hello.
     # Sesje (kursor + lock) tworzymy DOPIERO gdy znamy tozsamosc, zeby
     # kursor byl trwaly per przydzielony nick, a nie per "" przy kazdym
@@ -279,7 +305,9 @@ async def listen(nick):
             try:
                 async with websockets.connect(URI) as ws:
                     boot = session or _BootIdentity()   # tozsamosc na pierwsze hello
-                    reply = await do_hello(ws, nick, boot, token)
+                    reply = await do_hello(
+                        ws, nick, boot, token,
+                        context="fresh" if fresh_pending else None)
                     nadany = reply.get("nick") if isinstance(reply, dict) else None
                     if session is None and nadany:
                         # przyjmij nick nadany przez huba i od teraz trzymaj
@@ -304,6 +332,9 @@ async def listen(nick):
                               "CHAT_NICK.", file=sys.stderr)
                         sys.exit(1)
                     _apply_hello_reply(session, reply)
+                    # Gasimy PO zastosowaniu odpowiedzi: gdyby polaczenie
+                    # padlo wczesniej, nastepna proba nadal ma byc fresh.
+                    fresh_pending = False
                     _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
                     async for message in ws:

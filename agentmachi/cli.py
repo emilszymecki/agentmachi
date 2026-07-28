@@ -778,7 +778,8 @@ def cmd_listen(args):
     # przydzial przez huba (dostawales "listener" zamiast worker5).
     nick = _agent_env(args)
     send = _import_send()
-    asyncio.run(send.listen(nick))
+    asyncio.run(send.listen(
+        nick, context="fresh" if getattr(args, "fresh", False) else None))
     return 0
 
 
@@ -914,6 +915,13 @@ def _build_parser():
     p = sub.add_parser("listen", help="resumowalny nasluch (kursor+lock)")
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
+    p.add_argument("--fresh", action="store_true",
+                   help="wejdz BEZ historii rozmowy — kursor na biezacy "
+                        "koniec logu. Dla agenta, ktory ma dac NIEZALEZNA "
+                        "perspektywe: cudze diagnozy w kontekscie sa "
+                        "kotwica, ktorej zadna instrukcja juz nie cofnie. "
+                        "Dziala RAZ, przy starcie — reconnect wznawia "
+                        "normalnie, wiec nic nie gubisz po zerwaniu.")
     p.set_defaults(fn=cmd_listen)
 
     p = sub.add_parser("frame", help="jednorazowa ramka status "

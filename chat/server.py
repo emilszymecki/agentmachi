@@ -585,6 +585,20 @@ class ChatServer:
             # za cudza rozmowe. Replay od kursora zwraca pelny log kazdemu
             # uwierzytelnionemu: selekcje robi node/agent, nie hub. Node (wake)
             # pobiera tedy kontekst — filtr tutaj = amnezja agentow tylnymi drzwiami.
+            #
+            # C2 (wejscie fresh): agent wpuszczony po NIEZALEZNA perspektywe
+            # nie moze dostac cudzego rozumowania — po dostarczeniu nie da
+            # sie go "nie przeczytac", kotwica siedzi juz w oknie kontekstu.
+            # Zadna instrukcja w howto tego nie cofnie, wiec to fizyka, nie
+            # zachowanie: co dociera przy wejsciu, decyduje wylacznie hub.
+            # Realizacja: kursor na biezacy koniec logu PRZED policzeniem
+            # backlogu — obie galezie odpowiedzi (resync i ok) wychodza wtedy
+            # puste same z siebie, zero rozgalezien w konstrukcji reply.
+            # rules/howto/participants ida normalnie: odbieramy KOTWICE, nie
+            # ORIENTACJE. Walidacja `last_seq` wyzej zostaje nietknieta —
+            # ocenia to, co klient PRZYSLAL, a nie to, co mu podstawiamy.
+            if frame.get("context") == "fresh":
+                last_seq = self.log.last_seq
             backlog = self.log.events_after(last_seq)
             # niezmiennik A + (Runda 7) DURABLE-FIRST: mutacja tozsamosci jest
             # TRWALA PRZED live-swapem i JAKIMKOLWIEK side-effectem. Durable

@@ -1,3 +1,5 @@
+import pytest
+
 from chat import protocol
 
 
@@ -156,3 +158,22 @@ def test_validate_huge_int_ts_rejected_no_overflow():
     assert isinstance(msg, str) and msg            # ramka odrzucona komunikatem
     assert protocol.validate({"type": "chat", "from": "a", "ts": 1,
                               "text": "x"}) is None  # zwykly int nadal ok
+
+
+@pytest.mark.parametrize("baza", [
+    {"type": "hello", "from": "alfa", "ts": 0.0,
+     "instance_id": "i1", "last_seq": 0},
+    # B6: hello w trybie otwartym NIE niesie nicka. To wlasnie ta sciezka
+    # jest tu najwazniejsza — agent wpuszczany po niezalezna perspektywe
+    # czesto nie ma jeszcze wlasnego nicka i prosi hub o dowolny wolny.
+    {"type": "hello", "ts": 0.0, "instance_id": "i1", "last_seq": 0},
+])
+def test_hello_context_fail_closed_takze_bez_nicka(baza):
+    """Fail-closed: nieznany tryb wejscia to blad, nie ciche 'full'.
+    Ciche zignorowanie znaczyloby, ze agent proszacy o wejscie bez kotwicy
+    dostaje cala rozmowe i nigdy sie o tym nie dowie."""
+    assert protocol.validate({**baza, "context": "fresh"}) is None
+    assert protocol.validate({**baza, "context": "full"}) is None
+    assert protocol.validate(baza) is None                    # brak = full
+    assert protocol.validate({**baza, "context": "bare"}) is not None
+    assert protocol.validate({**baza, "context": 1}) is not None

@@ -69,6 +69,17 @@ def validate(frame):
     if ftype not in INBOUND_FRAME_TYPES:
         # znany typ, ale wylacznie wyjsciowy/trwaly — klient nie moze go przyslac
         return f"{ftype}: typ wylacznie wyjsciowy/trwaly, nie moze przyjsc od klienta"
+    # C2: kontrola `context` MUSI stac PRZED galezia nickless hello ponizej —
+    # tamta konczy walidacje returnem, wiec kontrola w _validate_body nigdy
+    # by sie nie wykonala dla wejscia bez nicka. A to wlasnie ta sciezka jest
+    # tu krytyczna: agent wpuszczany po niezalezna perspektywe czesto nie ma
+    # jeszcze nicka i prosi hub o dowolny wolny. Cichy fallback do "full"
+    # znaczylby, ze prosil o wejscie bez kotwicy, dostal ja i nigdy sie
+    # o tym nie dowiedzial.
+    if ftype == "hello":
+        ctx = frame.get("context")
+        if ctx is not None and ctx not in ("full", "fresh"):
+            return "context must be 'full' or 'fresh'"
     # wspolne: from niepusty string, ts liczba SKONCZONA (bool wykluczony)
     if "from" not in frame:
         # B6: hello w trybie otwartym moze NIE niesc nicka — agent prosi
