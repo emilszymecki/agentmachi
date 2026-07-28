@@ -278,13 +278,56 @@ def _apply_hello_reply(session, reply):
             session.advance(snapshot_seq)
 
 
+def _wysylka_albo_padnij(reply, nick, session):
+    """Fail-closed dla WYSYLKI, gdy hub odmowil hello.
+
+    `do_hello` celowo NIE umiera przy odmowie niosacej `suggested_nick` —
+    zwraca ramke, bo dla NASLUCHU to nie jest blad koncowy (listen podnosi
+    sie pod proponowanym nickiem, 7ea4130). Ale wolajacy z drugiej strony,
+    `send_once`/`oneshot_frame`, tej zwrotki nie sprawdzal i lecial dalej:
+    wysylal ramke na sockecie, ktory hub wlasnie zamykal, po czym konczyl
+    sie ZEREM. Komenda meldowala sukces, ramki nie bylo nigdzie.
+
+    Zmierzone na zywym kanale przez drugiego agenta (Codex): dwa
+    `send --as codex` skonczyly sie 0, zadnego nie ma w logu huba. Powod
+    byl systemowy, nie przypadkowy — `agentmachi node` nadaje instance_id
+    per polaczenie (node.py:317), a `send` bierze tozsamosc z pliku sesji,
+    wiec pod dzialajacym nodem KAZDA wysylka trafiala w te sciezke.
+
+    To najgorsza klasa bledu, jaka ten produkt ma: cichy false-success.
+    Ta sama, ktora dala "start zameldowal sukces PID-em trupa" i "list
+    pokazywal dwa huby jako dzialajace". Wysylka nie ma prawa udawac, ze
+    poszla.
+
+    Nadawcy NIE podstawiamy, nawet gdy hub podal wolny nick: przy nasluchu
+    zmiana nazwy jest ratunkiem, przy wysylce byloby podpisaniem sie cudza
+    tozsamoscia."""
+    if not (isinstance(reply, dict) and reply.get("type") == "error"):
+        return
+    powod = reply.get("text", reply)
+    print(f"agentmachi: hub ODRZUCIL hello dla {nick!r} — ramka NIE zostala "
+          f"wyslana.\n  powod: {powod}", file=sys.stderr)
+    proponowany = reply.get("suggested_nick")
+    if isinstance(proponowany, str) and proponowany:
+        print(f"  nick {nick!r} trzyma teraz ktos inny — czesto TWOJ WLASNY "
+              f"`agentmachi node`,\n"
+              f"  ktory laczy sie z osobna tozsamoscia niz plik sesji.\n"
+              f"  wolny nick: {proponowany} — uzyj go JAWNIE, jesli to "
+              f"naprawde ty:\n"
+              f"      agentmachi send --as {proponowany} \"...\"",
+              file=sys.stderr)
+    print(f"  twoj plik sesji: {session.path}", file=sys.stderr)
+    sys.exit(1)
+
+
 async def send_once(nick, text, quiet=False):
     """quiet=True: ramka trafia do logu i do ludzi, ale NIE budzi agentow.
     Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
     token = _require_token()
     session = _session(nick)  # kursor tylko do odczytu — nie ruszamy go
     async with websockets.connect(URI) as ws:
-        await do_hello(ws, nick, session, token)
+        _wysylka_albo_padnij(await do_hello(ws, nick, session, token),
+                             nick, session)
         # quiet -> typ `fyi`, ktory istnieje od planu B1: laduje w logu
         # i dociera do ludzi, ale NIE budzi agentow. Nie dodajemy drugiego
         # mechanizmu obok istniejacego — brakowalo tylko wygodnego wejscia.
@@ -417,7 +460,12 @@ async def oneshot_frame(nick, frame):
     token = _require_token()
     session = _session(nick)
     async with websockets.connect(URI) as ws:
-        await do_hello(ws, nick, session, token)
+        # Ta sama dziura co w send_once, tylko lepiej zamaskowana: po odmowie
+        # hello ramka szla na zamykany socket, ACK nie przychodzil, a brak
+        # ACK jest tu LEGALNY (status go nie dostaje) — wiec funkcja zwracala
+        # None, czyli "sukces".
+        _wysylka_albo_padnij(await do_hello(ws, nick, session, token),
+                             nick, session)
         await ws.send(json.dumps({"from": nick, "ts": 0.0, **frame}))
         try:
             while True:

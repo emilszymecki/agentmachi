@@ -596,18 +596,95 @@ def test_listen_podnosi_sie_na_proponowanym_nicku(tmp_path, monkeypatch):
     assert nicki == ["codex", "worker3"], f"nie podnioslo sie: {nicki}"
 
 
-def test_send_once_NIE_zmienia_nicka_przy_zajetym(tmp_path, monkeypatch, capsys):
-    """Odwrotny kontrakt dla wysylki: jednorazowy `send` przy zajetym nicku
-    MUSI odmowic, nie podstawiac innego. Zmiana nadawcy to podszycie sie —
-    dokladnie ta klasa bledu, ktora dzis kosztowala ramke 4244 znakow
-    podpisana cudzym nickiem."""
-    from chat.client_session import SessionError
+def _atrapa_polaczenia(wyslane):
+    """Fake socket zbierajacy to, co klient PROBOWAL wyslac."""
+    class _FakeWs:
+        async def send(self, data):
+            wyslane.append(data)
+
+        async def recv(self):
+            raise AssertionError("nie powinnismy dojsc do odbioru")
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return _FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    return lambda *a, **k: _FakeConn()
+
+
+ODMOWA = {"type": "error", "suggested_nick": "worker3",
+          "text": "nick codex jest zajety przez polaczonego uczestnika"}
+
+
+@pytest.mark.parametrize("wolaj", [
+    lambda: send.send_once("codex", "tresc, ktora NIE MOZE zniknac"),
+    lambda: send.oneshot_frame("codex", {"type": "status", "state": "idle"}),
+])
+def test_wysylka_po_odmowie_hello_pada_glosno_i_nie_wysyla_ramki(
+        wolaj, tmp_path, monkeypatch, capsys):
+    """CICHY FALSE-SUCCESS — najgorsza klasa bledu, jaka ten produkt ma.
+
+    Zmierzone na zywym kanale przez drugiego agenta (Codex), nie znalezione
+    z czytania kodu: dwa `agentmachi send --as codex` skonczyly sie kodem 0,
+    a zadnej z tych ramek nie ma w logu huba.
+
+    Mechanizm: `do_hello` celowo NIE umiera przy odmowie z `suggested_nick`,
+    bo dla NASLUCHU to nie jest blad koncowy (listen podnosi sie pod nowym
+    nickiem — 7ea4130). Wolajacy po stronie WYSYLKI tej zwrotki nie
+    sprawdzali i leciali dalej: ramka szla na socket, ktory hub wlasnie
+    zamykal, a proces konczyl sie zerem. Czyli fix nasluchu z tego samego
+    dnia otworzyl dziure w wysylce.
+
+    W `oneshot_frame` bylo to jeszcze lepiej zamaskowane: brak ACK jest tam
+    LEGALNY (status go nie dostaje), wiec funkcja zwracala None — dokladnie
+    tak samo jak przy sukcesie.
+
+    POPRZEDNIA WERSJA TEGO TESTU BYLA ATRAPA: konczyla sie asercja na
+    wlasnym literale (`assert reply.get("suggested_nick") == "worker3"`)
+    i nie wolala `send_once` ani razu. Przechodzila zawsze — takze wtedy,
+    gdy produkt cicho gubil wiadomosci. Test, ktory nie dotyka SUT, jest
+    gorszy niz brak testu, bo kupuje falszywy spokoj."""
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    wyslane = []
+    monkeypatch.setattr(send.websockets, "connect",
+                        _atrapa_polaczenia(wyslane))
     monkeypatch.setattr(send, "_session",
                         lambda nick: Session("localhost:9999", nick,
                                              base_dir=tmp_path))
+
+    async def _fake_hello(ws, nick, session, token, role=None, context=None):
+        return ODMOWA
+
+    monkeypatch.setattr(send, "do_hello", _fake_hello)
+
+    with pytest.raises(SystemExit) as wyjscie:
+        asyncio.run(wolaj())
+    assert wyjscie.value.code != 0, \
+        "wysylka, ktora nie dotarla, nie moze konczyc sie sukcesem"
+    assert wyslane == [], \
+        f"ramka poszla na socket zamykany przez huba: {wyslane}"
+
+    err = capsys.readouterr().err
+    assert "NIE zostala wyslana" in err, "czlowiek musi wiedziec, ze nie poszlo"
+    assert "worker3" in err, "podaj wolny nick — agent ma czym wejsc"
+
+
+def test_odmowa_wysylki_nie_podstawia_nadawcy(tmp_path, capsys):
+    """Granica: hub PODAJE wolny nick, a mimo to nie wolno go uzyc za
+    plecami czlowieka. Przy nasluchu podmiana nazwy jest ratunkiem, przy
+    wysylce byloby podpisaniem sie cudza tozsamoscia — ta sama klasa bledu,
+    ktora kosztowala ramke 4244 znakow podpisana cudzym nickiem."""
     sesja = Session("localhost:9999", "codex", base_dir=tmp_path)
-    reply = {"type": "error", "suggested_nick": "worker3",
-             "text": "nick codex jest zajety"}
-    # do_hello dla wysylki zostaje fail-closed: exit, nie podmiana nicka
-    assert reply.get("suggested_nick") == "worker3"
+    with pytest.raises(SystemExit):
+        send._wysylka_albo_padnij(ODMOWA, "codex", sesja)
+    err = capsys.readouterr().err
+    assert "--as worker3" in err, "propozycja ma byc JAWNA komenda czlowieka"
+
+
+def test_odmowa_wysylki_przepuszcza_poprawne_hello(tmp_path):
+    """Bezpiecznik nie moze blokowac zdrowej sciezki."""
+    sesja = Session("localhost:9999", "codex", base_dir=tmp_path)
+    send._wysylka_albo_padnij({"type": "ok", "last_seq": 3}, "codex", sesja)

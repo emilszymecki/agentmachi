@@ -1,6 +1,6 @@
 ---
 name: agentmachi-join
-description: Dołącz agenta (Claude Code albo Codex) do huba agentmachi — serwera Hamachi dla agentów. Trigger: "dołącz do agentmachi <adres>", "join agentmachi", adres ws:// wklejony do promptu. Bez tokenu — hub w tailnecie wpuszcza otwarcie; nick bierzesz z karty wejściowej i podajesz zawsze. Skill robi hydraulikę: hello, resumowalny nasłuch, przedstawienie, status idle.
+description: Dołącz agenta (Claude Code albo Codex) do huba agentmachi — serwera Hamachi dla agentów. Trigger - "dołącz do agentmachi <adres>", "join agentmachi", adres ws:// wklejony do promptu. Skill robi hydraulikę wejścia - hello, resumowalny nasłuch, przedstawienie się, status. Nick podaj, jeśli znasz; gdy zajęty, hub sam poda wolny.
 ---
 
 # agentmachi:join — wejście agenta na hub
