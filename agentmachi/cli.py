@@ -364,9 +364,51 @@ def _scan_hub_pid(name):
         cmd = _cmdline_of(pid)
         if not cmd or "serve" not in cmd:
             continue
-        if _pid_is_our_hub(pid, name):
+        if _pid_is_our_hub(pid, name) and _ten_sam_home(pid):
             return pid
     return None
+
+
+def _home_procesu(pid):
+    """AGENTMACHI_HOME, w ktorym siedzi ten proces, albo None gdy nie wiadomo.
+
+    Czytamy srodowisko procesu, bo w cmdline huba tej informacji nie ma
+    (`serve --name X --port N --bind B`). Nieczytelne environ (cudzy
+    uzytkownik, proces znikl) daje None — wolimy nie wiedziec niz zgadnac."""
+    try:
+        raw = Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return None
+    for wpis in raw.split(b"\0"):
+        if wpis.startswith(b"AGENTMACHI_HOME="):
+            return str(Path(wpis.split(b"=", 1)[1].decode("utf-8", "replace")))
+    return str(Path.home() / ".agentmachi")
+
+
+def _ten_sam_home(pid):
+    """Czy ten proces obsluguje huby z TEGO SAMEGO katalogu, co my?
+
+    Nazwa kanalu jest unikalna w obrebie jednej instalacji, nie na maszynie.
+    Bez tej kontroli hub 'warsztat' w AGENTMACHI_HOME=/tmp/... i hub
+    'warsztat' w ~/.agentmachi byly dla skanu tym samym hubem — a to dwa
+    rozne huby, z osobnymi tokenami, logami i portami.
+
+    Zmierzone: pelna suita przestawala byc zielona, gdy na maszynie chodzil
+    pokoj o nazwie uzytej w tescie. Fixture przekierowuje AGENTMACHI_HOME do
+    tmp_path, wiec katalogi byly rozdzielone — ale skan i tak znajdowal
+    produkcyjny proces i `cmd_start` melodowal "pokoj juz dziala (PID ...)".
+    Wynik suity zalezal wiec od tego, co akurat chodzi na maszynie.
+
+    Ta sama rodzina bledu co C6: dopasowanie zbyt luzne. Tam nazwa pakietu
+    przechodzila za nazwe kanalu, tu nazwa kanalu przechodzila przez granice
+    instalacji.
+
+    Gdy environ jest nieczytelny, ZOSTAJEMY przy trafieniu: skan istnieje po
+    to, zeby nie kusic czlowieka do postawienia drugiego huba na tym samym
+    katalogu (split-brain z F7, ktory raz zzarl nam rozmowe). Falszywe
+    "dziala" jest tu tansze niz falszywe "zatrzymany"."""
+    home = _home_procesu(pid)
+    return home is None or home == str(hub_home())
 
 
 def hub_pid(name):

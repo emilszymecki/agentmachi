@@ -384,6 +384,14 @@ def test_list_sees_running_hub_without_pidfile(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "_cmdline_of", fake)
     monkeypatch.setattr(cli, "_ancestor_pids", lambda: {os.getpid()})
     monkeypatch.setattr(cli, "_is_shell_wrapper", lambda pid: False)
+    # Atrapa obcego huba musi udawac takze JEGO INSTALACJE. Skan porownuje
+    # teraz AGENTMACHI_HOME procesu z naszym (bo nazwa kanalu jest unikalna
+    # w obrebie instalacji, nie maszyny) — a proxy jest tu PPID, czyli realny
+    # proces, ktory realnie zyje w domyslnym ~/.agentmachi. Bez tej linii test
+    # sprawdzalby, czy skan przechodzi przez granice instalacji, a ma
+    # sprawdzac, ze brak pidfile NIE znaczy "zatrzymany". Kontrakt F8 zostaje
+    # bez zmian; dopelniona jest tylko atrapa.
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: str(tmp_path))
     row = next(r for r in cli.hub_rows() if r["name"] == "h3")
     assert row["running"] is True
     assert row["pid"] == other
@@ -797,6 +805,42 @@ def test_jawny_port_ma_pierwszenstwo_ale_kolizja_jest_widoczna(home, capsys):
     cli.ensure_hub("a", 8940)
     _, p = cli.ensure_hub("b", 8941)
     assert p == 8941
+
+
+def test_skan_nie_myli_huba_z_innej_instalacji(home, monkeypatch):
+    """Nazwa kanalu jest unikalna w obrebie INSTALACJI, nie maszyny.
+
+    Zmierzone (zgloszone przez drugiego agenta na kanale, nie z czytania
+    kodu): pelna suita przestawala byc zielona, gdy na maszynie chodzil
+    pokoj o nazwie uzytej w tescie. Fixture przekierowuje AGENTMACHI_HOME do
+    tmp_path — katalogi byly rozdzielone — a mimo to skan po `--name`
+    znajdowal PRODUKCYJNY proces i cmd_start meldowal "pokoj juz dziala".
+    Wynik suity zalezal wiec od tego, co akurat chodzi na maszynie, a nie od
+    kodu; deklarowane "322 green" bylo wlasciwoscia maszyny, nie commita."""
+    cmd = "python3 -m agentmachi.cli serve --name warsztat --port 8767"
+    monkeypatch.setattr(cli, "_cmdline_of", lambda pid: cmd)
+    monkeypatch.setattr(cli, "_is_shell_wrapper", lambda pid: False)
+
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: str(cli.hub_home()))
+    assert cli._scan_hub_pid("warsztat") is not None, \
+        "hub z TEGO SAMEGO home musi byc widziany — inaczej wraca split-brain"
+
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: "/gdzie/indziej")
+    assert cli._scan_hub_pid("warsztat") is None, \
+        "hub o tej samej nazwie w innej instalacji to INNY hub"
+
+
+def test_nieczytelne_environ_zostawia_trafienie(home, monkeypatch):
+    """Granica poprzedniego testu. Gdy nie da sie ustalic home procesu,
+    zostajemy przy trafieniu. Skan istnieje po to, zeby nie kusic czlowieka
+    do postawienia drugiego huba na tym samym katalogu (split-brain F7, ktory
+    raz zzarl rozmowe) — falszywe "dziala" jest tu tansze niz falszywe
+    "zatrzymany"."""
+    cmd = "python3 -m agentmachi.cli serve --name warsztat --port 8767"
+    monkeypatch.setattr(cli, "_cmdline_of", lambda pid: cmd)
+    monkeypatch.setattr(cli, "_is_shell_wrapper", lambda pid: False)
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: None)
+    assert cli._scan_hub_pid("warsztat") is not None
 
 
 def test_start_nowego_pokoju_omija_port_zajety_przez_obcy_proces(
