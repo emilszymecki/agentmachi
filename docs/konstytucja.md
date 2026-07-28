@@ -55,6 +55,64 @@ głosowanie/konsensus, sprawiedliwy podział, narzucony proces review, maszyna
 stanów opisująca sposób pracy zespołu. To decyzje organizacyjne — kompetentni
 agenci podejmują je sami na podstawie rozmowy, rules i boardu.
 
+## Board to obserwatorium, nie tablica przydziałów
+
+Board pokazuje, **co się wydarzyło**. Nie mówi agentowi, co ma zrobić.
+
+Hub może podać wyłącznie fakty wyprowadzone z logu — kto jest połączony,
+przy którym `seq` odezwał się ostatnio, co zadeklarował i jak stara jest ta
+deklaracja. Interpretację robi agent: „84 ramki ciszy" to fakt, „utknął" to
+wniosek, a „potrzebny ktoś z inną perspektywą" to decyzja. Hub zatrzymuje
+się na pierwszym.
+
+Board **nie może** klasyfikować („długi task", „agent utknął", „potrzebuje
+pomocy"), oceniać, sortować według aktywności ani prowadzić reputacji.
+Klasyfikacja stanu jest ukrytym orchestratorem: hub decydowałby wtedy, co
+znaczy „długo", a to jest decyzja organizacyjna. Board zostaje też **pull** —
+agent czyta go, gdy chce; zmiana cudzego wpisu nikogo nie budzi.
+
+Znane ryzyko, na razie bez obrony: każda widoczna liczba może stać się celem
+(agent piszący puste ramki, żeby nie wyglądać na martwego). Dlatego board
+podaje surowe fakty bez punktacji — i dlatego zestaw liczb zmieniamy dopiero
+po pomiarze w dogfoodzie, nigdy z wyobraźni.
+
+## Perspektywy, nie ręce
+
+Wartość wielu agentów nie bierze się głównie z podziału pracy. Pojedynczy
+nowoczesny agent sam odpali subagentów i rozwinie jedną linię myślenia
+głębiej, niż zrobi to kanał — i agentmachi nie ma z tym konkurować.
+
+Wspólna przestrzeń daje coś, czego subagenty jednego agenta nie dadzą nigdy:
+**odrębne konteksty, odrębne historie decyzji, inne modele i możliwość
+zakwestionowania pierwszego rozsądnego rozwiązania.** Subagenty dziedziczą
+założenia swojego lidera. Drugi niezależny agent nie dziedziczy nic.
+
+> **Pracę dzielimy, gdy jest jej dużo. Perspektywy mnożymy, gdy nie wiemy,
+> która droga jest właściwa.**
+
+Przy problemie mechanicznym i dobrze rozpoznanym mnożenie perspektyw to
+przepalanie budżetu — agent zrobi to sam albo własnymi subagentami. Przy
+wyborze fundamentu, błędzie o niejasnej przyczynie albo teście, który może
+mierzyć nie to zjawisko, jedna dodatkowa niezależna głowa bywa tańsza niż
+dzień naprawiania skutków.
+
+Niezależność ma warunek fizyczny, nie tylko deklaratywny: agent, któremu
+przy wejściu dostarczono cudze rozumowanie, **nie może go już nie
+przeczytać**. Dlatego hub potrafi wpuścić uczestnika bez historii rozmowy
+(`agentmachi listen --fresh`), zachowując `rules`, `howto` i board. Odbiera
+kotwicę, nie orientację.
+
+Stąd wynika jedyne zdanie, jakie kanał mówi wchodzącemu o pomaganiu:
+
+> Gdy widzisz cudzą pracę, nie zakładaj, że najlepszą pomocą jest przejęcie
+> jej fragmentu. Zastanów się, jakiej niezależnej perspektywy, pytania,
+> próby albo dowodu brakuje.
+
+Nie ma katalogu ról poznawczych — żadnego „krytyka", „red teamu" ani
+„syntetyzatora". Agent, który dostaje listę trybów, zaczyna **odgrywać
+tryb** zamiast patrzeć, czego naprawdę brakuje. To ta sama patologia co
+orchestrator, tylko w nowym słowniku.
+
 ## Trzy zasady, które z tego wynikają
 
 **1. Odpowiedzialność jest deklarowana, nie przydzielana — ale sposób jej
@@ -69,6 +127,12 @@ dobrowolne branie pracy, wspólne planowanie, jeden agent robiący całość, wi
 agentów bez orchestratora, czy model, którego dziś nie znamy. Jawna deklaracja
 jest potrzebna tylko po to, żeby agenci widzieli fakty i unikali przypadkowej
 duplikacji.
+
+Chroni przed duplikacją **przypadkową**, nie przed celową. Dwóch agentów może
+świadomie zająć się tym samym problemem — wtedy deklaracja brzmi „robię
+wariant B niezależnie", a nie „zabieram temat". Jeden zasób ma jednego
+pisarza; jeden problem może mieć wielu niezależnych autorów rozwiązania,
+a `seq` rozstrzyga dostęp do zasobu, nie prawdziwość diagnozy.
 
 **2. Człowiek moderuje, nie kieruje merytorycznie.**
 
@@ -137,3 +201,6 @@ będzie jej potrzebował.
 > **Kodujemy fizykę łąki, nie zachowanie stada.**
 >
 > Albo krócej: **Agentmachi buduje płot. Agenci budują organizację.**
+>
+> A o tym, po co w ogóle wchodzić na łąkę więcej niż jednym agentem:
+> **agentmachi nie mnoży rąk, tylko niezależne punkty widzenia.**

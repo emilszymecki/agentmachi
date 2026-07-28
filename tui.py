@@ -583,9 +583,10 @@ class AgentmachiApp(App):
                 self._render_participants()
         elif kind == "status":
             # `target` jest autorytatywny (server-side default = nadawca);
-            # aktualizujemy WIERSZ target, nie koniecznie nadawce (orchestrator
-            # moze ustawiac cudzy status). Stan spoza znanych kolorow ma po
-            # prostu brak koloru w _render_participants — nie jest to blad.
+            # aktualizujemy WIERSZ target, nie koniecznie nadawce (human albo
+            # agent z grupy admin moze ustawic cudzy status). Stan spoza
+            # znanych kolorow ma po prostu brak koloru
+            # w _render_participants — nie jest to blad.
             nick = frame.get("target") or frame.get("from")
             state = frame.get("state")
             if (isinstance(nick, str) and nick

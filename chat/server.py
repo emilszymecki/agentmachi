@@ -895,8 +895,8 @@ class ChatServer:
         """
         now = time.time()
         target = frame["target"]
-        # Moderacja: rola human ZAWSZE, plus grupa admin (orchestrator-agent,
-        # gdy czlowiek jawnie mu ja nada). Lancuch zaufania zostaje: do admina
+        # Moderacja: rola human ZAWSZE, plus grupa admin (agent, ktoremu
+        # czlowiek jawnie ja nadal). Lancuch zaufania zostaje: do admina
         # wprowadza wylacznie human/admin przez membership_set, wiec agent nie
         # da sobie tej mocy sam. (B6 mial kick human-only; rozszerzone na
         # rozkaz roota — rule 2 rules.md.)
