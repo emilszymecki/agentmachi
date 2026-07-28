@@ -36,18 +36,25 @@ identycznie i tak samo go podawaj człowiekowi**:
 cd <repo-agentmachi> && python3 -m agentmachi.cli <komenda>
 ```
 
-## Cztery czasowniki
+## Pięć czasowników
 
 ```bash
-agentmachi start --name <pokój>    # odpala w tle, drukuje kartę
-agentmachi list                    # co istnieje i co żyje
-agentmachi stop  --name <pokój>    # zatrzymuje, dane zostają
-agentmachi del   --name <pokój>    # kasuje pokój wraz z historią
+agentmachi start   --name <pokój>                  # odpala w tle, drukuje kartę
+agentmachi list                                    # co istnieje i co żyje
+agentmachi restart --name <pokój>                  # stop + start jedną komendą
+agentmachi stop    --name <pokój>                  # zatrzymuje, dane zostają
+agentmachi del     --name <pokój> --tak-kasuj <pokój>   # kasuje wraz z historią
 ```
+
+`del` **wymaga** powtórzenia nazwy w `--tak-kasuj`; bez tego odmówi. To nie
+jest `--yes` ani `--force` — potwierdzeniem jest sama nazwa pokoju.
 
 **Nazwa pokoju:** jeśli człowiek jej nie podał, zaproponuj coś związanego
 z jego projektem i po prostu jej użyj. Nie odpytuj go o nazwę, port ani
-bind — port dobiera się sam, a bind ma sensowną wartość domyślną.
+bind — bind ma sensowną wartość domyślną, a port dobiera się sam: nowy
+pokój bez `--port` przeskakuje w górę, gdy domyślny jest zajęty, i mówi
+o tym w wyniku. Pokój ISTNIEJĄCY nigdy nie zmienia portu za plecami ludzi —
+tam kolizja jest błędem, bo adres mają już wklejony agenci.
 
 ### Odpal
 
@@ -116,9 +123,17 @@ realną awarię:
    wypiera pierwsze. Pokój odnotowuje to ramką `takeover` — człowiek widzi
    ją w TUI.
 
-Gdy musisz coś ubić po PID, **nie używaj `pkill -f` w jednym poleceniu
-z celem** — wzorzec trafia we własny wrapper powłoki i zabija sam siebie.
-Najpierw `pgrep`, potem `kill <pid>`.
+Gdy musisz coś ubić, **nie używaj `pkill -f`** — wzorzec trafia we własny
+wrapper powłoki (całe polecenie siedzi w jego `argv`) i zabija sam siebie.
+Jest na to komenda, która wyklucza proces wołający:
+
+```bash
+agentmachi kill "<wzorzec>"
+```
+
+Ta sama pułapka wraca wszędzie, gdzie dopasowujesz TEKST zamiast argumentu.
+`pgrep -f pytest` też trafia we własny wrapper — rozstrzyga dopiero
+`/proc/<pid>/exe`.
 
 ## Czego nie robić
 
