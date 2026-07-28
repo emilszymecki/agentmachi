@@ -617,4 +617,4 @@ def test_node_budzi_sie_raz_o_NAJNOWSZA_wzmianke_po_resync(srv, tmp_path):
         except asyncio.CancelledError:
             pass
 
-    srv(run)
+    asyncio.run(srv(run))
