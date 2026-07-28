@@ -255,11 +255,27 @@ def _cmdline_of(pid):
 
 def _pid_is_our_hub(pid, name):
     """Czy PID to NA PEWNO hub tego kanalu? Pidfile bywa nieaktualny, a PID-y
-    sa recyklowane — bez tej kontroli `stop` moglby ubic cudzy proces."""
+    sa recyklowane — bez tej kontroli `stop` moglby ubic cudzy proces.
+
+    C6: nazwe kanalu dopasowujemy jako ARGUMENT (`--name X`), nie jako
+    podciag calego cmdline. Dawne `name in cmd` czynilo hub nazwany
+    'agentmachi' NIEUSUWALNYM: kazdy hub ma w cmdline `-m agentmachi.cli`,
+    wiec nazwa pakietu trafiala jako nazwa kanalu i `del` odmawial, pokazujac
+    PID CUDZEGO huba. `stop` mogl przy tym ubic nie ten proces. Ta sama
+    rodzina bledu co `pkill -f` trafiajacy we wlasny wrapper powloki:
+    dopasowanie tekstowe tam, gdzie potrzebne jest dopasowanie argumentu.
+    """
     cmd = _cmdline_of(pid)
     if not cmd:
         return False
-    return ("agentmachi" in cmd or "chat.server" in cmd) and name in cmd
+    if "agentmachi" not in cmd and "chat.server" not in cmd:
+        return False
+    slowa = cmd.split()
+    try:
+        kanal = slowa[slowa.index("--name") + 1]
+    except (ValueError, IndexError):
+        kanal = DEFAULT_HUB          # hub bez --name obsluguje kanal domyslny
+    return kanal == name
 
 
 _SHELLS = ("zsh", "bash", "sh", "dash", "fish", "setsid", "nohup", "timeout", "env")

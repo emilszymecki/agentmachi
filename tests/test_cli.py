@@ -797,3 +797,41 @@ def test_jawny_port_ma_pierwszenstwo_ale_kolizja_jest_widoczna(home, capsys):
     cli.ensure_hub("a", 8940)
     _, p = cli.ensure_hub("b", 8941)
     assert p == 8941
+
+
+# -- C6: nazwa huba dopasowywana jako ARGUMENT, nie podciag ---------------
+
+def test_pid_is_our_hub_nie_myli_nazwy_pakietu_z_nazwa_huba(monkeypatch):
+    """Zmierzone na zywej maszynie: hub nazwany 'agentmachi' byl NIEUSUWALNY.
+    `_pid_is_our_hub` sprawdzalo `name in cmd`, a kazdy hub ma w cmdline
+    `-m agentmachi.cli`, wiec nazwa pakietu trafiala jako nazwa kanalu.
+    Skutki: `del` odmawial ("pokoj DZIALA", pokazujac PID CUDZEGO huba),
+    `list` raportowal oba jako dzialajace, a `stop` mogl ubic nie ten proces.
+
+    Ta sama pulapka co `pkill -f` trafiajacy we wlasny wrapper: dopasowanie
+    TEKSTOWE tam, gdzie potrzebne jest dopasowanie ARGUMENTU."""
+    cmd_goldberg = "python3 -m agentmachi.cli serve --name goldberg --port 8766"
+    monkeypatch.setattr(cli, "_cmdline_of", lambda pid: cmd_goldberg)
+    # proces goldberga NIE jest hubem 'agentmachi' — mimo ze slowo wystepuje
+    assert cli._pid_is_our_hub(1, "agentmachi") is False
+    # ...ani hubem 'cli', 'serve' czy 'port' (inne podciagi z cmdline)
+    assert cli._pid_is_our_hub(1, "cli") is False
+    assert cli._pid_is_our_hub(1, "serve") is False
+    # ...ale JEST hubem 'goldberg'
+    assert cli._pid_is_our_hub(1, "goldberg") is True
+
+
+def test_pid_is_our_hub_domyslny_kanal_bez_flagi_name(monkeypatch):
+    """Hub odpalony bez --name obsluguje kanal domyslny (DEFAULT_HUB)."""
+    monkeypatch.setattr(cli, "_cmdline_of",
+                        lambda pid: "python3 -m agentmachi.cli serve --port 8766")
+    assert cli._pid_is_our_hub(1, cli.DEFAULT_HUB) is True
+    assert cli._pid_is_our_hub(1, "goldberg") is False
+
+
+def test_pid_is_our_hub_nazwa_jako_prefiks_nie_wystarcza(monkeypatch):
+    """'gold' nie jest hubem 'goldberg' i odwrotnie."""
+    monkeypatch.setattr(cli, "_cmdline_of",
+                        lambda pid: "python3 -m agentmachi.cli serve --name goldberg")
+    assert cli._pid_is_our_hub(1, "gold") is False
+    assert cli._pid_is_our_hub(1, "goldberg2") is False
