@@ -172,6 +172,26 @@ def _wybierz_port(preferowany, wlasna_nazwa, bind="127.0.0.1", prob=200):
         f"{preferowany}..{preferowany + prob - 1}; podaj --port jawnie")
 
 
+def _wybierz_port_zywy(preferowany, wlasna_nazwa, bind, prob=200):
+    """Jak `_wybierz_port`, ale omija tez porty trzymane przez ZYWE procesy.
+
+    Wolno tego uzyc wylacznie przy `start` NOWEGO pokoju, gdzie czlowiek nie
+    podal --port. Powod rozdzialu: `_wybierz_port` swiadomie nie odpytuje
+    systemu, bo wynik `ensure_hub` zaczynal wtedy zalezec od tego, co akurat
+    chodzi na maszynie (testy flaky). Tu zywy system i tak jest odpytywany,
+    bo `start` musi wiedziec, czy port da sie zbindowac.
+
+    Zwraca None, gdy w zakresie nie ma nic wolnego — wtedy `start` wraca do
+    komunikatu z rada, zamiast rzucac wyjatkiem."""
+    zajete = _porty_innych_hubow(wlasna_nazwa)
+    kandydat = preferowany
+    for _ in range(prob):
+        if kandydat not in zajete and not _port_accepts(kandydat, bind):
+            return kandydat
+        kandydat += 1
+    return None
+
+
 def ensure_hub(name, port, bind="127.0.0.1"):
     """Utworz strukture huba przy pierwszym uzyciu; istniejacej NIE ruszaj."""
     d = hub_dir(name)
@@ -706,12 +726,25 @@ def cmd_start(args):
     port = args.port if args.port is not None else hub_port(args.name)
     bind = args.bind if args.bind is not None else hub_bind(args.name)
     if _port_accepts(port, bind):
-        print(f"agentmachi: port {port} jest juz zajety przez inny proces — "
-              f"pokoj {args.name!r} nie ma na czym wstac.\n"
-              f"  sprawdz czyj to port:  ss -tlnp | grep {port}\n"
-              f"  albo wybierz inny:     agentmachi start --name {args.name} "
-              f"--port <inny>", file=sys.stderr)
-        return 1
+        # NOWY pokoj bez jawnego --port sam przesuwa sie w gore: czlowiek nie
+        # wskazal adresu, wiec zaden kursor ani zadna wklejona karta jeszcze
+        # go nie zna. Fail-fast zostaje w dwoch przypadkach, gdzie adres jest
+        # juz czyjas umowa: pokoj ISTNIEJACY (kursory klientow sa per
+        # host:port — przesuniecie znaczy pusty log pod znanym adresem)
+        # i jawne --port (decyzja czlowieka, nie zgadujemy za niego).
+        wybrany = None
+        if not istnieje and args.port is None:
+            wybrany = _wybierz_port_zywy(port, args.name, bind)
+        if wybrany is None:
+            print(f"agentmachi: port {port} jest juz zajety przez inny proces "
+                  f"— pokoj {args.name!r} nie ma na czym wstac.\n"
+                  f"  sprawdz czyj to port:  ss -tlnp | grep {port}\n"
+                  f"  albo wybierz inny:     agentmachi start --name "
+                  f"{args.name} --port <inny>", file=sys.stderr)
+            return 1
+        print(f"agentmachi: port {port} jest zajety — pokoj {args.name!r} "
+              f"dostaje {wybrany}", file=sys.stderr)
+        port = wybrany
     d, port = ensure_hub(args.name, port, bind=bind)
     if istnieje and args.port is not None and hub_port(args.name) != args.port:
         config = d / "config.json"

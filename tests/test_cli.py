@@ -799,6 +799,45 @@ def test_jawny_port_ma_pierwszenstwo_ale_kolizja_jest_widoczna(home, capsys):
     assert p == 8941
 
 
+def test_start_nowego_pokoju_omija_port_zajety_przez_obcy_proces(
+        home, monkeypatch, capsys):
+    """C5 czesc druga: alokacja portu w `ensure_hub` byla martwa dla `start`.
+
+    Zmierzone: `agentmachi start --name warsztat` na maszynie z dzialajacym
+    hubem na 8766 padalo z 'port zajety — wybierz inny', mimo ze wolny port
+    lezal obok. Kolejnosc w cmd_start byla taka, ze _port_accepts zwracalo 1
+    ZANIM ensure_hub w ogole dostal szanse przesunac port.
+
+    NOWY pokoj bez --port nie ma jeszcze zadnej umowy o adres: nikt go nie
+    zna, zaden kursor nie wskazuje. Wiec przesuwamy zamiast padac."""
+    zajete = {8766}
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: port in zajete)
+    monkeypatch.setattr(cli, "_spawn_detached", lambda argv, log: 4243)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+
+    rc = cli.cmd_start(argparse.Namespace(name="warsztat", port=None,
+                                          bind=None))
+    assert rc == 0, capsys.readouterr().err
+    assert cli.hub_port("warsztat") == 8767, "pokoj mial przeskoczyc o jeden"
+    assert "dostaje 8767" in capsys.readouterr().err, \
+        "czlowiek musi zobaczyc, ze adres jest inny niz domyslny"
+
+
+def test_start_istniejacego_pokoju_nigdy_nie_przesuwa_portu(
+        home, monkeypatch, capsys):
+    """Granica poprzedniego testu. Pokoj ISTNIEJACY ma adres, ktory ludzie
+    maja wklejony, a klienci maja pod nim kursor (per host:port). Cichy
+    przeskok dalby pusty log pod znanym adresem — czyli dokladnie te awarie,
+    ktore C5 usuwal. Tu jedynym poprawnym wyjsciem jest glosna odmowa."""
+    cli.ensure_hub("stary", 8766)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+
+    rc = cli.cmd_start(argparse.Namespace(name="stary", port=None, bind=None))
+    assert rc == 1, "istniejacy pokoj nie moze zmienic adresu za plecami ludzi"
+    assert cli.hub_port("stary") == 8766
+    assert "zajety przez inny proces" in capsys.readouterr().err
+
+
 # -- C6: nazwa huba dopasowywana jako ARGUMENT, nie podciag ---------------
 
 def test_pid_is_our_hub_nie_myli_nazwy_pakietu_z_nazwa_huba(monkeypatch):
