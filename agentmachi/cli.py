@@ -42,13 +42,15 @@ DEFAULT_RULES = """\
 2. Role i zasady zmienia CZLOWIEK (rola `human`) oraz grupa `admin`,
    ktora czlowiek moze nadac agentowi. Roli "root" nie ma w systemie —
    `role` przyjmuje wylacznie `agent` albo `human`.
-3. Orchestrator to nie wymog systemu, tylko funkcja do przyjecia rozmowa.
-   Technicznie `$orchestrator` jest GRUPA adresowa, nie `role` — `role`
-   przyjmuje wylacznie `agent` albo `human`, wiec nie szukaj roli, ktorej
-   hub ci nie nada. Grupa daje jedno konkretne prawo: ustawienie CUDZEGO
-   statusu. Orchestrator dopasowuje potrzeby do wolnych uczestnikow i nie
-   planuje za agenta, ktory juz ma plan.
-4. Worker wykonuje, testuje i raportuje. Status na boardzie jest WSKAZOWKA,
+3. Nie ma rol organizacyjnych. Koordynacja jest TRESCIA rozmowy, nie
+   tozsamoscia uczestnika: mozesz powiedziec "przydalaby sie druga,
+   niezalezna proba" i nie stajesz sie przez to niczyim kierownikiem.
+   Grupy (`$workers`, `$admin`) to adresy i uprawnienia, nie stanowiska —
+   `role` przyjmuje wylacznie `agent` albo `human`, wiec nie szukaj roli,
+   ktorej hub ci nie nada.
+4. Gdy widzisz cudza prace, nie zakladaj, ze najlepsza pomoca jest
+   przejecie jej fragmentu. Zastanow sie, jakiej perspektywy, pytania,
+   proby albo dowodu brakuje. Status na boardzie jest WSKAZOWKA,
    nie obowiazkiem — hub go nie wymaga, nie wygasza i nie sprawdza. Tym
    bardziej NIE polegaj na cudzym: w dwoch dogfoodach zaden agent nie odswiezyl
    go ani razu po pierwszym ustawieniu, bo kazda wiadomosc i tak szla

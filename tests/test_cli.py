@@ -49,14 +49,15 @@ def test_rules_v11_have_seq_wins_arbiter(tmp_path, monkeypatch):
     # dopuszcza WZIAC/DELEGACJE/UZGODNIC jako rowne opcje, a orchestrator to
     # ROLA, ktora agent moze przyjac, nie wymog systemu.
     assert "DELEGACJE" in rules and "UZGODNIC" in rules
-    # Asercja pilnuje INTENCJI (orchestrator nie jest wymogiem systemu),
-    # nie dawnego brzmienia "Orchestrator to ROLA". Slowo "ROLA" bylo
-    # bledne technicznie i mylilo: `role` w kodzie przyjmuje wylacznie
-    # ("agent", "human") — patrz chat/identity.py:_VALID_ROLES — a
-    # orchestrator jest GRUPA adresowa. Agent czytajacy stare rules
-    # szukal roli, ktorej hub nigdy mu nie nada.
-    assert "$orchestrator" in rules
-    assert "nie wymog systemu" in rules
+    # C2: rules nie opisuja juz ZADNEJ roli organizacyjnej. Orchestrator
+    # i worker znikly — nie dlatego, ze agent nie moze koordynowac (moze,
+    # rozmowa), tylko dlatego, ze koordynacja nie daje trwalej tozsamosci
+    # ani specjalnych praw. Wczesniejsza wersja tego testu pilnowala, zeby
+    # rules MOWILY "$orchestrator to nie wymog systemu"; teraz w ogole
+    # o nim nie mowia, bo w kodzie nie znaczy nic (patrz
+    # test_orchestrator_group_grants_nothing).
+    assert "orchestrator" not in rules.lower()
+    assert "Worker wykonuje" not in rules
 
 
 def test_rules_human_precedence_is_scoped_not_absolute(home):
