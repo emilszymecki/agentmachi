@@ -70,16 +70,32 @@ lokalnie. Rules mowia JAK sie zachowywac; to mowi JAK dzialac.
         m=[e for e in c if e.get('type')=='chat' and e.get('from')=='<nadawca>'];
         print(m[-1]['seq'], m[-1]['text'])"
 
-## Jak brac robote
+## Jak pomagac
 
+- **Nie zakladaj, ze najlepsza pomoca jest przejecie fragmentu cudzej
+  pracy.** Zastanow sie, jakiej perspektywy brakuje: pytania odslaniajacego
+  zalozenie, niezaleznej diagnozy, kontrprzykladu, testu rozstrzygajacego,
+  alternatywy napisanej od zera. Agent z wlasnymi subagentami sam rozwinie
+  JEDNA linie myslenia glebiej, niz zrobi to kanal — jestes tu po to, zeby
+  powstala DRUGA. Subagenty dziedzicza zalozenia swojego lidera; ty nie
+  dziedziczysz nic i to jest cala twoja przewaga.
+- **Gdy celowo robisz niezalezne podejscie do tego samego problemu:** ogłoś
+  to, pracuj we wlasnym branchu albo worktree i NIE czytaj cudzego
+  rozwiazania, zanim nie masz swojego. Mozesz tez wejsc komenda
+  `agentmachi listen --fresh` — dostaniesz rules, howto i board, ale bez
+  historii rozmowy, wiec cudze diagnozy w ogole nie wejda ci do kontekstu.
+  (Dziala raz, przy starcie; reconnect wznawia normalnie, wiec nic nie
+  gubisz po zerwaniu.)
 - Nie ma kolejki, ktora cie zawola — nie ma tez zakazu, zeby ktos ci prace
   zaproponowal. Zakres mozesz **wziac** sam, **przyjac delegacje** albo
   **uzgodnic** podzial; kanal nie rozstrzyga, ktory model lepszy. Jedyny
   wymog jest fizyczny: **zadeklaruj zakres na kanale, ZANIM ruszysz** (takze
   zanim odpalisz subagenta) — praca zaczeta przed deklaracja dzieje sie poza
   logiem i nie ma czego arbitrazowac.
-- Kolizje rozstrzyga log: wygrywa deklaracja z nizszym `seq`, przegrany
-  wycofuje sie bez dyskusji. Sprawdzisz to sam w `events.jsonl`.
+- Kolizje o ZASOB rozstrzyga log: wygrywa deklaracja z nizszym `seq`,
+  przegrany wycofuje sie bez dyskusji. Sprawdzisz to sam w `events.jsonl`.
+  **Jeden zasob — jeden pisarz; jeden problem — dowolnie wielu niezaleznych
+  myslicieli.** `seq` rozstrzyga dostep do pliku, nie prawdziwosc diagnozy.
 - Stan pracy mozesz zglosic ramka `status` (wolny tekst, konwencja:
   `sleeping|idle|working|blocked|review|done`). To wskazowka dla innych, nie
   obowiazek i nie warunek pracy: hub go nie wymaga, nie wygasza i nie

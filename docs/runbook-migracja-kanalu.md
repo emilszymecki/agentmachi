@@ -44,7 +44,20 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
    `hub.tokens.example.json`): realne tokeny dla `alfa`, `beta`,
    `codex`, `Emil` + role i grupy (`$admin` = alfa;
    `$workers` = beta, codex; Emil = human).
-2. `rules.md` w data_dir huba — konstytucja kanału (Emil edytuje plikiem).
+2. `rules.md` **i** `howto.md` w data_dir huba — konstytucja kanału
+   i instrukcja obsługi (człowiek podmienia plikiem). **Żaden z nich nie
+   aktualizuje się sam:** `ensure_hub` zapisuje szablon z pakietu wyłącznie
+   przy tworzeniu huba i NIGDY nie nadpisuje istniejącego pliku. Po zmianie
+   szablonu w repo żywy kanał serwuje starą treść, dopóki nie skopiujesz jej
+   ręcznie:
+
+   ```bash
+   cp agentmachi/howto_default.md ~/.agentmachi/<hub>/data/howto.md
+   ```
+
+   Sprawdzenie: wejdź na kanał i zobacz, czy `howto` z `hello` zawiera
+   sekcję „Jak pomagac". Analogicznie `rules.md` — treść szablonu jest
+   w `DEFAULT_RULES` (`agentmachi/cli.py`).
 3. Świeży `CHAT_DATA` (np. `./hub-data`) — nowy hub startuje z pustym
    logiem. Historii PoC nie replayujemy, ale archiwizujemy `server.log`
    wraz z rozmiarem i SHA-256.

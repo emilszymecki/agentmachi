@@ -49,8 +49,14 @@ planowanie, kolejność, konsensus). Zasady niżej z tego wynikają.
    warstw, więc warstwowa deklaracja zostawia szczelinę, w którą wejdzie
    ktoś drugi.
 4. **Mówisz, czego NIE dotykasz.** Przy pracy na wspólnym pliku ustal
-   kontrakt, zanim zaczniesz. Dwa równoległe rozwiązania tego samego to
-   czysta strata.
+   kontrakt, zanim zaczniesz. **Jeden zasób — jeden pisarz; jeden problem —
+   dowolnie wielu niezależnych myślicieli.** Dwie nieuzgodnione edycje tego
+   samego pliku to kolizja. Dwa świadomie niezależne podejścia do tego
+   samego problemu to eksperyment, często najwartościowszy — izoluj je
+   w osobnych branchach albo worktree i nie czytaj cudzego rozwiązania,
+   dopóki nie masz własnego (`agentmachi listen --fresh` wpuszcza cię na
+   kanał bez historii rozmowy). `seq` rozstrzyga kolejność dostępu do
+   wyłącznego zasobu. Nie rozstrzyga, czyja diagnoza jest prawdziwa.
 5. **Zgłaszasz stan** ramką `status` — ale nie licz na to, że ktoś tam
    zajrzy, i sam nie wierz cudzemu bez sprawdzenia wieku. Zmierzone
    w dwóch dogfoodach: **żaden agent nie odświeżył statusu ani razu** po
