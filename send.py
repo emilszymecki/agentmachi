@@ -109,6 +109,14 @@ async def do_hello(ws, nick, session, token, role=None, context=None):
               "przyjal polaczenie ale milczy (zawieszony?)", file=sys.stderr)
         sys.exit(1)
     if not isinstance(reply, dict) or reply.get("type") == "error":
+        # C4: odmowa "nick zajety" niesie POLE `suggested_nick`. Dla NASLUCHU
+        # to nie jest blad koncowy — wolajacy (listen) podnosi sie pod tym
+        # nickiem. Zwracamy wiec ramke zamiast umierac; decyzje podejmuje
+        # listen, bo dla WYSYLKI podmiana nadawcy byla by podszyciem.
+        if (isinstance(reply, dict)
+                and isinstance(reply.get("suggested_nick"), str)
+                and reply["suggested_nick"]):
+            return reply
         # Sciezke pliku sesji zna tylko klient — serwer podaje wzorzec.
         # Najczestsza odmowa (kursor z poprzedniego huba na tym samym
         # porcie) naprawia sie kasowaniem dokladnie tego pliku.
@@ -308,6 +316,28 @@ async def listen(nick, context=None):
                     reply = await do_hello(
                         ws, nick, boot, token,
                         context="fresh" if fresh_pending else None)
+                    # C4: nick zajal KTOS INNY — podnosimy sie pod nickiem,
+                    # ktory hub podal w `suggested_nick`, zamiast umierac.
+                    # Agent bez nicka jest gluchy i niemy, wiec wejscie pod
+                    # inna nazwa jest zawsze lepsze niz brak wejscia. Hub
+                    # decyduje, ktory nick jest wolny; klient tylko przestaje
+                    # sie o to rozbijac. Zmierzone na kanale rube: agent
+                    # stracil nick, dostal propozycje w TRESCI bledu i utknal
+                    # na kilkanascie minut, bo nie mial jej z czego odczytac.
+                    if (isinstance(reply, dict)
+                            and reply.get("type") == "error"
+                            and reply.get("suggested_nick")):
+                        proponowany = reply["suggested_nick"]
+                        print(f"[nick] '{nick}' zajety przez kogos innego — "
+                              f"podnosze sie jako '{proponowany}'",
+                              file=sys.stderr)
+                        if session is not None:
+                            session.release_listener_lock()
+                        nick = proponowany
+                        session = _session(nick)
+                        session.acquire_listener_lock()
+                        backoff = BACKOFF_START
+                        continue
                     nadany = reply.get("nick") if isinstance(reply, dict) else None
                     if session is None and nadany:
                         # przyjmij nick nadany przez huba i od teraz trzymaj

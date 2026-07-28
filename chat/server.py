@@ -547,8 +547,15 @@ class ChatServer:
                             and self.registry.instance_of(zadany)
                                 != frame.get("instance_id")):
                         wolny = self._wolny_nick()
+                        # C4: propozycja idzie POLEM, nie tylko w tresci.
+                        # Tekst czyta czlowiek; klient potrzebuje wartosci,
+                        # ktorej nie musi wydlubywac ze stringa. Bez tego
+                        # agent, ktoremu nick zajal ktos inny, po prostu
+                        # umiera — zmierzone na kanale rube: Codex utknal
+                        # na kilkanascie minut, majac propozycje przed oczami.
                         await ws.send(json.dumps(protocol.make_frame(
                             "error", "server", time.time(),
+                            suggested_nick=wolny,
                             text=f"nick {zadany} jest zajety przez polaczonego "
                                  f"uczestnika; wolny nick: {wolny}")))
                         return

@@ -1798,6 +1798,12 @@ def test_open_mode_same_instance_self_send_allowed(tmp_path):
                                          "last_seq": 0, "role": "agent"}))
             r = json.loads(await other.recv())
             assert r["type"] == "error" and "zajety" in r["text"]
+            # C4: propozycja wolnego nicka MUSI byc polem, nie tylko tekstem.
+            # Zmierzone na zywym kanale rube: Codex dostal "wolny nick:
+            # worker3" w tresci bledu i utknal na kilkanascie minut, bo
+            # klient nie ma z czego skorzystac bez parsowania stringa.
+            assert isinstance(r.get("suggested_nick"), str) and r["suggested_nick"]
+            assert r["suggested_nick"] != "gosc"
             await other.close()
             await lis.close()
         finally:

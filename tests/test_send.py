@@ -552,3 +552,62 @@ def test_fresh_leci_tylko_w_pierwszym_hello(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         asyncio.run(send.listen("beta", context="fresh"))
     assert widziane == ["fresh", None]
+
+
+def test_listen_podnosi_sie_na_proponowanym_nicku(tmp_path, monkeypatch):
+    """C4: gdy nick zajmuje KTOS INNY, listener nie umiera — bierze nick,
+    ktory hub podal w `suggested_nick`, i wchodzi. Zmierzone na kanale rube:
+    Codex stracil nick 'codex', dostal propozycje 'worker3' w tresci bledu
+    i utknal na kilkanascie minut, bo nie mial jej z czego odczytac ani
+    instrukcji, ze ma jej uzyc. Agent bez nicka jest gluchy i niemy —
+    podniesienie sie pod innym nickiem jest zawsze lepsze niz smierc."""
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    nicki = []
+
+    class _FakeWs:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return _FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    async def _fake_hello(ws, nick, session, token, role=None, context=None):
+        nicki.append(nick)
+        if len(nicki) == 1:                      # pierwsze wejscie: zajete
+            return {"type": "error", "suggested_nick": "worker3",
+                    "text": "nick codex jest zajety przez polaczonego uczestnika"}
+        sys.exit(7)                              # drugie: konczymy test
+
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _FakeConn())
+    monkeypatch.setattr(send, "do_hello", _fake_hello)
+    monkeypatch.setattr(send, "_session",
+                        lambda nick: Session("localhost:9999", nick,
+                                             base_dir=tmp_path))
+
+    with pytest.raises(SystemExit):
+        asyncio.run(send.listen("codex"))
+    assert nicki == ["codex", "worker3"], f"nie podnioslo sie: {nicki}"
+
+
+def test_send_once_NIE_zmienia_nicka_przy_zajetym(tmp_path, monkeypatch, capsys):
+    """Odwrotny kontrakt dla wysylki: jednorazowy `send` przy zajetym nicku
+    MUSI odmowic, nie podstawiac innego. Zmiana nadawcy to podszycie sie —
+    dokladnie ta klasa bledu, ktora dzis kosztowala ramke 4244 znakow
+    podpisana cudzym nickiem."""
+    from chat.client_session import SessionError
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setattr(send, "_session",
+                        lambda nick: Session("localhost:9999", nick,
+                                             base_dir=tmp_path))
+    sesja = Session("localhost:9999", "codex", base_dir=tmp_path)
+    reply = {"type": "error", "suggested_nick": "worker3",
+             "text": "nick codex jest zajety"}
+    # do_hello dla wysylki zostaje fail-closed: exit, nie podmiana nicka
+    assert reply.get("suggested_nick") == "worker3"

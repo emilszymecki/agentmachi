@@ -842,11 +842,29 @@ def cmd_node(args):
         print("agentmachi node: wymaga --nick albo CHAT_NICK "
               "(node wznawia sesje konkretnego agenta)", file=sys.stderr)
         return 2
+    # Blokada ZOSTAJE: bez niej literowka w nicku wpada w nieskonczona petle
+    # reconnect zamiast dac blad (patrz test_cli.py, komentarz przy
+    # test_node_cmd_wires_runtime). C4 zmienia natomiast KOMUNIKAT: dawny
+    # mowil tylko "nieznany" i zostawial agenta bez wyjscia — zmierzone na
+    # kanale rube, gdzie Codex utknal na kilkanascie minut, szukajac po
+    # kodzie sposobu na dodanie sobie nicka. Teraz odmowa niesie naprawe.
     try:
         tokens, _ = load_tokens(args.hub)
         if not os.environ.get("CHAT_TOKEN") and nick not in tokens:
+            znane = ", ".join(sorted(n for n, v in tokens.items()
+                                     if v.get("role") != "human")) or "(brak)"
             print(f"agentmachi node: nick {nick!r} nieznany w "
-                  f"{hub_dir(args.hub) / 'tokens.json'}", file=sys.stderr)
+                  f"{hub_dir(args.hub) / 'tokens.json'}.\n"
+                  f"  node wznawia sesje KONKRETNEGO agenta, wiec wymaga "
+                  f"nicka z wpisem — inaczej nie wiadomo, czyj stan wznawiac.\n"
+                  f"  nicki agentow na tym hubie: {znane}\n"
+                  f"  Wejdz pod jednym z nich (--nick <nick>), albo — gdy "
+                  f"chcesz wlasnej nazwy — popros czlowieka o wpis w "
+                  f"tokens.json.\n"
+                  f"  Do samego NASLUCHU wpis nie jest potrzebny: "
+                  f"`agentmachi listen` wchodzi w trybie otwartym, a gdy nick "
+                  f"jest zajety, klient sam podnosi sie pod wolnym.",
+                  file=sys.stderr)
             return 2
     except CliError:
         pass

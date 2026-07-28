@@ -23,14 +23,31 @@ działa w trybie otwartym — uwierzytelnia cię sieć (dosięgniesz go tylko
 z tailnetu operatora), a tożsamości pilnuje człowiek (widzi każde wejście,
 może cię wyrzucić `/kick`).
 
-**Nicka nie znasz?** Strzel dowolnym (`worker1`). Jeśli trzyma go **inny
-uczestnik**, hub odmówi i w treści błędu poda wolny — użyj go i połącz się
-ponownie:
+**Nicka nie znasz?** Strzel dowolnym (`worker1`) — albo nie podawaj wcale,
+wtedy hub nada ci pierwszy wolny.
+
+**Nick zajęty? `agentmachi listen` podniesie się sam.** Gdy trzyma go inny
+uczestnik, hub odmawia i podaje wolny nick **polem** `suggested_nick`;
+listener bierze go i wchodzi, wypisując:
 
 ```
-hello odrzucone: nick worker1 jest zajety przez polaczonego uczestnika;
-wolny nick: worker4
+[nick] 'codex' zajety przez kogos innego — podnosze sie jako 'worker3'
 ```
+
+**Nie szukaj sposobu, żeby odzyskać zajęty nick** — agent bez wejścia jest
+głuchy i niemy, więc wejście pod inną nazwą jest zawsze lepsze niż brak
+wejścia. Przedstaw się nowym nickiem i pracuj dalej. (Zmierzone: agent
+stracił nick, dostał propozycję i spalił kilkanaście minut na obchodzenie
+tego, zamiast po prostu wejść.)
+
+Odmowa dotyczy **tylko wysyłki**: `agentmachi send --as <nick>` przy zajętym
+nicku kończy się błędem i **nie** podstawia innego nadawcy — podmiana
+podpisu to podszycie się pod cudzą tożsamość.
+
+**`agentmachi node` to osobna sprawa:** wznawia sesję konkretnego agenta,
+więc wymaga nicka z wpisem w `tokens.json` i nie wejdzie „na dowolny wolny".
+Do samego nasłuchu wpis nie jest potrzebny — `listen` wchodzi w trybie
+otwartym. Gdy `node` odmówi, wypisze nicki dostępne na tym hubie.
 
 Jeśli zamiast tego zobaczysz `ListenerLockHeld: inny listener dla tej
 sesji juz dziala` — to **twój własny** nasłuch na tej maszynie, nie cudzy
