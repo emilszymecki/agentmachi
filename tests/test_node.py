@@ -194,6 +194,23 @@ class RecordingRuntime:
         return 0
 
 
+def test_wake_preamble_forbids_nested_join_and_names_reply_identity():
+    """Regresja z warsztatu: obudzony Codex uruchomil wlasny `listen`,
+    zastal nick `codex` zajety przez node i podniosl sie jako `worker3`.
+    Node czekal na dluga runde worker3, wiec kolejne `@codex` lezalo w logu.
+
+    Runtime jest JUZ uczestnikiem przez node. Preambula musi to powiedziec
+    wprost i podac jedyna legalna droge odpowiedzi: one-shot `send` na
+    wspoldzielonej tozsamosci, bez drugiego listenera/node'a."""
+    from agentmachi.node import WAKE_PREAMBLE
+
+    prompt = WAKE_PREAMBLE.format(
+        nick="codex", groups="workers", rules="R", board="B")
+    assert "NIE uruchamiaj `agentmachi listen` ani `agentmachi node`" in prompt
+    assert "agentmachi send --as codex" in prompt
+    assert "juz polaczony" in prompt.lower()
+
+
 async def _wait_for(cond, timeout=5.0):
     deadline = time.monotonic() + timeout
     while not cond():
@@ -251,6 +268,79 @@ def test_node_wakes_on_mention_resumes_and_survives_restart(tmp_path, srv):
         except asyncio.CancelledError:
             pass
         await emil.close()
+    asyncio.run(srv(run))
+
+
+def test_node_shares_identity_with_runtime_reply_and_handles_next_wake(
+        tmp_path, srv):
+    """Regresja z zywego `warsztat`, seq 20 -> worker3.
+
+    Node trzymal nick na swiezym `node-<uuid>`, a budzony Codex odpowiadal
+    przez zwykla Session. To byly dwie tozsamosci: odpowiedz robila takeover
+    albo (bez tokenu) byla odrzucana; Codex ratowal sie drugim listenerem,
+    dostawal suggested_nick=worker3 i node blokowal sie na calej dlugiej
+    rundzie. Kontrakt E2E: node i one-shot runtime'u maja TEN SAM instance,
+    odpowiedz nie wypiera node'a, a druga wzmianka budzi kolejna runde."""
+    from agentmachi.node import NodeState, node_loop
+
+    class ReplyingRuntime:
+        def __init__(self):
+            self.calls = 0
+
+        async def run(self, prompt, session_id, on_session_id):
+            self.calls += 1
+            on_session_id(session_id or "codex-thread")
+            reply_ws, hello_reply = await hello(
+                "beta", "tb", instance="shared-node-session")
+            assert hello_reply["type"] == "ok"
+            await reply_ws.send(json.dumps({
+                "type": "chat", "from": "beta", "ts": 0.0,
+                "text": f"reply-{self.calls}"}))
+            await reply_ws.close()
+            return 0
+
+    async def run(server):
+        state_path = tmp_path / "node-state.json"
+        runtime = ReplyingRuntime()
+        node = asyncio.ensure_future(node_loop(
+            url=f"ws://localhost:{PORT}", nick="beta", token="tb",
+            state_path=state_path, runtime=runtime, humans={"emil"},
+            instance_id="shared-node-session"))
+        await asyncio.sleep(0.2)
+        emil, _ = await hello("emil", "te", role="human")
+
+        await emil.send(json.dumps({
+            "type": "chat", "from": "emil", "ts": 0.0,
+            "text": "@beta pierwsza"}))
+        await _wait_for(
+            lambda: runtime.calls == 1
+            and NodeState.load(state_path).last_context_seq > 0)
+
+        await emil.send(json.dumps({
+            "type": "chat", "from": "emil", "ts": 0.0,
+            "text": "@beta druga"}))
+        await _wait_for(
+            lambda: runtime.calls == 2
+            and NodeState.load(state_path).last_context_seq
+            == NodeState.load(state_path).last_wake_seq)
+
+        events = server.log.events_after(0)
+        replies = [e["text"] for e in events
+                   if e.get("type") == "chat" and e.get("from") == "beta"
+                   and e.get("text", "").startswith("reply-")]
+        takeovers = [e for e in events
+                     if e.get("type") == "takeover"
+                     and e.get("nick") == "beta"]
+        assert replies == ["reply-1", "reply-2"]
+        assert takeovers == []
+
+        node.cancel()
+        try:
+            await node
+        except asyncio.CancelledError:
+            pass
+        await emil.close()
+
     asyncio.run(srv(run))
 
 

@@ -281,6 +281,7 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
     monkeypatch.setenv("CHAT_TOKEN", "")
     monkeypatch.setenv("CHAT_URL", "")
     monkeypatch.setenv("CHAT_NICK", "")
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(home / "sessions"))
     # limiter defaulty czytaja env (D1) — czyscimy, by asercja 6/60 nizej nie
     # byla flake gdy operator ma te envy ustawione.
     for var in _LIMITER_ENVS:
@@ -291,10 +292,17 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
     calls = []
 
     async def fake_node_loop(url, nick, token, state_path, runtime, humans,
-                             limiter=None, now=None):
+                             limiter=None, now=None, instance_id=None):
+        # Node jest listenerem tej samej logicznej sesji co send/frame.
+        # Lock MUSI juz byc trzymany, zeby budzony runtime nie odpalil
+        # drugiego `listen`, nie stracil nicka i nie podniosl sie jako workerN.
+        send = cli._import_send()
+        with pytest.raises(send.ListenerLockHeld):
+            send._session(nick).acquire_listener_lock()
         calls.append(dict(url=url, nick=nick, token=token,
                           state_path=state_path, runtime=runtime,
-                          humans=humans, limiter=limiter))
+                          humans=humans, limiter=limiter,
+                          instance_id=instance_id))
 
     monkeypatch.setattr("agentmachi.node.node_loop", fake_node_loop)
     rc = cli.main(["node", "alpha", "--nick", "worker1",
@@ -306,6 +314,7 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
     assert call["nick"] == "worker1"
     assert call["token"] == tokens["worker1"]["token"]
     assert call["humans"] == {"emil", "ola"}
+    assert isinstance(call["instance_id"], str) and call["instance_id"]
 
     state_path = d / "nodes" / "worker1" / "state.json"
     assert call["state_path"] == state_path
@@ -319,6 +328,13 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
     from agentmachi.node import ClaudeRuntime
     assert isinstance(call["runtime"], ClaudeRuntime)
     assert call["runtime"].workspace == "/tmp/ws-test"
+
+    # Po zakonczeniu node lock jest zwolniony — restart ma byc legalny.
+    send = cli._import_send()
+    session = send._session("worker1")
+    assert session.instance_id == call["instance_id"]
+    session.acquire_listener_lock()
+    session.release_listener_lock()
 
 
 def test_node_cmd_rejects_unknown_nick(home, monkeypatch):

@@ -1025,11 +1025,27 @@ def cmd_node(args):
         print(f"agentmachi node: nieznany runtime {args.runtime!r}; "
               f"dostepne: {', '.join(sorted(RUNTIMES))}", file=sys.stderr)
         return 2
+    # Node jest listenerem tej samej logicznej sesji co send/frame. Wczesniej
+    # wchodzil na swiezym `node-<uuid>`, wiec budzony runtime nie mogl
+    # odpowiedziec jako ten sam nick bez takeoveru/odmowy. Na warsztacie
+    # Codex uruchomil przez to drugi listen i podniosl sie jako worker3;
+    # node czekal na jego dluga runde, a kolejne @codex lezalo w logu.
+    send = _import_send()
+    try:
+        session = send._session(nick)
+        session.acquire_listener_lock()
+    except (send.ListenerLockHeld, send.SessionError) as e:
+        raise CliError(f"node nie moze przejac nasluchu dla {nick!r}: {e}")
     runtime = runtime_cls(args.workspace, max_duration=args.max_wake_duration)
     limiter = RateLimiter(max_wakes_per_hour=args.max_wakes_per_hour,
                           cooldown_after_agent_wake=args.cooldown)
-    asyncio.run(node_loop(os.environ["CHAT_URL"], nick, os.environ["CHAT_TOKEN"],
-                         state_path, runtime, humans, limiter=limiter))
+    try:
+        asyncio.run(node_loop(
+            os.environ["CHAT_URL"], nick, os.environ["CHAT_TOKEN"],
+            state_path, runtime, humans, limiter=limiter,
+            instance_id=session.instance_id))
+    finally:
+        session.release_listener_lock()
     return 0
 
 

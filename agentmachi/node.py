@@ -56,6 +56,12 @@ Jestes {nick} na kanale agentmachi (grupy: {groups}). Obowiazuja rules:
 BOARD (stan z chwili obudzenia):
 {board}
 
+Jestes juz polaczony z kanalem przez `agentmachi node` jako {nick}.
+NIE uruchamiaj `agentmachi listen` ani `agentmachi node` — drugi listener
+rozszczepia tozsamosc i moze podniesc cie jako workerN. Odpowiadaj jako
+ta sama tozsamosc jednorazowo: `agentmachi send --as {nick} "<tekst>"`.
+Node i send wspoldziela instance_id; po wysylce node nadal nasluchuje.
+
 Ponizej rozmowa od twojego ostatniego kontekstu (najstarsze pierwsze);
 ostatnia ramka to wzmianka, ktora cie obudzila. Zanim wezmiesz robote,
 zadeklaruj ja na kanale — przy kolizji deklaracji wygrywa nizszy seq
@@ -306,15 +312,16 @@ async def _say(ws, nick, text):
                               "text": text}))
 
 
-async def _hello(ws, nick, token, last_seq):
-    # instance_id swiezy per polaczenie (nie trzymany w state.json): po
-    # realnym crashu (bez czystego zamkniecia socketu) nowy instance_id
-    # wywoluje takeover — serwer natychmiast zamyka osierocony stary
-    # socket (niezmiennik c w chat/server.py). To pozadane samoleczenie,
-    # wiec NodeState nie potrzebuje dodatkowego pola.
+async def _hello(ws, nick, token, last_seq, instance_id=None):
+    # Produkcyjny cmd_node podaje instance_id standardowej Session, wspolny
+    # z send/frame. Bez tego node trzyma nick jako `node-<uuid>`, a budzony
+    # runtime odpowiada z innej tozsamosci: takeover albo odmowa, po ktorej
+    # Codex ratowal sie drugim listenerem i podnosil jako worker3 (warsztat,
+    # seq 20). Fallback zostaje dla bezposrednich wywolan testowych/API.
+    instance_id = instance_id or f"node-{uuid.uuid4().hex}"
     await ws.send(json.dumps({
         "type": "hello", "from": nick, "ts": 0.0,
-        "instance_id": f"node-{uuid.uuid4().hex}",
+        "instance_id": instance_id,
         "token": token, "last_seq": last_seq, "role": "agent"}))
     reply = json.loads(await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
     if not isinstance(reply, dict) or reply.get("type") == "error":
@@ -375,7 +382,7 @@ async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
 
 
 async def _one_connection(url, nick, token, state_path, runtime, humans,
-                          limiter, now):
+                          limiter, now, instance_id=None):
     """KONTRAKT OKNA KONTEKSTU (fix po kontroli, patrz raport): kontekst
     wake'a budowany jest WYLACZNIE z backlogu tego hello (niefiltrowanego —
     zadanie 2). Live push dostarcza agentowi tylko wzmianki, wiec zywa
@@ -391,7 +398,8 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
     state = NodeState.load(state_path) if Path(state_path).exists() \
         else _new_state(nick, runtime)
     async with websockets.connect(url) as ws:
-        reply = await _hello(ws, nick, token, state.last_context_seq)
+        reply = await _hello(ws, nick, token, state.last_context_seq,
+                             instance_id=instance_id)
         groups = reply.get("groups", [])
         rules = reply.get("rules")
         participants = reply.get("participants", [])
@@ -456,7 +464,7 @@ def _log(msg):
 
 
 async def node_loop(url, nick, token, state_path, runtime, humans,
-                    limiter=None, now=time.time):
+                    limiter=None, now=time.time, instance_id=None):
     limiter = limiter or RateLimiter()
     backoff = BACKOFF_START
     _log(f"node startuje: nick={nick} runtime={getattr(runtime, 'name', '?')} url={url}")
@@ -469,7 +477,8 @@ async def node_loop(url, nick, token, state_path, runtime, humans,
             # (brak sleep) bez eskalacji. Backoff z prawdziwym opoznieniem
             # (1..30 s, jak send.py) dotyczy WYLACZNIE wyjatkow ponizej.
             await _one_connection(url, nick, token, state_path, runtime,
-                                  humans, limiter, now)
+                                  humans, limiter, now,
+                                  instance_id=instance_id)
             backoff = BACKOFF_START
         except (OSError, asyncio.TimeoutError,
                 websockets.exceptions.ConnectionClosed) as e:
