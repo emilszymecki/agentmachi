@@ -1316,13 +1316,19 @@ def test_status_state_is_free_text(srv):
     asyncio.run(srv(scenario))
 
 
-def test_orchestrator_sets_others_status_humans_see_live(srv):
+def test_admin_sets_others_status_humans_see_live(srv):
+    """Cudzy status wymaga roli human albo grupy `admin`. Grupa
+    `orchestrator` zostala usunieta z kodu: byla ROLA organizacyjna (kto
+    kim zarzadza), a nie klasa uprawnien, a strukture zespolu wybieraja
+    agenci, nie hub. `admin` niesie to samo prawo w istniejacym lancuchu
+    zaufania — wprowadza do niego wylacznie human/admin przez
+    membership_set, wiec agent nie da sobie tej mocy sam."""
     async def scenario(server):
         emil, _ = await hello("emil", "te", role="human")
-        # human nadaje grupe orchestrator becie (jedyna autoryzacja: human)
+        # human nadaje grupe admin becie (jedyna autoryzacja: human)
         await emil.send(json.dumps({
             "type": "membership_set", "from": "emil", "ts": 0.0,
-            "target": "beta", "groups": ["orchestrator"]}))
+            "target": "beta", "groups": ["admin"]}))
         ack = await recv(emil)
         assert ack["type"] == "ok"
         beta, _ = await hello("beta", "tb")
@@ -1335,13 +1341,36 @@ def test_orchestrator_sets_others_status_humans_see_live(srv):
         ev = await recv(emil)                       # human widzi na zywo
         assert ev["type"] == "status"
         assert ev["target"] == "gamma" and ev["from"] == "beta"
-        # zwykly agent (bez grupy orchestrator) NIE ustawi cudzego statusu
+        # zwykly agent (bez grupy admin) NIE ustawi cudzego statusu
         await gamma.send(json.dumps({"type": "status", "from": "gamma",
                                      "ts": 0.0, "target": "beta",
                                      "state": "idle"}))
         err = await recv(gamma)
         assert err["type"] == "error" and "forbidden" in err["text"]
         assert "beta" not in server.status  # odrzucone przed append/mutacja
+        for ws in (emil, beta, gamma):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_orchestrator_group_grants_nothing(srv):
+    """Regresja C2: `orchestrator` to zwykla grupa adresowa bez zadnych
+    praw. Gdy ktos przywroci ja do bramy statusu — choćby "dla
+    kompatybilnosci" — ten test padnie."""
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({
+            "type": "membership_set", "from": "emil", "ts": 0.0,
+            "target": "beta", "groups": ["orchestrator"]}))
+        assert (await recv(emil))["type"] == "ok"
+        beta, _ = await hello("beta", "tb")
+        gamma, _ = await hello("gamma", "tg")
+        await beta.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 0.0, "target": "gamma",
+                                    "state": "working"}))
+        err = await recv(beta)
+        assert err["type"] == "error" and "forbidden" in err["text"]
+        assert "gamma" not in server.status
         for ws in (emil, beta, gamma):
             await ws.close()
     asyncio.run(srv(scenario))

@@ -817,13 +817,20 @@ class ChatServer:
                     await self._send(odbiorca, frame)
         elif ftype == "status":
             target = frame.get("target") or nick
+            # C2: prawo do CUDZEGO statusu nalezy do klasy uprawnien
+            # (`admin`), nie do roli organizacyjnej. Grupa `orchestrator`
+            # dawala dokladnie to jedno prawo i nic wiecej — czyli byla
+            # stanowiskiem wpisanym w silnik, a konstytucja mowi, ze
+            # strukture zespolu wybieraja agenci, nie hub. `admin` ma juz
+            # lancuch zaufania (wprowadza human/admin przez membership_set),
+            # wiec zadna mozliwosc nie ginie; ginie nazwa stanowiska.
             if target != nick and not (
                     self.registry.role_of(nick) == "human"
-                    or "orchestrator" in self.registry.groups_of(nick)):
+                    or "admin" in self.registry.groups_of(nick)):
                 await ws.send(json.dumps(protocol.make_frame(
                     "error", "server", time.time(),
                     text="forbidden: cudzy status wymaga human albo "
-                         "grupy orchestrator")))
+                         "grupy admin")))
                 return False
             frame["target"] = target  # pole autorytatywne: server-side default
             seq = self._append(frame)
