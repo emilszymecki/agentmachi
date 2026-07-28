@@ -262,6 +262,67 @@ pracy. Czas przyjścia zna tylko ten, kto odbiera, więc to ta sama
 kategoria co `seq`. Zasada dogfoodu: wystąpiło raz, więc **obserwujemy,
 nie kodujemy**.
 
+## 13. Cisza nie jest potwierdzeniem — sprawdź, czy komenda trafiła w cel
+
+Zasada 5 mówi „sprawdź stan komendą". Jest niepełna: komenda też może
+skłamać, gdy **nie sięgnęła tam, gdzie myślisz**, a brak wyniku wygląda
+identycznie jak wynik negatywny.
+
+*Dowód — trzy razy w jednej dobie, w trzech różnych warstwach:*
+
+1. `grep -rn "/kick" agentmachi/tui.py 2>/dev/null` → pusto. Plik leży
+   w `./tui.py`, więc grep zgłosił „No such file", ale `2>/dev/null` zjadł
+   ten błąd. Pustkę odczytałem jako dowód nieistnienia i zgłosiłem fałszywy
+   finding; wycofał go drugi agent, pokazując `tui.py:130`.
+2. `agentmachi start` meldował sukces PID-em trupa: własne dziecko padło
+   na „Address already in use", a sprawdzenie „czy port odpowiada" trafiło
+   w **cudzy** nasłuch na tym samym porcie.
+3. `agentmachi send` kończył się kodem 0, choć ramka nie dotarła nigdzie.
+   W `oneshot_frame` maskowała to druga warstwa ciszy: brak ACK jest tam
+   **legalny** (status go nie dostaje), więc odmowa i sukces zwracały to
+   samo `None`.
+
+Wspólny wzorzec: **brak sygnału potraktowany jako sygnał.** Dotyczy tak
+samo diagnostyki, jak produktu — a w produkcie nazywa się cichym
+false-success i jest najgorszą klasą błędu, jaką ten projekt ma.
+
+*Praktyka:* nie tłum `stderr` w komendzie, której wynik ma coś rozstrzygać.
+Filtr monitorujący musi łapać też sygnały awarii — inaczej martwy nasłuch
+milczy dokładnie tak samo jak spokojny kanał. A wysyłka, która nie doszła,
+nie ma prawa kończyć się zerem.
+
+## 14. Autor nie zwaliduje własnego pokrycia
+
+Zasada 6 („weryfikuj w źródle") zakłada, że sprawdzający jest w stanie
+zobaczyć własną lukę. Przy testach to założenie jest fałszywe:
+**test i kod pisze ta sama intencja**, więc autor sprawdza to, co
+zamierzał napisać, a nie to, co napisał.
+
+*Dowód — dwa razy w jednej sesji, oba u tego samego agenta, oba wykryte
+przez drugiego:*
+
+1. Test „send nie zmienia nicka przy zajętym" kończył się asercją na
+   **własnym literale** (`assert reply.get("suggested_nick") == "worker3"`)
+   i nie wywoływał testowanej funkcji ani razu. Powstał razem z naprawą,
+   został zgłoszony jako pokrycie i przechodził zawsze — także wtedy, gdy
+   produkt cicho gubił wiadomości. Bug wszedł tą samą ścieżką, którą test
+   miał zamykać.
+2. Meldunek „322 testy zielone" był prawdą o **maszynie**, nie o commicie:
+   suita poszła, zanim postawiono pokój o nazwie użytej w teście. Drugi
+   agent uruchomił ją przy działającym pokoju i dostał `1 failed`.
+
+*Środek zaradczy, tani i rozstrzygający — dowód przez zepsucie:* po
+napisaniu testu **cofnij naprawę i sprawdź, czy test pada**. Test, który
+przechodzi na zepsutym kodzie, nie jest pokryciem, tylko dekoracją.
+Zastosowane tego samego dnia trzykrotnie (bezpiecznik wysyłki, walidacja
+komend w skillach, alokacja portu) — za każdym razem w sekundy.
+
+*Wniosek strukturalny, nie moralny:* nie chodzi o staranność. Cztery błędy
+naprawione tego dnia znalazł w **każdym** przypadku ktoś inny niż autor —
+i żaden z dwóch agentów nie znalazł własnego. To jest empiryczne
+uzasadnienie całego produktu: kanał nie mnoży rąk, tylko niezależne punkty
+widzenia, a niezależność jest tu warunkiem wykrywalności, nie ozdobą.
+
 ---
 
 ## Co świadomie odrzuciliśmy
