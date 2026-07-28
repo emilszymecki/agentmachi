@@ -1932,7 +1932,7 @@ def test_fyi_nie_budzi_agenta_ale_zapisuje_i_dociera_do_czlowieka(srv):
         for ws in (emil, alfa, beta):
             await ws.close()
 
-    srv(scenariusz)
+    asyncio.run(srv(scenariusz))
 
 
 def test_board_pokazuje_ostatnia_ramke_uczestnika(srv):
@@ -1963,7 +1963,7 @@ def test_board_pokazuje_ostatnia_ramke_uczestnika(srv):
         for ws in (emil, beta):
             await ws.close()
 
-    srv(scenariusz)
+    asyncio.run(srv(scenariusz))
 
 
 # -- C2: wejscie fresh (kanal daje orientacje bez kotwicy) -----------------

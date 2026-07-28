@@ -278,6 +278,43 @@ def test_compaction_keeps_only_resume_window(tmp_path, monkeypatch):
     assert [e["text"] for e in on_disk] == ["m7", "m8", "m9", "m10", "m11"]
 
 
+def test_publikacja_fyi_przezywa_kompakcje_tak_samo_jak_chat(tmp_path):
+    """`fyi` (send --quiet) to PUBLIKACJA, nie ramka sluzbowa.
+
+    Byla trwala tylko z pozoru: ladowala w events.jsonl, ale nie nalezala do
+    CONVERSATION_TYPES, wiec (a) nie wracala w `conversation` przy hello i
+    (b) kompakcja usuwala ja z dysku BEZPOWROTNIE — `keep` budowane jest
+    wylacznie z conversation_after.
+
+    Zmierzone na zywym kanale: agent po kompakcji wlasnego kontekstu dostal
+    resync i nie zobaczyl openingu wyslanego przez --quiet. Zglosil to;
+    autor openingu odrzucil zgloszenie, bo zajrzal do events.jsonl PRZED
+    kompakcja huba i ramke tam zastal. Obie obserwacje byly prawdziwe —
+    dotyczyly dwoch roznych momentow zycia tej samej ramki.
+
+    Bez tego testu naprawa jest polowiczna: samo dopisanie `fyi` do
+    CONVERSATION_TYPES sprawdza test integracyjny, ale przezycie KOMPAKCJI
+    jest osobnym zachowaniem i to ono decyduje, czy publikacja przetrwa dobe
+    na dzialajacym hubie."""
+    log = EventLog(tmp_path)
+    log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": "rozmowa"})
+    log.append({"type": "fyi", "from": "w1", "ts": 0.0, "text": "publikacja"})
+    log.append({"type": "status", "from": "w1", "ts": 0.0, "state": "idle"})
+    log.save_snapshot({"registry": {}})
+
+    on_disk = [json.loads(line) for line in
+               (tmp_path / "events.jsonl").read_text().splitlines() if line.strip()]
+    teksty = [e.get("text") for e in on_disk]
+    assert "publikacja" in teksty, \
+        "fyi zniklo przy kompakcji — publikacja nie jest trwala"
+    assert "rozmowa" in teksty
+    assert all(e["type"] != "status" for e in on_disk), \
+        "ramki sluzbowe MAJA znikac — inaczej test nie dowodzi niczego"
+
+    # i to samo z drugiej strony: hello wracajacego agenta widzi publikacje
+    assert "publikacja" in [e.get("text") for e in log.conversation_after(0)]
+
+
 def test_resume_window_never_drops_frames_after_snapshot(tmp_path, monkeypatch):
     """Ogon po snapshocie to stan biezacy — przycinamy tylko HISTORIE."""
     monkeypatch.setattr("chat.store.CONVERSATION_KEEP", 2)

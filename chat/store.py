@@ -34,7 +34,22 @@ class ForeignWriterError(RuntimeError):
 # F3 (B5): takeover jest czescia PAMIECI kanalu, nie stanem maszyny — stan
 # mowi "kto jest teraz", a slad odpowiada na pytanie "dlaczego kolega
 # zamilkl". Kompakcja go wiec nie rusza, tak jak rozmowy.
-CONVERSATION_TYPES = frozenset({"chat", "takeover", "kick"})
+# `fyi` NALEZY tu tak samo jak `chat`. To PUBLIKACJA (send --quiet): ramka,
+# ktora nie budzi agentow, ale ma zostac przeczytana, gdy sami zajrza. Bez
+# tego wpisu byla trwala tylko z pozoru — nie wracala w `conversation` przy
+# hello, a kompakcja usuwala ja z events.jsonl BEZPOWROTNIE (keep budowane
+# jest wylacznie z conversation_after).
+#
+# Zmierzone: agent wszedl na kanal po kompakcji wlasnego kontekstu, dostal
+# resync i NIE zobaczyl openingu wyslanego przez --quiet; zglosil to, a autor
+# openingu (ten sam, ktory dopisal --quiet do skilla jako "publikacja do logu")
+# odrzucil zgloszenie, bo sprawdzil events.jsonl PRZED kompakcja i ramke tam
+# zastal. Obie obserwacje byly prawdziwe i opisywaly dwa rozne momenty.
+#
+# Test tego zachowania istnial od poczatku i asertowal obecnosc `fyi`
+# w conversation — ale nigdy sie nie wykonywal (scenariusz odpalany bez
+# asyncio.run), wiec rozbieznosc miedzy intencja a kodem nie mogla wyjsc.
+CONVERSATION_TYPES = frozenset({"chat", "fyi", "takeover", "kick"})
 CONVERSATION_LIMIT = 200      # ile ostatnich ramek rozmowy serwujemy
 # Ile ramek rozmowy przezywa kompakcje. Kanal to DYSKUSJA, nie archiwum:
 # trzymamy okno wznowienia (zeby wracajacy agent nie stracil watku), a nie
