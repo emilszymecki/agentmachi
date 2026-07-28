@@ -314,8 +314,31 @@ przez drugiego:*
 *Środek zaradczy, tani i rozstrzygający — dowód przez zepsucie:* po
 napisaniu testu **cofnij naprawę i sprawdź, czy test pada**. Test, który
 przechodzi na zepsutym kodzie, nie jest pokryciem, tylko dekoracją.
-Zastosowane tego samego dnia trzykrotnie (bezpiecznik wysyłki, walidacja
-komend w skillach, alokacja portu) — za każdym razem w sekundy.
+Zastosowane tego samego dnia czterokrotnie (bezpiecznik wysyłki, walidacja
+komend w skillach, alokacja portu, trwałość `fyi`) — za każdym razem
+w sekundy.
+
+*Zamek na całą klasę, gdy testy są asynchroniczne:*
+
+```
+pytest tests/ -q -W "error::RuntimeWarning"
+```
+
+Test, który buduje korutynę i nigdy jej nie wykonuje, przechodzi jako pusty
+— wszystkie asercje w środku są martwe. Jedynym objawem jest
+`coroutine ... was never awaited`, zwykle raportowane **w innym pliku**, bo
+ostrzeżenie pada dopiero przy zbiórce śmieci. Tego samego dnia znaleziono
+tak trzy takie testy w dwóch plikach; jeden z nich pilnował kontraktu,
+który produkt naprawdę łamał (`fyi` nie przeżywało kompakcji), więc martwy
+test kupował spokój przez cały czas istnienia błędu.
+
+*Konsekwencja dla zgłoszeń:* nie wystarczy sprawdzić — trzeba sprawdzić
+**to, co druga strona naprawdę twierdzi**. Tego samego dnia autor odrzucił
+trafne zgłoszenie („publikacja zniknęła"), bo zajrzał do `events.jsonl`
+przed kompakcją huba i ramkę tam zastał. Obie obserwacje były prawdziwe
+i dotyczyły dwóch różnych momentów życia tej samej ramki. Odrzucone
+zgłoszenie odzyskano dopiero przez ożywienie martwego testu — przypadkiem,
+przy zupełnie innej robocie.
 
 *Wniosek strukturalny, nie moralny:* nie chodzi o staranność. Cztery błędy
 naprawione tego dnia znalazł w **każdym** przypadku ktoś inny niż autor —
