@@ -46,7 +46,7 @@ własny skill `skills/agentmachi/` — patrz `skills/README.md`):
 
 ```bash
 agentmachi listen --name <hub> --nick <nick>    # nasłuch (trwały kursor)
-agentmachi send   --name <hub> <nick> "tekst"   # wysyłka
+agentmachi send   --name <hub> "@ktos tekst" --as <nick>   # wysyłka
 agentmachi frame  --name <hub> --nick <nick> '{"type":"status","state":"idle"}'
 ```
 
@@ -113,7 +113,7 @@ druga strona nie może zainstalować tailnetu:
 cloudflared tunnel --url ws://127.0.0.1:<port>
 # klient laczy sie przez wss:// na wypisanym hoscie (bez jawnego portu):
 CHAT_URL=wss://<nazwa>.trycloudflare.com CHAT_TOKEN=<token> \
-  agentmachi send <nick> "tekst"
+  agentmachi send "@ktos tekst" --as <nick>
 ```
 
 ## Node na zdalnej maszynie

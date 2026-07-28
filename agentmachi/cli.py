@@ -372,7 +372,7 @@ czlowiek (TUI):
 
 agent dolacza (nasluch + wysylka; wklej agentowi jedno z ponizszych):
   AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=worker1 agentmachi listen
-  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send worker1 "czesc"
+  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send "@worker1 czesc" --as worker2
   na zdalnej maszynie dodaj CHAT_TOKEN=<token z tokens.json> (hub nie
   musi tam istniec lokalnie — patrz README: Node na zdalnej maszynie)
 
@@ -767,9 +767,30 @@ def cmd_tui(args):
 
 
 def cmd_send(args):
-    _agent_env(args)
+    # C3: dwa pozycyjne argumenty = dawna skladnia `send <nick> "tekst"`,
+    # w ktorej <nick> byl NADAWCA, choc czytal sie jak adresat. Fail-closed
+    # z instrukcja zamiast wyslania w cudzym imieniu.
+    if getattr(args, "legacy_text", None) is not None:
+        print(f"agentmachi send: podales DWA argumenty "
+              f"({args.text!r}, {args.legacy_text!r}).\n"
+              f"Dawna skladnia `send <nick> \"tekst\"` zostala usunieta: "
+              f"<nick> byl NADAWCA, a wygladal jak adresat — realnie "
+              f"kosztowalo to ramke wyslana w cudzym imieniu.\n"
+              f"Teraz:\n"
+              f"  agentmachi send --as {args.text} \"@ktos {args.legacy_text}\""
+              f"   # kim jestes -> --as, do kogo mowisz -> @wzmianka\n"
+              f"  CHAT_NICK={args.text} agentmachi send \"@ktos "
+              f"{args.legacy_text}\"", file=sys.stderr)
+        return 2
+    args.nick = args.as_nick          # _agent_env czyta args.nick
+    nick = _agent_env(args)
+    if not nick:
+        print("agentmachi send: nie wiem, KIM jestes — podaj --as <nick> "
+              "albo ustaw CHAT_NICK. Adresata wskazujesz @wzmianka w tresci.",
+              file=sys.stderr)
+        return 2
     send = _import_send()
-    asyncio.run(send.send_once(args.nick, args.text,
+    asyncio.run(send.send_once(nick, args.text,
                                quiet=getattr(args, "quiet", False)))
     return 0
 
@@ -906,9 +927,24 @@ def _build_parser():
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_tui)
 
-    p = sub.add_parser("send", help="wyslij wiadomosc jako <nick>")
-    p.add_argument("nick")
+    # C3: skladnia ZLAMANA swiadomie. Dawne `send <nick> "tekst"` czytalo sie
+    # jak "wyslij DO nicka", a bylo podpisem NADAWCY — pomylka kosztowala
+    # ramke 4244 znakow wyslana w cudzym imieniu na zywym kanale (goldberg
+    # seq 275, sprostowanie w seq 281). Stary wariant NIE zostaje "dla
+    # kompatybilnosci": dopoki istnieje, pulapka istnieje razem z nim.
+    #   --as <nick>        = KIM jestem
+    #   @nick w tresci     = DO KOGO mowie
+    p = sub.add_parser("send", help="wyslij wiadomosc (adresujesz @wzmianka "
+                                    "w tresci, --as mowi kim jestes)")
     p.add_argument("text")
+    # Wylapuje DAWNE uzycie `send <nick> "tekst"`: bez tego argparse mowi
+    # tylko "unrecognized arguments", a agent nie dowiaduje sie, ze wlasnie
+    # o wlos nie podpisal sie cudzym nickiem.
+    p.add_argument("legacy_text", nargs="?", default=None,
+                   help=argparse.SUPPRESS)
+    p.add_argument("--as", dest="as_nick", default=None,
+                   help="nick NADAWCY (domyslnie CHAT_NICK). Adresata "
+                        "wskazujesz @wzmianka w samej tresci.")
     p.add_argument("--name", default=None)
     p.add_argument("--quiet", action="store_true",
                    help="opublikuj bez budzenia agentow (ludzie dostaja i tak)")

@@ -2,7 +2,7 @@
 """Klient CLI czatu agentow — RESUMOWALNY (Task 7 / t1).
 
 Domyslnie protokol B1 (chat/server.py): hello + token + trwaly kursor.
-  python3 send.py <nick> "tekst"   -> hello (kursor TYLKO czytany), chat, wyjscie
+  python3 send.py --as <nick> "@ktos tekst"  -> hello (kursor TYLKO czytany), chat, wyjscie
   python3 send.py --listen         -> hello od kursora, apply+advance, reconnect
 
 Tryb --legacy dla starego PoC-huba (root server.py, czysty broadcast
@@ -425,11 +425,28 @@ def main():
                 sys.exit(1)
         elif args == ["--listen"]:
             asyncio.run(listen(os.environ.get("CHAT_NICK", "listener")))
-        elif len(args) == 2:
-            asyncio.run(send_once(args[0], args[1]))
+        elif len(args) == 2 and args[0] == "--as":
+            print('send.py --as <nick>: brakuje tresci', file=sys.stderr)
+            sys.exit(1)
+        elif len(args) == 3 and args[0] == "--as":
+            asyncio.run(send_once(args[1], args[2]))
+        elif len(args) == 1:
+            nick = os.environ.get("CHAT_NICK", "")
+            if not nick:
+                print('send.py: nie wiem, KIM jestes — podaj --as <nick> '
+                      'albo ustaw CHAT_NICK', file=sys.stderr)
+                sys.exit(1)
+            asyncio.run(send_once(nick, args[0]))
         else:
-            print('usage: send.py <nick> "tekst"  |  send.py --listen  |  '
-                  'send.py --legacy ...', file=sys.stderr)
+            # C3: dawne `send.py <nick> "tekst"` USUNIETE. <nick> byl
+            # NADAWCA, a czytal sie jak adresat — na zywym kanale kosztowalo
+            # to ramke wyslana w cudzym imieniu. Wariant nie zostaje
+            # "dla kompatybilnosci": dopoki dziala, pulapka dziala z nim.
+            print('usage: send.py --as <nick> "@ktos tekst"  |  '
+                  'CHAT_NICK=<nick> send.py "@ktos tekst"  |  '
+                  'send.py --listen  |  send.py --legacy ...\n'
+                  '  --as = KIM jestes; adresata wskazujesz @wzmianka '
+                  'w tresci', file=sys.stderr)
             sys.exit(1)
     except KeyboardInterrupt:
         pass

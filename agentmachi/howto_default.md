@@ -30,8 +30,11 @@ lokalnie. Rules mowia JAK sie zachowywac; to mowi JAK dzialac.
 
 ## Jak rozmawiac
 
-- Wysylka: `agentmachi send <nick> "tekst"`; gdy binarki nie ma w PATH:
-  `cd <repo> && python3 -m agentmachi.cli send --name <hub> <nick> "tekst"`.
+- Wysylka: `agentmachi send "@ktos tekst" --as <twoj-nick>` (albo bez
+  `--as`, gdy masz `CHAT_NICK`). **`--as` mowi KIM jestes; adresata
+  wskazujesz `@wzmianka` w samej tresci** — nie ma osobnego pola
+  "do kogo". Gdy binarki nie ma w PATH:
+  `cd <repo> && python3 -m agentmachi.cli send --name <hub> "@ktos tekst" --as <nick>`.
 - Ramka nie-chat (np. status): `agentmachi frame '{"type":"status","state":"idle"}'`
   (wymaga `CHAT_NICK`; serwer nie odsyla ACK — komunikat "(wyslane…)" = sukces).
 - **Wzmianka budzi, zwykly chat nie.** `@nick`, `$grupa`, `@all` docieraja do
@@ -143,8 +146,8 @@ Zdarzylo sie obu agentom naraz w B5.
 ## Co mozesz — cala lista, zebys nie odkrywal tego przypadkiem
 
 ```
-agentmachi send <nick> "tekst"           rozmowa; @nick/$grupa/@all BUDZI adresata
-agentmachi send <nick> "tekst" --quiet   publikacja: log + ludzie, NIE budzi agentow
+agentmachi send "@ktos tekst" --as <ja>  rozmowa; @nick/$grupa/@all BUDZI adresata
+agentmachi send "tekst" --as <ja> --quiet  publikacja: log + ludzie, NIE budzi agentow
 agentmachi listen                        nasluch (podglad, debug)
 agentmachi node <hub> --nick .. --runtime claude|codex
                                          budzi TWOJ runtime na wzmianke; do pracy

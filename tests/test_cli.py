@@ -696,3 +696,75 @@ def test_kill_nie_ubija_wlasnego_procesu(capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert str(os.getpid()) not in out       # my sami NIGDY na liscie
+
+
+# -- C3: `send` nie pozwala pomylic nadawcy z adresatem -------------------
+
+def _parse_send(argv):
+    """Zbuduj args tak, jak zrobi to prawdziwe wejscie CLI."""
+    return cli._build_parser().parse_args(argv)
+
+
+def test_send_stara_skladnia_pozycyjna_to_blad_uzycia(home, capsys, monkeypatch):
+    """Dawne `send <nick> "tekst"` czytalo sie jak 'wyslij DO nicka', a bylo
+    PODPISEM nadawcy. Zmierzony koszt: ramka 4244 znakow wyslana w cudzym
+    imieniu na zywym kanale (goldberg seq 275; sprostowanie w seq 281),
+    przez agenta, ktory mial repo otwarte. Stary wariant NIE zostaje
+    'dla kompatybilnosci' — dopoki dziala, pulapka dziala razem z nim.
+    Kontrakt: nic nie leci w drut, exit 2, komunikat pokazuje NOWA forme."""
+    wyslane = []
+    monkeypatch.setattr(cli, "_import_send",
+                        lambda: type("S", (), {"send_once": staticmethod(
+                            lambda *a, **k: wyslane.append(a))})())
+    args = _parse_send(["send", "opus_c", "tresc wiadomosci"])
+    assert cli.cmd_send(args) == 2
+    assert wyslane == []                      # NIC nie poszlo w drut
+    err = capsys.readouterr().err
+    assert "--as opus_c" in err and "@ktos" in err
+
+
+def test_send_as_ustawia_nadawce(home, monkeypatch):
+    """--as mowi KIM jestem; adresata wskazuje @wzmianka w tresci."""
+    wyslane = []
+    monkeypatch.setattr(cli, "_import_send",
+                        lambda: type("S", (), {"send_once": staticmethod(
+                            lambda nick, text, quiet=False: wyslane.append(
+                                (nick, text)))})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+    # _agent_env muta os.environ WPROST (poza monkeypatch) — setenv rejestruje
+    # wartosci DO PRZYWROCENIA, inaczej CHAT_* wyciekaja do testow, ktore
+    # odpalaja prawdziwe podprocesy listenera (padaly tylko w pelnej suicie).
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")
+    cli.ensure_hub("alpha", 8931)
+    args = _parse_send(["send", "@opus_c czesc", "--as", "worker2",
+                        "--name", "alpha"])
+    assert cli.cmd_send(args) == 0
+    assert wyslane == [("worker2", "@opus_c czesc")]
+
+
+def test_send_bierze_nadawce_z_chat_nick(home, monkeypatch):
+    wyslane = []
+    monkeypatch.setattr(cli, "_import_send",
+                        lambda: type("S", (), {"send_once": staticmethod(
+                            lambda nick, text, quiet=False: wyslane.append(
+                                (nick, text)))})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN"):
+        monkeypatch.setenv(zmienna, "")     # patrz komentarz w tescie wyzej
+    monkeypatch.setenv("CHAT_NICK", "worker2")
+    cli.ensure_hub("alpha", 8931)
+    args = _parse_send(["send", "@opus_c czesc", "--name", "alpha"])
+    assert cli.cmd_send(args) == 0
+    assert wyslane == [("worker2", "@opus_c czesc")]
+
+
+def test_send_bez_nicka_failcloses(home, monkeypatch, capsys):
+    """Bez --as i bez CHAT_NICK hub nadalby nick sam, a wiadomosc poszlaby
+    podpisana czyms, czego nadawca nie wybral. Lepiej odmowic."""
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")     # patrz komentarz wyzej
+    cli.ensure_hub("alpha", 8931)
+    args = _parse_send(["send", "@opus_c czesc", "--name", "alpha"])
+    assert cli.cmd_send(args) == 2
+    assert "--as" in capsys.readouterr().err
