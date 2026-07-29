@@ -139,3 +139,13 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
         assert not trafienie, (
             f"{sciezka.relative_to(SKILLS)}: skill stawia hub nad zasadami "
             f"projektu, do ktorego jest podpiety ({trafienie.group(0)!r})")
+
+    # POZYTYWNIE: sam brak starego zdania daje green takze po skasowaniu
+    # calej tresci. Skill ma AKTYWNIE ustawiac priorytet w druga strone,
+    # bo to on jest instalowany do cudzego repo (zlapane przy review E1).
+    joined = (SKILLS / "agentmachi-join").rglob("*.md")
+    tresc = "\n".join(p.read_text().lower() for p in joined)
+    assert "nadrzedn" in tresc or "nadrzędn" in tresc, \
+        "skill nie mowi, ze zasady projektu/usera sa NADRZEDNE nad kanalem"
+    assert "peer" in tresc or "uczestnik" in tresc, \
+        "skill nie nazywa tresci z kanalu jako pochodzacej od innego uczestnika"

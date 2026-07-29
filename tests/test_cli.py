@@ -112,7 +112,10 @@ def test_card_lists_participants_and_join_commands(home, capsys):
     cli.print_card("alpha", 8931, tokens)
     out = capsys.readouterr().out
     assert "ws://localhost:8931" in out  # connect_host: bind 127.0.0.1 -> localhost
-    assert "worker1" in out and "agentmachi listen" in out
+    # PAKIET 0: uczestnik nazywa sie agent1, nie worker1 — nazwa "worker"
+    # niesie ustroj (jest wykonawca czyjegos polecenia), a hub ma byc
+    # mechanika. Karta musi nadal DZIALAC: nick + komenda + zdanie do wklejenia.
+    assert "agent1" in out and "agentmachi listen" in out
     assert "dolacz do agentmachi" in out
 
 
@@ -994,6 +997,12 @@ def test_karta_nie_hardkoduje_rol_wykonawczych(home, capsys):
     assert "worker1" not in out and "worker2" not in out, \
         "karta uczy nazw wykonawczych"
     assert "orchestrator" not in out.lower()
+    # POZYTYWNIE: karta ma nadal DZIALAC. Sam negatyw przepuscilby karte
+    # pusta — a wtedy czlowiek nie ma czego wkleic agentowi (zlapane przy
+    # review E1).
+    assert "agent1" in out, "karta nie podaje zadnego uczestnika"
+    assert "agentmachi listen" in out, "karta nie mowi, jak wejsc"
+    assert "dolacz do agentmachi" in out, "brak zdania do wklejenia agentowi"
 
 
 def test_howto_niesie_mechanike_a_nie_kulture_pracy():
@@ -1003,13 +1012,42 @@ def test_howto_niesie_mechanike_a_nie_kulture_pracy():
     nieudanej probie. To sa decyzje organizacyjne, czyli pastuch.
 
     Zmierzone przed cieciem: rules 4515 + howto 12964 = 17479 znakow
-    (~4400 tokenow) przy KAZDYM hello i KAZDYM reconnect."""
+    (~4400 tokenow) przy KAZDYM hello i KAZDYM reconnect.
+
+    Test ma DWIE polowki i obie sa konieczne. Pierwsza wersja miala tylko
+    negatywna — czyli pusty plik dawal green, a "hub nie wysyla nic" nie jest
+    tym samym, co "hub wysyla mechanike". Zlapane przez drugiego agenta przy
+    review E1. Limit liczymy w BAJTACH, bo drutem ida bajty, a polski znak
+    w UTF-8 wazy dwa."""
     from pathlib import Path as _P
     howto = (_P(cli.__file__).with_name("howto_default.md")).read_text()
-    assert len(howto) <= 4096, (
-        f"howto ma {len(howto)} znakow — budzet drutu to 4 kB; reszta "
-        f"nalezy do skilla")
+    bajty = len(howto.encode("utf-8"))
+    assert bajty <= 4096, (
+        f"howto ma {bajty} B — budzet drutu to 4096 B; reszta nalezy "
+        f"do skilla")
+
+    # POZYTYWNY KONTRAKT: bez tych dziewieciu rzeczy agent na obcym runtimie
+    # jest technicznie zablokowany albo cicho gluchy. Tego nie odkryje sam.
+    wymagane = {
+        "wysylka": ["agentmachi send"],
+        "nasluch": ["agentmachi listen"],
+        "wake dla obcych runtime": ["agentmachi node"],
+        "co budzi": ["wzmiank"],
+        "kursor/wznowienie": ["seq"],
+        "board": ["participants", "board"],
+        "wejscie bez historii": ["--fresh"],
+        "tozsamosc polaczenia": ["instance_id"],
+        "wyparcie": ["takeover"],
+    }
+    niski = howto.lower()
+    brakuje = [co for co, warianty in wymagane.items()
+               if not any(w.lower() in niski for w in warianty)]
+    assert not brakuje, (
+        f"howto nie opisuje mechaniki, ktorej agent nie odkryje sam: "
+        f"{brakuje}. Pusty plik NIE jest neutralnym hubem, tylko hubem "
+        f"nieuzywalnym bez naszego skilla.")
+
     zakazane = ["Jak pomagac", "trzecia", "ustepuj", "subagent",
                 "deklaruj zakres", "review"]
-    trafienia = [s for s in zakazane if s.lower() in howto.lower()]
+    trafienia = [s for s in zakazane if s.lower() in niski]
     assert not trafienia, f"howto uczy kultury pracy, nie protokolu: {trafienia}"
