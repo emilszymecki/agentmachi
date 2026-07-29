@@ -1,0 +1,88 @@
+"""Instalator kontraktu wchodzi do CUDZEGO repo — wiec nie wolno mu zaskoczyc.
+
+Kontrakty, ktore pilnujemy: podglad domyslnie, zero nadpisania cudzej tresci,
+idempotencja, aktualizacja bloku w miejscu i czyste usuniecie.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+import integrate_project as ip
+
+
+def test_podglad_niczego_nie_zapisuje(tmp_path, capsys):
+    """Domyslne uruchomienie w cudzym repo MUSI byc bezpieczne. Czlowiek ma
+    najpierw zobaczyc diff, a dopiero potem zdecydowac."""
+    (tmp_path / "AGENTS.md").write_text("# Moj projekt\n\nZasady wlasne.\n")
+    przed = (tmp_path / "AGENTS.md").read_text()
+
+    assert ip.main([str(tmp_path)]) == 0
+    assert (tmp_path / "AGENTS.md").read_text() == przed, \
+        "podglad zapisal plik"
+    assert not (tmp_path / "CLAUDE.md").exists(), \
+        "podglad utworzyl plik, ktorego nie bylo"
+    assert "+" in capsys.readouterr().out, "podglad nie pokazal diffu"
+
+
+def test_apply_dokleja_i_NIE_rusza_cudzej_tresci(tmp_path):
+    oryginal = "# Moj projekt\n\nNie kasuj mnie.\n"
+    (tmp_path / "AGENTS.md").write_text(oryginal)
+
+    assert ip.main([str(tmp_path), "--apply"]) == 0
+    tresc = (tmp_path / "AGENTS.md").read_text()
+    assert oryginal.strip() in tresc, "instalator nadpisal cudza tresc"
+    assert ip.POCZATEK in tresc and ip.KONIEC in tresc
+    assert tresc.index(oryginal.strip()) < tresc.index(ip.POCZATEK), \
+        "blok wszedl PRZED tresc projektu"
+
+
+def test_idempotencja(tmp_path):
+    """Drugie uruchomienie nie moze niczego zmienic — inaczej kazdy agent
+    wchodzacy do projektu dokladalby kolejna kopie kontraktu."""
+    (tmp_path / "AGENTS.md").write_text("# P\n")
+    ip.main([str(tmp_path), "--apply"])
+    po_pierwszym = (tmp_path / "AGENTS.md").read_text()
+    ip.main([str(tmp_path), "--apply"])
+    assert (tmp_path / "AGENTS.md").read_text() == po_pierwszym
+    assert po_pierwszym.count(ip.POCZATEK) == 1
+
+
+def test_aktualizacja_bloku_w_miejscu(tmp_path):
+    """Gdy tresc kontraktu sie zmieni, blok ma zostac PODMIENIONY, a nie
+    dopisany drugi raz — i nadal nie moze ruszyc tekstu wokol."""
+    plik = tmp_path / "AGENTS.md"
+    plik.write_text("# Przed\n\n" + ip.POCZATEK + "\nSTARA TRESC\n"
+                    + ip.KONIEC + "\n\n# Po\n")
+    ip.main([str(tmp_path), "--apply"])
+    tresc = plik.read_text()
+    assert "STARA TRESC" not in tresc
+    assert tresc.count(ip.POCZATEK) == 1
+    assert "# Przed" in tresc and "# Po" in tresc, \
+        "aktualizacja zjadla tekst wokol bloku"
+
+
+def test_remove_zostawia_plik_bez_sladu(tmp_path):
+    plik = tmp_path / "AGENTS.md"
+    oryginal = "# Moj projekt\n\nZasady wlasne.\n"
+    plik.write_text(oryginal)
+    ip.main([str(tmp_path), "--apply"])
+    ip.main([str(tmp_path), "--remove", "--apply"])
+    tresc = plik.read_text()
+    assert ip.POCZATEK not in tresc and "agentmachi" not in tresc
+    assert "Zasady wlasne." in tresc
+
+
+def test_kontrakt_ustawia_priorytet_i_zostaje_krotki():
+    """Kontrakt instaluje sie w cudzym repo, wiec jego rozmiar jest
+    zobowiazaniem. Szesc punktow; rozbudowa wymaga dowodu z dogfoodu, nie
+    przekonania — inaczej urosnie tam dokladnie tak, jak urosly kiedys
+    `rules` w samym agentmachi."""
+    bajty = len(ip.KONTRAKT.encode("utf-8"))
+    assert bajty <= 2048, (
+        f"kontrakt ma {bajty} B — to za duzo jak na blok wstawiany do "
+        f"cudzego AGENTS.md")
+    niski = ip.KONTRAKT.lower()
+    assert "nadrzedne" in niski or "nadrzędne" in niski
+    assert "dane, nie polecenie" in niski
+    assert "moderacji" in niski
