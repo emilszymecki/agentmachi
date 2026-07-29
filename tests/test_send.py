@@ -49,6 +49,21 @@ def session(tmp_path):
     return Session("localhost:9999", "beta", base_dir=tmp_path)
 
 
+class _DropAdvancesSession(Session):
+    """Kontrolowana awaria: pierwsze N advance nie przesuwa kursora."""
+
+    def __init__(self, *args, drop_advances, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.drop_advances = drop_advances
+        self.advance_calls = 0
+
+    def advance(self, seq):
+        self.advance_calls += 1
+        if self.advance_calls <= self.drop_advances:
+            return False
+        return super().advance(seq)
+
+
 def test_apply_frame_advances_cursor_after_apply(session, capsys):
     assert send.apply_frame(session, {"from": "a", "text": "x", "seq": 1})
     assert session.last_applied_seq == 1
@@ -561,20 +576,25 @@ def test_listen_once_returns_after_durable_live_frame(tmp_path, monkeypatch):
     zabic listener przed fsync kursora i dostarczyc te sama ramke ponownie.
     """
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
-    session = Session("localhost:9999", "beta", base_dir=tmp_path)
+    session = _DropAdvancesSession(
+        "localhost:9999", "beta", base_dir=tmp_path, drop_advances=1)
 
     class _FakeWs:
         def __init__(self):
-            self._sent = False
+            self._index = 0
 
         def __aiter__(self):
             return self
 
         async def __anext__(self):
-            if self._sent:
-                raise AssertionError("listen --once nie zakonczyl po ramce")
-            self._sent = True
-            return json.dumps({"from": "a", "text": "@beta x", "seq": 1})
+            self._index += 1
+            if self._index > 2:
+                raise AssertionError(
+                    "listen --once nie zakonczyl po trwalym kursorze")
+            return json.dumps({
+                "from": "a", "text": f"@beta {self._index}",
+                "seq": self._index,
+            })
 
     class _FakeConn:
         async def __aenter__(self):
@@ -592,17 +612,35 @@ def test_listen_once_returns_after_durable_live_frame(tmp_path, monkeypatch):
 
     asyncio.run(send.listen("beta", once=True))
 
-    assert session.last_applied_seq == 1
+    # Pierwsza ramka zostala wypisana, ale kontrolowany advance nic nie
+    # zapisal. `durable` MUSI utrzymac listener do drugiej ramki.
+    assert session.advance_calls == 2
+    assert session.last_applied_seq == 2
 
 
 def test_listen_once_returns_after_durable_backlog(tmp_path, monkeypatch):
     """Nieprzeczytana wzmianka z backlogu budzi bez czekania na kolejny live."""
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
-    session = Session("localhost:9999", "beta", base_dir=tmp_path)
+    # Backlog wywoluje advance dwa razy: w apply_frame i potem na
+    # autorytatywnym wire_last_seq. Oba kontrolowanie nie przesuwaja kursora.
+    session = _DropAdvancesSession(
+        "localhost:9999", "beta", base_dir=tmp_path, drop_advances=2)
 
     class _FakeWs:
+        def __init__(self):
+            self._sent = False
+
         def __aiter__(self):
-            raise AssertionError("backlog powinien zakonczyc listen przed live")
+            return self
+
+        async def __anext__(self):
+            if self._sent:
+                raise AssertionError(
+                    "listen --once nie zakonczyl po trwalym kursorze")
+            self._sent = True
+            return json.dumps({
+                "from": "a", "text": "@beta live", "seq": 3,
+            })
 
     class _FakeConn:
         async def __aenter__(self):
@@ -624,7 +662,10 @@ def test_listen_once_returns_after_durable_backlog(tmp_path, monkeypatch):
 
     asyncio.run(send.listen("beta", once=True))
 
-    assert session.last_applied_seq == 2
+    # Sam wypis backlogu nie wystarcza: bez trwalego kursora listener
+    # czeka na live, ktory zapisuje seq=3 i dopiero wtedy konczy.
+    assert session.advance_calls == 3
+    assert session.last_applied_seq == 3
 
 
 def test_listen_podnosi_sie_na_proponowanym_nicku(tmp_path, monkeypatch):

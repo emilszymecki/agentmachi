@@ -260,7 +260,11 @@ def _apply_hello_reply(session, reply):
         # wymaga seq >= 1 i rzucilby SessionError na swiezym kanale.
         if wire_last_seq > 0:
             session.advance(wire_last_seq)
-        return applied
+        durable = (
+            wire_last_seq == 0
+            or session.last_applied_seq >= wire_last_seq
+        )
+        return applied and durable
     elif reply["type"] == "resync_required":
         _emit_session_metadata(reply)
         snapshot_seq = reply.get("snapshot_seq")
@@ -286,7 +290,7 @@ def _apply_hello_reply(session, reply):
             session.advance(snapshot_seq)
             # Snapshot i conversation zostaly wypisane, a ich autorytatywny
             # kursor jest juz trwaly. `--once` ma je oddac modelowi od razu.
-            return True
+            return session.last_applied_seq >= snapshot_seq
         return False
 
 
