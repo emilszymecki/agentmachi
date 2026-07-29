@@ -194,3 +194,42 @@ def test_remove_tez_waliduje_markery(tmp_path):
     plik.write_text(podwojny)
     assert ip.main([str(tmp_path), "--remove", "--apply"]) == 1
     assert plik.read_text() == podwojny
+
+
+def test_zapis_nie_zmienia_uprawnien_cudzego_pliku(tmp_path):
+    """Trzeci z rzedu skutek uboczny naprawy, wszystkie w tym samym miejscu:
+    write_text obcinal plik -> tmp o przewidywalnej nazwie dal atak
+    symlinkiem -> mkstemp naprawil atak, ale tworzy plik 0600, a os.replace
+    przenosi ten tryb na cel. Cudzy AGENTS.md z 0644 stawal sie po cichu
+    0600 i przestawal byc czytelny dla innych uzytkownikow (repro E5.2).
+
+    Instalator wchodzi do NIE swojego repo — nie wolno mu zmieniac praw
+    plikow, ktorych nie jest wlascicielem."""
+    import os
+    import stat as _stat
+
+    plik = tmp_path / "AGENTS.md"
+    plik.write_text("# projekt\n")
+    os.chmod(plik, 0o644)
+
+    ip.main([str(tmp_path), "--apply"])
+    assert _stat.S_IMODE(plik.stat().st_mode) == 0o644, \
+        "instalator zmienil prawa istniejacego pliku"
+
+    # restrykcyjne prawa tez zostaja nietkniete — w obie strony
+    os.chmod(plik, 0o600)
+    ip.main([str(tmp_path), "--remove", "--apply"])
+    assert _stat.S_IMODE(plik.stat().st_mode) == 0o600
+
+
+def test_nowy_plik_dostaje_prawa_jak_zwykly_zapis(tmp_path):
+    """Plik tworzony od zera ma dostac to, co dalby zwykly zapis (0666 minus
+    umask), a nie 0600 z mkstempa."""
+    import os
+    import stat as _stat
+
+    biezacy = os.umask(0o022)
+    os.umask(biezacy)
+    ip.main([str(tmp_path), "--apply"])
+    oczekiwany = 0o666 & ~biezacy
+    assert _stat.S_IMODE((tmp_path / "AGENTS.md").stat().st_mode) == oczekiwany

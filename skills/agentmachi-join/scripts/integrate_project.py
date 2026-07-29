@@ -23,6 +23,7 @@ import argparse
 import contextlib
 import difflib
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -110,13 +111,28 @@ def _zapisz_atomowo(sciezka, tresc):
     pisze przez ten link i nadpisuje cudzy plik, kończąc kodem 0.
     Zweryfikowane repro przy review E5.1 — victim.txt został nadpisany
     treścią AGENTS.md. Podatność wprowadziłem sam, naprawiając poprzedni
-    blocker: obrona przed obcięciem pliku otworzyła gorszą dziurę."""
+    blocker: obrona przed obcięciem pliku otworzyła gorszą dziurę.
+
+    UPRAWNIENIA ZACHOWUJEMY. `mkstemp` tworzy plik 0600, a `os.replace`
+    przenosi te prawa na cel — cudzy `AGENTS.md` z 0644 stawał się po cichu
+    0600 i przestawał być czytelny dla innych użytkowników. Zgłoszone przy
+    review E5.2 z repro. Dla pliku istniejącego kopiujemy jego tryb; dla
+    nowego bierzemy 0666 minus umask procesu, czyli to, co dałby zwykły
+    zapis."""
+    if sciezka.exists():
+        tryb = stat.S_IMODE(sciezka.stat().st_mode)
+    else:
+        biezacy_umask = os.umask(0)
+        os.umask(biezacy_umask)
+        tryb = 0o666 & ~biezacy_umask
+
     fd, tmp = tempfile.mkstemp(dir=str(sciezka.parent), prefix=".agentmachi-")
     try:
         with os.fdopen(fd, "w") as f:
             f.write(tresc)
             f.flush()
             os.fsync(f.fileno())
+        os.chmod(tmp, tryb)
         os.replace(tmp, sciezka)
     except BaseException:
         with contextlib.suppress(OSError):
