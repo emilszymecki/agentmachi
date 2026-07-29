@@ -200,3 +200,39 @@ def test_preambula_wake_miesci_sie_w_kilobajcie():
     assert bajty <= 1024, (
         f"preambula wake ma {bajty} B przy limicie 1024 B — to tekst doklejany "
         f"do kazdego wybudzenia, niezaleznie od dlugosci samej rozmowy")
+
+
+def test_description_bez_nawiasow_katowych():
+    """Oficjalny walidator skilli odrzuca `<...>` w description
+    ("Description cannot contain angle brackets"). Skill z takim opisem nie
+    przechodzi walidacji — a my mieliśmy tam `<adres>`. Zgłoszone przy
+    review E5.1 z uruchomienia quick_validate."""
+    for sciezka, blok in _frontmattery():
+        for linia in blok.splitlines():
+            if linia.startswith("description:"):
+                assert "<" not in linia and ">" not in linia, (
+                    f"{sciezka.name}: description ma nawiasy katowe — "
+                    f"walidator skilli to odrzuca")
+
+
+def test_routing_nie_przeczy_referencjom():
+    """SKILL.md kieruje do references/*.md jednym zdaniem. Gdy to zdanie
+    obiecuje inny tryb pracy niż sam plik referencyjny, agent dowiaduje się
+    o sprzeczności dopiero po wejściu — czyli w najgorszym momencie.
+
+    Zmierzone: routing Codexa mówił „wait w bieżącym wątku", a codex.md
+    „node only" po falsyfikacji tamtego trybu. Poprzednia próba naprawy nie
+    trafiła (szukałem tekstu, którego już nie było) i nie sprawdziłem wyniku
+    podmiany — stąd ten zamek."""
+    skill = (SKILLS / "agentmachi-join" / "SKILL.md").read_text()
+    codex_md = (SKILLS / "agentmachi-join" / "references" / "codex.md").read_text()
+    routing = [l for l in skill.splitlines()
+               if l.startswith("- ") and "references/codex.md" in l]
+    assert len(routing) == 1, f"oczekuje jednej linii routingu: {routing}"
+
+    obiecuje_wait = "wait" in routing[0].lower()
+    plik_o_wait = "codex-wait" in codex_md or "wait-once" in codex_md
+    assert obiecuje_wait == plik_o_wait, (
+        f"routing i references/codex.md mowia co innego o trybie pracy.\n"
+        f"  routing: {routing[0]}\n"
+        f"  codex.md wspomina wait: {plik_o_wait}")

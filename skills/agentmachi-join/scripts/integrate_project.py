@@ -20,9 +20,11 @@ Użycie:
     python3 integrate_project.py <katalog-projektu> --remove --apply
 """
 import argparse
+import contextlib
 import difflib
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 POCZATEK = "<!-- agentmachi:start -->"
@@ -100,17 +102,38 @@ def _zapisz_atomowo(sciezka, tresc):
     """Zapis przez plik tymczasowy w TYM SAMYM katalogu + os.replace.
 
     `write_text` obcina plik przed zapisem, więc przerwanie w połowie
-    zostawia cudzy AGENTS.md okrojony. Tu albo jest stara treść, albo nowa."""
-    tmp = sciezka.with_name(sciezka.name + ".agentmachi-tmp")
+    zostawia cudzy AGENTS.md okrojony. Tu albo jest stara treść, albo nowa.
+
+    Nazwa tymczasowego pliku jest LOSOWA (mkstemp, O_EXCL). Wersja
+    z przewidywalną nazwą `<plik>.agentmachi-tmp` dawała atak symlinkiem:
+    ktoś podkłada `AGENTS.md.agentmachi-tmp -> /cokolwiek`, a instalator
+    pisze przez ten link i nadpisuje cudzy plik, kończąc kodem 0.
+    Zweryfikowane repro przy review E5.1 — victim.txt został nadpisany
+    treścią AGENTS.md. Podatność wprowadziłem sam, naprawiając poprzedni
+    blocker: obrona przed obcięciem pliku otworzyła gorszą dziurę."""
+    fd, tmp = tempfile.mkstemp(dir=str(sciezka.parent), prefix=".agentmachi-")
     try:
-        with open(tmp, "w") as f:
+        with os.fdopen(fd, "w") as f:
             f.write(tresc)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, sciezka)
-    finally:
-        if tmp.exists():
-            tmp.unlink()
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def _sprawdz_cel(sciezka):
+    """Cel musi być zwykłym plikiem albo nie istnieć.
+
+    Symlink odrzucamy fail-closed: `os.replace` zastąpiłby SAM LINK, a zapis
+    przez niego dotknąłby pliku, którego właściciel nie wskazał. Nie
+    zgadujemy intencji w cudzym repo."""
+    if sciezka.is_symlink():
+        raise KorupcjaMarkerow(
+            f"{sciezka.name} jest dowiązaniem symbolicznym — nie zapisuję "
+            f"przez nie. Wskaż zwykły plik albo usuń link.")
 
 
 def usun(tekst):
@@ -141,30 +164,42 @@ def main(argv=None):
         print(f"nie ma takiego katalogu: {katalog}", file=sys.stderr)
         return 2
 
-    zmiany = 0
+    # FAZA 1 — walidacja i obliczenia dla WSZYSTKICH celow, zero zapisu.
+    # Bez tego podzialu urwany marker w CLAUDE.md zatrzymywal prace DOPIERO
+    # po zapisaniu AGENTS.md: instalator zwracal 1, a repo bylo juz w stanie
+    # posrednim. W cudzym repozytorium czesciowy zapis jest gorszy niz brak
+    # zapisu, bo nikt nie wie, ktore pliki poszly (repro z review E5.1).
+    plan = []
     for nazwa in PLIKI:
         sciezka = katalog / nazwa
-        istnieje = sciezka.exists()
-        stary = sciezka.read_text() if istnieje else ""
+        try:
+            _sprawdz_cel(sciezka)
+            istnieje = sciezka.exists()
+            stary = sciezka.read_text() if istnieje else ""
+            # Walidacja markerow obowiazuje TAKZE przy --remove: podwojny blok
+            # usuwany "czesciowo" zostawia sierote w cudzym pliku.
+            _sprawdz_markery(nazwa, stary)
+        except KorupcjaMarkerow as e:
+            print(f"agentmachi: {e}", file=sys.stderr)
+            print("agentmachi: nic nie zapisano — sprawdz WSZYSTKIE pliki "
+                  "docelowe przed ponowna proba", file=sys.stderr)
+            return 1
+        except OSError as e:
+            print(f"agentmachi: nie moge odczytac {nazwa}: {e}", file=sys.stderr)
+            return 1
 
         if args.remove:
             if not istnieje:
                 continue
             nowy = usun(stary)
         else:
-            try:
-                _sprawdz_markery(nazwa, stary)
-            except KorupcjaMarkerow as e:
-                print(f"agentmachi: {e}", file=sys.stderr)
-                return 1
-            # Plik nieistniejacy: w podgladzie POKAZUJEMY diff od pustki,
-            # ale go NIE tworzymy. Sama zapowiedz "powstanie przy --apply"
-            # nie pozwala czlowiekowi ocenic, co zaakceptuje (review E4).
             nowy = zastosuj(stary)
+        if nowy != stary:
+            plan.append((nazwa, sciezka, stary, nowy))
 
-        if nowy == stary:
-            continue
-        zmiany += 1
+    # FAZA 2 — zapis albo podglad. Tu juz nic nie moze byc odrzucone.
+    zmiany = len(plan)
+    for nazwa, sciezka, stary, nowy in plan:
         if args.apply:
             _zapisz_atomowo(sciezka, nowy)
             print(f"[zapisane] {sciezka}")

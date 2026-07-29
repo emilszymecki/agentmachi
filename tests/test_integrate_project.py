@@ -134,3 +134,63 @@ def test_zapis_jest_atomowy_i_nie_zostawia_smieci(tmp_path):
     ip.main([str(tmp_path), "--apply"])
     smieci = [p.name for p in tmp_path.iterdir() if "tmp" in p.name]
     assert not smieci, f"zostaly pliki tymczasowe: {smieci}"
+
+
+def test_podlozony_tmp_nie_pozwala_nadpisac_cudzego_pliku(tmp_path):
+    """ATAK SYMLINKIEM — podatnosc wprowadzona przy naprawie poprzedniego
+    blockera: obrona przed obcieciem pliku otworzyla gorsza dziure.
+
+    Zapis szedl przez plik o PRZEWIDYWALNEJ nazwie `<plik>.agentmachi-tmp`.
+    Atakujacy podklada tam symlink na dowolny plik, a instalator pisze przez
+    niego i konczy kodem 0. Repro z review E5.1: victim.txt zostal nadpisany
+    trescia AGENTS.md.
+
+    Nazwa tymczasowego jest teraz losowa (mkstemp, O_EXCL), wiec podlozony
+    plik nie jest sledzony."""
+    (tmp_path / "AGENTS.md").write_text("# projekt\n")
+    ofiara = tmp_path / "victim.txt"
+    ofiara.write_text("TRESC OFIARY\n")
+    (tmp_path / "AGENTS.md.agentmachi-tmp").symlink_to(ofiara)
+
+    ip.main([str(tmp_path), "--apply"])
+    assert ofiara.read_text() == "TRESC OFIARY\n", \
+        "instalator pisal przez podlozony symlink"
+
+
+def test_cel_bedacy_symlinkiem_jest_odrzucany(tmp_path, capsys):
+    """`os.replace` na symlinku zastapilby SAM LINK, a zapis przez niego
+    dotknalby pliku, ktorego wlasciciel repo nie wskazal. W cudzym repo nie
+    zgadujemy intencji — fail-closed."""
+    ofiara = tmp_path / "victim.txt"
+    ofiara.write_text("OFIARA\n")
+    (tmp_path / "AGENTS.md").symlink_to(ofiara)
+
+    assert ip.main([str(tmp_path), "--apply"]) == 1
+    assert ofiara.read_text() == "OFIARA\n"
+    assert "dowiązaniem symbolicznym" in capsys.readouterr().err
+
+
+def test_blad_w_drugim_pliku_nie_zapisuje_pierwszego(tmp_path, capsys):
+    """ZERO-WRITE. Urwany marker w CLAUDE.md zatrzymywal prace DOPIERO po
+    zapisaniu AGENTS.md — instalator zwracal 1, a repo bylo juz w stanie
+    posrednim. W cudzym repozytorium czesciowy zapis jest gorszy niz brak
+    zapisu, bo nikt nie wie, ktore pliki poszly (repro z review E5.1)."""
+    agents = tmp_path / "AGENTS.md"
+    agents.write_text("# ok\n")
+    (tmp_path / "CLAUDE.md").write_text("# c\n" + ip.POCZATEK + "\nurwane\n")
+
+    assert ip.main([str(tmp_path), "--apply"]) == 1
+    assert agents.read_text() == "# ok\n", \
+        "AGENTS.md zapisany mimo bledu w CLAUDE.md — czesciowy zapis"
+    assert "nic nie zapisano" in capsys.readouterr().err
+
+
+def test_remove_tez_waliduje_markery(tmp_path):
+    """--remove nie moze "czesciowo" usunac podwojnego bloku: zostawilby
+    sierote w cudzym pliku, a kod wyjscia 0 sugerowalby sukces."""
+    plik = tmp_path / "AGENTS.md"
+    podwojny = (ip.POCZATEK + "\na\n" + ip.KONIEC + "\n"
+                + ip.POCZATEK + "\nb\n" + ip.KONIEC + "\n")
+    plik.write_text(podwojny)
+    assert ip.main([str(tmp_path), "--remove", "--apply"]) == 1
+    assert plik.read_text() == podwojny
