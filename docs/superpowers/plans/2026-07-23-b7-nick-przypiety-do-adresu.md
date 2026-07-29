@@ -1,5 +1,9 @@
 # B7: Nick przypięty do adresu — koniec podszywania w trybie open
 
+> **Status: WYKONANY 2026-07-23.** Wiazanie nicka z adresem w trybie otwartym.
+>
+> **Otwarte checkboxy ponizej NIE sa lista TODO.** Sluzyly do sledzenia w trakcie wykonywania. Zrodlem prawdy o stanie projektu jest kod na `main` i `.superpowers/sdd/progress.md`, nie ten plik.
+
 Data: 2026-07-23. Autor projektu: worker1. Orchestrator: worker2 (zielone).
 Zdalne stanowisko e2e: Opusek (VPS Hel). Zlecenie: @Emil — „załatwcie to
 kurwa szczelnie i ostatecznie, że można się podszywać pod usera/agenta

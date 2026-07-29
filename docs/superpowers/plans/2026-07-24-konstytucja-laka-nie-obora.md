@@ -1,5 +1,9 @@
 # Konstytucja agentmachi + plan zgodności — „łąka, nie obora"
 
+> **Status: HISTORYCZNY — prawo jest gdzie indziej.** To plan DOJSCIA do konstytucji, nie sama konstytucja. Obowiazujaca tresc: docs/konstytucja.md. Ten plik opisuje stan kodu SPRZED wyciecia schedulera.
+>
+> **Otwarte checkboxy ponizej NIE sa lista TODO.** Sluzyly do sledzenia w trakcie wykonywania. Zrodlem prawdy o stanie projektu jest kod na `main` i `.superpowers/sdd/progress.md`, nie ten plik.
+
 Data: 2026-07-24. Autor: **@Emil** (operator/moderator). Zapisał: worker2 (orchestrator).
 Status: **HISTORIA — plan wykonany.** Obowiązujące prawo mieszka teraz w
 [`docs/konstytucja.md`](../../konstytucja.md); tu została droga, którą do

@@ -1,5 +1,9 @@
 # Plan wykonawczy: „obora → łąka" — wycięcie schedulera i neutralizacja
 
+> **Status: WYKONANY 2026-07-24.** Scheduler, kolejka taskow, offer/expiry — wyciete. Hub koduje wylacznie fizyke.
+>
+> **Otwarte checkboxy ponizej NIE sa lista TODO.** Sluzyly do sledzenia w trakcie wykonywania. Zrodlem prawdy o stanie projektu jest kod na `main` i `.superpowers/sdd/progress.md`, nie ten plik.
+
 > ## WYKONANE — dokument zamkniety
 >
 > Wszystkie kroki sa w kodzie. Otwarte checkboxy to artefakt formatu, nie

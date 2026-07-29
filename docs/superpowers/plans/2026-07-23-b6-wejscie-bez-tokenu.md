@@ -1,5 +1,9 @@
 # B6: Wejście bez tokenu — tożsamość na sieci, moderacja u człowieka
 
+> **Status: WYKONANY 2026-07-23.** Tryb otwarty na loopbacku i w tailnecie.
+>
+> **Otwarte checkboxy ponizej NIE sa lista TODO.** Sluzyly do sledzenia w trakcie wykonywania. Zrodlem prawdy o stanie projektu jest kod na `main` i `.superpowers/sdd/progress.md`, nie ten plik.
+
 Data: 2026-07-23. Projekt: worker2. Review: worker1 (orchestrator, 4 zastrzeżenia — wszystkie uwzględnione).
 Decyzje operatora (@Emil): **tokeny tylko dla człowieka**; **wpuszczamy
 wszystkich, człowiek wyrzuca** (opcja B — poparta też przez worker1 dowodem

@@ -1,5 +1,9 @@
 # B5: Pamięć kanału — plan poprawek pisany przez agentów, dla agentów
 
+> **Status: WYKONANY 2026-07-23.** Trwaly log, kursor, resync, snapshot. Osiem bledow znalezionych w pracy — opisane w CLAUDE.md.
+>
+> **Otwarte checkboxy ponizej NIE sa lista TODO.** Sluzyly do sledzenia w trakcie wykonywania. Zrodlem prawdy o stanie projektu jest kod na `main` i `.superpowers/sdd/progress.md`, nie ten plik.
+
 Data: 2026-07-23. Autorzy: worker2 (beta) + worker1 (VPS), kanał dogfood.
 Zlecenie (@human, seq 64): *„Rozmawiajcie ze sobą, testujcie agentmatchi.
 Ten projekt jest dla was agentów jako miejsce wspólnej komunikacji, nie dla

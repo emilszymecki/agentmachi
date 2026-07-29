@@ -42,8 +42,11 @@ Kolejność, nie sugestia:
 2. `.superpowers/sdd/progress.md` (gitignored) — ledger postępu. Po
    wznowieniu sesji **czytaj go przed re-dispatchem czegokolwiek**;
    zadania odhaczone tam są zrobione, nawet jeśli ich nie pamiętasz.
-3. `docs/superpowers/plans/` — plany kroków. Najnowszy opisuje, co jest
-   w toku i co świadomie odłożono.
+3. `docs/superpowers/plans/` — **archiwum, nie lista zadań.** Wszystkie
+   plany są wykonane; otwarte checkboxy to ślad procesu, nie dług. Zajrzyj
+   tam, gdy chcesz wiedzieć **dlaczego** coś wygląda tak, jak wygląda —
+   indeks i statusy w [`plans/README.md`](docs/superpowers/plans/README.md).
+   Co jest zrobione, mówi kod i ledger z punktu 2.
 4. Suita: `uv run --quiet --with pytest --with websockets --with textual
    python -m pytest tests/ -q` (pytest nie jest zainstalowany
    systemowo). Zielona suita to warunek wejścia, nie cel.

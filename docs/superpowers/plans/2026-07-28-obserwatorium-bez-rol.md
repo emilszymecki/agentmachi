@@ -1,5 +1,9 @@
 # Obserwatorium bez ról — plan implementacji
 
+> **Status: WYKONANY 2026-07-29.** Board jako obserwatorium, --fresh, role organizacyjne usuniete. Domkniete w planie V1 (2026-07-29), ktory poszedl dalej: hub stracil takze domyslne rules i kulture pracy w howto.
+>
+> **Otwarte checkboxy ponizej NIE sa lista TODO.** Sluzyly do sledzenia w trakcie wykonywania. Zrodlem prawdy o stanie projektu jest kod na `main` i `.superpowers/sdd/progress.md`, nie ten plik.
+
 > **Dla wykonawcy:** WYMAGANY SUB-SKILL: `superpowers:subagent-driven-development`
 > (zalecany) albo `superpowers:executing-plans`. Kroki mają checkboxy (`- [ ]`).
 
