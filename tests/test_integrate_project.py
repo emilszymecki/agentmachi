@@ -128,35 +128,46 @@ def test_zdublowany_blok_tez_zatrzymuje(tmp_path):
 
 
 def test_zapis_jest_atomowy_i_nie_zostawia_smieci(tmp_path, monkeypatch):
-    """Po udanym zapisie nie moze zostac plik tymczasowy, a po BLEDZIE
-    w polowie cudzy plik ma zostac bajtowo nietkniety.
+    """Po udanym zapisie nie zostaje plik tymczasowy; po BLEDZIE w polowie
+    cudzy plik jest bajtowo nietkniety.
 
-    UWAGA O TYM TESCIE: poprzednia wersja byla ATRAPA. Filtrowala nazwy przez
-    `if "tmp" in name`, bo tak nazywal sie wtedy plik tymczasowy. Gdy
-    implementacja przeszla na `tempfile.mkstemp(prefix=".agentmachi-")`,
-    filtr przestal cokolwiek lapac — test zielony, zamek martwy. Zlapane
-    przy review E5.3. Klasa bledu: test przestaje pilnowac, bo zmienila sie
-    implementacja POD nim, a nikt nie sprawdzil, czy asercja nadal trafia.
-    Dlatego prefiks jest tu czytany z modulu, nie wpisany z pamieci."""
+    HISTORIA TEGO ZAMKA — dwie iteracje, obie zlapane przy review:
+
+    1. Filtrowal `if "tmp" in name`, bo tak nazywal sie wtedy plik
+       tymczasowy. Gdy implementacja przeszla na `mkstemp(prefix=...)`,
+       filtr przestal cokolwiek lapac: test zielony, zamek martwy.
+    2. Poprawka wpisala prefiks jako stala TESTU i "kontrolowala sie",
+       podkladajac plik wedlug tej samej stalej — czyli dowodzila jedynie,
+       ze filtr zgadza sie sam ze soba. Przy nastepnej zmianie nazwy atrapa
+       wrocilaby bez sladu.
+
+    Rozwiazanie: nie zgadujemy nazwy. Owijamy `tempfile.mkstemp` i zapisujemy
+    DOKLADNA sciezke, ktora naprawde powstala. Test dowiaduje sie o niej od
+    implementacji, wiec zmiana prefiksu nie moze go uspic."""
     import os
-    PREFIKS = ".agentmachi-"
+    import tempfile as _tempfile
 
-    def smieci():
-        return [x.name for x in tmp_path.iterdir()
-                if x.name.startswith(PREFIKS)]
+    utworzone = []
+    prawdziwy_mkstemp = _tempfile.mkstemp
+
+    def sledzacy_mkstemp(*a, **kw):
+        fd, sciezka = prawdziwy_mkstemp(*a, **kw)
+        utworzone.append(sciezka)
+        return fd, sciezka
+
+    monkeypatch.setattr(ip.tempfile, "mkstemp", sledzacy_mkstemp)
 
     plik = tmp_path / "AGENTS.md"
     oryginal = "# P\n"
     plik.write_text(oryginal)
 
     ip.main([str(tmp_path), "--apply"])
-    assert not smieci(), f"zostaly pliki tymczasowe: {smieci()}"
-    # kontrola samego zamka: gdyby prefiks byl zly, ponizsze by nie zlapalo
-    (tmp_path / (PREFIKS + "kontrola")).write_text("x")
-    assert smieci() == [PREFIKS + "kontrola"], "filtr smieci nie dziala"
-    (tmp_path / (PREFIKS + "kontrola")).unlink()
+    assert utworzone, "implementacja nie uzyla mkstemp — zamek nic nie pilnuje"
+    zostale = [s for s in utworzone if os.path.exists(s)]
+    assert not zostale, f"po udanym zapisie zostal plik tymczasowy: {zostale}"
 
-    # BLAD W POLOWIE: os.replace rzuca -> cel bez zmian, zero smieci
+    # SCIEZKA BLEDU: os.replace rzuca -> cel bez zmian, temp posprzatany
+    utworzone.clear()
     plik.write_text(oryginal)
     prawdziwy_replace = os.replace
 
@@ -167,13 +178,14 @@ def test_zapis_jest_atomowy_i_nie_zostawia_smieci(tmp_path, monkeypatch):
     try:
         ip.main([str(tmp_path), "--apply"])
     except OSError:
-        pass                      # blad ma sie propagowac albo byc obsluzony
+        pass
     monkeypatch.setattr(ip.os, "replace", prawdziwy_replace)
 
     assert plik.read_text() == oryginal, \
         "cudzy plik zmieniony mimo bledu zapisu"
-    assert not smieci(), f"po bledzie zostal plik tymczasowy: {smieci()}"
-
+    assert utworzone, "sciezka bledu nie utworzyla pliku tymczasowego"
+    zostale = [s for s in utworzone if os.path.exists(s)]
+    assert not zostale, f"po bledzie zostal plik tymczasowy: {zostale}"
 
 def test_podlozony_tmp_nie_pozwala_nadpisac_cudzego_pliku(tmp_path):
     """ATAK SYMLINKIEM — podatnosc wprowadzona przy naprawie poprzedniego
