@@ -554,6 +554,79 @@ def test_fresh_leci_tylko_w_pierwszym_hello(tmp_path, monkeypatch):
     assert widziane == ["fresh", None]
 
 
+def test_listen_once_returns_after_durable_live_frame(tmp_path, monkeypatch):
+    """`--once` konczy proces PO Session.advance, nie po samym stdout.
+
+    To jest zamek na wyścig wait-once: arbitralny sleep po wypisie mogl
+    zabic listener przed fsync kursora i dostarczyc te sama ramke ponownie.
+    """
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    session = Session("localhost:9999", "beta", base_dir=tmp_path)
+
+    class _FakeWs:
+        def __init__(self):
+            self._sent = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._sent:
+                raise AssertionError("listen --once nie zakonczyl po ramce")
+            self._sent = True
+            return json.dumps({"from": "a", "text": "@beta x", "seq": 1})
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return _FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    async def _fake_hello(ws, nick, current, token, role=None, context=None):
+        return {"type": "ok", "backlog": [], "last_seq": 0}
+
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _FakeConn())
+    monkeypatch.setattr(send, "do_hello", _fake_hello)
+    monkeypatch.setattr(send, "_session", lambda nick: session)
+
+    asyncio.run(send.listen("beta", once=True))
+
+    assert session.last_applied_seq == 1
+
+
+def test_listen_once_returns_after_durable_backlog(tmp_path, monkeypatch):
+    """Nieprzeczytana wzmianka z backlogu budzi bez czekania na kolejny live."""
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    session = Session("localhost:9999", "beta", base_dir=tmp_path)
+
+    class _FakeWs:
+        def __aiter__(self):
+            raise AssertionError("backlog powinien zakonczyc listen przed live")
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return _FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    async def _fake_hello(ws, nick, current, token, role=None, context=None):
+        return {
+            "type": "ok",
+            "backlog": [{"from": "a", "text": "@beta zalegle", "seq": 2}],
+            "last_seq": 2,
+        }
+
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _FakeConn())
+    monkeypatch.setattr(send, "do_hello", _fake_hello)
+    monkeypatch.setattr(send, "_session", lambda nick: session)
+
+    asyncio.run(send.listen("beta", once=True))
+
+    assert session.last_applied_seq == 2
+
+
 def test_listen_podnosi_sie_na_proponowanym_nicku(tmp_path, monkeypatch):
     """C4: gdy nick zajmuje KTOS INNY, listener nie umiera — bierze nick,
     ktory hub podal w `suggested_nick`, i wchodzi. Zmierzone na kanale rube:

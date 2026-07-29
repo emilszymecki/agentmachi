@@ -231,10 +231,17 @@ def _warn_if_taken_over(reply, nick):
 
 
 def _apply_hello_reply(session, reply):
+    """Zastosuj hello i zwroc, czy wyemitowano stan/ramke dla odbiorcy.
+
+    True wolno zwrocic dopiero po trwalym przesunieciu kursora. Uzywa tego
+    `listen --once`: proces konczy sie po zastosowaniu backlogu, ale nigdy
+    w szczelinie miedzy stdout a Session.advance().
+    """
     if reply["type"] == "ok":
         _emit_session_metadata(reply)
+        applied = False
         for frame in reply.get("backlog", []):
-            apply_frame(session, frame)
+            applied = apply_frame(session, frame) or applied
         # C2: kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
         # ramce backlogu. Roznica to (a) ramki celowo niewyslane na drucie —
         # serwer filtruje cudze hello, ale w `last_seq` podaje prawdziwy
@@ -253,6 +260,7 @@ def _apply_hello_reply(session, reply):
         # wymaga seq >= 1 i rzucilby SessionError na swiezym kanale.
         if wire_last_seq > 0:
             session.advance(wire_last_seq)
+        return applied
     elif reply["type"] == "resync_required":
         _emit_session_metadata(reply)
         snapshot_seq = reply.get("snapshot_seq")
@@ -276,6 +284,10 @@ def _apply_hello_reply(session, reply):
         if (not isinstance(snapshot_seq, bool)
                 and isinstance(snapshot_seq, int) and snapshot_seq >= 1):
             session.advance(snapshot_seq)
+            # Snapshot i conversation zostaly wypisane, a ich autorytatywny
+            # kursor jest juz trwaly. `--once` ma je oddac modelowi od razu.
+            return True
+        return False
 
 
 def _wysylka_albo_padnij(reply, nick, session):
@@ -335,7 +347,7 @@ async def send_once(nick, text, quiet=False):
                                   "from": nick, "ts": 0.0, "text": text}))
 
 
-async def listen(nick, context=None):
+async def listen(nick, context=None, once=False):
     token = _require_token()
     # C2: `fresh` to JEDNORAZOWA decyzja przy starcie procesu, nie tryb
     # polaczenia. Gdyby leciala przy kazdym obiegu petli reconnectu, kursor
@@ -404,19 +416,30 @@ async def listen(nick, context=None):
                               "trwalej tozsamosci. Zaktualizuj hub albo podaj "
                               "CHAT_NICK.", file=sys.stderr)
                         sys.exit(1)
-                    _apply_hello_reply(session, reply)
+                    applied_from_hello = _apply_hello_reply(session, reply)
                     # Gasimy PO zastosowaniu odpowiedzi: gdyby polaczenie
                     # padlo wczesniej, nastepna proba nadal ma byc fresh.
                     fresh_pending = False
                     _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
+                    if once and applied_from_hello:
+                        return
                     async for message in ws:
                         try:
                             data = json.loads(message)
                         except (json.JSONDecodeError, UnicodeDecodeError):
                             _print_message(message)
                             continue
-                        apply_frame(session, data)
+                        applied = apply_frame(session, data)
+                        seq = data.get("seq") if isinstance(data, dict) else None
+                        durable = (
+                            not isinstance(seq, bool)
+                            and isinstance(seq, int)
+                            and seq >= 1
+                            and session.last_applied_seq >= seq
+                        )
+                        if once and applied and durable:
+                            return
             except websockets.exceptions.ConnectionClosed as e:
                 # B6: 4003 = wyrzucony przez czlowieka. Reconnect jest tu
                 # ODWROTNOSCIA intencji: serwer mowi "wyjdz", a klient

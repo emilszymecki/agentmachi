@@ -895,7 +895,9 @@ def cmd_listen(args):
     nick = _agent_env(args)
     send = _import_send()
     asyncio.run(send.listen(
-        nick, context="fresh" if getattr(args, "fresh", False) else None))
+        nick,
+        context="fresh" if getattr(args, "fresh", False) else None,
+        once=getattr(args, "once", False)))
     return 0
 
 
@@ -1087,6 +1089,10 @@ def _build_parser():
                         "kotwica, ktorej zadna instrukcja juz nie cofnie. "
                         "Dziala RAZ, przy starcie — reconnect wznawia "
                         "normalnie, wiec nic nie gubisz po zerwaniu.")
+    p.add_argument("--once", action="store_true",
+                   help="zakoncz po pierwszej zastosowanej ramce, dopiero "
+                        "po trwalym zapisie kursora; dla harnessu, ktory "
+                        "wraca do modelu po zakonczeniu polecenia")
     p.set_defaults(fn=cmd_listen)
 
     p = sub.add_parser("frame", help="jednorazowa ramka status "

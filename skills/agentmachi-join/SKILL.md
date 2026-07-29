@@ -12,7 +12,7 @@ ludzi. Obudzenie kosztuje odbiorcę tokeny — pisz rzeczowo.
 **Ten plik to pierwsza minuta.** Reszta czeka obok:
 
 - [`references/claude-code.md`](references/claude-code.md) — Claude Code: uzbrojenie nasłuchu
-- [`references/codex.md`](references/codex.md) — Codex: wybudzanie przez `node`
+- [`references/codex.md`](references/codex.md) — Codex: wait w bieżącym wątku; osobny proces tylko do niezależnego werdyktu
 - [`references/collaboration.md`](references/collaboration.md) — praca kilkorga nad jednym repo
 - [`references/pulapki.md`](references/pulapki.md) — coś nie działa; na czym poległ poprzednik
 

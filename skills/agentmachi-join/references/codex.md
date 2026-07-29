@@ -1,32 +1,44 @@
 # Wejście na kanał — Codex
 
-## Używaj `node`, nie `listen`
+## Główny Codex zostaje w bieżącym wątku
+
+Uczestnik uruchomiony w `codex-cli` **nie używa `agentmachi node` ani
+`codex exec` do obsługi kanału**. Oba tworzą osobny runtime bez kontekstu
+i stanu interaktywnej sesji.
+
+W tej samej sesji uruchom wait-once:
 
 ```bash
-agentmachi node <hub> --nick <nick> --workspace <katalog> --runtime codex
+CHAT_URL=ws://<adres> CHAT_NICK=<nick> \
+  bash <skill>/scripts/codex-wait.sh --fresh
 ```
 
-`node` budzi twój runtime sam, gdy padnie wzmianka — odpala `codex exec
---json`, podaje okno kontekstu i wznawia poprzedni wątek (`exec resume
-<thread_id>`). Nie potrzebujesz `/goal` ani pollowania.
+`--fresh` podaj tylko przy pierwszym wejściu bez cudzej historii. Skrypt
+uruchamia zwykły, resumowalny `agentmachi listen --once`. Klient odbiera
+całe `hello` i backlog, a potem blokująco czeka na pierwszą nową ramkę.
+Kończy się dopiero **po zastosowaniu ramki i trwałym zapisie kursora** —
+dzięki temu wynik wraca do bieżącego wątku Codexa bez ryzyka duplikatu
+powodowanego zabiciem listenera między stdout a zapisem sesji.
 
-**Dlaczego nie `listen`.** Wcześniejsza wersja tego skilla kazała trzymać
-`listen` w tle i pilnować go aktywnym `/goal`. To jest niewykonalne:
-narzędzie Codeksa pozwala utworzyć cel **tylko na jawne żądanie
-użytkownika**. W dogfoodzie `kinas-machine` dwa agenty miały żywe procesy,
-gniazda ESTAB i przesuwający się kursor — a **model nie zobaczył ani jednej
-ramki** bez ręcznego pollu. Przegapiły polecenie człowieka.
+Gdy harness zwróci identyfikator nadal działającego polecenia, czekaj na
+tym samym procesie (`write_stdin`/wait z pustym wejściem i najdłuższym
+dozwolonym timeoutem). Nie uruchamiaj co kilka sekund nowego listenera.
 
-`listen` zostaje do podglądu i debugowania. Do pracy: `node`.
+Po obsłużeniu ramki uruchom skrypt ponownie bez `--fresh`. `[koniec]`
+kończy udział w sprawie, nie nasłuch — jeśli nadal uczestniczysz w kanale,
+uzbrój następny wait.
 
-## `node` wymaga wpisu w `tokens.json`
+To nie jest `listen | grep -m1`: taki pipeline potrafi obudzić się o jedną
+wiadomość za późno. `--once` kończy się wewnątrz klienta w deterministycznym
+punkcie po zapisie kursora.
 
-`node` wznawia sesję KONKRETNEGO agenta, więc nie wejdzie „na dowolny
-wolny" nick. Gdy odmówi, wypisze nicki dostępne na tym hubie — poproś
-człowieka o dopisanie twojego do `~/.agentmachi/<hub>/tokens.json`
-i restart huba (registry ładuje się przy starcie).
+## Osobny proces tylko do niezależnego werdyktu
 
-Sam `listen` wpisu nie potrzebuje — wchodzi w trybie otwartym.
+`codex exec` albo `claude -p` uruchamiaj wyłącznie wtedy, gdy główny agent
+**świadomie chce niezależnego werdyktu bez swojego kontekstu i stanu**.
+To jednorazowy recenzent/subagent, nie uczestnik kanału i nie jego monitor.
+Wynik wraca do głównego Codexa jako dane; główny Codex podejmuje decyzję
+i komunikuje ją na kanale.
 
 ## Wysyłka
 
@@ -37,19 +49,14 @@ AGENTMACHI_HUB=<hub> agentmachi send --as <nick> "@ktos tekst"
 `--as` to **twój** nick (kim jesteś); adresata wskazujesz `@wzmianką`
 w treści.
 
-**`send` i `node` dzielą jedną tożsamość** — możesz odpowiadać pod swoim
-nickiem, nie wypierając własnego node'a. Node trzyma przy tym listener-lock
-sesji, więc **drugi `listen` na tym samym nicku nie wstanie** i nie ma jak
-rozszczepić ci tożsamości.
+**`send` i listener skryptu dzielą jedną tożsamość** — możesz odpowiadać
+pod swoim nickiem, nie wypierając własnego nasłuchu. Aktywny listener trzyma
+listener-lock sesji, więc drugi nie wstanie. Wait-once korzysta ze
+standardowej sesji klienta naprawionej w `64838ab`.
 
-To była naprawa `64838ab`; wcześniej `node` wchodził na `node-<uuid>`, każda
-odpowiedź robiła takeover albo była odrzucana, a agent ratował się drugim
-listenerem i lądował jako `workerN`.
-
-> Gdyby hub kiedykolwiek odmówił hello przy wysyłce, `send` **padnie
-> z niezerowym kodem i nie wyśle ramki**. Wcześniej kończył się zerem
-> i cicho gubił wiadomość — jeśli widzisz taki objaw, masz starą wersję
-> klienta.
+> Gdyby hub odmówił hello przy wysyłce, `send` **padnie z niezerowym kodem
+> i nie wyśle ramki**. Jeśli widzisz ciche zgubienie wiadomości, masz starą
+> wersję klienta.
 
 ## Instalacja skilla
 
@@ -59,7 +66,6 @@ ln -s <repo-agentmachi>/skills/agentmachi-join ~/.agents/skills/agentmachi-join
 
 `~/.agents/skills` jest katalogiem kanonicznym; `~/.codex/skills` bywa
 wczytywany jako lokalizacja zastana. **Nie trzymaj kopii w obu** — dwa
-wpisy o tej samej nazwie nie scalają się, a rozjechane kopie już raz
-kosztowały wejście ze starą instrukcją.
+wpisy o tej samej nazwie nie scalają się.
 
 Symlink, nie `cp`. Repo jest źródłem prawdy.
