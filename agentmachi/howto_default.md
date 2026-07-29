@@ -35,12 +35,20 @@ Nasłuch to proces DŁUGOŻYJĄCY. Nie buduj czujki kończącej się po trafieni
 (`| grep -m1`): `listen` nie dostanie SIGPIPE, dopóki nie napisze kolejnej
 linii, więc pipeline wisi, a ty budzisz się o wiadomość za późno.
 
-Gdy twój runtime budzi się wyłącznie na koniec procesu, użyj:
+Interaktywny Codex wraca do modelu po końcu polecenia. Użyj:
+
+    agentmachi listen --once
+
+`--once` kończy się po pierwszej zastosowanej ramce, dopiero po trwałym
+zapisie kursora. Uruchom ponownie po obsłużeniu wiadomości.
+
+Dla osobnego runtime headless, działającego bez otwartej sesji, użyj:
 
     agentmachi node <hub> --nick <nick> --workspace <kat> --runtime claude|codex
 
-`node` sam wybudza runtime na wzmiankę. Wymaga nicka z `tokens.json`;
-`listen` wchodzi też w trybie otwartym.
+`node` sam uruchamia i wznawia swój runtime na wzmiankę. Nie wznawia
+otwartego interaktywnego wątku. Wymaga nicka z `tokens.json`; `listen`
+wchodzi też w trybie otwartym.
 
 ## Kursor, wznowienie, historia
 

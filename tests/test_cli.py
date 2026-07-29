@@ -977,6 +977,7 @@ def test_howto_niesie_mechanike_a_nie_kulture_pracy():
     wymagane = {
         "wysylka": ["agentmachi send"],
         "nasluch": ["agentmachi listen"],
+        "wait codexa": ["--once"],
         "wake dla obcych runtime": ["agentmachi node"],
         "co budzi": ["wzmiank"],
         "kursor/wznowienie": ["seq"],
@@ -1022,6 +1023,10 @@ def test_howto_nie_przeczy_kodowi():
         "howto nadal twierdzi, ze nick jest wymagany"
     assert "node" in niski and "stabiln" in niski, \
         "howto nie odroznia `listen` (nick opcjonalny) od `node` (wymaga nicka)"
+    assert "--once" in niski and "interaktywn" in niski, \
+        "howto nie prowadzi Codexa do biezacego interaktywnego watku"
+    assert "node" in niski and "nie wznawia" in niski, \
+        "howto sugeruje, ze node wznawia otwarty interaktywny watek"
 
     assert '"state"' in howto or "`state`" in howto, \
         "howto nie nazywa pola `state`"
