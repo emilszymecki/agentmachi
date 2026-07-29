@@ -934,3 +934,82 @@ def test_pid_is_our_hub_nazwa_jako_prefiks_nie_wystarcza(monkeypatch):
                         lambda pid: "python3 -m agentmachi.cli serve --name goldberg")
     assert cli._pid_is_our_hub(1, "gold") is False
     assert cli._pid_is_our_hub(1, "goldberg2") is False
+
+
+# -- PAKIET 0 (plan V1): rdzen neutralny — hub nie nadaje kultury ---------
+#
+# Konstytucja, sekcja "Zasada dogfoodu": "lekcja z dogfoodu domyslnie idzie do
+# obserwacji, nie do regulaminu. Wyciecie pastucha z kodu nic nie daje, jesli
+# odrasta w plikach .md jako kolejny obowiazkowy paragraf."
+#
+# Dokladnie to sie stalo: scheduler wyleciał z kodu, a pastuch odrosl jako
+# 15 regul w rules.md, 13 kB howto i domyslny zespol worker1/worker2 w
+# grupie `workers`. Ponizsze testy pilnuja, ze hub jest MECHANIKA — daje
+# przestrzen, nie ustroj.
+
+def test_nowy_hub_nie_narzuca_zadnych_regul(home):
+    """DEFAULT_RULES pusty. Pokoj MOZE miec zasady — gdy wpisze je czlowiek.
+
+    Roznica jest ustrojowa, nie kosmetyczna: `rules` jako FUNKCJA (opcjonalne
+    ograniczenia konkretnego pokoju) wobec `rules` jako DOMYSLNEJ KULTURY,
+    ktora hub narzuca kazdemu, kto go postawi."""
+    d, _ = cli.ensure_hub("neutralny", 8951)
+    assert (d / "data" / "rules.md").read_text().strip() == "", \
+        "hub nadaje domyslna kulture zamiast zostawiac pusta przestrzen"
+
+
+def test_istniejacy_rules_nigdy_nie_jest_nadpisywany(home):
+    """Granica poprzedniego testu: pusty DOMYSLNY rules nie moze skasowac
+    zasad, ktore czlowiek juz wpisal do dzialajacego pokoju."""
+    d, _ = cli.ensure_hub("z-zasadami", 8952)
+    (d / "data" / "rules.md").write_text("1. Tu obowiazuje cisza nocna.\n")
+    cli.ensure_hub("z-zasadami", 8952)
+    assert "cisza nocna" in (d / "data" / "rules.md").read_text()
+
+
+def test_nowy_hub_nie_tworzy_domyslnego_zespolu(home):
+    """Hub nie sugeruje modelu zespolu. `worker1`/`worker2` w grupie
+    `workers` to gotowy ustroj wpisany w mechanike — nazwa mowi, ze uczestnik
+    jest wykonawca, a grupa tworzy klase, ktorej nikt nie zadeklarowal.
+
+    Nazwy neutralne (agent1/agent2) i BRAK domyslnej grupy: grupy zostaja
+    jako mechanizm, ktory operator moze uzyc, gdy sam zdecyduje."""
+    d, _ = cli.ensure_hub("bez-zespolu", 8953)
+    tokens = json.loads((d / "tokens.json").read_text())
+    agenci = {n: v for n, v in tokens.items() if v["role"] == "agent"}
+    assert set(agenci) == {"agent1", "agent2"}, \
+        f"hub nadal proponuje zespol wykonawcow: {sorted(agenci)}"
+    for nick, wpis in agenci.items():
+        assert wpis["groups"] == [], \
+            f"{nick} dostaje grupe, ktorej nikt nie zadeklarowal: {wpis['groups']}"
+
+
+def test_karta_nie_hardkoduje_rol_wykonawczych(home, capsys):
+    """Karta wejsciowa to pierwsza rzecz, ktora czlowiek wkleja agentowi.
+    Gdy podaje `CHAT_NICK=worker1`, uczy ustroju, zanim ktokolwiek wszedl."""
+    cli.ensure_hub("karta", 8954)
+    tokens, _ = cli.load_tokens("karta")
+    cli.print_card("karta", 8954, tokens)
+    out = capsys.readouterr().out
+    assert "worker1" not in out and "worker2" not in out, \
+        "karta uczy nazw wykonawczych"
+    assert "orchestrator" not in out.lower()
+
+
+def test_howto_niesie_mechanike_a_nie_kulture_pracy():
+    """Howto idzie DRUTEM do kazdego wchodzacego i przy kazdym reconnect.
+    Ma opisywac protokol, ktorego agent nie odkryje sam bez straty — nie
+    uczyc, jak dzielic prace, kiedy ustepowac i co robic po trzeciej
+    nieudanej probie. To sa decyzje organizacyjne, czyli pastuch.
+
+    Zmierzone przed cieciem: rules 4515 + howto 12964 = 17479 znakow
+    (~4400 tokenow) przy KAZDYM hello i KAZDYM reconnect."""
+    from pathlib import Path as _P
+    howto = (_P(cli.__file__).with_name("howto_default.md")).read_text()
+    assert len(howto) <= 4096, (
+        f"howto ma {len(howto)} znakow — budzet drutu to 4 kB; reszta "
+        f"nalezy do skilla")
+    zakazane = ["Jak pomagac", "trzecia", "ustepuj", "subagent",
+                "deklaruj zakres", "review"]
+    trafienia = [s for s in zakazane if s.lower() in howto.lower()]
+    assert not trafienia, f"howto uczy kultury pracy, nie protokolu: {trafienia}"

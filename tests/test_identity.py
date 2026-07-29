@@ -289,3 +289,22 @@ def test_release_open_addr_frees_binding():
     reg.release_open_addr("agent")
     reg.open_hello("agent", "i2", addr="100.64.0.9")   # bez wyjatku
     assert reg.instance_of("agent") == "i2"
+
+
+def test_nieznany_agent_nie_dostaje_domyslnej_grupy():
+    """PAKIET 0 (plan V1): grupa to ADRES, ktory ktos swiadomie nadal —
+    nie klasa, do ktorej hub zapisuje kazdego wchodzacego.
+
+    Dotychczas nieznany nick dostawal `workers` z uzasadnieniem, ze inaczej
+    bedzie gluchy na `$workers`. To rozumowanie jest zamkniete w kolo:
+    grupa jest potrzebna tylko dlatego, ze hub sam ja wszystkim nadaje.
+    Gdy nikt nie ma domyslnej grupy, nikt nie wola `$workers` i problem
+    znika — a mechanizm grup zostaje dla operatora, ktory chce go uzyc.
+
+    Konstytucja: "nie kodujemy ludzkich zalozen o organizacji (...) ani
+    sposobie podzialu obowiazkow"."""
+    reg = Registry({"human": {"token": "th", "role": "human", "groups": []}})
+    reg.open_hello("ktos-nowy", "inst-1", None)
+    assert reg.groups_of("ktos-nowy") == [], \
+        "hub zapisuje wchodzacego do klasy, ktorej nikt nie zadeklarowal"
+    assert reg.role_of("ktos-nowy") == "agent"

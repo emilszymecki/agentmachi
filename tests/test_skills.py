@@ -112,3 +112,30 @@ def test_wartosci_frontmattera_nie_udaja_zagniezdzonego_mapowania():
                 f"spacja w niecytowanej wartosci. YAML czyta to jako mapowanie "
                 f"i CALY skill przestaje sie ladowac. Uzyj myslnika albo "
                 f"zacytuj wartosc.")
+
+
+def test_skill_nie_odwraca_priorytetu_nad_projektem():
+    """PAKIET 0 (plan V1): agentmachi jest NARZEDZIEM w cudzym projekcie,
+    nie jego zwierzchnikiem.
+
+    Skill mowil "gdy prompt startowy kloci sie z rules/howto z huba, wygrywa
+    to, co przyszlo z huba". W repo agentmachi to bylo prawdziwe. W obcym
+    repo znaczy: czat wygrywa z AGENTS.md wlasciciela — czyli narzedzie
+    komunikacji przejmuje wladze nad projektem, do ktorego je podpieto.
+
+    UWAGA O SAMYM TESCIE: pierwsza wersja szukala frazy zapisanej BEZ polskich
+    znakow ("przyszlo") i przechodzila na kodzie, ktory zawieral "przyszło".
+    Zielony wynik znaczyl tylko tyle, ze asercja nie trafila w cel — ta sama
+    klasa, co zasada 13 w docs/zasady-agentyczne.md. Dlatego szukamy tu
+    WZORCA odpornego na diakrytyki, a nie jednego literalnego zdania."""
+    wzorzec = re.compile(r"wygrywa to,\s*co\s*przysz\w+\s*z\s*huba",
+                         re.IGNORECASE)
+    # kontrola samego wzorca: musi trafiac w oba zapisy, inaczej test jest atrapa
+    assert wzorzec.search("wygrywa to, co przyszło z huba")
+    assert wzorzec.search("wygrywa to, co przyszlo z huba")
+
+    for sciezka in sorted(SKILLS.rglob("*.md")):
+        trafienie = wzorzec.search(sciezka.read_text())
+        assert not trafienie, (
+            f"{sciezka.relative_to(SKILLS)}: skill stawia hub nad zasadami "
+            f"projektu, do ktorego jest podpiety ({trafienie.group(0)!r})")
