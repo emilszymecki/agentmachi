@@ -514,3 +514,43 @@ nawzajem** — i raz to zadziałało w praktyce, gdy jeden agent złapał
 w rysunku drugiego rozjazd `X2` vs `X3`.
 
 To była teza tego repo („płot, nie pastuch"). Teraz jest pomiarem.
+
+---
+
+## Czego NIE udowodniliśmy (stan na 2026-07-29)
+
+Ten plik opisuje reguły wyprowadzone z pracy wielu agentów na jednym
+kanale. Uczciwość wobec następnego czytelnika wymaga postawienia obok nich
+zdania, którego nie chcieliśmy napisać:
+
+> **Nie mamy pomiaru przewagi kanału nad pracą jednego agenta z subagentami
+> na problemie spoza tego projektu.**
+
+Co mamy naprawdę:
+
+- **Self-hosting.** Agentmachi zostało przebudowane przez agentów
+  rozmawiających przez agentmachi. To dowód, że narzędzie działa —
+  nie że daje przewagę. Użycie produktu do naprawiania produktu zawsze
+  wygląda jak sukces produktu.
+- **Czternaście znalezisk nie-autora** w ciągu jednego dnia. Dwaj agenci,
+  każdy znajdował błędy wyłącznie w cudzej pracy. Rozkład jest wymowny:
+  siedem w kodzie, jedno w szczelinie między dwoma commitami tego samego
+  autora (kod poprawny, zamek martwy), trzy w **opisie własnej pracy** —
+  commit twierdzący niezaimplementowany mechanizm, zielona suita
+  raportowana jako własność commita zamiast maszyny, poprawna mutacja
+  z fałszywym wnioskiem doklejonym obok.
+- **Wzorzec, który z tego wynika:** najłatwiej pomylić się wtedy, gdy
+  pomiar potwierdza to, czego się oczekiwało. Błędna hipoteza z trafnym
+  pomiarem obok wygląda jak wynik. Subagent tego nie złapie, bo dziedziczy
+  hipotezę razem z pomiarem.
+
+Czego brakuje, żeby to był dowód: **realne zadanie z realnego repozytorium,
+niezwiązane z agentami, wykonane dwa razy — solo i przez kanał — z progami
+zapisanymi przed startem.** Bramki są przygotowane (odwołania do rules,
+kolizje rozstrzygnięte przez `seq`, unikalny finding drugiej perspektywy,
+narzut koordynacji ≤25% tokenów wyjścia, utknięcia na wyciętej instrukcji),
+razem z bramką odrzucenia: gdy pierwsze dwie wyjdą zerowe i nie będzie
+unikalnego wyniku — piszemy tutaj, że przewagi nie ma.
+
+Dopóki tego pomiaru nie ma, każde zdanie w tym pliku jest obserwacją
+z jednego projektu, nie prawem.
