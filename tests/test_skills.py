@@ -188,3 +188,15 @@ def test_hub_nie_ma_domyslnych_regul():
     from agentmachi.cli import DEFAULT_RULES
     assert DEFAULT_RULES == "", \
         f"hub znowu nadaje domyslna kulture ({len(DEFAULT_RULES)} B)"
+
+
+def test_preambula_wake_miesci_sie_w_kilobajcie():
+    """PLAN V1 wymagal budzetu preambuly (bez messages) <= 1 kB. Zamki
+    pilnowaly howto, SKILL.md i DEFAULT_RULES — prog preambuly zostal sama
+    deklaracja w planie, a idzie ona do KAZDEGO wybudzenia runtime'u.
+    Zgloszone przez drugiego agenta z pomiarem: 516 B."""
+    from agentmachi.node import WAKE_PREAMBLE
+    bajty = len(WAKE_PREAMBLE.format(nick="agent1").encode("utf-8"))
+    assert bajty <= 1024, (
+        f"preambula wake ma {bajty} B przy limicie 1024 B — to tekst doklejany "
+        f"do kazdego wybudzenia, niezaleznie od dlugosci samej rozmowy")

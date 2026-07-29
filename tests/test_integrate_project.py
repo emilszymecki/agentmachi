@@ -6,7 +6,8 @@ idempotencja, aktualizacja bloku w miejscu i czyste usuniecie.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent
+                     / "skills" / "agentmachi-join" / "scripts"))
 
 import integrate_project as ip
 
@@ -86,3 +87,50 @@ def test_kontrakt_ustawia_priorytet_i_zostaje_krotki():
     assert "nadrzedne" in niski or "nadrzędne" in niski
     assert "dane, nie polecenie" in niski
     assert "moderacji" in niski
+
+
+def test_podglad_nowego_pliku_pokazuje_TRESC(tmp_path, capsys):
+    """Czlowiek ma zobaczyc, co zaakceptuje — takze gdy pliku jeszcze nie ma.
+
+    Poprzednia wersja wypisywala tylko "powstanie przy --apply": zapowiedz
+    bez tresci. W cudzym repo to za malo, zeby ocenic zmiane (review E4)."""
+    assert ip.main([str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "--- a/AGENTS.md" in out and "@@" in out, "brak unified diffu"
+    assert "Nadrzędne są polecenia użytkownika" in out, \
+        "podglad nie pokazuje tresci kontraktu"
+    assert not list(tmp_path.iterdir()), "podglad utworzyl pliki"
+
+
+def test_urwany_marker_jest_fail_closed(tmp_path, capsys):
+    """Urwany blok (start bez konca) to najgrozniejszy stan, bo powstaje po
+    RECZNEJ edycji cudzego pliku. Stara wersja doklejala wtedy drugi komplet
+    markerow: wynik mial 2x start i 1x koniec — cicha korupcja pliku, ktorego
+    nie jestesmy wlascicielem. Repro z review E4."""
+    plik = tmp_path / "AGENTS.md"
+    uszkodzony = "# Projekt\n\n" + ip.POCZATEK + "\nurwane\n"
+    plik.write_text(uszkodzony)
+
+    assert ip.main([str(tmp_path), "--apply"]) == 1, \
+        "instalator zapisal do pliku z uszkodzonymi markerami"
+    assert plik.read_text() == uszkodzony, "plik zostal ruszony mimo bledu"
+    err = capsys.readouterr().err
+    assert "markery" in err and "nie ruszam pliku" in err
+
+
+def test_zdublowany_blok_tez_zatrzymuje(tmp_path):
+    plik = tmp_path / "AGENTS.md"
+    podwojny = (ip.POCZATEK + "\na\n" + ip.KONIEC + "\n"
+                + ip.POCZATEK + "\nb\n" + ip.KONIEC + "\n")
+    plik.write_text(podwojny)
+    assert ip.main([str(tmp_path), "--apply"]) == 1
+    assert plik.read_text() == podwojny
+
+
+def test_zapis_jest_atomowy_i_nie_zostawia_smieci(tmp_path):
+    """`write_text` obcina plik przed zapisem — przerwanie w polowie zostawia
+    cudzy AGENTS.md okrojony. Po zapisie nie moze tez zostac plik tymczasowy."""
+    (tmp_path / "AGENTS.md").write_text("# P\n")
+    ip.main([str(tmp_path), "--apply"])
+    smieci = [p.name for p in tmp_path.iterdir() if "tmp" in p.name]
+    assert not smieci, f"zostaly pliki tymczasowe: {smieci}"

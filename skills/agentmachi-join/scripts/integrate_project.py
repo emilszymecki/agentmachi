@@ -21,6 +21,7 @@ Użycie:
 """
 import argparse
 import difflib
+import os
 import sys
 from pathlib import Path
 
@@ -60,14 +61,56 @@ def blok():
     return f"{POCZATEK}\n{KONTRAKT}{KONIEC}\n"
 
 
+class KorupcjaMarkerow(Exception):
+    """Plik ma markery w stanie, którego nie umiemy bezpiecznie naprawić."""
+
+
+def _sprawdz_markery(nazwa, tekst):
+    """Fail-closed: dopuszczamy dokładnie 0/0 albo 1/1 we właściwej kolejności.
+
+    Bez tej kontroli urwany blok (start bez końca — po ręcznej edycji albo
+    przerwanym zapisie) powodował, że `zastosuj` dokleja DRUGI komplet
+    markerów. Wynik: dwa `start`, jeden `koniec` w CUDZYM AGENTS.md, czyli
+    cicha korupcja pliku, którego nie jesteśmy właścicielem. Zgłoszone przy
+    review E4 z repro."""
+    ile_p, ile_k = tekst.count(POCZATEK), tekst.count(KONIEC)
+    if (ile_p, ile_k) == (0, 0):
+        return
+    if (ile_p, ile_k) == (1, 1) and tekst.index(POCZATEK) < tekst.index(KONIEC):
+        return
+    raise KorupcjaMarkerow(
+        f"{nazwa}: markery agentmachi są w stanie {ile_p}x start / {ile_k}x "
+        f"koniec — nie ruszam pliku. Napraw ręcznie albo usuń blok w całości.")
+
+
 def zastosuj(tekst):
-    """Zwróć treść pliku z aktualnym blokiem. Idempotentne."""
+    """Zwróć treść pliku z aktualnym blokiem. Idempotentne.
+
+    Zakłada, że markery przeszły `_sprawdz_markery` — inaczej mogłaby
+    powstać druga, niedomknięta kopia bloku."""
     if POCZATEK in tekst and KONIEC in tekst:
         przed = tekst[:tekst.index(POCZATEK)]
         po = tekst[tekst.index(KONIEC) + len(KONIEC):].lstrip("\n")
         return przed + blok() + (("\n" + po) if po else "")
     ogon = tekst if tekst.endswith("\n") or not tekst else tekst + "\n"
     return (ogon + "\n" if ogon else "") + blok()
+
+
+def _zapisz_atomowo(sciezka, tresc):
+    """Zapis przez plik tymczasowy w TYM SAMYM katalogu + os.replace.
+
+    `write_text` obcina plik przed zapisem, więc przerwanie w połowie
+    zostawia cudzy AGENTS.md okrojony. Tu albo jest stara treść, albo nowa."""
+    tmp = sciezka.with_name(sciezka.name + ".agentmachi-tmp")
+    try:
+        with open(tmp, "w") as f:
+            f.write(tresc)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, sciezka)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def usun(tekst):
@@ -109,19 +152,21 @@ def main(argv=None):
                 continue
             nowy = usun(stary)
         else:
-            # Pliku, ktorego nie ma, NIE tworzymy w trybie podgladu: czlowiek
-            # ma najpierw zobaczyc, co powstanie w jego repo.
-            if not istnieje and not args.apply:
-                print(f"[podglad] {nazwa} nie istnieje — powstanie przy --apply")
-                zmiany += 1
-                continue
+            try:
+                _sprawdz_markery(nazwa, stary)
+            except KorupcjaMarkerow as e:
+                print(f"agentmachi: {e}", file=sys.stderr)
+                return 1
+            # Plik nieistniejacy: w podgladzie POKAZUJEMY diff od pustki,
+            # ale go NIE tworzymy. Sama zapowiedz "powstanie przy --apply"
+            # nie pozwala czlowiekowi ocenic, co zaakceptuje (review E4).
             nowy = zastosuj(stary)
 
         if nowy == stary:
             continue
         zmiany += 1
         if args.apply:
-            sciezka.write_text(nowy)
+            _zapisz_atomowo(sciezka, nowy)
             print(f"[zapisane] {sciezka}")
         else:
             print(diff(nazwa, stary, nowy) or f"[zmiana] {nazwa}")
