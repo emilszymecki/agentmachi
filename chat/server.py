@@ -299,8 +299,15 @@ class ChatServer:
                  "last_seq": ostatnia.get(nick, 0)}
                 for nick in sorted(znani | set(self.conns))]
 
-    def _wolny_nick(self, prefix="worker"):
-        """Pierwszy nick, ktorego nikt nie trzyma — propozycja dla wchodzacego."""
+    def _wolny_nick(self, prefix="agent"):
+        """Pierwszy nick, ktorego nikt nie trzyma — propozycja dla wchodzacego.
+
+        PAKIET 1 (plan V1): prefiks `agent`, nie `worker`. Hub nadaje te
+        nazwe dwa razy — wchodzacemu bez nicka i temu, komu nick zajeto —
+        wiec byla to pierwsza rzecz, jaka uczestnik o sobie slyszal. "worker"
+        mowi, ze jest wykonawca czyjegos polecenia; to ustroj, a nie
+        mechanika. Ta sama zmiana co usuniecie domyslnej grupy `workers`.
+        """
         n = 1
         while True:
             kandydat = f"{prefix}{n}"

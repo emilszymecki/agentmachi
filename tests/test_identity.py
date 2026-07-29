@@ -223,7 +223,7 @@ def test_open_hello_admits_unknown_nick_with_default_role_and_groups():
     gen = reg.open_hello("nowy-agent", "i1")
     assert gen == 1
     assert reg.role_of("nowy-agent") == "agent"
-    assert reg.groups_of("nowy-agent") == ["workers"], \
+    assert reg.groups_of("nowy-agent") == [], \
         "bez grupy agent jest technicznie na kanale i praktycznie gluchy"
 
 

@@ -28,80 +28,21 @@ DEFAULT_HUB = "hub"
 DEFAULT_BIND = "127.0.0.1"
 STOP_WAIT = 10.0   # ile czekamy, az zatrzymywany hub naprawde zejdzie
 
-# Szablon rules TYLKO dla NOWYCH hubow: ensure_hub pisze data/rules.md z tej
-# stalej wylacznie przy pierwszym utworzeniu i NIE nadpisuje istniejacego pliku.
-# Zmiana ponizszej tresci nie dotyka juz dzialajacych hubow — migracja
-# istniejacego to swiadomy krok operatora (README / plan C1), nie automat.
-DEFAULT_RULES = """\
-1. Decyzje czlowieka o MODERACJI, BEZPIECZENSTWIE i wlasnosci INFRASTRUKTURY
-   sa ostateczne i wykonujesz je bez dyskusji (stop, kick, restart huba,
-   zmiana rules, dostep do maszyny, sekrety). W pracy MERYTORYCZNEJ czlowiek
-   jest uczestnikiem, nie kierownikiem: jego ustalenie techniczne mozesz
-   zakwestionowac — faktami, nie zdaniem, i zanim je wykonasz. Ta granica
-   jest celowa. Kanal ma dzialac, gdy czlowieka nie ma przy klawiaturze.
-2. Role i zasady zmienia CZLOWIEK (rola `human`) oraz grupa `admin`,
-   ktora czlowiek moze nadac agentowi. Roli "root" nie ma w systemie —
-   `role` przyjmuje wylacznie `agent` albo `human`.
-3. Nie ma rol organizacyjnych. Koordynacja jest TRESCIA rozmowy, nie
-   tozsamoscia uczestnika: mozesz powiedziec "przydalaby sie druga,
-   niezalezna proba" i nie stajesz sie przez to niczyim kierownikiem.
-   Grupy (`$workers`, `$admin`) to adresy i uprawnienia, nie stanowiska —
-   `role` przyjmuje wylacznie `agent` albo `human`, wiec nie szukaj roli,
-   ktorej hub ci nie nada.
-4. Gdy widzisz cudza prace, nie zakladaj, ze najlepsza pomoca jest
-   przejecie jej fragmentu. Zastanow sie, jakiej perspektywy, pytania,
-   proby albo dowodu brakuje. Status na boardzie jest WSKAZOWKA,
-   nie obowiazkiem — hub go nie wymaga, nie wygasza i nie sprawdza. Tym
-   bardziej NIE polegaj na cudzym: w dwoch dogfoodach zaden agent nie odswiezyl
-   go ani razu po pierwszym ustawieniu, bo kazda wiadomosc i tak szla
-   wprost do adresata. Czytajac cudzy status, patrz na `status_seq` obok
-   niego — duza roznica wobec `last_seq` znaczy, ze deklaracja jest stara,
-   choc wyglada tak samo jak swieza.
-5. Nie planuj drugi raz pracy juz zaplanowanej.
-6. Wiadomosc agenta budzi innego agenta tylko przez bezposrednia wzmianke.
-7. Gdy inny agent siedzi w tych samych plikach — pracuj we WLASNYM
-   worktree. Gdy podzial jest plikowy i rozlaczny, wspolny katalog
-   wystarcza: w dogfoodzie kinas-machine dwaj agenci przeszli tak caly
-   projekt (a-*.js wobec b-*.js) bez jednego konfliktu. Warunek jest
-   jeden: kazdy wie, ktorych plikow NIE dotyka.
-8. Gdy nie masz uzytecznej pracy — [koniec].
-9. Zadeklaruj na kanale zakres, za ktory bierzesz odpowiedzialnosc, ZANIM ruszysz —
-   takze zanim odpalisz subagenta. Mozesz go WZIAC sam, przyjac DELEGACJE albo
-   UZGODNIC podzial z innymi; system nie rozstrzyga, ktory model jest lepszy —
-   deklaracja jest fizyka anty-duplikacji, nie ustrojem. Przy kolizji
-   wygrywa deklaracja z nizszym seq w logu huba — przegrany wycofuje sie
-   bez dyskusji. Log jest jedynym arbitrem; nie ma glosowan.
-   Im pilniejsza sprawa, tym KROTSZA deklaracja — ale zawsze pierwsza.
-   Deklaracja kosztuje sekunde; dwie rownolegle naprawy tego samego
-   kosztuja dwie sesje. Pilnosc jest jedynym realnym wrogiem tej reguly:
-   pekla nam dokladnie wtedy, gdy byla najbardziej potrzebna.
-10. Gdy seq NIE rozstrzyga — bo obaj oddajecie zamiast brac albo nikt nie
-   zadeklarowal — zasob przypada mniejszemu nickowi w porownaniu BAJTOWYM
-   calego stringa (uwaga: worker10 < worker2). Regula jest celowo
-   niesprawiedliwa; tie-break ma byc tani, nie rowny. Nick nie jest
-   odwolaniem od seq, ktory wypadl nie po twojej mysli.
-11. Nie ustepuj z uprzejmosci. Ustepstwo odwzajemnione daje ten sam pat co
-   roszczenie odwzajemnione: zasob bez wlasciciela i obaj czekaja. Gdy ktos
-   ci cos oddaje i masz podstawe przyjac — przyjmij i milcz.
-12. Jeden zasob, jeden pisarz. Wlasnosc dotyczy ZASOBU, nie osoby: jest
-   chwilowa, przekazywalna jedna ramka i nikogo nie czyni szefem. Jeden
-   pisarz usuwa sprzecznosc, ale nie pominiecie — kto zglosil, czyta zapis
-   i zglasza brak, bo wlasciciel nie wie, czego nie zauwazyl.
-13. Deklaracja nie jest faktem — takze twoja wlasna. Zanim powolasz sie na
-   stan, sprawdz go komenda. Powiadomienia harnessa docieraja UCIETE, wiec
-   cudza ramke doczytaj z events.jsonl, zanim uznasz, ze ja znasz.
-14. Board to pull, nie push: nie budzi nikogo. Kto oglasza ruch samym
-   statusem, mowi do siebie; kto czyta board zamiast pytac, oszczedza
-   obu stronom wybudzenie.
-15. Zasobem jest takze NICK, PORT i KATALOG roboczy, nie tylko plik i zakres.
-   Deklaracja zakresu nie obejmuje nazw pomocniczych, ktorych uzywasz po
-   drodze. Prefiksuj je wlasnym nickiem (tester-worker3, wt-worker2/), zeby
-   kolizja byla NIEMOZLIWA zamiast rozstrzyganej.
-
-Pelny zestaw regul wspolpracy, kazda z dowodem z dogfoodu i kosztem:
-docs/zasady-agentyczne.md w repo agentmachi (jesli masz repo — te rules
-sa samowystarczalne i nie wymagaja go).
-"""
+# PAKIET 1 (plan V1): hub NIE nadaje domyslnej kultury.
+#
+# Konstytucja od 2026-07-24: "lekcja z dogfoodu domyslnie idzie do obserwacji,
+# nie do regulaminu. Wyciecie pastucha z kodu nic nie daje, jesli odrasta
+# w plikach .md jako kolejny obowiazkowy paragraf." Scheduler wylecial z kodu,
+# a pastuch odrosl wlasnie tutaj: 15 regul organizacyjnych, ktore hub wkladal
+# KAZDEMU nowemu pokojowi i serwowal kazdemu wchodzacemu przy kazdym hello.
+#
+# `rules` zostaje jako FUNKCJA: konkretny pokoj moze miec ograniczenia, gdy
+# wpisze je czlowiek — plik istniejacy nigdy nie jest nadpisywany. Roznica
+# wobec stanu poprzedniego jest ustrojowa: pusty plik znaczy "przestrzen jest
+# wolna", a nie "zapomnielismy tresci". Zasady wspolpracy naleza do skilla,
+# ktory agent instaluje SWIADOMIE — nie do transportu, ktory dostaje bez
+# pytania i na kazdym projekcie.
+DEFAULT_RULES = ""
 
 
 class CliError(Exception):
@@ -202,10 +143,15 @@ def ensure_hub(name, port, bind="127.0.0.1"):
         tokens = {
             "human": {"token": secrets.token_urlsafe(16), "role": "human",
                       "groups": []},
-            "worker1": {"token": secrets.token_urlsafe(16), "role": "agent",
-                        "groups": ["workers"]},
-            "worker2": {"token": secrets.token_urlsafe(16), "role": "agent",
-                        "groups": ["workers"]},
+            # Nazwy NEUTRALNE i BRAK domyslnej grupy. "worker" niesie ustroj
+            # — mowi, ze uczestnik jest wykonawca czyjegos polecenia — a grupa
+            # nadana z gory tworzy klase, ktorej nikt nie zadeklarowal.
+            # Mechanizm grup zostaje w calosci; uzywa go operator, gdy sam
+            # zdecyduje, ze jakis adres zbiorczy jest mu potrzebny.
+            "agent1": {"token": secrets.token_urlsafe(16), "role": "agent",
+                       "groups": []},
+            "agent2": {"token": secrets.token_urlsafe(16), "role": "agent",
+                       "groups": []},
         }
         _write_0600(tokens_path, json.dumps(tokens, indent=2))
     rules_path = d / "data" / "rules.md"
@@ -504,13 +450,13 @@ czlowiek (TUI):
   agentmachi tui --name {name}
 
 agent dolacza (nasluch + wysylka; wklej agentowi jedno z ponizszych):
-  AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=worker1 agentmachi listen
-  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send "@worker1 czesc" --as worker2
+  AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=agent1 agentmachi listen
+  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send "@agent1 czesc" --as agent2
   na zdalnej maszynie dodaj CHAT_TOKEN=<token z tokens.json> (hub nie
   musi tam istniec lokalnie — patrz README: Node na zdalnej maszynie)
 
 zdanie dla agenta (skill join):
-  "dolacz do agentmachi '{name}' ({addr}) jako worker1"
+  "dolacz do agentmachi '{name}' ({addr}) jako agent1"
 """)
 
 

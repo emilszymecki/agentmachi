@@ -1728,7 +1728,7 @@ def test_open_mode_agent_gets_groups_and_appears_on_board(tmp_path):
                                       "last_seq": 0, "role": "agent"}))
             reply = json.loads(await ws.recv())
             assert reply["type"] == "ok"
-            assert reply["groups"] == ["workers"], "bez grupy agent jest gluchy"
+            assert reply["groups"] == [], "bez grupy agent jest gluchy"
 
             emil = await websockets.connect(f"ws://localhost:{port}")
             await emil.send(json.dumps({"type": "hello", "from": "emil",
@@ -1760,8 +1760,11 @@ def test_open_hello_without_nick_gets_one_and_learns_it(tmp_path):
                                       "role": "agent"}))
             reply = json.loads(await ws.recv())
             assert reply["type"] == "ok"
-            assert reply["nick"].startswith("worker"), reply
-            assert reply["groups"] == ["workers"]
+            # PAKIET 1: hub nadaje neutralne `agentN` i ZADNEJ grupy.
+            # Kontrakt (wejscie bez nicka dziala, uczestnik jest widoczny)
+            # zostaje; znika ustroj, ktory hub dokladal od siebie.
+            assert reply["nick"].startswith("agent"), reply
+            assert reply["groups"] == []
             await ws.close()
         finally:
             await server.stop()

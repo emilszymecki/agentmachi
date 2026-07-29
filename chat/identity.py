@@ -88,10 +88,16 @@ class Registry:
         human — bez tego dowolny uczestnik tailnetu wszedlby jako moderator
         i wyrzucal pozostalych.
 
-        Nick nieznany dostaje role agenta i grupe `workers`: bez grupy bylby
-        technicznie na kanale i praktycznie gluchy, bo wzmianki `$workers`
-        chodza po grupach. Nick znany z tokens.json zachowuje swoja
-        konfiguracje (grupy z pliku), tylko nie musi dowodzic tokenem.
+        Nick nieznany dostaje role agenta i ZADNEJ grupy. Wczesniej hub
+        wpisywal go do `workers` z obawy, ze inaczej bedzie gluchy na
+        wzmianki grupowe — ale to rozumowanie bylo zamkniete w kolo: grupa
+        byla potrzebna wylacznie dlatego, ze hub sam ja wszystkim nadawal.
+        Gdy nikt nie ma domyslnej grupy, nikt nie wola `$workers`. Grupy
+        zostaja jako mechanizm adresowania, ktory nadaje czlowiek albo
+        `admin` (membership_set) — swiadomie, a nie z automatu.
+
+        Nick znany z tokens.json zachowuje swoja konfiguracje (grupy
+        z pliku), tylko nie musi dowodzic tokenem.
         """
         if not isinstance(nick, str) or not nick:
             raise AuthError("invalid nick")
@@ -116,8 +122,15 @@ class Registry:
                     f"nick {nick} przypiety do innego adresu; wybierz inny nick "
                     f"albo popros moderatora o zwolnienie (kick)")
         if nick not in self.roles:
+            # PAKIET 1: BEZ domyslnej grupy. Grupa to adres, ktory ktos
+            # swiadomie nadal — nie klasa, do ktorej hub zapisuje kazdego
+            # wchodzacego. Dawne uzasadnienie ("bez grupy bedzie gluchy na
+            # $workers") jest zamkniete w kolo: grupa byla potrzebna tylko
+            # dlatego, ze hub sam ja wszystkim nadawal. Gdy nikt nie ma
+            # domyslnej grupy, nikt nie wola $workers i problem znika.
+            # Mechanizm grup zostaje dla operatora (membership_set).
             self.roles[nick] = "agent"
-            self.groups[nick] = ["workers"]
+            self.groups[nick] = []
         gen = self._bump(nick, instance_id)
         # Zapis PO udanym bump, na tej samej instancji (na klonie w serwerze —
         # provisional-then-commit: commit razem z registry swap po durable

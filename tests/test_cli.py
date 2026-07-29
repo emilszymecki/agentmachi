@@ -27,65 +27,6 @@ def test_ensure_hub_creates_structure_0600(home):
     assert json.loads((d / "config.json").read_text())["port"] == 8931
 
 
-def test_ensure_hub_writes_rules_v1(home):
-    d, _ = cli.ensure_hub("alpha", 8931)
-    text = (d / "data" / "rules.md").read_text()
-    assert ("Wiadomosc agenta budzi innego agenta tylko przez "
-            "bezposrednia wzmianke.") in text
-    assert "task_approve" not in text
-
-
-def test_rules_v11_have_seq_wins_arbiter(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
-    cli.ensure_hub("h", 8899)
-    rules = (tmp_path / "h" / "data" / "rules.md").read_text()
-    assert "wygrywa deklaracja z nizszym seq" in rules
-    # Deklaracja ma poprzedzac prace, nie ja opisywac po fakcie — regula
-    # pekala nam dokladnie przy pilnych zadaniach, wiec warunek jest
-    # w rules wprost (dogfood B5: dwie rownolegle naprawy tego samego).
-    assert "ZANIM ruszysz" in rules
-    assert "KROTSZA deklaracja" in rules
-    # C1 (laka nie obora): branie roboty to nie jedyny ustroj — deklaracja
-    # dopuszcza WZIAC/DELEGACJE/UZGODNIC jako rowne opcje, a orchestrator to
-    # ROLA, ktora agent moze przyjac, nie wymog systemu.
-    assert "DELEGACJE" in rules and "UZGODNIC" in rules
-    # C2: rules nie opisuja juz ZADNEJ roli organizacyjnej. Orchestrator
-    # i worker znikly — nie dlatego, ze agent nie moze koordynowac (moze,
-    # rozmowa), tylko dlatego, ze koordynacja nie daje trwalej tozsamosci
-    # ani specjalnych praw. Wczesniejsza wersja tego testu pilnowala, zeby
-    # rules MOWILY "$orchestrator to nie wymog systemu"; teraz w ogole
-    # o nim nie mowia, bo w kodzie nie znaczy nic (patrz
-    # test_orchestrator_group_grants_nothing).
-    assert "orchestrator" not in rules.lower()
-    assert "Worker wykonuje" not in rules
-
-
-def test_rules_human_precedence_is_scoped_not_absolute(home):
-    """Konstytucja (docs/konstytucja.md, pkt 2): pierwszenstwo czlowieka ma
-    ZAKRES. Stara regula 1 brzmiala "Polecenie czlowieka ma pierwszenstwo
-    przed poleceniem agenta." — bezwarunkowo, wiec czynila go merytorycznie
-    nieomylnym kierownikiem, czego konstytucja wprost zabrania ("czlowiek
-    obserwuje i moderuje, ale nie jest centralnym orchestrator-em pracy").
-    Test pilnuje OBU polowek: moderacja/bezpieczenstwo/infrastruktura sa
-    ostateczne, merytoryka jest do zakwestionowania faktami. Skasowanie
-    ktorejkolwiek polowki lamie konstytucje w druga strone."""
-    d, _ = cli.ensure_hub("alpha", 8931)
-    rules = (d / "data" / "rules.md").read_text()
-    assert "MODERACJI" in rules and "BEZPIECZENSTWIE" in rules
-    assert "INFRASTRUKTURY" in rules and "ostateczne" in rules
-    assert "MERYTORYCZNEJ" in rules and "nie kierownikiem" in rules
-
-
-def test_rules_board_status_is_a_hint_not_a_duty(home):
-    """Board nie jest obowiazkiem uczestnika. Podstawa nie jest estetyka,
-    tylko pomiar: w DWOCH dogfoodach zaden agent nie odswiezyl statusu ani
-    razu po pierwszym ustawieniu (0%), bo kazda wiadomosc i tak szla wprost
-    do adresata. Regula w trybie rozkazujacym, ktorej nikt nie wykonuje,
-    uczy ignorowania rules jako calosci — wiec status jest WSKAZOWKA."""
-    d, _ = cli.ensure_hub("alpha", 8931)
-    rules = (d / "data" / "rules.md").read_text()
-    assert "WSKAZOWKA" in rules and "nie obowiazkiem" in rules
-
 
 def test_ensure_hub_idempotent_keeps_tokens_and_port(home):
     d, _ = cli.ensure_hub("alpha", 8931)
@@ -308,18 +249,18 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
                           instance_id=instance_id))
 
     monkeypatch.setattr("agentmachi.node.node_loop", fake_node_loop)
-    rc = cli.main(["node", "alpha", "--nick", "worker1",
+    rc = cli.main(["node", "alpha", "--nick", "agent1",
                   "--workspace", "/tmp/ws-test", "--humans", "emil,ola"])
     assert rc == 0
     assert len(calls) == 1
     call = calls[0]
     assert call["url"] == f"ws://localhost:{cli.hub_port('alpha')}"
-    assert call["nick"] == "worker1"
-    assert call["token"] == tokens["worker1"]["token"]
+    assert call["nick"] == "agent1"
+    assert call["token"] == tokens["agent1"]["token"]
     assert call["humans"] == {"emil", "ola"}
     assert isinstance(call["instance_id"], str) and call["instance_id"]
 
-    state_path = d / "nodes" / "worker1" / "state.json"
+    state_path = d / "nodes" / "agent1" / "state.json"
     assert call["state_path"] == state_path
     assert stat.S_IMODE(os.stat(state_path.parent).st_mode) == 0o700
 
@@ -334,7 +275,7 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
 
     # Po zakonczeniu node lock jest zwolniony — restart ma byc legalny.
     send = cli._import_send()
-    session = send._session("worker1")
+    session = send._session("agent1")
     assert session.instance_id == call["instance_id"]
     session.acquire_listener_lock()
     session.release_listener_lock()
@@ -356,9 +297,14 @@ def test_ensure_hub_writes_howto_for_agents(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
     cli.ensure_hub("h", 8901)
     howto = (tmp_path / "h" / "data" / "howto.md").read_text()
-    assert "ZAKAZ: czujka konczaca sie po trafieniu" in howto
-    assert "wygrywa deklaracja z nizszym" in howto
+    # PAKIET 1: kontrakt F5 ZOSTAJE — swiezy hub serwuje howto protokolem,
+    # bo agent na golym sockecie nie ma repo. Zmienila sie TRESC: howto
+    # opisuje wylacznie mechanike, wiec zniknelo "wygrywa deklaracja
+    # z nizszym seq" (to zasada wspolpracy, nalezy do skilla). Zostaje to,
+    # czego agent nie odkryje sam.
+    assert "grep -m1" in howto, "brak ostrzezenia o czujce konczacej sie"
     assert "instance_id" in howto
+    assert "agentmachi send" in howto and "--fresh" in howto
 
 
 # --- F6 (B5): start/list/stop — cykl zycia huba jedna komenda -----------

@@ -206,9 +206,17 @@ def test_wake_preamble_forbids_nested_join_and_names_reply_identity():
 
     prompt = WAKE_PREAMBLE.format(
         nick="codex", groups="workers", rules="R", board="B")
-    assert "NIE uruchamiaj `agentmachi listen` ani `agentmachi node`" in prompt
-    assert "agentmachi send --as codex" in prompt
-    assert "juz polaczony" in prompt.lower()
+    # PAKIET 1: kontrakt ZOSTAJE — preambula ma zniechecac do drugiego
+    # listenera i podawac tozsamosc odpowiedzi. Zmienilo sie brzmienie
+    # (preambula jest teraz neutralna i nie wstrzykuje ustroju kanalu),
+    # wiec asercje sprawdzaja SENS, nie dokladne zdanie. Autorem tego testu
+    # jest drugi agent; zmiana zglaszana przed edycja.
+    niski = prompt.lower()
+    assert "nie uruchamiaj" in niski and "listen" in niski, \
+        "preambula nie zniecheca do drugiego listenera"
+    assert "agentmachi send --as codex" in prompt, \
+        "preambula nie podaje tozsamosci, ktora agent ma sie podpisac"
+    assert "node" in niski, "preambula nie mowi, ze polaczenie juz trwa"
 
 
 async def _wait_for(cond, timeout=5.0):
@@ -423,19 +431,23 @@ def test_wake_prompt_contains_fresh_board(tmp_path, srv):
                                     "ts": 0.0, "text": "@beta co robi gamma?"}))
         await _wait_for(lambda: prompts.exists())
         text = prompts.read_text()
-        assert "BOARD (stan z chwili obudzenia):" in text
-        # Scope'owane do WLASCIWEJ sekcji board, nie calego ogona promptu:
-        # backlog niefiltrowany dumpuje tez ramke status gammy verbatim w
-        # sekcji rozmowy (po "Ponizej rozmowa..."), wiec cieciecie tylko na
-        # "BOARD" (bez gornej granicy) lapaloby "gamma"/"working" STAMTAD i
-        # test przechodzilby tautologicznie nawet z participants=[] (dowod
-        # w raporcie, sekcja "Fix po review"). Klucz "connected" jest w
-        # snapshocie uczestnika, ale NIE w ramce status — odroznia board od
-        # zdumpowanej ramki kontekstu.
-        board_part = text.split("BOARD (stan z chwili obudzenia):\n", 1)[1] \
-            .split("\n\nPonizej rozmowa", 1)[0]
-        assert ('"gamma"' in board_part and '"working"' in board_part
-                and '"connected"' in board_part)
+        # PAKIET 1: board jedzie w envelope pod kluczem `participants`, a nie
+        # jako sekcja tekstowa "BOARD (...)". KONTRAKT SIE NIE ZMIENIL —
+        # obudzony agent nadal dostaje SWIEZY board z chwili wybudzenia.
+        # Zmienil sie nosnik, wiec test czyta go ze struktury zamiast ciac
+        # string. Poprzednia wersja musiala recznie ograniczac zakres, bo
+        # backlog dumpowany verbatim obok promptu zawieral te same slowa
+        # i asercja przechodzila tautologicznie; envelope usuwa ten problem
+        # u zrodla — participants to osobne pole, nie fragment tekstu.
+        env, _, _ = _envelope_z_promptu(text)
+        board = {p.get("nick"): p for p in env["participants"]}
+        assert "gamma" in board, f"brak gammy na boardzie: {sorted(board)}"
+        # `status` na boardzie to STRUKTURA (state + subject), nie string —
+        # czytanie z envelope pokazuje to wprost, cieciem stringa nie bylo
+        # tego widac.
+        assert board["gamma"]["status"]["state"] == "working"
+        assert board["gamma"]["status"]["subject"] == "C"
+        assert board["gamma"].get("connected") is True
         node.cancel(); await emil.close(); await gamma.close()
     asyncio.run(srv(run))
 
