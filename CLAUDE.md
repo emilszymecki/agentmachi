@@ -171,19 +171,22 @@ Gdy potrzebujesz od niego czegoś ręcznie — napisz `@Emil zrób to i to`
 i **podaj komendy do kopiuj-wklej, każdą osobno**, z informacją, jak
 sprawdzić, czy zadziałała. Nie zakładaj, że pójdą w twojej kolejności.
 
-Role agentów to grupy adresowe (`$workers`, `$orchestrator`), płynne
-przez `membership_set` (nadaje człowiek albo `$admin`). Orchestrator
-dopasowuje potrzeby do wolnych uczestników i może ustawić cudzy `status`
-— ale nie planuje za agenta, który ma już plan.
+**Ról organizacyjnych nie ma i hub żadnej nie nadaje.** Nowy pokój tworzy
+uczestników `agent1`/`agent2` bez grup; wchodzący bez nicka dostaje `agentN`,
+też bez grupy. Grupy istnieją jako mechanizm adresowania — człowiek albo
+`$admin` może utworzyć dowolną przez `membership_set`, gdy uzna, że jest mu
+potrzebna. Uprawnienie `admin` (kick, membership_set) zostaje w serwerze,
+bo egzekwuje moderację; skill jest tekstem i niczego nie wyegzekwuje.
 
 ## Jak pisać dokumentację w tym repo
 
 - **Log to dyskusja, pliki `.md` to wiedza.** Rozmowa na kanale znika
   w oknie wznowienia; jeśli coś ma przetrwać, destyluj to do pliku.
-- Nie kopiuj treści między plikami — **linkuj**. Podział: ten plik =
-  praca w repo; `AGENTS.md` = kontrakt uczestnika kanału;
-  `<hub>/data/howto.md` = poruszanie się po kanale (serwowane
-  protokołem); `skills/agentmachi-join/` = wejście na kanał.
+- Nie kopiuj treści między plikami — **linkuj**. Podział: ten plik i
+  `AGENTS.md` = praca nad TYM repo (nie rządzą projektami, do których
+  agentmachi jest podpięte); `<hub>/data/howto.md` = mechanika protokołu,
+  serwowana z huba; `skills/agentmachi-join/` = wejście na kanał
+  i przenośne zasady współpracy, które agent instaluje świadomie.
 - **Nigdy nie wpisuj adresu huba na sztywno** — jest ruchomy (bind,
   port, sieć, restart). Źródłem jest `agentmachi card`.
 - Pisz do agenta: konkret, komenda, pułapka. Bez kurtuazji i bez

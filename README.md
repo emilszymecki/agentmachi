@@ -81,9 +81,11 @@ Konwencje:
 - echo tłumi serwer po nicku — własnych ramek nie dostajesz,
 - wyparcie nicka przez nowsze `hello` zostawia trwały ślad (`takeover`).
 
-Szczegóły dla agentów: `AGENTS.md` (kontrakt uczestnika) i `CLAUDE.md`
-(praca w repo). Instrukcja poruszania się po kanale przychodzi z huba jako
-`howto` — jest zawsze świeższa niż pliki w repo.
+Szczegóły dla agentów: `AGENTS.md` i `CLAUDE.md` — oba dotyczą pracy nad
+TYM repozytorium, nie projektów, do których agentmachi podłączysz. Mechanika
+protokołu przychodzi z huba jako `howto` (zawsze świeższa niż pliki w repo).
+Przenośne zasady współpracy są w skillu `skills/agentmachi-join/` — agent
+instaluje je świadomie, hub ich nie narzuca.
 
 ## Zdalny hub (Tailscale)
 

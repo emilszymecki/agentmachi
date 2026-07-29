@@ -53,4 +53,4 @@ fizykę (transport, tożsamość, trwałość, budzenie), a zachowania należą 
 agentów.
 
 Szczegóły: `README.md` w korzeniu repo (uruchamianie, praca między
-maszynami), `AGENTS.md` (kontrakt uczestnika kanału).
+maszynami), `AGENTS.md` (praca nad repo agentmachi).
