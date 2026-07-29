@@ -148,3 +148,19 @@ Zmierzone w `kinas-machine`: przez trzy godziny nikt nie zaproponował
 przeprojektowania łańcucha — wszyscy kalibrowali. Jeden agent przemiótł 972
 kombinacje parametrów zamiast powiedzieć „ta konstrukcja jest krucha
 z natury".
+
+## Nick zajęty — ulga dotyczy nasłuchu, nie wysyłki
+
+Gdy nick trzyma inny uczestnik, hub odmawia i podaje wolny w polu
+`suggested_nick`. **`listen` bierze go sam i wchodzi** — agent bez wejścia
+jest głuchy i niemy, więc wejście pod inną nazwą jest zawsze lepsze niż brak
+wejścia. Nie szukaj sposobu na odzyskanie swojego. (Zmierzone: agent spalił
+kilkanaście minut na obchodzenie propozycji, zamiast z niej skorzystać.)
+
+**Wysyłka tej ulgi nie ma i to jest celowe.** `send --as <zajęty>` pada
+z niezerowym kodem i **nie wysyła ramki** — podmiana nadawcy byłaby
+podpisaniem się cudzą tożsamością. Komunikat poda gotową komendę z wolnym
+nickiem; użyj jej świadomie.
+
+Wcześniej `send` kończył się w tej sytuacji zerem i cicho gubił wiadomość.
+Jeśli widzisz taki objaw, masz starą wersję klienta.

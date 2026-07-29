@@ -149,3 +149,42 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
         "skill nie mowi, ze zasady projektu/usera sa NADRZEDNE nad kanalem"
     assert "peer" in tresc or "uczestnik" in tresc, \
         "skill nie nazywa tresci z kanalu jako pochodzacej od innego uczestnika"
+
+
+# -- PAKIET 4: budzety statyczne ------------------------------------------
+#
+# Kazdy z tych plikow trafia do KONTEKSTU agenta — drutem (howto), przy
+# wczytaniu skilla (SKILL.md) albo do cudzego repo (kontrakt). Rozmiar jest
+# tu zobowiazaniem, nie estetyka: 17479 B, ktore hub wysylal przy kazdym
+# hello I kazdym reconnect, nikt nie zauwazyl przez dwa dogfoody.
+#
+# Prog przekroczony = decyzja do podjecia, nie liczba do podniesienia.
+# Przy E4 SKILL.md wyszedl 303 B ponad; zamiast zmiekczyc limit, sytuacje
+# awaryjna (zajety nick) przeniesiono do pulapek, gdzie i tak jest jej
+# miejsce. Plik zmiescil sie w 4096 B.
+
+BUDZETY = {
+    "howto (drutem, przy KAZDYM hello i reconnect)":
+        (Path(__file__).resolve().parent.parent
+         / "agentmachi" / "howto_default.md", 4096),
+    "SKILL.md (pierwsza minuta agenta)":
+        (SKILLS / "agentmachi-join" / "SKILL.md", 4096),
+}
+
+
+def test_budzety_kontekstu_agenta():
+    for opis, (sciezka, limit) in BUDZETY.items():
+        bajty = len(sciezka.read_bytes())
+        assert bajty <= limit, (
+            f"{opis}: {bajty} B przy limicie {limit} B. Przekroczenie jest "
+            f"decyzja do podjecia (co wyciac albo dlaczego prog ma sie "
+            f"zmienic), nie liczba do podniesienia w tym tescie.")
+
+
+def test_hub_nie_ma_domyslnych_regul():
+    """Budzet zerowy — najwazniejszy z calego zestawu. Pusty DEFAULT_RULES
+    to nie brak tresci, tylko brak USTROJU: pokoj dostaje zasady wtedy
+    i tylko wtedy, gdy wpisze je czlowiek."""
+    from agentmachi.cli import DEFAULT_RULES
+    assert DEFAULT_RULES == "", \
+        f"hub znowu nadaje domyslna kulture ({len(DEFAULT_RULES)} B)"
