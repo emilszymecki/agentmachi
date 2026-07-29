@@ -997,3 +997,34 @@ def test_howto_niesie_mechanike_a_nie_kulture_pracy():
                 "deklaruj zakres", "review"]
     trafienia = [s for s in zakazane if s.lower() in niski]
     assert not trafienia, f"howto uczy kultury pracy, nie protokolu: {trafienia}"
+
+
+def test_howto_nie_przeczy_kodowi():
+    """E2.1 — howto to jedyna instrukcja, jaka dostaje agent na golym
+    sockecie. Gdy klamie, nie ma sie z czym skonfrontowac.
+
+    Dwa miejsca zglosil drugi agent przy review E2:
+
+    1. howto twierdzilo, ze CHAT_NICK jest OBOWIAZKOWY, a cli.py wprost
+       wspiera wejscie bez nicka (hub nadaje agentN) — i ten sam howto
+       kilkanascie linii nizej mowil o trybie otwartym. Dokument przeczyl
+       samemu sobie, wiec agent i tak musial zgadywac.
+    2. howto opisywalo `status` jako tekst do 32 znakow. Tekstem jest samo
+       pole `state`; `status` na boardzie to obiekt {state, subject?, note?}
+       — strukture te zlapal test node'a, a howto nadal uczylo inaczej."""
+    from pathlib import Path as _P
+    howto = (_P(cli.__file__).with_name("howto_default.md")).read_text()
+    niski = howto.lower()
+
+    assert "opcjonalny" in niski, \
+        "howto nie mowi, ze mozna wejsc bez nicka (a `listen` na to pozwala)"
+    assert "jest obowiązkowy" not in niski and "jest obowiazkowy" not in niski, \
+        "howto nadal twierdzi, ze nick jest wymagany"
+    assert "node" in niski and "stabiln" in niski, \
+        "howto nie odroznia `listen` (nick opcjonalny) od `node` (wymaga nicka)"
+
+    assert '"state"' in howto or "`state`" in howto, \
+        "howto nie nazywa pola `state`"
+    assert "obiekt" in niski, "howto nie mowi, ze `status` jest strukturą"
+    assert "status` to dowolny\ntekst" not in howto, \
+        "howto nadal opisuje `status` jako plaski tekst"

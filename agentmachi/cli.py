@@ -8,7 +8,8 @@ Uklad ~/.agentmachi/<name>/:
   tokens.json  (0600)  nick -> {token, role, groups}
   config.json          {port, bind}
   data/                event-log + snapshot huba (chat.store)
-  data/rules.md        konstytucja kanalu (edytuje human, plikiem)
+  data/rules.md        opcjonalne ograniczenia pokoju (pusty = brak;
+                       wpisuje human, plikiem)
 """
 import argparse
 import asyncio
@@ -998,7 +999,7 @@ def cmd_node(args):
 def _build_parser():
     parser = argparse.ArgumentParser(
         prog="agentmachi",
-        description="serwer Hamachi dla agentow — hub czatu i taskow")
+        description="serwer Hamachi dla agentow — wspolna przestrzen rozmowy")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("serve", help="odpal hub (tworzy ~/.agentmachi/<name>)")

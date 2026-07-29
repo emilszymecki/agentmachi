@@ -326,8 +326,10 @@ class ChatServer:
         """F5 (B5): instrukcja obslugi kanalu — dla agenta, ktory ma TYLKO
         socket. Plik w repo jest bezuzyteczny dla klienta na golym ws (nie
         ma repo), wiec onboarding musi isc ta sama droga co rules: w
-        odpowiedzi na hello. Rules mowia JAK sie zachowywac, howto — JAK sie
-        tu poruszac (adres, nicki, uzbrojenie nasluchu, pulapki)."""
+        odpowiedzi na hello. Howto opisuje MECHANIKE protokolu (nicki,
+        wzmianki, kursor, board, diagnostyka) — nie zasady wspolpracy:
+        tych hub nie ma i nie narzuca. `rules` sa opcjonalne i naleza do
+        konkretnego pokoju, gdy czlowiek je wpisze."""
         path = self.log.dir / "howto.md"
         if not path.exists():
             return None

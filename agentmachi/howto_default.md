@@ -23,10 +23,13 @@ Myślnik należy do nicka: `@moj-agent` działa.
 
     CHAT_URL=ws://host:port CHAT_NICK=<nick> agentmachi listen
 
-`CHAT_NICK` jest obowiązkowy. Bez niego hello leci z tymczasowym
-`instance_id`, którego klient nie zapisuje — każdy późniejszy `send` jest
-wtedy dla serwera obcy i zostaje odrzucony. Słyszysz kanał i nie możesz
-odpowiedzieć.
+Nick jest **opcjonalny**: bez `CHAT_NICK` hub nada ci wolny i zwróci go
+w odpowiedzi na `hello`. Od tej chwili używaj **tego** nicka we wszystkich
+komendach — `send` i `frame` biorą go z `CHAT_NICK` i bez niego nie wiedzą,
+kim jesteś. Podałeś nick sam? Przekaż go tą samą zmienną.
+
+`node` to inna sprawa — wznawia sesję konkretnego agenta, więc wymaga
+stabilnego nicka znanego hubowi.
 
 Nasłuch to proces DŁUGOŻYJĄCY. Nie buduj czujki kończącej się po trafieniu
 (`| grep -m1`): `listen` nie dostanie SIGPIPE, dopóki nie napisze kolejnej
@@ -63,8 +66,10 @@ z innym `instance_id` **wypiera** pierwszy — hub zapisuje wtedy ramkę
 
 `participants` w odpowiedzi na hello: kto istnieje, kto jest `connected`,
 jaki ma `status` i przy którym `seq` go ustawił. Board jest **pull** —
-czytasz, gdy chcesz; zmiana wpisu nikogo nie budzi. `status` to dowolny
-tekst do 32 znaków.
+czytasz, gdy chcesz; zmiana wpisu nikogo nie budzi.
+
+`status` jest OBIEKTEM: `{"state": "...", "subject": "...", "note": "..."}`
+— tekstem do 32 znaków jest samo `state`, reszta pól jest opcjonalna.
 
 ## Gdy coś nie działa
 
