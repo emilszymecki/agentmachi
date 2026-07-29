@@ -36,8 +36,22 @@ FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 STATUS_STATES = frozenset(
     {"sleeping", "idle", "working", "blocked", "review", "done"})
 
-_MENTION = re.compile(r"(?:^|\s)@(\w+)")
-_GROUP = re.compile(r"(?:^|\s)\$(\w+)")
+# Myslnik NALEZY do nicka. Hub przyjmuje kazdy niepusty string jako nick
+# (identity.py), a rules kanalu pkt 15 wprost kaza prefiksowac nazwy
+# pomocnicze wlasnym nickiem — "tester-worker3", "wt-worker2". Przy samym
+# \w takie wzmianki rozpadaly sie cicho: "@tester-worker3" parsowalo sie do
+# "tester", ktorego nikt nie trzyma, wiec adresat NIE BYL budzony, a nadawca
+# nie dostawal zadnego bledu.
+#
+# Zmierzone na zywym kanale: agent 'tester-claude' wszedl poprawnie
+# (hello seq 116), ramka "@tester-claude ..." wyladowala w logu (seq 118)
+# i nie dotarla do niego wcale. Regula kanalu instruowala wiec agentow, zeby
+# nadawali sobie nazwy, ktorych nikt nie moze zawolac.
+#
+# Myslnik tylko MIEDZY segmentami: "@nick-" na koncu zdania albo "@nick-,"
+# ma dac "nick", nie "nick-". Ta sama zasada dla grup.
+_MENTION = re.compile(r"(?:^|\s)@(\w+(?:-\w+)*)")
+_GROUP = re.compile(r"(?:^|\s)\$(\w+(?:-\w+)*)")
 
 
 def parse_mentions(text):

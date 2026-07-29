@@ -10,6 +10,27 @@ def test_parse_mentions():
     assert protocol.parse_mentions("mail x@y.z to nie wzmianka") == set()
 
 
+def test_myslnik_nalezy_do_nicka_i_do_grupy():
+    """Hub przyjmuje kazdy niepusty string jako nick, a rules kanalu pkt 15
+    WPROST kaza prefiksowac nazwy pomocnicze wlasnym nickiem ("tester-worker3",
+    "wt-worker2"). Przy samym \\w takie wzmianki rozpadaly sie CICHO:
+    "@tester-worker3" dawalo "tester", ktorego nikt nie trzyma — adresat nie
+    byl budzony, a nadawca nie dostawal bledu.
+
+    Zmierzone na zywym kanale: 'tester-claude' wszedl poprawnie (hello
+    seq 116), ramka "@tester-claude ..." trafila do logu (seq 118) i nie
+    dotarla do niego wcale. Regula instruowala agentow, zeby brali nazwy,
+    ktorych nikt nie moze zawolac."""
+    assert protocol.parse_mentions("@tester-claude czesc") == {"tester-claude"}
+    assert protocol.parse_mentions("@a-b-c x") == {"a-b-c"}
+    assert protocol.parse_groups("$my-group x") == {"my-group"}
+    # myslnik tylko MIEDZY segmentami — interpunkcja nie moze wejsc do nicka
+    assert protocol.parse_mentions("@nick- koniec") == {"nick"}
+    assert protocol.parse_mentions("@tester-claude, przecinek") == {"tester-claude"}
+    # i nadal zaden adres e-mail nie jest wzmianka
+    assert protocol.parse_mentions("pisz na a@nie-wzmianka.pl") == set()
+
+
 def test_parse_groups():
     assert protocol.parse_groups("hej $workers i $review, reszta nie") == {"workers", "review"}
     assert protocol.parse_groups("bez grup") == set()
