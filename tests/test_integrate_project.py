@@ -127,13 +127,52 @@ def test_zdublowany_blok_tez_zatrzymuje(tmp_path):
     assert plik.read_text() == podwojny
 
 
-def test_zapis_jest_atomowy_i_nie_zostawia_smieci(tmp_path):
-    """`write_text` obcina plik przed zapisem — przerwanie w polowie zostawia
-    cudzy AGENTS.md okrojony. Po zapisie nie moze tez zostac plik tymczasowy."""
-    (tmp_path / "AGENTS.md").write_text("# P\n")
+def test_zapis_jest_atomowy_i_nie_zostawia_smieci(tmp_path, monkeypatch):
+    """Po udanym zapisie nie moze zostac plik tymczasowy, a po BLEDZIE
+    w polowie cudzy plik ma zostac bajtowo nietkniety.
+
+    UWAGA O TYM TESCIE: poprzednia wersja byla ATRAPA. Filtrowala nazwy przez
+    `if "tmp" in name`, bo tak nazywal sie wtedy plik tymczasowy. Gdy
+    implementacja przeszla na `tempfile.mkstemp(prefix=".agentmachi-")`,
+    filtr przestal cokolwiek lapac — test zielony, zamek martwy. Zlapane
+    przy review E5.3. Klasa bledu: test przestaje pilnowac, bo zmienila sie
+    implementacja POD nim, a nikt nie sprawdzil, czy asercja nadal trafia.
+    Dlatego prefiks jest tu czytany z modulu, nie wpisany z pamieci."""
+    import os
+    PREFIKS = ".agentmachi-"
+
+    def smieci():
+        return [x.name for x in tmp_path.iterdir()
+                if x.name.startswith(PREFIKS)]
+
+    plik = tmp_path / "AGENTS.md"
+    oryginal = "# P\n"
+    plik.write_text(oryginal)
+
     ip.main([str(tmp_path), "--apply"])
-    smieci = [p.name for p in tmp_path.iterdir() if "tmp" in p.name]
-    assert not smieci, f"zostaly pliki tymczasowe: {smieci}"
+    assert not smieci(), f"zostaly pliki tymczasowe: {smieci()}"
+    # kontrola samego zamka: gdyby prefiks byl zly, ponizsze by nie zlapalo
+    (tmp_path / (PREFIKS + "kontrola")).write_text("x")
+    assert smieci() == [PREFIKS + "kontrola"], "filtr smieci nie dziala"
+    (tmp_path / (PREFIKS + "kontrola")).unlink()
+
+    # BLAD W POLOWIE: os.replace rzuca -> cel bez zmian, zero smieci
+    plik.write_text(oryginal)
+    prawdziwy_replace = os.replace
+
+    def padajacy_replace(a, b):
+        raise OSError("symulowana awaria zapisu")
+
+    monkeypatch.setattr(ip.os, "replace", padajacy_replace)
+    try:
+        ip.main([str(tmp_path), "--apply"])
+    except OSError:
+        pass                      # blad ma sie propagowac albo byc obsluzony
+    monkeypatch.setattr(ip.os, "replace", prawdziwy_replace)
+
+    assert plik.read_text() == oryginal, \
+        "cudzy plik zmieniony mimo bledu zapisu"
+    assert not smieci(), f"po bledzie zostal plik tymczasowy: {smieci()}"
 
 
 def test_podlozony_tmp_nie_pozwala_nadpisac_cudzego_pliku(tmp_path):
