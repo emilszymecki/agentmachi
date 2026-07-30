@@ -319,15 +319,22 @@ def test_app_renders_and_sends_chat(tmp_path):
             inp.focus()
             await pilot.pause()
             assert len(app.query(".panel")) == 3  # dokladnie trzy panele
-            # Input jest teraz wieloliniowy (MessageInput/TextArea): Enter
-            # wstawia nowa linie, wysylka jest jawna pod Ctrl+S. Stary
-            # kontrakt (jednoliniowy Input.value + Enter = wyslij) zostal
-            # swiadomie zastapiony — patrz MessageInput w tui.py.
+            # Input jest wieloliniowy (MessageInput/TextArea): Enter wstawia
+            # nowa linie, wysylka jest jawna pod Ctrl+Enter.
+            #
+            # DRUGA zmiana kontraktu w tym miejscu, obie swiadome:
+            #  1. jednoliniowy Input + Enter = wyslij  ->  TextArea + Ctrl+S,
+            #     bo Enter wysylal wpol napisana wiadomosc przy zawinieciu,
+            #  2. Ctrl+S -> Enter wysyla, Shift+Enter lamie linie (uklad jak
+            #     w Claude Code, decyzja operatora z zywego TUI). Ctrl+S to
+            #     historyczny XOFF i zamrazal terminal; Ctrl+Enter okazal sie
+            #     w Windows Terminal NIEODROZNIALNY od Entera. Szczegoly
+            #     kodowania klawiszy — BINDINGS w tui.py.
             inp.text = "czesc kanale"
-            await pilot.press("ctrl+s")
+            await pilot.press("enter")
             await pilot.pause()
             inp.text = "/groups beta head,admin"
-            await pilot.press("ctrl+s")
+            await pilot.press("enter")
             await pilot.pause()
     asyncio.run(scenario())
     assert sent == [
@@ -438,3 +445,166 @@ def test_run_retries_until_listener_lock_released(session, tmp_path, monkeypatch
         adapter._closing = True
         await asyncio.wait_for(task, timeout=5)
     asyncio.run(scenario())
+
+
+# --- historia wysylek (strzalki) ------------------------------------------
+
+def test_history_pick_pusta_historia_nie_dotyka_pola():
+    """None znaczy 'nie ma czego podstawic'. Gdyby zwracalo "", pierwsza
+    strzalka w gore na swiezym TUI czyscilaby to, co wlasnie piszesz."""
+    assert tui.history_pick([], 0, -1) == (0, None)
+    assert tui.history_pick([], 0, 1) == (0, None)
+
+
+def test_history_pick_w_gore_zatrzymuje_sie_na_najstarszym():
+    h = ["a", "b", "c"]
+    pos, tekst = tui.history_pick(h, 3, -1)
+    assert (pos, tekst) == (2, "c")
+    pos, tekst = tui.history_pick(h, pos, -1)
+    assert (pos, tekst) == (1, "b")
+    pos, tekst = tui.history_pick(h, pos, -1)
+    assert (pos, tekst) == (0, "a")
+    # NIE zawija: zawijanie gubi wpis, ktorego wlasnie szukasz
+    assert tui.history_pick(h, pos, -1) == (0, "a")
+
+
+def test_history_pick_w_dol_wraca_do_pustego_szkicu():
+    h = ["a", "b"]
+    assert tui.history_pick(h, 0, 1) == (1, "b")
+    assert tui.history_pick(h, 1, 1) == (2, "")
+    assert tui.history_pick(h, 2, 1) == (2, "")
+
+
+def test_message_input_remember_nie_dubluje_powtorzen():
+    inp = tui.MessageInput()
+    inp.remember("/stop")
+    inp.remember("/stop")
+    inp.remember("  /stop  ")
+    assert inp._history == ["/stop"]
+    inp.remember("czesc")
+    assert inp._history == ["/stop", "czesc"]
+
+
+def test_message_input_strzalka_w_gore_podstawia_ostatnia_wysylke():
+    inp = tui.MessageInput()
+    inp.remember("pierwsza")
+    inp.remember("druga")
+    inp.action_history_prev()
+    assert inp.text == "druga"
+    inp.action_history_prev()
+    assert inp.text == "pierwsza"
+
+
+def test_message_input_strzalka_nie_zjada_ruchu_w_wieloliniowym():
+    """Powod, dla ktorego ten input jest TextArea, to wklejanie i komponowanie
+    w wielu liniach. Historia MUSI wchodzic wylacznie z brzegu — inaczej
+    poprawka w drugiej linii wklejonego bloku przestaje byc mozliwa."""
+    inp = tui.MessageInput()
+    inp.remember("stara")
+    inp.text = "linia1\nlinia2"
+    inp.move_cursor((1, 0))
+    inp.action_history_prev()          # ma ruszyc KURSOR, nie podstawic
+    assert inp.text == "linia1\nlinia2"
+    assert inp.cursor_location[0] == 0
+    inp.action_history_prev()          # z pierwszej linii juz historia
+    assert inp.text == "stara"
+
+
+# --- komendy lokalne operatora --------------------------------------------
+
+def test_parse_stop_i_reset_sa_lokalne():
+    """Zatrzymanie huba NIE jest ramka protokolu — to domena czlowieka przy
+    maszynie. Gdyby szlo drutem, kazdy uczestnik moglby ubic pokoj."""
+    assert parse_user_input("/stop") == {"type": "local", "action": "stop"}
+    assert parse_user_input("/reset-kursor") == {"type": "local",
+                                                 "action": "reset-kursor"}
+
+
+@pytest.mark.parametrize("bad", ["/stop teraz", "/reset-kursor x"])
+def test_parse_lokalne_odrzucaja_argumenty(bad):
+    with pytest.raises(TuiError):
+        parse_user_input(bad)
+
+
+def test_wszystkie_klawisze_wysylki_dzialaja_a_enter_zostaje_nowa_linia():
+    """Regresja zgloszona z ZYWEGO TUI: Ctrl+Enter nie wysylal wcale.
+
+    Binding nazywal sie `ctrl+enter` i dzialal wylacznie w terminalach
+    z protokolem kitty/CSI-u. Reszta wysyla dla tego skrotu goly LF, ktory
+    w Textualu jest ODREBNYM klawiszem `ctrl+j` — nie wpadal wiec ani
+    w zaden binding, ani w insert TextArea. Po prostu ginal.
+
+    Test jest tani i rozstrzygajacy dokladnie dlatego, ze pilot wstrzykuje
+    klawisz z pominieciem terminala: sprawdza KONTRAKT widgetu, a nie
+    zdolnosci emulatora, na ktorym akurat chodzi suita."""
+    from textual.app import App, ComposeResult
+
+    class _Probe(App):
+        def __init__(self):
+            super().__init__()
+            self.wyslane = []
+
+        def compose(self) -> ComposeResult:
+            yield tui.MessageInput(id="i")
+
+        def on_message_input_submitted(self, event):
+            self.wyslane.append(event.text)
+
+    async def scenario():
+        app = _Probe()
+        async with app.run_test() as pilot:
+            inp = app.query_one("#i", tui.MessageInput)
+            inp.focus()
+            # ENTER WYSYLA. Bez priority=True binding nie odpala wcale —
+            # `_on_key` TextArei polyka Enter przed rozwiazaniem bindingow
+            # i zamiast wysylki dostajesz "\n" w polu.
+            inp.text = "tresc"
+            przed = len(app.wyslane)
+            await pilot.press("enter")
+            assert len(app.wyslane) > przed, "Enter NIE wyslal"
+            assert "\n" not in inp.text, "Enter wstawil znak zamiast wyslac"
+
+            # NOWA LINIA: jeden klawisz uzytkownika (Shift+Enter), trzy nazwy.
+            # `ctrl+j` to droga, ktora realnie dziala w Windows Terminal/WSL;
+            # `shift+enter` — terminale kitty; `ctrl+o` — bezpiecznik dla
+            # terminali, ktore Shift+Enter wysylaja identycznie jak Enter.
+            for klawisz in ("ctrl+j", "shift+enter", "ctrl+o"):
+                inp.text = "tresc"
+                przed = len(app.wyslane)
+                await pilot.press(klawisz)
+                assert len(app.wyslane) == przed, f"{klawisz} wyslal zamiast lamac"
+                assert "\n" in inp.text, f"{klawisz} NIE zlamal linii"
+
+            # Ctrl+S usuniety na zyczenie operatora: historyczny XOFF, przy
+            # wlaczonym flow control zamrazal terminal. Gdyby ktos przywrocil
+            # go "dla wygody", ten test padnie.
+            inp.text = "tresc"
+            przed = len(app.wyslane)
+            await pilot.press("ctrl+s")
+            assert len(app.wyslane) == przed, "Ctrl+S wysyla, a mial zniknac"
+    asyncio.run(scenario())
+
+
+def test_ctrl_q_wychodzi_takze_gdy_fokus_jest_w_inpucie():
+    """Fokus siedzi w TextArea przez wieksza czesc sesji, a widget ma
+    pierwszenstwo przed App. Bez `priority=True` skrot wyjscia dzialalby
+    tylko wtedy, gdy akurat NIE piszesz — czyli prawie nigdy."""
+    wiazania = {b.key: b for b in tui.AgentmachiApp.BINDINGS}
+    assert "ctrl+q" in wiazania, "brak wyjscia pod Ctrl+Q"
+    assert wiazania["ctrl+q"].action == "quit"
+    assert wiazania["ctrl+q"].priority is True, \
+        "bez priority TextArea polknie Ctrl+Q, gdy kursor jest w inpucie"
+
+
+def test_parse_kill_wymaga_nazwy_pokoju():
+    """`/kill` kasuje historie NA ZAWSZE, wiec potwierdzeniem jest NAZWA —
+    ta sama zasada co `--tak-kasuj` w CLI, z tego samego powodu: flage
+    dopisuje sie odruchowo, a nazwe trzeba przeczytac."""
+    assert parse_user_input("/kill sklep") == {
+        "type": "local", "action": "kill", "target": "sklep"}
+
+
+@pytest.mark.parametrize("bad", ["/kill", "/kill   ", "/kill a b"])
+def test_parse_kill_bez_nazwy_odrzucony(bad):
+    with pytest.raises(TuiError):
+        parse_user_input(bad)

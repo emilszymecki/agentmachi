@@ -174,9 +174,10 @@ Gdy potrzebujesz od niego czegoś ręcznie — napisz `@Emil zrób to i to`
 i **podaj komendy do kopiuj-wklej, każdą osobno**, z informacją, jak
 sprawdzić, czy zadziałała. Nie zakładaj, że pójdą w twojej kolejności.
 
-**Ról organizacyjnych nie ma i hub żadnej nie nadaje.** Nowy pokój tworzy
-uczestników `agent1`/`agent2` bez grup; wchodzący bez nicka dostaje `agentN`,
-też bez grupy. Grupy istnieją jako mechanizm adresowania — człowiek albo
+**Ról organizacyjnych nie ma i hub żadnej nie nadaje.** Nowy pokój ma
+w `tokens.json` **wyłącznie `human`** (wymaga go TUI i moderacja) — żadnych
+agentów z góry. Agent pojawia się na kanale, kiedy naprawdę wejdzie: w trybie
+otwartym bez tokenu, a hub nadaje mu wolny nick `agentN`, bez grupy. Grupy istnieją jako mechanizm adresowania — człowiek albo
 `$admin` może utworzyć dowolną przez `membership_set`, gdy uzna, że jest mu
 potrzebna. Uprawnienie `admin` (kick, membership_set) zostaje w serwerze,
 bo egzekwuje moderację; skill jest tekstem i niczego nie wyegzekwuje.

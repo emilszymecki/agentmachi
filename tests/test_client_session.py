@@ -164,3 +164,34 @@ def test_mode_0600_preserved_after_advance(tmp_path):
     s = make(tmp_path)
     s.advance(1)
     assert stat.S_IMODE(os.stat(s.path).st_mode) == 0o600
+
+
+def test_reset_cursor_zeruje_kursor_i_zachowuje_tozsamosc(tmp_path):
+    """Reset zapomina, CO przeczytalismy — nie to, KIM jestesmy. Gdyby
+    kasowal instance_id, kazdy reset wypieralby wlasny nasluch przy
+    nastepnym hello (nowy instance = takeover)."""
+    s = make(tmp_path)
+    tozsamosc = s.instance_id
+    s.advance(42)
+    s.mark_activation("akt-1")
+    assert s.reset_cursor() is True
+    assert s.last_applied_seq == 0
+    assert s.instance_id == tozsamosc
+    assert s.is_activation_applied("akt-1") is False
+    assert make(tmp_path).last_applied_seq == 0     # trwale, nie tylko w RAM
+
+
+def test_reset_cursor_pozwala_znowu_isc_od_zera(tmp_path):
+    """Bez tego reset bylby kosmetyka: advance jest monotoniczny, wiec gdyby
+    kursor zostal na dysku, ponowne wejscie dalej odrzucaloby stare seq."""
+    s = make(tmp_path)
+    s.advance(9)
+    s.reset_cursor()
+    assert s.advance(1) is True
+
+
+def test_reset_cursor_zachowuje_prawa_pliku(tmp_path):
+    s = make(tmp_path)
+    s.advance(3)
+    s.reset_cursor()
+    assert stat.S_IMODE(os.stat(s.path).st_mode) == 0o600

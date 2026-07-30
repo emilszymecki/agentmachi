@@ -24,6 +24,8 @@ import sys
 import time
 from pathlib import Path
 
+from chat.client_session import session_files
+
 DEFAULT_PORT = 8766
 DEFAULT_HUB = "hub"
 DEFAULT_BIND = "127.0.0.1"
@@ -141,18 +143,29 @@ def ensure_hub(name, port, bind="127.0.0.1"):
     os.chmod(d, 0o700)
     tokens_path = d / "tokens.json"
     if not tokens_path.exists():
+        # TYLKO human. Zadnych agentow z gory.
+        #
+        # `human` jest KONIECZNY: TUI wymaga dokladnie jednego humana
+        # w tokens.json, a tryb otwarty odmawia wejscia na te role bez tokenu
+        # (to jedyne konto z moderacja). Bez niego nie byloby czym moderowac.
+        #
+        # `agent1`/`agent2` wycietе. Poprzednia zmiana usunela z nich ustroj
+        # w NAZWACH (worker->agent) i w GRUPACH (koniec domyslnego `workers`),
+        # ale zostawila ETAT: swiezy pokoj twierdzil, ze ma dwoch uczestnikow,
+        # zanim ktokolwiek wszedl. `list` wypisywal ich w kolumnie uczestnikow,
+        # a board serwowal agentom jako `connected: false` — czyli kanal
+        # opowiadal o ludziach, ktorych nie ma. Zgloszone przez operatora:
+        # "na kanale powinni byc ci co sa, a nie ci co byc moze beda".
+        #
+        # Nic nie ginie: tryb otwarty (loopback/tailnet) wpuszcza agenta BEZ
+        # tokenu i sam nadaje mu wolny nick — `_wolny_nick()` na pustym pokoju
+        # zwraca dokladnie `agent1`, wiec karta moze go dalej proponowac.
+        # Do wejscia wymagajacego sekretu (bind publiczny, cudza maszyna)
+        # operator dopisuje wpis swiadomie — tak samo jak dzis musi to zrobic
+        # dla trzeciego i kazdego kolejnego agenta.
         tokens = {
             "human": {"token": secrets.token_urlsafe(16), "role": "human",
                       "groups": []},
-            # Nazwy NEUTRALNE i BRAK domyslnej grupy. "worker" niesie ustroj
-            # — mowi, ze uczestnik jest wykonawca czyjegos polecenia — a grupa
-            # nadana z gory tworzy klase, ktorej nikt nie zadeklarowal.
-            # Mechanizm grup zostaje w calosci; uzywa go operator, gdy sam
-            # zdecyduje, ze jakis adres zbiorczy jest mu potrzebny.
-            "agent1": {"token": secrets.token_urlsafe(16), "role": "agent",
-                       "groups": []},
-            "agent2": {"token": secrets.token_urlsafe(16), "role": "agent",
-                       "groups": []},
         }
         _write_0600(tokens_path, json.dumps(tokens, indent=2))
     rules_path = d / "data" / "rules.md"
@@ -453,8 +466,9 @@ czlowiek (TUI):
 agent dolacza (nasluch + wysylka; wklej agentowi jedno z ponizszych):
   AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=agent1 agentmachi listen
   AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send "@agent1 czesc" --as agent2
-  na zdalnej maszynie dodaj CHAT_TOKEN=<token z tokens.json> (hub nie
-  musi tam istniec lokalnie — patrz README: Node na zdalnej maszynie)
+  na loopbacku i w tailnecie token NIE jest potrzebny — hub nada wolny nick
+  sam. Dla bindu publicznego (0.0.0.0) albo maszyny spoza tailnetu dopisz
+  najpierw wpis do tokens.json i podaj CHAT_TOKEN=<ten token>
 
 zdanie dla agenta (skill join):
   "dolacz do agentmachi '{name}' ({addr}) jako agent1"
@@ -542,7 +556,13 @@ def cmd_list(args):
         print(f"brak kanalow w {hub_home()} — zaloz pierwszy: "
               f"agentmachi start --name <nazwa>")
         return 0
-    print(f"{'KANAL':<16} {'ADRES':<28} {'STAN':<24} UCZESTNICY")
+    # NIE "UCZESTNICY": ta kolumna czyta tokens.json, wiec pokazuje
+    # TOZSAMOSCI, ktore pokoj zna — nie ludzi i agentow, ktorzy sa w srodku.
+    # Swiezy pokoj wypisywal "agent1, agent2, human" i wygladal na zaludniony,
+    # zanim ktokolwiek wszedl (zgloszone przez operatora). `list` czyta sam
+    # dysk i celowo nie rusza sieci, wiec obecnosci nie zna i nie ma udawac,
+    # ze zna. Kto JEST na kanale, pokazuje TUI ("(nikt nie jest online)").
+    print(f"{'KANAL':<16} {'ADRES':<28} {'STAN':<24} TOZSAMOSCI (config)")
     for r in rows:
         addr = f"ws://{connect_host(r['bind'])}:{r['port']}"
         if not r["running"]:
@@ -625,22 +645,31 @@ def cmd_kill(args):
     return 0
 
 
-def cmd_stop(args):
-    pid = hub_pid(args.name)
+def stop_hub(name):
+    """Zatrzymaj hub `name`. Zwraca (udalo_sie, komunikat) i NIC nie drukuje.
+
+    Wydzielone z cmd_stop, zeby TUI zatrzymywalo pokoj TYM SAMYM kodem.
+    Druga implementacja obok tej rozjechalaby sie przy pierwszej zmianie
+    warunku bezpieczenstwa ponizej — a to on chroni przed ubiciem cudzego
+    procesu po recyklowanym PID-zie."""
+    pid = hub_pid(name)
     if pid is None:
-        print(f"agentmachi: hub {args.name!r} nie dziala", file=sys.stderr)
-        return 1
-    if not _pid_is_our_hub(pid, args.name):
+        return False, f"hub {name!r} nie dziala"
+    if not _pid_is_our_hub(pid, name):
         # Pidfile moze byc nieaktualny, a PID-y sa recyklowane przez system.
         # Lepiej odmowic i zostawic decyzje czlowiekowi niz ubic cudzy proces.
-        print(f"agentmachi: PID {pid} z hub.pid NIE wyglada na hub "
-              f"{args.name!r} (cmdline: {_cmdline_of(pid)!r}) — nie ubijam. "
-              f"Sprawdz sam i usun {hub_dir(args.name) / 'hub.pid'}",
-              file=sys.stderr)
-        return 1
+        return False, (f"PID {pid} z hub.pid NIE wyglada na hub {name!r} "
+                       f"(cmdline: {_cmdline_of(pid)!r}) — nie ubijam. "
+                       f"Sprawdz sam i usun {hub_dir(name) / 'hub.pid'}")
     os.kill(pid, signal.SIGTERM)
-    print(f"agentmachi: wyslano SIGTERM do huba {args.name!r} (PID {pid})")
-    return 0
+    return True, f"wyslano SIGTERM do huba {name!r} (PID {pid})"
+
+
+def cmd_stop(args):
+    ok, komunikat = stop_hub(args.name)
+    print(f"agentmachi: {komunikat}",
+          file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 1
 
 
 # --- cykl zycia dla operatora: start / stop / list / del ----------------
@@ -770,9 +799,12 @@ def cmd_start(args):
     (d / "hub.pid").write_text(str(pid))
     tokens = json.loads((d / "tokens.json").read_text())
     print_card(args.name, port, tokens, bind=bind)
+    # NIE "kto jest w srodku: list". `list` czyta sam dysk i zna wylacznie
+    # tozsamosci z configu — obecnosc widzi tylko TUI, ktore trzyma polaczenie.
     print(f"pokoj dziala w tle (PID {pid}), log: {log_path}\n"
-          f"  kto jest w srodku:  agentmachi list\n"
-          f"  zatrzymac:          agentmachi stop --name {args.name}")
+          f"  kto JEST na kanale:  agentmachi tui --name {args.name}\n"
+          f"  jakie pokoje sa:     agentmachi list\n"
+          f"  zatrzymac:           agentmachi stop --name {args.name}")
     return 0
 
 
@@ -805,26 +837,94 @@ def cmd_restart(args):
     return cmd_start(args)
 
 
+def wait_until_down(pid, timeout=STOP_WAIT):
+    """Czekaj, az proces `pid` zniknie. True = zszedl, False = wisi.
+
+    Wydzielone z cmd_restart, bo `/kill` w TUI potrzebuje dokladnie tego
+    samego: skasowanie katalogu pod zywym hubem zostawiloby proces bez
+    danych, piszacy do nieistniejacej sciezki."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _cmdline_of(pid) is None:
+            return True
+        time.sleep(0.2)
+    return _cmdline_of(pid) is None
+
+
+def _nicki_pokoju(name):
+    """Kazdy nick, ktory ten pokoj zna: z tokens.json ORAZ ze snapshotu
+    rejestru (czyli takze ci, ktorzy weszli bez tokenu i nigdy nie byli
+    w pliku). Uzywane WYLACZNIE do sprzatania kursorow przy kasowaniu."""
+    d = hub_dir(name)
+    nicki = set()
+    try:
+        nicki |= set(json.loads((d / "tokens.json").read_text()))
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    try:
+        stan = json.loads((d / "data" / "snapshot.json").read_text())
+        gen = stan.get("state", {}).get("registry", {}).get("gen", {})
+        if isinstance(gen, dict):
+            nicki |= {n for n in gen if isinstance(n, str) and n}
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    return nicki
+
+
+def purge_cursors(name):
+    """Skasuj kursory klientow tego pokoju. Zwraca liczbe usunietych plikow.
+
+    Kursor klienta jest per host:port, a port po skasowanym pokoju wraca do
+    puli — wiec kursor, ktory przezyl swoj log, trafia na NASTEPNY hub pod
+    tym adresem i wywala go komunikatem "last_seq N > serwerowy last_seq 0".
+    Zmierzone dwa razy: raz na zywym pokoju 2026-07-26, raz przez operatora
+    przy pierwszym uruchomieniu po sprzataniu.
+
+    Wolane z delete_hub PRZED rmtree — po nim nie ma juz skad wziac nickow."""
+    hub = f"{connect_host(hub_bind(name))}:{hub_port(name)}"
+    usuniete = 0
+    for nick in _nicki_pokoju(name):
+        for sciezka in session_files(hub, nick):
+            try:
+                sciezka.unlink()
+                usuniete += 1
+            except OSError:
+                pass          # nie ma / cudze prawa — sprzatanie jest best-effort
+    return usuniete
+
+
+def delete_hub(name, confirm):
+    """Skasuj pokoj NA ZAWSZE. Zwraca (udalo_sie, komunikat), nic nie drukuje.
+
+    Potwierdzeniem jest POWTORZONA NAZWA, nie flaga `--force`/`--yes`: flage
+    dopisuje sie odruchowo, a nazwe trzeba przeczytac. Kolejnosc kontroli
+    (istnieje -> dziala -> potwierdzenie) jest zachowana z cmd_del, bo od niej
+    zalezy, ktory blad czlowiek zobaczy najpierw."""
+    d = hub_dir(name)
+    if not d.exists():
+        return False, f"pokoj {name!r} nie istnieje"
+    running = hub_pid(name)
+    if running is not None and _pid_is_our_hub(running, name):
+        return False, (f"pokoj {name!r} DZIALA (PID {running}) — "
+                       f"najpierw: agentmachi stop --name {name}")
+    if confirm != name:
+        return False, (f"to skasuje pokoj {name!r} NA ZAWSZE "
+                       f"(tokeny, rules, howto, cala historia rozmowy).\n"
+                       f"  jesli na pewno:  agentmachi del --name {name} "
+                       f"--tak-kasuj {name}")
+    # Kursory PRZED rmtree — potem nie ma juz skad wziac nickow pokoju.
+    kursory = purge_cursors(name)
+    shutil.rmtree(d)
+    ogon = f" (+ {kursory} plikow kursora)" if kursory else ""
+    return True, f"pokoj {name!r} skasowany{ogon}"
+
+
 def cmd_del(args):
     """Skasuj pokoj. Nieodwracalne: znikaja tokeny, rules, howto i log."""
-    d = hub_dir(args.name)
-    if not d.exists():
-        print(f"agentmachi: pokoj {args.name!r} nie istnieje", file=sys.stderr)
-        return 1
-    running = hub_pid(args.name)
-    if running is not None and _pid_is_our_hub(running, args.name):
-        print(f"agentmachi: pokoj {args.name!r} DZIALA (PID {running}) — "
-              f"najpierw: agentmachi stop --name {args.name}", file=sys.stderr)
-        return 1
-    if args.confirm != args.name:
-        print(f"agentmachi: to skasuje pokoj {args.name!r} NA ZAWSZE "
-              f"(tokeny, rules, howto, cala historia rozmowy).\n"
-              f"  jesli na pewno:  agentmachi del --name {args.name} "
-              f"--tak-kasuj {args.name}", file=sys.stderr)
-        return 1
-    shutil.rmtree(d)
-    print(f"agentmachi: pokoj {args.name!r} skasowany")
-    return 0
+    ok, komunikat = delete_hub(args.name, args.confirm)
+    print(f"agentmachi: {komunikat}",
+          file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 1
 
 
 def cmd_card(args):
@@ -845,6 +945,11 @@ def _tui_env(name):
         raise CliError(f"hub {name!r} nie istnieje; najpierw: "
                        f"agentmachi start --name {name}")
     os.environ["AGENTMACHI_TOKENS"] = str(tokens_path)
+    # TUI musi wiedziec, KTORYM pokojem jest — inaczej nie ma czego
+    # zatrzymac. Adres (CHAT_URL) nie wystarcza: cykl zycia huba jest
+    # nazwany (start/stop/del biora --name), a `~/.agentmachi/<nazwa>/`
+    # jest jedynym miejscem z pidfile.
+    os.environ["AGENTMACHI_HUB"] = name
     port = hub_port(name)
     os.environ["CHAT_PORT"] = str(port)
     if not os.environ.get("CHAT_URL"):

@@ -120,13 +120,53 @@ def load_human_identity(path=TOKENS_PATH):
     return humans[0], roster
 
 
+def history_pick(history, pos, direction):
+    """Wybierz wpis z historii wysylek. Zwraca (nowy_pos, tekst albo None).
+
+    Kontrakt jak w powloce. `pos == len(history)` znaczy „nie przegladam,
+    jestem w swiezym szkicu". W gore cofa sie do najstarszego i TAM ZOSTAJE
+    (nie zawija — zawijanie gubi to, co wlasnie chciales znalezc); w dol
+    wraca do pustego szkicu. None = nie ma czego podstawic, nie dotykaj pola.
+    """
+    if not history:
+        return pos, None
+    if direction < 0:
+        nowy = max(0, min(pos, len(history)) - 1)
+        return nowy, history[nowy]
+    nowy = min(len(history), pos + 1)
+    if nowy >= len(history):
+        return len(history), ""
+    return nowy, history[nowy]
+
+
 def parse_user_input(value):
-    """Zamien pojedynczy input na minimalna ramke chat albo membership_set."""
+    """Zamien pojedynczy input na ramke do wyslania albo akcje lokalna.
+
+    Typ `local` NIE idzie na drut — to komendy operatora wykonywane po
+    stronie klienta (cykl zycia huba, kursor sesji). Rozdzielone jawnie,
+    zeby nikt nie dopisal ich kiedys do INBOUND_FRAME_TYPES: zatrzymanie
+    huba jest domena czlowieka przy maszynie, nie ramka w protokole.
+    """
     text = value.strip()
     if not text:
         raise TuiError("pusta wiadomosc")
     if not text.startswith("/"):
         return {"type": "chat", "text": text}
+    if text.split()[0] == "/stop":
+        if text.split() != ["/stop"]:
+            raise TuiError("uzycie: /stop (bez argumentow)")
+        return {"type": "local", "action": "stop"}
+    if text.split()[0] == "/kill":
+        czesci = text.split()
+        if len(czesci) != 2 or not czesci[1]:
+            raise TuiError(
+                "uzycie: /kill <nazwa-pokoju>. Potwierdzeniem jest NAZWA "
+                "(nie /force ani /tak), bo to kasuje cala historie NA ZAWSZE")
+        return {"type": "local", "action": "kill", "target": czesci[1]}
+    if text.split()[0] == "/reset-kursor":
+        if text.split() != ["/reset-kursor"]:
+            raise TuiError("uzycie: /reset-kursor (bez argumentow)")
+        return {"type": "local", "action": "reset-kursor"}
     if text.startswith("/kick"):
         # B6: wyrzucenie uczestnika. Uprawnienie WYLACZNIE humana — serwer
         # i tak to egzekwuje, ale nie udajemy tu, ze to zwykla komenda.
@@ -136,7 +176,7 @@ def parse_user_input(value):
         return {"type": "kick", "target": parts[1]}
     if not text.startswith("/groups"):
         raise TuiError("nieznana komenda; dostepne: /groups <nick> <g1,g2>, "
-                       "/kick <nick>")
+                       "/kick <nick>, /stop, /kill <pokoj>, /reset-kursor")
     parts = text.split(maxsplit=2)
     if len(parts) != 3 or parts[0] != "/groups":
         raise TuiError("uzycie: /groups <nick> <g1,g2>; '-' usuwa wszystkie")
@@ -345,20 +385,55 @@ class MessageInput(TextArea):
     """Wieloliniowy input operatora (czat + komendy slash).
 
     TextArea zamiast jednoliniowego Input: Emil moze wkleic tekst z
-    newline'ami i komponowac w wielu liniach. Enter wstawia nowa linie
-    (kontrakt TextArea), a wysylka jest JAWNA pod Ctrl+S — inaczej Enter
-    wysylalby wpol-napisana wiadomosc przy pierwszym zawinieciu. Emituje
-    wlasna ramke Submitted z pelnym tekstem, zeby App nie znala szczegolow
-    edytora (ta sama sciezka wysylki co dawny Input.Submitted)."""
+    newline'ami i komponowac w wielu liniach. Uklad klawiszy jak w Claude
+    Code — Enter wysyla, Shift+Enter lamie linie. Emituje wlasna ramke
+    Submitted z pelnym tekstem, zeby App nie znala szczegolow edytora
+    (ta sama sciezka wysylki co dawny Input.Submitted)."""
 
-    # Ctrl+S jest nieprintowalny i spoza insert_values TextArea, wiec jej
-    # _on_key go nie polyka i binding odpala normalnie. Ctrl+Enter to bonus
-    # dla terminali z protokolem kitty; tam gdzie go nie ma, klawisz wchodzi
-    # po prostu jako Enter (nowa linia) i nic sie nie psuje.
+    # UKLAD JAK W CLAUDE CODE: Enter wysyla, Shift+Enter lamie linie.
+    #
+    # `enter` MUSI miec priority=True. Bez tego binding nie odpala WCALE:
+    # Enter jest w insert_values TextArei, wiec jej `_on_key` polyka go przed
+    # rozwiazaniem bindingow (zmierzone sonda przez pilot: submit=0, w polu
+    # ladowal "\n"). Priorytet odwraca kolejnosc i znak nie jest wstawiany.
+    #
+    # NOWA LINIA ma trzy nazwy, bo to jeden klawisz kodowany roznie:
+    #   `ctrl+j`     — goly LF (\n). W Textualu ODREBNY klawisz (alias
+    #                  `newline`), bo Enter to CR (\r) = `enter`/`ctrl+m`
+    #                  (patrz keys.KEY_ALIASES). Tu trafia Shift+Enter
+    #                  w Windows Terminal / WSL — ZMIERZONE na zywym TUI.
+    #   `shift+enter`— terminale z protokolem kitty/CSI-u (kitty, WezTerm,
+    #                  foot, Ghostty) nazywaja go wprost.
+    #   `ctrl+o`     — bezpiecznik. Sa terminale, ktore Shift+Enter wysylaja
+    #                  bajt w bajt jak Enter; tam OBIE powyzsze drogi znikaja
+    #                  i bez trzeciej nie dalo by sie napisac drugiej linii
+    #                  w ogole. Ctrl+O jest nieprintowalny i wolny w TextArea.
+    #
+    # Dlaczego Enter=wysylka jest tu BEZPIECZNE mimo wieloliniowosci:
+    # wklejanie idzie przez `TextArea._on_paste` (bracketed paste), czyli
+    # jednym zdarzeniem Paste, a NIE seria Enterow. Wklejenie trzydziestu
+    # linii wstawia trzydziesci linii i nie wysyla niczego.
+    #
+    # Ctrl+S usuniety swiadomie: to historyczny XOFF (programowe wstrzymanie
+    # terminala) — przy wlaczonym flow control zamrazalby ekran zamiast wyslac.
+    #
+    # Gora/dol: historia wysylek, ale DOPIERO z brzegu tekstu. W srodku
+    # wieloliniowego wpisu strzalki musza ruszac kursor — inaczej wklejenie
+    # trzech linii i poprawka w drugiej przestaje byc mozliwe, a to jest
+    # powod, dla ktorego ten input w ogole jest TextArea.
     BINDINGS = [
-        Binding("ctrl+s", "submit", "wyslij", show=False),
-        Binding("ctrl+enter", "submit", "wyslij", show=False),
+        Binding("enter", "submit", "wyslij", show=False, priority=True),
+        Binding("ctrl+j", "newline", "nowa linia", show=False),
+        Binding("shift+enter", "newline", "nowa linia", show=False),
+        Binding("ctrl+o", "newline", "nowa linia", show=False),
+        Binding("up", "history_prev", "poprzednia", show=False),
+        Binding("down", "history_next", "nastepna", show=False),
     ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._history = []
+        self._history_pos = 0
 
     class Submitted(Message):
         """Operator zatwierdzil tekst (Ctrl+S) — do wyslania na hub."""
@@ -369,12 +444,65 @@ class MessageInput(TextArea):
             super().__init__()
 
     def action_submit(self) -> None:
+        # Straz na fokusie, bo `enter` jest bindingiem PRIORYTETOWYM, a
+        # priorytet jest rozwiazywany PRZED fokusem. Bez niej Enter wcisniety
+        # przy zaznaczonym innym panelu wysylalby zawartosc pola.
+        if not self.has_focus:
+            return
         self.post_message(self.Submitted(self, self.text))
+
+    def action_newline(self) -> None:
+        if not self.has_focus:
+            return
+        self.insert("\n")
+
+    def remember(self, text) -> None:
+        """Zapamietaj wyslany tekst i wroc na koniec historii.
+
+        Powtorzenie tej samej tresci pod rzad NIE dubluje wpisu — inaczej
+        trzy razy wyslane `/stop` wymagaja trzech nacisniec, zeby przewinac
+        sie za nie."""
+        text = (text or "").strip()
+        if text and (not self._history or self._history[-1] != text):
+            self._history.append(text)
+        self._history_pos = len(self._history)
+
+    def action_history_prev(self) -> None:
+        row, _ = self.cursor_location
+        if row > 0:
+            self.action_cursor_up()
+            return
+        self._history_step(-1)
+
+    def action_history_next(self) -> None:
+        if self.cursor_location[0] < self.document.line_count - 1:
+            self.action_cursor_down()
+            return
+        self._history_step(1)
+
+    def _history_step(self, direction) -> None:
+        pos, tekst = history_pick(self._history, self._history_pos, direction)
+        self._history_pos = pos
+        if tekst is None:
+            return
+        self.text = tekst
+        self.move_cursor(self.document.end)
 
 
 class AgentmachiApp(App):
     TITLE = "agentmachi"
     SUB_TITLE = "human operator"
+    BINDINGS = [
+        # Rules to zwykle kilka zdan albo nic (swiezy pokoj ma je puste),
+        # a zabieraja stala kolumne. Chowanie oddaje szerokosc czatowi —
+        # Horizontal przelicza `fr` sam, gdy panel znika.
+        Binding("ctrl+r", "toggle_rules", "rules on/off", show=False),
+        # Wyjscie pod Ctrl+Q obok wbudowanego Ctrl+C. `priority=True`, bo
+        # fokus siedzi w TextArea przez wieksza czesc sesji, a widget ma
+        # pierwszenstwo przed App — bez tego skrot dzialalby tylko wtedy,
+        # gdy akurat nie piszesz.
+        Binding("ctrl+q", "quit", "wyjscie", show=False, priority=True),
+    ]
     CSS = """
     Screen {
         background: $surface;
@@ -434,13 +562,15 @@ class AgentmachiApp(App):
                               auto_scroll=True)
                 yield MessageInput(
                     id="message-input",
-                    placeholder="wiadomosc lub /groups <nick> <g1,g2> — "
-                                "Ctrl+S wysyla, Enter = nowa linia")
+                    placeholder="wiadomosc lub /stop /kick /groups — "
+                                "Enter wysyla, Shift+Enter = nowa linia, "
+                                "strzalki = historia, Ctrl+Q wyjscie")
             with VerticalScroll(id="participants-panel", classes="panel"):
                 yield Label("Uczestnicy / grupy", classes="panel-title")
                 yield Static("", id="participants")
             with VerticalScroll(id="rules-panel", classes="panel"):
-                yield Label("Rules / stan", classes="panel-title")
+                yield Label("Rules / stan  (Ctrl+R chowa)",
+                            classes="panel-title")
                 yield Static("laczenie...", id="connection-status")
                 yield Static("", id="rules-hash")
                 yield Static("", id="rules")
@@ -673,16 +803,121 @@ class AgentmachiApp(App):
             group for group in groups if isinstance(group, str) and group]
         self._render_participants()
 
+    def action_toggle_rules(self) -> None:
+        panel = self.query_one("#rules-panel")
+        panel.display = not panel.display
+
+    async def _stop_hub(self):
+        """Zatrzymaj WLASNY pokoj. Agentow nie ubijamy pojedynczo — hub
+        zamyka sockety przy zejsciu, a ich klienty same wchodza w backoff.
+        Jedna akcja, nie lista uczestnikow do odklikania."""
+        name = os.environ.get("AGENTMACHI_HUB")
+        if not name:
+            self._log("client",
+                      "nie wiem, ktorym pokojem jestem (brak AGENTMACHI_HUB) "
+                      "— uruchom TUI przez `agentmachi tui --name <pokoj>`",
+                      style="bold red")
+            return
+        # Lazy: agentmachi.cli importuje tui w cmd_tui, wiec import na
+        # poziomie modulu zamknalby cykl.
+        from agentmachi.cli import stop_hub
+        ok, komunikat = stop_hub(name)
+        self._log("server" if ok else "client", komunikat,
+                  style="bold yellow" if ok else "bold red")
+        if ok:
+            self._log("client",
+                      "agenci rozlaczaja sie sami i wchodza w backoff. "
+                      "Historia i tokeny ZOSTAJA — `agentmachi start --name "
+                      f"{name}` wraca do tego samego logu i tych samych "
+                      "kursorow (zaden nie wymaga resetu).", style="dim")
+
+    def _reset_cursor(self):
+        """Ostatnia deska: kursor z poprzedniego huba na tym samym porcie.
+        Zdarza sie po `del` + `start`, nie po `stop` + `start`."""
+        try:
+            self.adapter.session.reset_cursor()
+        except (SessionError, OSError) as exc:
+            self._log("client", f"reset kursora nieudany: {exc}",
+                      style="bold red")
+            return
+        self._log("client",
+                  "kursor wyzerowany. Przy nastepnym wejsciu dostaniesz "
+                  "historie od poczatku — zrestartuj TUI.",
+                  style="bold yellow")
+
+    async def _kill_hub(self, potwierdzenie):
+        """Zatrzymaj i SKASUJ pokoj — z historia, tokenami i katalogiem.
+        Po tym nie ma go nawet w `agentmachi list`. Nieodwracalne."""
+        name = os.environ.get("AGENTMACHI_HUB")
+        if not name:
+            self._log("client",
+                      "nie wiem, ktorym pokojem jestem (brak AGENTMACHI_HUB) "
+                      "— uruchom TUI przez `agentmachi tui --name <pokoj>`",
+                      style="bold red")
+            return
+        if potwierdzenie != name:
+            self._log("client",
+                      f"/kill wymaga NAZWY tego pokoju jako potwierdzenia: "
+                      f"/kill {name}", style="bold red")
+            return
+        from agentmachi.cli import (delete_hub, hub_pid, stop_hub,
+                                    wait_until_down)
+        pid = hub_pid(name)
+        if pid is not None:
+            ok, komunikat = stop_hub(name)
+            self._log("server" if ok else "client", komunikat,
+                      style="bold yellow" if ok else "bold red")
+            # to_thread, bo wait_until_down spi w petli — na golym await
+            # zamrozilby cale TUI na te dziesiec sekund.
+            if ok and not await asyncio.to_thread(wait_until_down, pid):
+                self._log("client",
+                          f"pokoj {name!r} nie zszedl (PID {pid}) — NIE kasuje "
+                          f"katalogu pod zywym procesem, bo zostalby hub bez "
+                          f"danych. Dobij recznie: kill -9 {pid}",
+                          style="bold red")
+                return
+        ok, komunikat = delete_hub(name, name)
+        if not ok:
+            self._log("client", komunikat, style="bold red")
+            return
+        # Kursorow NIE sprzatamy tutaj: robi to `delete_hub` dla WSZYSTKICH
+        # nickow pokoju, nie tylko dla naszego. Druga implementacja obok
+        # tamtej rozjechalaby sie przy pierwszej zmianie — a objawem byloby
+        # to, ze kursor agenta przezywa pokoj, choc kursor czlowieka nie.
+        self.exit(message=f"agentmachi: {komunikat}")
+
+    async def _run_local(self, frame):
+        action = frame["action"]
+        if action == "stop":
+            await self._stop_hub()
+        elif action == "kill":
+            await self._kill_hub(frame["target"])
+        elif action == "reset-kursor":
+            self._reset_cursor()
+
     @on(MessageInput.Submitted)
     async def on_message_submitted(self, event: MessageInput.Submitted):
         # Nazwa metody celowo NIE pasuje do konwencji on_message_input_submitted
         # — dyspozycja idzie wylacznie przez @on, wiec handler nie odpali dwa razy.
         try:
             frame = parse_user_input(event.text)
+        except TuiError as exc:
+            self._log("client", str(exc), style="bold red")
+            return
+        if frame["type"] == "local":
+            # Komenda operatora — NIE idzie na drut. Historia i czyszczenie
+            # pola PRZED wykonaniem: /stop zrywa polaczenie, wiec po nim nie
+            # ma pewnosci, ze doszlibysmy tutaj.
+            event.input.remember(event.text)
+            event.input.clear()
+            await self._run_local(frame)
+            return
+        try:
             await self.adapter.send(frame)
         except TuiError as exc:
             self._log("client", str(exc), style="bold red")
             return
+        event.input.remember(event.text)
         event.input.clear()
         if frame["type"] == "chat":
             self._log(self.adapter.identity.nick, frame["text"],

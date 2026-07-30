@@ -14,13 +14,37 @@ def home(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _bez_wyciekow_env():
+    """`_tui_env`/`_agent_env` pisza WPROST do os.environ — tak musza, bo
+    skladaja srodowisko dla `import tui` i dla podprocesow. monkeypatch nie
+    cofnie zapisu, ktorego nie widzial, wiec sprzatamy tu jawnie.
+
+    Bez tego `AGENTMACHI_HUB` ustawiony w tym pliku przeciekal do
+    tests/test_send.py, gdzie smoke-testy odpalaja podprocesy dziedziczace
+    os.environ — i te podprocesy celowaly w hub 'alpha' zamiast we wlasny.
+    Objaw byl mylacy w najgorszy sposob: test_send.py przechodzil URUCHOMIONY
+    OSOBNO (34 zielone) i padal w calej suicie. To ta sama klasa co zasada 13
+    w docs/zasady-agentyczne.md — komenda, ktora nie trafila tam, gdzie
+    myslisz."""
+    klucze = ("AGENTMACHI_HUB", "AGENTMACHI_TOKENS", "CHAT_PORT", "CHAT_URL")
+    przed = {k: os.environ.get(k) for k in klucze}
+    yield
+    for klucz, wartosc in przed.items():
+        if wartosc is None:
+            os.environ.pop(klucz, None)
+        else:
+            os.environ[klucz] = wartosc
+
+
 def test_ensure_hub_creates_structure_0600(home):
     d, port = cli.ensure_hub("alpha", 8931)
     assert d == home / "alpha" and port == 8931
     tokens = json.loads((d / "tokens.json").read_text())
     assert stat.S_IMODE(os.stat(d / "tokens.json").st_mode) == 0o600
     roles = {v["role"] for v in tokens.values()}
-    assert roles == {"human", "agent"}
+    assert roles == {"human"}, \
+        f"swiezy pokoj tworzy tozsamosci, ktorych nikt nie zajal: {tokens}"
     humans = [n for n, v in tokens.items() if v["role"] == "human"]
     assert len(humans) == 1  # kontrakt TUI: dokladnie jeden human
     assert (d / "data" / "rules.md").exists()
@@ -231,6 +255,14 @@ def test_node_cmd_wires_url_token_state_path_without_running_loop(
     for var in _LIMITER_ENVS:
         monkeypatch.delenv(var, raising=False)
     cli.ensure_hub("alpha", 8931)
+    # Swiezy pokoj ma juz TYLKO humana, wiec tozsamosc dla node'a zaklada
+    # tu test — tak samo jak zrobi to operator, gdy bedzie mu potrzebny
+    # nick z tokenem (bind publiczny, cudza maszyna). Kontrakt pod testem
+    # sie nie zmienil: node MA przekazac token, gdy nick jest w pliku.
+    _p = cli.hub_dir("alpha") / "tokens.json"
+    _t = json.loads(_p.read_text())
+    _t["agent1"] = {"token": "tok-agent1", "role": "agent", "groups": []}
+    _p.write_text(json.dumps(_t))
     tokens, d = cli.load_tokens("alpha")
 
     calls = []
@@ -917,20 +949,26 @@ def test_istniejacy_rules_nigdy_nie_jest_nadpisywany(home):
 
 
 def test_nowy_hub_nie_tworzy_domyslnego_zespolu(home):
-    """Hub nie sugeruje modelu zespolu. `worker1`/`worker2` w grupie
-    `workers` to gotowy ustroj wpisany w mechanike — nazwa mowi, ze uczestnik
-    jest wykonawca, a grupa tworzy klase, ktorej nikt nie zadeklarowal.
+    """Hub nie sugeruje modelu zespolu — ANI nazwami, ANI grupami, ANI ETATEM.
 
-    Nazwy neutralne (agent1/agent2) i BRAK domyslnej grupy: grupy zostaja
-    jako mechanizm, ktory operator moze uzyc, gdy sam zdecyduje."""
+    Poprzednia wersja tego zamku wymagala dokladnie {agent1, agent2} i byla
+    NIEPELNA. Usunela ustroj z nazw (worker->agent) i z grup (koniec
+    domyslnego `workers`), ale zostawila liczbe miejsc: swiezy pokoj
+    twierdzil, ze ma dwoch uczestnikow, zanim ktokolwiek wszedl. `list`
+    wypisywal ich w kolumnie uczestnikow, a board serwowal agentom jako
+    `connected: false` — kanal opowiadal o ludziach, ktorych nie ma.
+    Zgloszone przez operatora z zywego TUI.
+
+    Zostaje sam `human`, bo jego TUI wymaga (dokladnie jeden human w pliku)
+    i bo tryb otwarty nie wpuszcza na te role bez tokenu. Agenci pojawiaja
+    sie na kanale, gdy WEJDA — tryb otwarty nadaje im wolny nick."""
     d, _ = cli.ensure_hub("bez-zespolu", 8953)
     tokens = json.loads((d / "tokens.json").read_text())
     agenci = {n: v for n, v in tokens.items() if v["role"] == "agent"}
-    assert set(agenci) == {"agent1", "agent2"}, \
-        f"hub nadal proponuje zespol wykonawcow: {sorted(agenci)}"
-    for nick, wpis in agenci.items():
-        assert wpis["groups"] == [], \
-            f"{nick} dostaje grupe, ktorej nikt nie zadeklarowal: {wpis['groups']}"
+    assert agenci == {}, \
+        f"hub nadal obsadza etaty, ktorych nikt nie zajal: {sorted(agenci)}"
+    assert set(tokens) == {"human"}, \
+        f"swiezy pokoj zna tozsamosci spoza operatora: {sorted(tokens)}"
 
 
 def test_karta_nie_hardkoduje_rol_wykonawczych(home, capsys):
@@ -1033,3 +1071,119 @@ def test_howto_nie_przeczy_kodowi():
     assert "obiekt" in niski, "howto nie mowi, ze `status` jest strukturą"
     assert "status` to dowolny\ntekst" not in howto, \
         "howto nadal opisuje `status` jako plaski tekst"
+
+
+def test_tui_env_eksportuje_nazwe_huba(home, monkeypatch):
+    """TUI musi wiedziec, KTORYM pokojem jest — inaczej `/stop` nie ma czego
+    zatrzymac. CHAT_URL nie wystarcza: cykl zycia huba jest NAZWANY, a
+    pidfile lezy w ~/.agentmachi/<nazwa>/."""
+    cli.ensure_hub("alpha", 8931, bind="127.0.0.1")
+    monkeypatch.delenv("AGENTMACHI_HUB", raising=False)
+    cli._tui_env("alpha")
+    assert os.environ["AGENTMACHI_HUB"] == "alpha"
+
+
+def test_stop_hub_zwraca_powod_zamiast_drukowac(home):
+    """Jeden kontrakt, dwa ujscia: CLI wypisuje na stderr, TUI w logu
+    wiadomosci. Gdyby stop_hub drukowal sam, TUI musialoby przechwytywac
+    stdout albo miec wlasna kopie logiki."""
+    cli.ensure_hub("alpha", 8931)
+    ok, komunikat = cli.stop_hub("alpha")
+    assert ok is False
+    assert "nie dziala" in komunikat
+
+
+def test_cmd_stop_uzywa_stop_hub(home, monkeypatch, capsys):
+    """Dowod przez zepsucie: gdyby cmd_stop trzymal wlasna kopie logiki,
+    podmiana stop_hub nie zmienilaby jego wyniku i ten test przeszedlby
+    na rozjechanych implementacjach."""
+    cli.ensure_hub("alpha", 8931)
+    monkeypatch.setattr(cli, "stop_hub", lambda name: (True, f"udalo: {name}"))
+
+    class Args:
+        name = "alpha"
+    assert cli.cmd_stop(Args()) == 0
+    assert "udalo: alpha" in capsys.readouterr().out
+
+
+def test_delete_hub_wymaga_nazwy_jako_potwierdzenia(home):
+    """Potwierdzeniem jest POWTORZONA NAZWA, nie flaga: flage dopisuje sie
+    odruchowo, a nazwe trzeba przeczytac. Operacja jest nieodwracalna."""
+    cli.ensure_hub("pokoj", 8931)
+    ok, kom = cli.delete_hub("pokoj", None)
+    assert ok is False and "--tak-kasuj pokoj" in kom
+    ok, _ = cli.delete_hub("pokoj", "zla-nazwa")
+    assert ok is False
+    assert cli.hub_dir("pokoj").exists(), "odmowa skasowala katalog"
+    ok, _ = cli.delete_hub("pokoj", "pokoj")
+    assert ok is True
+    assert not cli.hub_dir("pokoj").exists()
+
+
+def test_cmd_del_uzywa_delete_hub(home, monkeypatch, capsys):
+    """Dowod przez zepsucie: gdyby cmd_del trzymal wlasna kopie logiki,
+    podmiana delete_hub nie zmienilaby jego wyniku."""
+    cli.ensure_hub("pokoj", 8931)
+    monkeypatch.setattr(cli, "delete_hub",
+                        lambda nazwa, potw: (True, f"skasowano {nazwa}"))
+    rc = cli.cmd_del(argparse.Namespace(name="pokoj", confirm="pokoj"))
+    assert rc == 0
+    assert "skasowano pokoj" in capsys.readouterr().out
+
+
+def test_wait_until_down_nie_czeka_na_nieistniejacy_pid(home):
+    """Martwy PID jest 'zszedl' natychmiast. Gdyby petla czekala pelny
+    STOP_WAIT, `/kill` w TUI zamarzalby na 10 s przy kazdym uzyciu."""
+    import time as _t
+    start = _t.monotonic()
+    assert cli.wait_until_down(2 ** 31 - 1, timeout=5.0) is True
+    assert _t.monotonic() - start < 1.0
+
+
+def test_del_zabiera_ze_soba_kursory_klientow(home, monkeypatch, tmp_path):
+    """Kursor klienta jest per host:port, a port po skasowanym pokoju wraca
+    do puli. Kursor, ktory przezyl swoj log, trafia na NASTEPNY hub pod tym
+    adresem i wywala go bledem "last_seq N > serwerowy last_seq 0" — czyli
+    w miejscu, ktore z przyczyna nie ma nic wspolnego.
+
+    Sprzatane sa nicki z tokens.json ORAZ ze snapshotu rejestru, wiec takze
+    ci, ktorzy weszli bez tokenu i nigdy nie byli w pliku."""
+    from chat.client_session import Session, session_files
+    sesje = tmp_path / "sesje"
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
+    d, port = cli.ensure_hub("pokoj", 8931)
+    hub_id = f"localhost:{port}"
+
+    # `human` jest w tokens.json; `agent7` wszedl bez tokenu — istnieje
+    # wylacznie w snapshocie rejestru.
+    (d / "data").mkdir(parents=True, exist_ok=True)
+    (d / "data" / "snapshot.json").write_text(json.dumps(
+        {"snapshot_seq": 4, "state": {"registry": {"gen": {"agent7": 1}}}}))
+    for nick in ("human", "agent7"):
+        Session(hub_id, nick, base_dir=sesje).advance(11)
+    assert all(session_files(hub_id, n, sesje)[0].exists()
+               for n in ("human", "agent7"))
+
+    ok, kom = cli.delete_hub("pokoj", "pokoj")
+    assert ok is True and "kursora" in kom, kom
+    for nick in ("human", "agent7"):
+        assert not session_files(hub_id, nick, sesje)[0].exists(), \
+            f"kursor {nick} przezyl skasowanie pokoju"
+
+
+def test_purge_cursors_nie_rusza_kursorow_innego_pokoju(home, monkeypatch,
+                                                        tmp_path):
+    """Sprzatanie idzie po hub_id (host:port), wiec pokoj obok musi zostac
+    nietkniety. Bez tego `del` jednego pokoju zerowalby kursory wszystkich."""
+    from chat.client_session import Session, session_files
+    sesje = tmp_path / "sesje"
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
+    _, port_a = cli.ensure_hub("a", 8931)
+    _, port_b = cli.ensure_hub("b", 8932)
+    obcy = f"localhost:{port_b}"
+    Session(f"localhost:{port_a}", "human", base_dir=sesje).advance(3)
+    Session(obcy, "human", base_dir=sesje).advance(9)
+
+    cli.delete_hub("a", "a")
+    assert session_files(obcy, "human", sesje)[0].exists(), \
+        "skasowanie pokoju 'a' zabralo kursor pokoju 'b'"

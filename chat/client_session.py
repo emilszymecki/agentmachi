@@ -103,6 +103,20 @@ def _slug(hub, nick):
     return f"{safe_nick}-{digest}"
 
 
+def session_files(hub, nick, base_dir=None):
+    """Sciezki plikow sesji dla (hub, nick). NICZEGO nie tworzy i nie czyta.
+
+    Istnieje po to, zeby kasowanie pokoju umialo zabrac ze soba kursory jego
+    klientow. Bez tego osierocony kursor przezywa pokoj i wybucha dopiero
+    przy NASTEPNYM hubie na tym samym porcie — jako `last_seq N > serwerowy
+    last_seq 0`, czyli w miejscu, ktore z przyczyna nie ma nic wspolnego."""
+    base = Path(base_dir or os.environ.get("CHAT_SESSION_DIR")
+                or Path.home() / ".chat-sessions")
+    slug = _slug(hub, nick)
+    return [base / f"{slug}.json", base / f"{slug}.lock",
+            base / f"{slug}.listener.lock"]
+
+
 def _atomic_write_0600(path, payload):
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -229,6 +243,28 @@ class Session:
             _atomic_write_0600(self.path, disk)
             self._state = disk
             return True
+
+    def reset_cursor(self):
+        """SWIADOMY pelny resync: kursor na zero, zapomniane aktywacje.
+
+        Tozsamosc (`instance_id`) ZOSTAJE — zerujemy pamiec o tym, co juz
+        przeczytalismy, nie to, kim jestesmy. Dzieki temu reset nie wypiera
+        wlasnego nasluchu przy nastepnym hello.
+
+        Automatyczny reset jest nadal ZAKAZANY (patrz _load_or_create_locked):
+        cichy skok kursora gubi ramki bez sladu. To jest jawna decyzja
+        czlowieka — istnieje po to, zeby nie musial szukac pliku sesji po
+        sciezce wyklejonej z komunikatu bledu. Najczestsza przyczyna:
+        kursor z POPRZEDNIEGO huba na tym samym porcie (hub_id klienta to
+        host:port, wiec swiezy log pod tym samym adresem wyglada jak
+        cofniecie sie serwera)."""
+        with self._state_lock():
+            disk = self._reload_locked()
+            disk["last_applied_seq"] = 0
+            disk["applied_activations"] = []
+            _atomic_write_0600(self.path, disk)
+            self._state = disk
+        return True
 
     def is_activation_applied(self, activation_id):
         """Sam ODCZYT klucza idempotencji: True = juz zastosowana (suppress).
