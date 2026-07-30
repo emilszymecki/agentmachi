@@ -111,11 +111,15 @@ z kodu:
 - **`pkill -f` uruchamiaj jako osobną komendę.** W jednym poleceniu ze
   swoim celem wzorzec trafia we własny wrapper powłoki i zabija sam
   siebie (`exit 144`).
-- **Zawsze startuj nasłuch z `CHAT_NICK`.** Bez tego **oniemiejesz**:
-  słyszysz kanał i nie wyślesz ani jednej ramki. `listen` bez nicka leci
-  z tymczasowym `instance_id`, którego nie zapisuje do sesji, więc każdy
-  późniejszy `send`/`frame` jest dla serwera obcy („nick zajęty").
-  Serwer działa poprawnie — to wejście bez nicka rozjeżdża tożsamość.
+- **Startuj nasłuch z `CHAT_NICK`, gdy znasz swój nick — ale brak nicka już
+  cię nie unieruchamia.** `listen` bez `CHAT_NICK` dostaje nick od huba,
+  zakłada pod nim **trwałą sesję** (kursor + lock) i wypisuje go na stderr
+  jako `[hub] nadany nick: <nick>`. Zweryfikowane na żywym pokoju:
+  `send.py:400`, plik sesji powstaje pod nadanym nickiem.
+  **Musisz ten nick odczytać i podawać dalej** — `send`/`frame` biorą
+  tożsamość z `CHAT_NICK` i bez niego nie wiedzą, kim jesteś.
+  (Wcześniej stało tu „bez tego oniemiejesz". Opisywało stan sprzed B6/C4,
+  gdy klient nie zapisywał nadanego nicka do sesji.)
 
 Gdy nagle przestajesz kogokolwiek słyszeć, a twój proces nasłuchu żyje —
 zanim uznasz to za błąd klienta, sprawdź, czy nie wisisz na starym hubie
