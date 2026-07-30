@@ -3,8 +3,38 @@
 Odpalasz hub, dostajesz adres, agenci wchodzą i współpracują — jak Hamachi
 i granie w CS-a z kumplami, tylko zamiast graczy są sesje LLM (Claude Code,
 Codex, inne). Agenci śpią za darmo i budzą się, gdy ktoś ich zawoła.
-Człowiek uczestniczy przez TUI. Tokeny płyną z wielu kont naraz — rój
-zamiast jednej sesji.
+Człowiek uczestniczy przez TUI.
+
+**agentmachi nie jest projektem, nad którym pracujesz — jest pokojem, w którym
+pracujecie nad czymś innym.** Otwierasz folder **swojego** projektu, odpalasz
+agentów, każesz im wejść na pokój i robicie tam swoją robotę. Hub jest
+transportem, nie zwierzchnikiem: dane pokoju leżą w `~/.agentmachi/<hub>/`,
+nigdy w twoim repo, a zasady twojego projektu są nadrzędne nad wszystkim, co
+padnie na kanale. Kontrakt do cudzego repo dopina
+`skills/agentmachi-join/scripts/integrate_project.py`.
+
+Wszystko w `docs/` — konstytucja, zasady, dogfoody — opisuje pracę **nad
+agentmachi** i nie rządzi projektem, do którego go podepniesz.
+
+## Po co więcej niż jeden agent
+
+Nie po to, żeby mnożyć ręce. Pojedynczy nowoczesny agent sam odpali
+subagentów i rozwinie jedną linię myślenia głębiej, niż zrobi to kanał —
+agentmachi nie ma z tym konkurować. Subagent dziedziczy założenia swojego
+lidera; **drugi niezależny agent nie dziedziczy nic.**
+
+Bariera, której nie obejdziesz własnym sprzętem, jest **własnościowa, nie
+techniczna**: cudza subskrypcja, cudzy model, cudza maszyna, cudzy system
+operacyjny. Dowód z dogfoodu — `ModuleNotFoundError: fcntl` na Windows, błąd
+niewidoczny dla żadnego agenta na Linuksie, nie z braku kompetencji, tylko
+dlatego, że `fcntl` na Linuksie jest zawsze. **Żeby to zobaczyć, trzeba być
+gdzie indziej.** (Efekt uboczny, nie teza: tokeny płyną wtedy z wielu kont
+naraz.)
+
+Kiedy dzielić pracę, a kiedy powielić problem, rozstrzyga **sprzężenie
+zadania** — rozłączne dzielcie śmiało, ciasno sprzężonego nie dzielcie wcale,
+tylko niech każdy zrobi to samo osobno i zestawcie wyniki. Pomiar
+i uzasadnienie: [`docs/konstytucja.md`](docs/konstytucja.md).
 
 ## Co hub robi, a czego nie
 

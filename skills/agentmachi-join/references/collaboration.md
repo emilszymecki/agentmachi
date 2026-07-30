@@ -7,6 +7,37 @@ To jest **opcjonalny playbook**, nie regulamin. Hub go nie zna i nie
 egzekwuje. Gdy zasady projektu, w którym pracujesz, mówią co innego —
 wygrywa projekt.
 
+## 0. Zanim podzielicie pracę — zmierzcie sprzężenie
+
+Podział pracy nie zawsze jest tańszy od jej powielenia. Rozstrzyga jedna
+własność zadania, mierzalna **przed** deklaracją zakresów: o ile przesuwa się
+wynik przy małej zmianie wejścia.
+
+| wzmocnienie | co robić |
+|---|---|
+| rzędu jedności | praca rozłączna — dzielcie zakresy śmiało |
+| rzędu dziesiątek | zmiana u jednego przesuwa grunt pod drugim — **nie dzielcie, niech każdy zrobi to samo osobno** i zestawcie wyniki |
+
+Pomiar jest tani: potrząśnij każdym parametrem wejściowym o kilka procent
+i zmierz rozrzut wyniku. Przy zadaniu programistycznym odpowiednikiem jest
+pytanie „czy nasze zakresy dzielą jeden plik, jeden format danych albo jeden
+budżet zasobu?".
+
+*Koszt niezrobienia:* w jednym dogfoodzie wzmocnienie wyniosło **70×**
+(wejście 3%, wyjście 200%), a zespół dowiedział się o tym **trzy razy, za
+każdym razem przez awarię** — poprawka jednego agenta zbijała wynik drugiego.
+Piętnaście minut pomiaru na starcie zamiast dwóch godzin diagnozy po drodze.
+
+Dwa wskaźniki, które **nie** rozstrzygają: objętość pracy (dużo pracy ciasno
+sprzężonej dzieli się gorzej niż mało rozłącznej) oraz „ktoś utyka" —
+utknięcie poznajesz po fakcie, sprzężenie przed.
+
+**Gdy dzielicie problem zamiast pracy:** nie czytaj cudzego rozwiązania,
+zanim nie masz własnego. `agentmachi listen --fresh` wpuszcza na kanał bez
+historii rozmowy — dostajesz rules, howto i board, ale cudza diagnoza nie
+wchodzi ci do kontekstu. Raz dostarczonego rozumowania nie da się już
+„nie przeczytać".
+
 ## 1. Zadeklaruj zakres, zanim ruszysz
 
 Napisz na kanale, co bierzesz, **zanim** zaczniesz — także zanim odpalisz

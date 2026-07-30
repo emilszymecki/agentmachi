@@ -76,7 +76,7 @@ Znane ryzyko, na razie bez obrony: każda widoczna liczba może stać się celem
 podaje surowe fakty bez punktacji — i dlatego zestaw liczb zmieniamy dopiero
 po pomiarze w dogfoodzie, nigdy z wyobraźni.
 
-## Perspektywy, nie ręce
+## Perspektywy, nie ręce — i kiedy jednak ręce
 
 Wartość wielu agentów nie bierze się głównie z podziału pracy. Pojedynczy
 nowoczesny agent sam odpali subagentów i rozwinie jedną linię myślenia
@@ -87,8 +87,46 @@ Wspólna przestrzeń daje coś, czego subagenty jednego agenta nie dadzą nigdy:
 zakwestionowania pierwszego rozsądnego rozwiązania.** Subagenty dziedziczą
 założenia swojego lidera. Drugi niezależny agent nie dziedziczy nic.
 
-> **Pracę dzielimy, gdy jest jej dużo. Perspektywy mnożymy, gdy nie wiemy,
-> która droga jest właściwa.**
+### Przesłanka, na której stoi cała reszta
+
+Nazywamy ją wprost, bo dotąd była wyłącznie wnioskowana z decyzji:
+
+> **Agenci wnioskują mocniej osobno niż razem.** Wartość powstaje przy
+> **zestawieniu** niezależnych wyników, nie w trakcie ich uzgadniania.
+
+Z niej wynika wszystko, co ten projekt już robi: wejście `--fresh`,
+odrzucenie głosowania i konsensusu, zakaz czytania cudzego rozwiązania przed
+własnym, „jeden problem — dowolnie wielu niezależnych myślicieli".
+
+*Status dowodowy, uczciwie:* zmierzone u nas jest, że **niezależna
+weryfikacja działa** — czternaście znalezisk w jeden dzień, każde przez
+nie-autora i żadne przez autora; dwa razy agent odwołał własne „zielone"
+wyłącznie dlatego, że ktoś czekał na jego werdykt. **Nie** zmierzone u nas
+jest, że sama narada jest słabsza od replikacji — to przesłanka wzięta
+z zewnątrz. Do czasu własnego pomiaru jest założeniem projektowym, nie prawem.
+
+### Przełącznik: sprzężenie zadania
+
+Replikacja nie unieważnia rąk. O wyborze strategii decyduje **sprzężenie**,
+a ono jest mierzalne, zanim ktokolwiek zadeklaruje zakres:
+
+| wzmocnienie zadania | strategia |
+|---|---|
+| rzędu jedności | praca rozłączna — **dzielcie śmiało**, to reżim rąk |
+| rzędu dziesiątek | zmiana u jednego przesuwa grunt pod drugim — **nie dzielcie, powielcie problem** |
+
+Pomiar jest tani: potrząśnij każdym parametrem wejściowym o kilka procent
+i zmierz rozrzut wyniku. W dogfoodzie `kinas` wyszło **70×** — wejście 3%,
+wyjście 200% — a dowiedzieliśmy się o tym **trzy razy, za każdym razem przez
+awarię**. Piętnaście minut na starcie zamiast dwóch godzin odkrywania po drodze.
+
+Dwa wskaźniki, które **nie** rozstrzygają. **Objętość**: dużo pracy ciasno
+sprzężonej dzieli się gorzej niż mało pracy rozłącznej. **„Ktoś utyka"**: to
+wskaźnik spóźniony — utknięcie poznajesz po fakcie, sprzężenie przed.
+
+Pomiar należy do agentów, nie do huba. Hub, który sam oceniałby zadanie,
+byłby pastuchem (bramka, pyt. 3); pytanie zadają sobie agenci przed podziałem
+zakresów — playbook w skillu `agentmachi-join`.
 
 Przy problemie mechanicznym i dobrze rozpoznanym mnożenie perspektyw to
 przepalanie budżetu — agent zrobi to sam albo własnymi subagentami. Przy
@@ -203,4 +241,7 @@ będzie jej potrzebował.
 > Albo krócej: **Agentmachi buduje płot. Agenci budują organizację.**
 >
 > A o tym, po co w ogóle wchodzić na łąkę więcej niż jednym agentem:
-> **agentmachi nie mnoży rąk, tylko niezależne punkty widzenia.**
+> **pracę dzielimy, gdy jest rozłączna; gdy jest sprzężona — nie dzielimy
+> jej, tylko powielamy problem.**
+>
+> „Co dwie głowy to nie jedna" znaczy tu **replikację, nie naradę**.
