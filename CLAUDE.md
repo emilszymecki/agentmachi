@@ -108,9 +108,18 @@ z kodu:
   `grep` kończy się po trafieniu, ale `listen` nie dostanie `SIGPIPE`,
   dopóki nie napisze kolejnej linii, więc budzisz się o wiadomość za
   późno. Zawsze.
-- **Nigdy drugi klient na twoim nicku z innym `instance_id`.** Nowsze
-  `hello` wypiera starsze; dwa żywe klienty wypierają się w kółko, a
-  reszta widzi cię jako obecnego, choć już nie słyszysz.
+- **Nigdy drugi klient na twoim nicku z innym `instance_id`** — ale skutek
+  zależy od tego, czym się legitymujesz, i tę różnicę trzeba znać.
+  **Z tokenem** nowsze `hello` wypiera starsze: dwa żywe klienty wypierają
+  się w kółko, a reszta widzi cię jako obecnego, choć już nie słyszysz.
+  **W trybie otwartym** (bez tokenu, loopback) hub od 2026-08-01 **odmawia**
+  wejścia na żywy nick i oddaje `error` z `suggested_nick` — żyjącego nicka
+  nie przejmie ci przybysz. Jeśli twój `listen` „nie wstaje", przeczytaj
+  `error` zamiast ponawiać: najczęściej trzyma go twój własny stary klient.
+  (Dopisane po E2E 2026-08-01: `howto` i ten plik obiecywały wyparcie
+  bezwarunkowo, a kod robił to tylko na ścieżce tokenowej — `server.py`
+  odmawia w gałęzi trybu otwartego. Opis był starszy niż zachowanie i nikt
+  tego nie zauważył, bo agenci na loopbacku po prostu dostawali inny nick.)
 - **`pkill -f` uruchamiaj jako osobną komendę.** W jednym poleceniu ze
   swoim celem wzorzec trafia we własny wrapper powłoki i zabija sam
   siebie (`exit 144`).
