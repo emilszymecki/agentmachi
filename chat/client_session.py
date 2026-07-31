@@ -121,7 +121,7 @@ def _atomic_write_0600(path, payload):
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(json.dumps(payload))
             f.flush()
             os.fsync(f.fileno())
@@ -180,7 +180,7 @@ class Session:
     # -- stan -------------------------------------------------------------
     def _load_or_create_locked(self):
         if self.path.exists():
-            raw = self.path.read_text()
+            raw = self.path.read_text(encoding="utf-8")
             try:
                 state = json.loads(raw)
             except json.JSONDecodeError as e:
@@ -207,7 +207,7 @@ class Session:
         if (self._legacy_instance_file is not None
                 and self._legacy_instance_file.exists()):
             try:
-                legacy = json.loads(self._legacy_instance_file.read_text())
+                legacy = json.loads(self._legacy_instance_file.read_text(encoding="utf-8"))
                 candidate = legacy.get("instance_id")
                 if isinstance(candidate, str) and candidate:
                     instance = candidate
@@ -296,7 +296,7 @@ class Session:
 
     def _reload_locked(self):
         # pod lockiem: swiezy odczyt z dysku (inny proces mogl zapisac)
-        raw = self.path.read_text()
+        raw = self.path.read_text(encoding="utf-8")
         return json.loads(raw)
 
 

@@ -137,8 +137,11 @@ class ChatServer:
                            for n, v in restored_status.items()
                            if isinstance(n, str) and isinstance(v, dict)}
         self._replay_events()
+        # Zrodlem sa GRUPY rejestru, nie mapa tokenow: agent z trybu otwartego
+        # ma wpis w `groups`/`roles`, ale nigdy w `tokens`. Iteracja po tokenach
+        # gubila jego czlonkostwo przy starcie (zlapane 2026-07-31).
         self.groups = {nick: set(self.registry.groups_of(nick))
-                       for nick in self.registry.tokens}
+                       for nick in self.registry.roles}
         # (A3) licznik snapshot-co-100 liczy DALEJ od tego, co juz jest w
         # logu po snapshot_seq — nie od zera (inaczej po restarcie trzeba by
         # 100 nowych eventow, zanim serwer w ogole rozwazy snapshot).
@@ -163,7 +166,9 @@ class ChatServer:
                 self.registry.replay_hello(event["from"], event["instance_id"])
             elif etype == "membership_set":
                 # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
-                if event["target"] in self.registry.tokens:
+                # Znana tozsamosc = `roles` (nadzbior `tokens`) — inaczej
+                # replay gubil czlonkostwo agenta z trybu otwartego.
+                if event["target"] in self.registry.roles:
                     self.registry.set_groups(event["target"], event["groups"])
             # chat/fyi/status/ok/error i stare task_*/offer/expiry-eventy: bez
             # mutacji — cala kolejka wycieta (laka-nie-obora, A4). Stary log z
@@ -319,7 +324,7 @@ class ChatServer:
         path = self.log.dir / "rules.md"
         if not path.exists():
             return None, None
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _load_howto(self):
@@ -333,7 +338,7 @@ class ChatServer:
         path = self.log.dir / "howto.md"
         if not path.exists():
             return None
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
 
     # -- dostarczanie ------------------------------------------------------
     async def _send(self, nick, payload):
@@ -677,8 +682,18 @@ class ChatServer:
                 # przy swoim najblizszym hello: takeover jest w
                 # CONVERSATION_TYPES, wiec wraca w 'conversation' i przezywa
                 # kompakcje.
-                for other, role in self.roles.items():
-                    if role == "human" and other != nick and self.conns.get(other):
+                # UWAGA na nazwe zmiennej petli: `role` jest juz zajete —
+                # trzyma AUTORYTATYWNA role wchodzacego (z trial_registry,
+                # linia ~593) i leci nizej do `self.roles[nick]` oraz do
+                # odpowiedzi hello. Rebind w tej petli podstawial tam role
+                # OSTATNIEGO uczestnika w dict: agent po takeoverze dostawal
+                # `human` i zaczynal byc budzony kazda ramka bez wzmianki,
+                # a czlowiek dostawal `agent` i TUI slepla. Board pokazywal
+                # przy tym prawde (czyta registry), wiec bylo to niewidoczne
+                # z zewnatrz. Zlapane 2026-07-31.
+                for other, rola_obserwatora in self.roles.items():
+                    if (rola_obserwatora == "human" and other != nick
+                            and self.conns.get(other)):
                         await self._send(other, event)
             self.conns.setdefault(nick, set()).add(ws)
             self.roles[nick] = role
@@ -863,7 +878,21 @@ class ChatServer:
                          "grupy admin")))
                 return False
             frame["target"] = target  # pole autorytatywne: server-side default
-            seq = self._append(frame)
+            # DURABLE -> MUTACJA -> dopiero potem ewentualny snapshot. Reguly
+            # z docstringu modulu: "mutacje wymagajace domkniecia stanu MIEDZY
+            # (trwaly event) a (ewentualny snapshot) wstawiaja swoj efekt PO
+            # udanym appendzie, a PRZED snapshotem".
+            #
+            # Bylo tu `self._append(frame)` (durable + snapshot naraz), a
+            # mutacja self.status stala PO nim. Ramka status wypadajaca jako
+            # event #100 trafiala wiec do snapshotu ze STARYM stanem, mimo ze
+            # snapshot byl etykietowany jej wlasnym seq — a kompakcja usuwala
+            # ja z logu, bo `status` nie jest w CONVERSATION_TYPES. Deklaracja
+            # przepadala bezpowrotnie. Czysty stop() to leczyl (robi wlasny
+            # snapshot), wiec objaw byl widoczny dopiero po PADZIE huba.
+            # `_on_membership_set` robil to poprawnie od poczatku; status byl
+            # jedynym miejscem lamiacym te regule (zlapane 2026-07-31).
+            seq = self._append_durable(frame)
             frame["seq"] = seq
             # `seq` przy statusie: board bez niego KLAMIE, a nie milczy.
             # Zmierzone na koncu dogfoodu kinas-machine — snapshot huba po
@@ -883,6 +912,7 @@ class ChatServer:
                                    ("state", "subject", "note")
                                    if k in frame}
             self.status_seq[target] = seq
+            self._maybe_snapshot()   # dopiero TERAZ — stan jest juz domkniety
             # Etap 1 (laka-nie-obora): status to CZYSTY fakt na boardzie —
             # zero side-effectu schedulera. `state=idle` nie dopisuje juz do
             # kolejki round-robin ani nie wyzwala oferty. Board jest pasywny.
@@ -990,7 +1020,7 @@ class ChatServer:
 
 def main():
     tokens_path = os.environ.get("CHAT_TOKENS", "tokens.json")
-    tokens = json.loads(Path(tokens_path).read_text())
+    tokens = json.loads(Path(tokens_path).read_text(encoding="utf-8"))
     server = ChatServer(
         data_dir=os.environ.get("CHAT_DATA", "./chat-data"),
         tokens=tokens,

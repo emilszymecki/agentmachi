@@ -2021,3 +2021,102 @@ def test_hello_fresh_nie_wraca_po_historie_przy_kolejnym_wejsciu(srv):
         await alfa.close()
         await beta2.close()
     asyncio.run(srv(scenario))
+
+
+# --- regresje z przegladu adwersarialnego 2026-07-31 ----------------------
+
+def test_takeover_nie_podmienia_roli_gdy_human_wszedl_ostatni(srv):
+    """`role` wyciekala ze zmiennej petli: `for other, role in self.roles`
+    (rozglaszanie takeoveru) rebindowalo `role` ustawione wczesniej
+    z trial_registry, wiec do klienta i do self.roles szla rola OSTATNIEGO
+    uczestnika w dict.
+
+    Istniejaca asercja `reply["role"] == "agent"` przechodzila WYLACZNIE
+    przez kolejnosc wstawiania do dicta — w tamtym tescie human laczyl sie
+    pierwszy. Tu laczy sie OSTATNI i to wystarczy.
+
+    Skutek na produkcji: agent po takeoverze dostawal role human i zaczynal
+    byc budzony KAZDA ramka bez wzmianki (routing idzie po self.roles),
+    a board pokazywal prawde, bo czyta registry. Klasa 'boli od srodka'."""
+    async def scenario(server):
+        alfa1, _ = await hello("alfa", "ta", instance="i1")
+        emil, _ = await hello("emil", "te", role="human")     # human OSTATNI
+        alfa2, reply = await hello("alfa", "ta", instance="i2")   # takeover
+        assert reply["role"] == "agent", \
+            f"klient dostal cudza role: {reply['role']!r}"
+        assert server.roles["alfa"] == "agent", \
+            f"routing uzywa cudzej roli: {server.roles['alfa']!r}"
+        for ws in (alfa1, emil, alfa2):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_status_na_granicy_snapshotu_przezywa_pad(srv):
+    """Handler `status` mutowal self.status PO `_append`, czyli PO
+    ewentualnym snapshocie. Ramka status wypadajaca jako event #100 trafiala
+    wiec do snapshotu ze STARYM stanem, a kompakcja usuwala ja z logu
+    (status nie jest w CONVERSATION_TYPES). Deklaracja przepadala.
+
+    Docstring modulu formuluje regule wprost: mutacje wymagajace domkniecia
+    stanu wstawiaja swoj efekt PO appendzie, a PRZED snapshotem —
+    `_on_membership_set` robi to poprawnie, `status` byl jedynym wyjatkiem.
+
+    Czysty stop() to leczyl (robi wlasny snapshot), wiec bug widac dopiero
+    przy padzie. Test sprawdza SAM SNAPSHOT, nie restart."""
+    from chat.server import SNAPSHOT_EVERY
+
+    async def scenario(server):
+        ws, _ = await hello("alfa", "ta")
+        while server._events_since_snapshot < SNAPSHOT_EVERY - 1:
+            await ws.send(json.dumps({"type": "chat", "from": "alfa",
+                                      "ts": 0.0, "text": "x"}))
+            await asyncio.sleep(0.001)
+        await ws.send(json.dumps({"type": "status", "from": "alfa", "ts": 0.0,
+                                  "state": "working", "subject": "polowa A"}))
+        await asyncio.sleep(0.3)
+        assert server._events_since_snapshot == 0, \
+            "test nie trafil w granice snapshotu — popraw scenariusz"
+        zapisany = json.loads(
+            (Path(server.log.dir) / "snapshot.json").read_text())
+        assert zapisany["state"]["status"].get("alfa") == {
+            "state": "working", "subject": "polowa A"}, \
+            "snapshot etykietowany seq statusu, ale go NIE zawiera"
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_membership_set_dziala_dla_agenta_z_trybu_otwartego(srv):
+    """`set_groups` sprawdzalo `nick in self.tokens`, a `open_hello` dopisuje
+    wchodzacego do `roles`/`groups` — NIE do `tokens`. Wiec grupy dalo sie
+    nadac wylacznie posiadaczom tokenow.
+
+    Dopoki swiezy pokoj mial w tokens.json agent1/agent2, bug byl zamaskowany.
+    Po wycieciu tych wpisow (2026-07-31) KAZDY agent wchodzi bez tokenu, wiec
+    membership_set przestal dzialac dla kogokolwiek — a `admin` nadaje sie
+    WYLACZNIE ta droga, czyli jedyne przejscie do uprawnien bylo zamkniete.
+
+    CLAUDE.md obiecuje: "czlowiek albo $admin moze utworzyc dowolna grupe
+    przez membership_set". Ten test pilnuje, zeby obietnica byla prawdziwa."""
+    async def scenario(server):
+        assert server.open_mode, "fixture musi byc w trybie otwartym"
+        agent = await websockets.connect(f"ws://localhost:{PORT}")
+        await agent.send(json.dumps({"type": "hello", "ts": 0.0,
+                                     "instance_id": "i1", "last_seq": 0}))
+        nadany = json.loads(await agent.recv())["nick"]
+
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({"type": "membership_set", "from": "emil",
+                                    "ts": 0.0, "target": nadany,
+                                    "groups": ["admin"]}))
+        for _ in range(6):
+            odp = json.loads(await asyncio.wait_for(emil.recv(), 3))
+            if odp["type"] in ("ok", "error"):
+                break
+        assert odp["type"] == "ok", \
+            f"nie da sie nadac grupy agentowi bez tokenu: {odp.get('text')!r}"
+        assert server.registry.groups_of(nadany) == ["admin"]
+        assert server.groups.get(nadany) == {"admin"}, \
+            "lustro grup w serwerze nie widzi agenta z trybu otwartego"
+        for ws in (agent, emil):
+            await ws.close()
+    asyncio.run(srv(scenario))

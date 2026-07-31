@@ -71,7 +71,7 @@ class EventLog:
         self.snapshot_seq = 0
         self._events = []  # [{seq, ...frame}] tylko > snapshot_seq
         if self.snapshot_path.exists():
-            data = _strict_json_loads(self.snapshot_path.read_text())
+            data = _strict_json_loads(self.snapshot_path.read_text(encoding="utf-8"))
             self.snapshot_seq = data["snapshot_seq"]
         self.last_seq = self.snapshot_seq
         if self.events_path.exists():
@@ -146,7 +146,7 @@ class EventLog:
         # niezgodny z JSON-em nie moze zostawic czesciowego rekordu ani podbic
         # room_seq. allow_nan=False jest defense-in-depth za strict inbound.
         payload = json.dumps(event, allow_nan=False) + "\n"
-        with self.events_path.open("a") as f:
+        with self.events_path.open("a", encoding="utf-8") as f:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
@@ -179,7 +179,7 @@ class EventLog:
         out = []
         if not self.events_path.exists():
             return out
-        with self.events_path.open() as f:
+        with self.events_path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -199,7 +199,7 @@ class EventLog:
         top = 0
         if not self.events_path.exists():
             return top
-        with self.events_path.open() as f:
+        with self.events_path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -228,7 +228,7 @@ class EventLog:
         # poprzedni snapshot i jego etykiete nietkniete.
         payload = json.dumps(
             {"snapshot_seq": seq, "state": state}, allow_nan=False)
-        with tmp.open("w") as f:
+        with tmp.open("w", encoding="utf-8") as f:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
@@ -252,7 +252,7 @@ class EventLog:
         keep.extend(self._events)
         keep.sort(key=lambda e: e["seq"])
         events_tmp = self.dir / "events.jsonl.tmp"
-        with events_tmp.open("w") as f:
+        with events_tmp.open("w", encoding="utf-8") as f:
             for e in keep:
                 f.write(json.dumps(e, allow_nan=False) + "\n")
             f.flush()
@@ -262,7 +262,7 @@ class EventLog:
     def load_snapshot(self):
         if not self.snapshot_path.exists():
             return None
-        data = _strict_json_loads(self.snapshot_path.read_text())
+        data = _strict_json_loads(self.snapshot_path.read_text(encoding="utf-8"))
         return data["state"], data["snapshot_seq"]
 
     def replay(self):

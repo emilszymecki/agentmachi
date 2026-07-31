@@ -56,7 +56,14 @@ class Registry:
 
     def set_groups(self, nick, groups):
         """Ustaw plynna funkcje operacyjna; role agent/human pozostaje stala."""
-        if not isinstance(nick, str) or not nick or nick not in self.tokens:
+        # Znana tozsamosc to `roles`, NIE `tokens`. `roles` jest nadzbiorem:
+        # dostaje wpis dla kazdego posiadacza tokenu (__init__) ORAZ dla
+        # kazdego, kto wszedl w trybie otwartym (open_hello). Sprawdzanie
+        # `tokens` znaczylo, ze grupy dawalo sie nadac wylacznie posiadaczom
+        # sekretu — a odkad swiezy pokoj ma w tokens.json sam `human`,
+        # NIKOMU. `admin` nadaje sie wylacznie ta droga, wiec jedyne
+        # przejscie do uprawnien bylo zamkniete (zlapane 2026-07-31).
+        if not isinstance(nick, str) or not nick or nick not in self.roles:
             raise AuthError(f"unknown target: {nick!r}")
         if not isinstance(groups, list) or not all(
                 isinstance(group, str) and group for group in groups):
