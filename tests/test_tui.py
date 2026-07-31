@@ -214,7 +214,14 @@ def test_apply_hello_resync_applies_state_then_cursor(session):
 
 def test_apply_hello_participants_before_backlog(session):
     """Snapshot uczestnikow (autorytatywny) laduje PRZED backlogiem —
-    roster jest cursor-coherent po kazdym hello, takze po restarcie."""
+    roster jest cursor-coherent po kazdym hello, takze po restarcie.
+
+    Do 2026-07-31 ta odpowiedz nie miala `last_seq`. Musiala go dostac, bo
+    TUI fail-closes na jego braku — tak samo jak send.py. Precedens jest
+    dokladnie ten sam: tests/test_send.py dostal te poprawke z komentarzem
+    'ramka bez niego nie istnieje na drucie'. Serwer ZAWSZE wysyla `last_seq`
+    w galezi `ok` (chat/server.py, protocol.make_frame przy budowie reply),
+    wiec odpowiedz bez niego byla fikcja testowa, nie realnym wejsciem."""
     adapter = _adapter(session)
     order = []
 
@@ -223,7 +230,7 @@ def test_apply_hello_participants_before_backlog(session):
 
     async def run():
         await adapter._apply_hello(
-            {"type": "ok", "generation": 1,
+            {"type": "ok", "generation": 1, "last_seq": 11,
              "participants": [
                  {"nick": "beta", "role": "agent",
                   "groups": ["head", "admin"], "connected": True}],
@@ -608,3 +615,122 @@ def test_parse_kill_wymaga_nazwy_pokoju():
 def test_parse_kill_bez_nazwy_odrzucony(bad):
     with pytest.raises(TuiError):
         parse_user_input(bad)
+
+
+def test_tui_importuje_z_cli_tylko_istniejace_funkcje():
+    """`/stop` i `/kill` siegaja po agentmachi.cli WEWNATRZ metod, wiec zaden
+    test nie wykonywal tego importu. Zmiana nazwy ktorejkolwiek funkcji
+    przechodzila cala suite i wywalala sie dopiero, gdy czlowiek wpisal
+    `/kill <pokoj>` na zywym pokoju — przy najbardziej NIEODWRACALNEJ
+    operacji w produkcie.
+
+    Test czyta, co tui.py NAPRAWDE importuje (AST), zamiast powtarzac liste
+    z pamieci — inaczej rozjechalby sie przy dodaniu kolejnej funkcji."""
+    import ast
+    from pathlib import Path
+
+    from agentmachi import cli
+
+    zrodlo = Path(tui.__file__).read_text()
+    nazwy = set()
+    for wezel in ast.walk(ast.parse(zrodlo)):
+        if (isinstance(wezel, ast.ImportFrom)
+                and wezel.module == "agentmachi.cli"):
+            nazwy |= {alias.name for alias in wezel.names}
+    # POZYTYWNIE: sam brak trafien dalby green takze po skasowaniu importow.
+    assert nazwy, "tui.py nie importuje juz nic z agentmachi.cli — sprawdz, " \
+                  "czy to zamierzone, i zaktualizuj ten test"
+    for nazwa in sorted(nazwy):
+        assert hasattr(cli, nazwa), (
+            f"tui.py importuje agentmachi.cli.{nazwa}, ktorego NIE MA — "
+            f"`/stop` albo `/kill` wywali sie ImportError u czlowieka")
+
+
+# --- regresje z przegladu klienta 2026-07-31 ------------------------------
+
+def test_resync_dostarcza_rozmowe_a_nie_tylko_stan(session):
+    """Serwer wysyla w `resync_required` pole `conversation` (do 200 ramek)
+    — `send.py` i `node.py` je odtwarzaja, TUI NIE czytalo go wcale.
+
+    Skutek: po kompakcji operator startowal TUI i panel czatu byl PUSTY,
+    mimo ze rozmowa przyszla drutem. Ten sam objaw, ktory send.py juz raz
+    naprawial ("agent wchodzil na kanal, na ktorym nic sie nie wydarzylo").
+
+    Ramki `conversation` maja seq NIZSZE niz snapshot_seq, wiec ida SUROWO,
+    nie przez apply_resumable_frame — inaczej dedup by je wyciol."""
+    adapter = _adapter(session)
+    frames = []
+
+    async def on_frame(frame):
+        frames.append(frame)
+
+    async def run():
+        await adapter._apply_hello(
+            {"type": "resync_required", "snapshot_seq": 9,
+             "state": {"registry": {}},
+             "conversation": [
+                 {"type": "chat", "from": "beta", "text": "stara rozmowa",
+                  "seq": 3}]},
+            on_frame, lambda m: None)
+    asyncio.run(run())
+    teksty = [f.get("text") for f in frames]
+    assert "stara rozmowa" in teksty, \
+        f"TUI zgubilo rozmowe z resync; dostal: {[f.get('type') for f in frames]}"
+
+
+def test_ok_przesuwa_kursor_na_autorytatywny_last_seq(session):
+    """Serwer wycina z backlogu NA DRUCIE ramki `hello` (54% backlogu
+    w pomiarze B5), ale `last_seq` w odpowiedzi to prawdziwy koniec logu.
+    Klient ufajacy tylko ramkom zostaje z kursorem sprzed filtra i przy
+    kazdym reconnekcie zjezdza na sciezke resync.
+
+    send.py ma to naprawione i pokryte trzema testami; TUI nie czytalo
+    `last_seq` w ogole."""
+    adapter = _adapter(session)
+
+    async def run():
+        await adapter._apply_hello(
+            {"type": "ok", "backlog": [{"type": "chat", "seq": 2, "text": "x"}],
+             "last_seq": 42},
+            lambda f: None, lambda m: None)
+    asyncio.run(run())
+    assert session.last_applied_seq == 42, \
+        f"kursor stanal na ramce z drutu ({session.last_applied_seq}), " \
+        f"nie na autorytatywnym koncu logu"
+
+
+def test_takeover_i_nieznany_typ_nie_gina_po_cichu(tmp_path):
+    """`takeover` jest pushowany NA ZYWO WYLACZNIE do ludzi — bo to oni
+    reaguja na widmo (restart, ubicie klienta). Jedyny adresat, do ktorego
+    serwer celuje, zjadal go bez sladu: apply_hub_frame nie mial ani galezi
+    `takeover`, ani `else`.
+
+    `else` jest wazniejszy od samej galezi: bez niego NASTEPNY nowy typ
+    OUTBOUND zniknie dokladnie tak samo."""
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []}})
+    identity, roster = load_human_identity(p)
+
+    class _Stub:
+        def __init__(self):
+            self.identity = identity
+
+        async def run(self, on_frame, on_metadata, on_status):
+            await on_status("stub", True)
+
+        async def close(self):
+            pass
+
+    app = tui.AgentmachiApp(_Stub(), roster)
+
+    async def scenario():
+        async with app.run_test():
+            await app.apply_hub_frame({
+                "type": "takeover", "from": "server", "nick": "beta",
+                "generation": 2, "previous_generation": 1,
+                "text": "beta: nowe polaczenie wyparlo poprzednie"})
+            await app.apply_hub_frame({"type": "cos-nowego", "from": "server"})
+    asyncio.run(scenario())
+    log = " ".join(f"{a} {b}" for a, b in app.history)
+    assert "wyparlo" in log, "takeover zniknal bez sladu"
+    assert "cos-nowego" in log, "nieznany typ ramki zniknal bez sladu"

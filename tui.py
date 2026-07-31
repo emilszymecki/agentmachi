@@ -81,7 +81,7 @@ def load_human_identity(path=TOKENS_PATH):
     """Wczytaj jedynego humana i bezsekretowy roster; brak/corrupt = fail-closed."""
     path = Path(path)
     try:
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise TuiError(
             f"brak czytelnego {path}; TUI nie wysle pustego tokenu") from exc
@@ -287,6 +287,21 @@ class HubAdapter:
                 raise FatalHubError("hello ok: backlog nie jest lista")
             for frame in backlog:
                 await apply_resumable_frame(self.session, frame, on_frame)
+            # Kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
+            # ramce z drutu: serwer wycina z backlogu ramki `hello` (54%
+            # backlogu w pomiarze B5), wiec klient ufajacy tylko ramkom
+            # zostaje z kursorem sprzed filtra i przy kazdym reconnekcie
+            # zjezdza na sciezke resync. `send.py` ma to od dawna; TUI nie
+            # czytalo `last_seq` w ogole (zlapane 2026-07-31).
+            wire_last_seq = reply.get("last_seq")
+            if (isinstance(wire_last_seq, bool)
+                    or not isinstance(wire_last_seq, int)
+                    or wire_last_seq < 0):
+                raise FatalHubError(
+                    f"hello ok bez poprawnego last_seq (dostalem: "
+                    f"{wire_last_seq!r}) — kursor NIE przesuniety")
+            if wire_last_seq > 0:      # 0 = pusty log, nie ma czego przesuwac
+                self.session.advance(wire_last_seq)
             return
         state = reply.get("state")
         snapshot_seq = reply.get("snapshot_seq")
@@ -297,6 +312,16 @@ class HubAdapter:
                 or not isinstance(snapshot_seq, int) or snapshot_seq < 1):
             raise FatalHubError("resync_required ma zly snapshot_seq")
         await _maybe_await(on_frame({"type": "resync_state", "state": state}))
+        # PAMIEC KANALU. Serwer dokleja do resync do 200 ramek rozmowy, bo
+        # `state` odtwarza rejestr i board, ale rozmowy nie odtworzy nic.
+        # send.py i node.py to czytaja; TUI nie czytalo, wiec operator po
+        # kompakcji dostawal PUSTY panel czatu mimo dostarczonej rozmowy.
+        # SUROWO, nie przez apply_resumable_frame: te ramki maja seq NIZSZE
+        # niz snapshot_seq, wiec dedup by je wyciol (tak samo send.py:280).
+        rozmowa = reply.get("conversation")
+        if isinstance(rozmowa, list):
+            for ramka in rozmowa:
+                await _maybe_await(on_frame(ramka))
         self.session.advance(snapshot_seq)
 
     async def run(self, on_frame, on_metadata, on_status):
@@ -758,9 +783,22 @@ class AgentmachiApp(App):
             state = frame.get("state")
             if isinstance(state, dict):
                 self._apply_registry_state(state)
+        elif kind == "takeover":
+            # Serwer pushuje te ramke NA ZYWO WYLACZNIE do ludzi — bo to oni
+            # reaguja na widmo (restart, ubicie klienta). Jedyny adresat, do
+            # ktorego celuje, zjadal ja bez sladu (zlapane 2026-07-31).
+            self._log("server", frame.get(
+                "text", f"{frame.get('nick')}: wyparte przez nowsze hello"),
+                style="bold red")
         elif kind == "error":
             self._log("server", frame.get("text", "blad"),
                       style="bold red")
+        else:
+            # Bez tego `else` KAZDY nowy typ OUTBOUND znika po cichu — tak
+            # wlasnie zgubil sie `takeover`. Lepiej pokazac czlowiekowi ramke,
+            # ktorej nie rozumiemy, niz udawac, ze nie przyszla.
+            self._log("server", f"nieobslugiwana ramka {kind!r}: {frame}",
+                      style="dim yellow")
 
     def _apply_participants_snapshot(self, participants):
         if not isinstance(participants, list):
