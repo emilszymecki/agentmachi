@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 import websockets
 
+from chat import protocol
+from chat.identity import AuthError
 from chat.server import ChatServer
 
 TOKENS = {
@@ -2303,3 +2305,55 @@ def test_kick_zwalnia_wiazanie_takze_po_restarcie(tmp_path):
     s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
     assert s2.registry.open_hello("agent1", "inst-2", "100.64.0.9") >= 1, \
         "kick nie przezyl restartu — wyrzucony nie wroci z nowego adresu"
+
+
+def test_stary_log_kick_i_powrot_nie_oddaje_nicka_obcemu(tmp_path):
+    """UPGRADE istniejacego pokoju. Log sprzed pola `open_addr` ma w ogonie
+    `kick(agent1)`, a po nim ponowne wejscie agent1 — bez adresu, bo stary
+    format go nie niesie. Replay kicka kasuje wiazanie ze snapshotu, a to
+    hello nie ma czym go odtworzyc: nick zostawal NIEZWIAZANY, czyli do
+    wziecia przez pierwszego chetnego z tailnetu. Upgrade huba otwieral okno
+    na przejecie tozsamosci (czwarte review Codexa; regresja wprowadzona
+    przez replay kicka).
+
+    Fail-closed: nick zostaje zwiazany z niczym. Wlasciciel tez sie odbije,
+    ale komunikat niesie gotowa droge wyjscia — moderator robi `kick`."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("agent1", "inst-1", "100.64.0.7")
+    s1.snapshot()
+    s1._append_durable(protocol.make_frame(
+        "kick", "server", 0.0, target="agent1", by="emil"))
+    s1._append_durable(protocol.make_frame(       # STARY format: bez open_addr
+        "hello", "agent1", 0.0, instance_id="inst-2", groups=[], role="agent"))
+    del s1
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    with pytest.raises(AuthError):
+        s2.registry.open_hello("agent1", "obcy", "100.64.0.99")
+    # i moderator ma nadal dzialajaca droge wyjscia
+    s2.registry.release_open_addr("agent1")
+    assert s2.registry.open_hello("agent1", "inst-3", "100.64.0.7") >= 1
+
+
+def test_kick_bez_wiazania_nie_zaslepia_nicka(tmp_path):
+    """Zaslepka nalezy sie WYLACZNIE nickowi, ktoremu kick faktycznie zabral
+    wiazanie. Kick bez wiazania (bind loopback — najczestszy przypadek)
+    niczego nie psuje, wiec nie moze nikogo blokowac: inaczej upgrade
+    kazdego istniejacego pokoju odcinalby wszystkich kiedykolwiek
+    wyrzuconych."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("agent1", "inst-1", None)     # loopback: bez wiazania
+    s1.snapshot()
+    s1._append_durable(protocol.make_frame(
+        "kick", "server", 0.0, target="agent1", by="emil"))
+    s1._append_durable(protocol.make_frame(
+        "hello", "agent1", 0.0, instance_id="inst-2", groups=[], role="agent"))
+    del s1
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    assert s2.registry.open_hello("agent1", "inst-3", "100.64.0.7") >= 1, \
+        "kick bez wiazania zaslepil nick, ktory byl wolny"

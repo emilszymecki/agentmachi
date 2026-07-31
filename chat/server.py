@@ -43,7 +43,7 @@ from pathlib import Path
 import websockets
 
 from . import protocol
-from .identity import AuthError, Registry
+from .identity import AuthError, Registry, UNRESOLVED_ADDR
 from .store import EventLog, ForeignWriterError
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
@@ -157,6 +157,12 @@ class ChatServer:
         # membership, status z deklaracji) BEZ re-execution i side-effectow
         # sieciowych. Kolejka zadaniowa wycieta (A4) — stary log z task_*/
         # task_expired_batch jest pomijany.
+        #
+        # `osierocone_kickiem`: nicki, ktorym replayowany kick zabral wiazanie
+        # adresu. Zyje TYLKO na czas tego przebiegu — sluzy do rozpoznania
+        # sekwencji "kick -> ponowne wejscie" w logu STAREGO formatu, gdzie
+        # hello nie niesie adresu (patrz galaz hello nizej).
+        osierocone_kickiem = set()
         for event in self.log.replay():
             etype = event.get("type")
             if etype == "status":
@@ -171,8 +177,19 @@ class ChatServer:
                 # `open_addr` bywa go brak: stary log sprzed tego pola oraz
                 # kazde hello tokenowe / przy bindzie loopback. None = "to
                 # hello nie wiazalo adresu", nie "zwolnij wiazanie".
-                self.registry.replay_hello(event["from"], event["instance_id"],
-                                           event.get("open_addr"))
+                kto = event["from"]
+                adres = event.get("open_addr")
+                if adres is None and kto in osierocone_kickiem:
+                    # STARY LOG, sekwencja kick -> ponowne wejscie. Kick
+                    # skasowal wiazanie, a to hello nie niesie adresu, wiec
+                    # rejestr nie ma jak odtworzyc, do czego nick byl
+                    # przypiety. Zostawiony niezwiazany = do wziecia przez
+                    # pierwszego chetnego z tailnetu, czyli upgrade huba
+                    # otwieralby okno na przejecie tozsamosci (czwarte review
+                    # Codexa — regresja wprowadzona przez replay kicka wyzej).
+                    adres = UNRESOLVED_ADDR
+                self.registry.replay_hello(kto, event["instance_id"], adres)
+                osierocone_kickiem.discard(kto)
             elif etype == "kick":
                 # Rozkaz moderatora tez musi przezyc crash. `kick` zwalnia
                 # wiazanie nick->adres, zeby wyrzucony wrocil po re-IP; bez
@@ -181,7 +198,12 @@ class ChatServer:
                 # w CONVERSATION_TYPES, wiec przezywa tez kompakcje.
                 cel = event.get("target")
                 if isinstance(cel, str) and cel:
-                    self.registry.release_open_addr(cel)
+                    # Tylko kick, ktory NAPRAWDE cos zwolnil, zostawia dziure.
+                    # Kick bez wiazania niczego nie psuje i nie moze wciagac
+                    # nicka w zaslepke — inaczej upgrade kazdego istniejacego
+                    # pokoju blokowalby wszystkich wyrzuconych kiedykolwiek.
+                    if self.registry.release_open_addr(cel):
+                        osierocone_kickiem.add(cel)
             elif etype == "membership_set":
                 # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
                 # Znana tozsamosc = `roles` (nadzbior `tokens`) — inaczej

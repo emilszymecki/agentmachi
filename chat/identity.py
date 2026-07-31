@@ -13,6 +13,17 @@ import hmac
 
 _VALID_ROLES = ("agent", "human")
 
+# Wiazanie, ktorego NIE DA SIE dopasowac do zadnego adresu peera. Uzywane
+# wylacznie przez replay logu SPRZED pola `open_addr` w evencie hello: gdy
+# w ogonie logu byl `kick` (kasuje wiazanie), a po nim ponowne wejscie
+# (stary format, adresu nie niesie), rejestr nie ma jak odtworzyc, do czego
+# nick byl przypiety. Zostawienie go NIEZWIAZANYM oddaje go pierwszemu
+# chetnemu z tailnetu — wiec zamiast tego wiazemy go z niczym: wlasciciel
+# tez sie odbije, ale dostanie komunikat z gotowa droga wyjscia (moderator
+# robi `kick`, ktory zwalnia wiazanie na dobre). Fail-closed zamiast
+# zgadywania tozsamosci.
+UNRESOLVED_ADDR = "\x00nieodtworzone-wiazanie"
+
 
 class AuthError(Exception):
     pass
@@ -151,8 +162,13 @@ class Registry:
 
         Wolane przy kick: moderator wyrzuca uczestnika i zwalnia jego
         tozsamosc, zeby ktos inny — albo ten sam agent z NOWEGO adresu po
-        re-IP — mogl wejsc na ten nick. Regula 1 (czlowiek > agent)."""
-        self._open_addr.pop(nick, None)
+        re-IP — mogl wejsc na ten nick. Regula 1 (czlowiek > agent).
+
+        Zwraca zwolniony adres albo None. Replay potrzebuje tej roznicy:
+        kick, ktory NIC nie zwolnil, niczego nie psuje, a kick, ktory
+        zwolnil wiazanie, zostawia dziure do zaslepienia (UNRESOLVED_ADDR),
+        gdy nastepne hello w logu jest w starym formacie."""
+        return self._open_addr.pop(nick, None)
 
     def replay_hello(self, nick, instance_id, addr=None):
         # (A) replay zaufanej (juz raz zautoryzowanej) mutacji hello z logu
