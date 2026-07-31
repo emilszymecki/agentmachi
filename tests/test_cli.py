@@ -1309,3 +1309,87 @@ def test_frame_konczy_sie_czytelnym_bledem_zamiast_tracebackiem(home, monkeypatc
     err = capsys.readouterr().err
     assert "agentmachi frame:" in err and "sufit huba" in err
     assert "Traceback" not in err
+
+
+# --- auto-odswiezanie howto (decyzja czlowieka 2026-08-01) ----------------
+
+def _wzorzec_howto():
+    from pathlib import Path as _P
+    return (_P(cli.__file__).with_name("howto_default.md")).read_text(
+        encoding="utf-8")
+
+
+def test_howto_powstaje_ze_wzorca_i_dostaje_znacznik(home):
+    d, _ = cli.ensure_hub("nowy", 8951)
+    howto = d / "data" / "howto.md"
+    assert howto.read_text(encoding="utf-8") == _wzorzec_howto()
+    assert (d / "data" / cli.HOWTO_ZNACZNIK).exists(), \
+        "brak znacznika — nastepny start nie odrozni naszego tekstu od cudzego"
+
+
+def test_stary_pokoj_dostaje_aktualne_howto_przy_starcie(home):
+    """POWOD ISTNIENIA TEGO MECHANIZMU, zmierzony na zywym pokoju 2026-08-01:
+    hub serwowal zdanie o wypieraniu nicka, obalone pomiarem i poprawione
+    w repo tego samego dnia. Poprawka byla w gicie i nie docierala do nikogo,
+    bo howto kopiowalo sie WYLACZNIE gdy pliku nie bylo."""
+    d, _ = cli.ensure_hub("stary", 8952)
+    howto = d / "data" / "howto.md"
+    # symulacja pokoju zalozonego dawniej: nasz tekst, ale STARSZY
+    howto.write_text("STARE howto z dnia zalozenia pokoju\n", encoding="utf-8")
+    (d / "data" / cli.HOWTO_ZNACZNIK).write_text(
+        cli._hash_tekstu("STARE howto z dnia zalozenia pokoju\n"),
+        encoding="utf-8")
+
+    stan, kopia = cli.odswiez_howto(d)
+    assert stan == "odswiezone" and kopia is None
+    assert howto.read_text(encoding="utf-8") == _wzorzec_howto()
+
+
+def test_reczna_zmiana_nie_ginie_po_cichu(home):
+    """Nadpisujemy, ale NIGDY bez sladu: tekst czlowieka laduje obok,
+    a wolajacy dostaje sciezke do pokazania mu."""
+    d, _ = cli.ensure_hub("wlasny", 8953)
+    howto = d / "data" / "howto.md"
+    howto.write_text("MOJ WLASNY tekst, ktorego nie chce stracic\n",
+                     encoding="utf-8")
+
+    stan, kopia = cli.odswiez_howto(d)
+    assert stan == "zachowane"
+    assert kopia is not None and kopia.exists()
+    assert kopia.read_text(encoding="utf-8") == \
+        "MOJ WLASNY tekst, ktorego nie chce stracic\n"
+    assert howto.read_text(encoding="utf-8") == _wzorzec_howto()
+
+
+def test_pokoj_sprzed_znacznika_tez_nie_traci_tekstu(home):
+    """Pokoj zalozony PRZED tym mechanizmem nie ma znacznika, wiec nie da sie
+    orzec, czy tekst jest nasz czy cudzy. Fail-safe: traktujemy jak cudzy —
+    odswiezamy, ale zostawiamy kopie."""
+    d, _ = cli.ensure_hub("bezznacznika", 8954)
+    (d / "data" / cli.HOWTO_ZNACZNIK).unlink()
+    (d / "data" / "howto.md").write_text("tekst bez rodowodu\n",
+                                         encoding="utf-8")
+
+    stan, kopia = cli.odswiez_howto(d)
+    assert stan == "zachowane" and kopia is not None
+    assert kopia.read_text(encoding="utf-8") == "tekst bez rodowodu\n"
+
+
+def test_aktualne_howto_nie_produkuje_kopii_przy_kazdym_starcie(home):
+    """Idempotencja: dziesiec restartow nie moze zostawic dziesieciu kopii
+    ani raz po raz przepisywac pliku."""
+    d, _ = cli.ensure_hub("stabilny", 8955)
+    for _ in range(10):
+        stan, kopia = cli.odswiez_howto(d)
+        assert stan == "aktualne" and kopia is None
+    assert not (d / "data" / "howto.md.zastapione").exists()
+
+
+def test_ensure_hub_nie_rusza_rules(home):
+    """`rules` to tekst POKOJU i to on jest punktem, w ktorym wypowiada sie
+    czlowiek — odswiezanie howto nie moze go dotknac."""
+    d, _ = cli.ensure_hub("zrules", 8956)
+    rules = d / "data" / "rules.md"
+    rules.write_text("zasady tego pokoju, moje\n", encoding="utf-8")
+    cli.ensure_hub("zrules", 8956)
+    assert rules.read_text(encoding="utf-8") == "zasady tego pokoju, moje\n"

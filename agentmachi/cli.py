@@ -13,6 +13,7 @@ Uklad ~/.agentmachi/<name>/:
 """
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import secrets
@@ -136,6 +137,80 @@ def _wybierz_port_zywy(preferowany, wlasna_nazwa, bind, prob=200):
     return None
 
 
+HOWTO_ZNACZNIK = ".howto-wydany"
+
+
+def _hash_tekstu(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def odswiez_howto(hub_katalog):
+    """Dopilnuj, zeby pokoj serwowal AKTUALNE howto. Zwraca (co, kopia).
+
+    `co` to jedno z: "utworzone" | "odswiezone" | "aktualne" | "zachowane".
+    `kopia` to sciezka kopii recznych zmian albo None.
+
+    Po co to w ogole istnieje. `howto` idzie DRUTEM w kazdej odpowiedzi na
+    hello i CLAUDE.md wskazuje je jako zrodlo prawdy dla wchodzacego agenta.
+    Dotad kopiowalo sie z szablonu WYLACZNIE gdy pliku nie bylo, wiec kazdy
+    istniejacy pokoj byl zamrozony na tekscie z dnia swojego powstania.
+    Zmierzone 2026-08-01 na zywym pokoju: hub serwowal 4087 B ze zdaniem
+    o wypieraniu nicka, ktore agent1 tego samego dnia obalil pomiarem
+    i poprawil w repo. Poprawka byla w gicie i nie docierala do nikogo.
+
+    Dlaczego NADPISUJEMY, choc wczesniej sam proponowalem "nie dotykac
+    zmienionego": podzial w tym repo jest jasny — `howto` to MECHANIKA
+    PROTOKOLU, czyli nasz tekst (CLAUDE.md: "<hub>/data/howto.md = mechanika
+    protokolu"), a tekstem POKOJU sa `rules`, ktore ida osobnym polem
+    w hello i ktorych ten kod nie tyka. Zamrazanie howto chronilo wiec punkt
+    rozszerzen, ktory nie istnieje, a placil za to kazdy agent, czytajac
+    nieprawde przy kazdym wejsciu.
+
+    Reczna zmiana nie ginie po cichu: ladu-je obok jako kopia, a wolajacy
+    dostaje jej sciezke do pokazania czlowiekowi. Znacznik z hashem WYDANEGO
+    tekstu pozwala odroznic "to nasz tekst, tylko starszy" od "ktos to
+    zmienil" — bez niego kazde odswiezenie wygladaloby jak nadpisanie cudzej
+    pracy. Precedens na hashowanie tresci: rules_hash w hello.
+    """
+    dane = hub_katalog / "data"
+    dane.mkdir(parents=True, exist_ok=True)
+    howto = dane / "howto.md"
+    znacznik = dane / HOWTO_ZNACZNIK
+    wzorzec = (Path(__file__).with_name("howto_default.md")).read_text(
+        encoding="utf-8")
+
+    if not howto.exists():
+        howto.write_text(wzorzec, encoding="utf-8")
+        znacznik.write_text(_hash_tekstu(wzorzec), encoding="utf-8")
+        return "utworzone", None
+
+    biezacy = howto.read_text(encoding="utf-8")
+    if biezacy == wzorzec:
+        # Nic do roboty, ale znacznik moze byc starszy niz plik (pokoj sprzed
+        # tego mechanizmu) — domykamy go, zeby nastepnym razem bylo wiadomo.
+        znacznik.write_text(_hash_tekstu(wzorzec), encoding="utf-8")
+        return "aktualne", None
+
+    try:
+        wydany = znacznik.read_text(encoding="utf-8").strip()
+    except OSError:
+        wydany = None
+
+    if wydany == _hash_tekstu(biezacy):
+        # Plik jest DOKLADNIE tym, co sami tam wpisalismy, tylko starszym.
+        howto.write_text(wzorzec, encoding="utf-8")
+        znacznik.write_text(_hash_tekstu(wzorzec), encoding="utf-8")
+        return "odswiezone", None
+
+    # Rozjazd, ktorego nie umiemy przypisac sobie: albo reczna zmiana, albo
+    # pokoj sprzed znacznika. Nadpisujemy — ale NIGDY bez zostawienia sladu.
+    kopia = dane / "howto.md.zastapione"
+    kopia.write_text(biezacy, encoding="utf-8")
+    howto.write_text(wzorzec, encoding="utf-8")
+    znacznik.write_text(_hash_tekstu(wzorzec), encoding="utf-8")
+    return "zachowane", kopia
+
+
 def ensure_hub(name, port, bind="127.0.0.1"):
     """Utworz strukture huba przy pierwszym uzyciu; istniejacej NIE ruszaj."""
     d = hub_dir(name)
@@ -173,11 +248,29 @@ def ensure_hub(name, port, bind="127.0.0.1"):
         rules_path.write_text(DEFAULT_RULES, encoding="utf-8")
     # F5 (B5): howto ma dojsc do agenta PROTOKOLEM (hub czyta ten plik i
     # doklada do hello) — plik w repo jest bezuzyteczny dla klienta, ktory
-    # ma tylko socket. Szablon idzie z pakietu; human moze go nadpisac.
-    howto_path = d / "data" / "howto.md"
-    if not howto_path.exists():
-        howto_path.write_text(
-            (Path(__file__).with_name("howto_default.md")).read_text(encoding="utf-8"))
+    # ma tylko socket.
+    #
+    # KONTRAKT ZMIENIONY 2026-08-01, bo stary byl bledny. Stalo tu: "Szablon
+    # idzie z pakietu; human moze go nadpisac" i dlatego kopiowalo sie
+    # WYLACZNIE gdy pliku nie bylo. To byla swiadoma decyzja (slusznie
+    # przypomniana przez agent1), tylko oparta na zalozeniu, ktore nie
+    # zgadza sie z reszta projektu: ze `howto` jest miejscem, w ktorym
+    # wypowiada sie operator. Nie jest — od tego sa `rules`, ktore ida
+    # OSOBNYM polem w hello i ktorych ten kod nie tyka. CLAUDE.md nazywa
+    # `<hub>/data/howto.md` mechanika protokolu, czyli NASZYM tekstem.
+    #
+    # Cena starego kontraktu byla mierzalna: pokoj 'agentmachi' serwowal
+    # zdanie o wypieraniu nicka, obalone pomiarem i poprawione w repo tego
+    # samego dnia — kazdy wchodzacy agent czytal nieprawde, bo poprawka nie
+    # miala jak dojsc. Zamrazalismy punkt rozszerzen, ktory nie istnieje,
+    # a placil za to kazdy uczestnik przy kazdym hello.
+    #
+    # Reczna zmiana NIE ginie po cichu — patrz odswiez_howto.
+    stan, kopia = odswiez_howto(d)
+    if kopia is not None:
+        print(f"agentmachi: howto pokoju '{name}' rozjechalo sie z wydanym "
+              f"tekstem — zastapione aktualnym, poprzednie zachowane w:\n"
+              f"  {kopia}", file=sys.stderr)
     config_path = d / "config.json"
     if config_path.exists():
         # Hub ISTNIEJACY zachowuje swoj port — nigdy go nie przesuwamy,
