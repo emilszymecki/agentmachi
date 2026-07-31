@@ -118,10 +118,35 @@ def clamp_frame(frame):
 
     # Krok 3: ramke rozdyma cos, czego ten kod nie zna z nazwy.
     usuniete = []
-    kandydaci = sorted(
-        (k for k in out if k not in _RDZEN and k not in _MARKERY),
-        key=lambda k: len(dumps(out[k])), reverse=True)
+    kandydaci = [k for k in out if k not in _RDZEN and k not in _MARKERY]
+    # Koszt liczony RAZ na klucz, i to DOKLADNIE: `"klucz":wartosc` plus
+    # dwa separatory. Dwie rzeczy, ktore trzeba tu zrobic dobrze:
+    #
+    # (a) NAZWA klucza wchodzi do kosztu. Bez niej ranking widzial tylko
+    #     wartosci — 100 KiB w nazwie klucza z pusta wartoscia przegrywalo
+    #     z krotkim `text`, wiec kasowalismy TRESC WIADOMOSCI, zostawiajac
+    #     winowajce.
+    # (b) Odejmujemy koszt od biezacego rozmiaru zamiast serializowac cala
+    #     ramke po KAZDYM usunieciu. Stara petla byla kwadratowa i robila to
+    #     SYNCHRONICZNIE w petli zdarzeń: legalna ramka sprzed sufitu (8000
+    #     malych pol, 905 KiB) zamrazala CALY hub na 18,7 s przy czyimkolwiek
+    #     hello. Nie "jeden klient sie nie wznowi" — wszyscy stoja.
+    #
+    # Oba z dwunastego review Codexa.
+    koszt = {k: len(dumps(k).encode("utf-8"))
+                + len(dumps(out[k]).encode("utf-8")) + 2 for k in kandydaci}
+    kandydaci.sort(key=lambda k: koszt[k], reverse=True)
+    biezacy = frame_bytes(out)
     for klucz in kandydaci:
+        if biezacy <= MAX_FRAME_BYTES:
+            break
+        del out[klucz]
+        biezacy -= koszt[klucz]
+        usuniete.append(klucz)
+    # Koszt jest dokladny (dla ostatniego klucza zawyzony o przecinek), wiec
+    # ta petla to straznik, nie sciezka robocza — ma nie dac gwarancji upasc,
+    # gdyby ktos kiedys zmienil serializacje.
+    for klucz in [k for k in out if k not in _RDZEN and k not in _MARKERY]:
         if frame_bytes(out) <= MAX_FRAME_BYTES:
             break
         del out[klucz]

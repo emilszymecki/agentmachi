@@ -455,3 +455,50 @@ def test_clamp_gwarancja_obejmuje_takze_rdzen():
         out = protocol.clamp_frame(ramka)
         assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES, i
         assert out["seq"] == i, "kursor musi przezyc kazde przyciecie"
+
+
+def test_clamp_liczy_do_rankingu_takze_NAZWE_klucza():
+    """Bez nazwy w koszcie ranking widzial tylko wartosci: 100 KiB w NAZWIE
+    klucza z pusta wartoscia przegrywalo z krotkim `text`, wiec kasowalismy
+    TRESC WIADOMOSCI, zostawiajac winowajce (dwunaste review Codexa)."""
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1,
+             "text": "wazna tresc", "N" * 100000: ""}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert out["text"] == "wazna tresc", "usunieta zostala tresc, nie winowajca"
+
+
+def test_clamp_nie_serializuje_ramki_raz_na_kazde_usuniete_pole():
+    """Stara petla kasowala JEDEN klucz i serializowala CALA reszte ramki po
+    kazdym usunieciu — kwadratowo, i to SYNCHRONICZNIE w petli zdarzen.
+    Legalna ramka sprzed sufitu (8000 malych pol, 905 KiB) zamrazala caly hub
+    na 18,7 s przy czyimkolwiek hello: nie "jeden klient sie nie wznowi",
+    tylko wszyscy stoja (dwunaste review Codexa).
+
+    Mierzymy BAJTY przepuszczone przez serializator, nie czas — asercja na
+    zegarze bylaby chwiejna, a to jest ta sama wielkosc, ktora rosla."""
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1,
+             **{f"pole{i}": "x" * 100 for i in range(2000)}}
+    rozmiar = protocol.frame_bytes(ramka)
+
+    oryginalny = protocol.dumps
+    licznik = {"bajty": 0}
+
+    def liczacy(obj):
+        wynik = oryginalny(obj)
+        licznik["bajty"] += len(wynik)
+        return wynik
+
+    protocol.dumps = liczacy
+    try:
+        out = protocol.clamp_frame(ramka)
+    finally:
+        protocol.dumps = oryginalny
+
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    # kwadratowa wersja przepuszczala ~n razy caly rozmiar ramki; liniowa
+    # potrzebuje kilku przebiegow. 10x to sufit z duzym zapasem, ktory i tak
+    # lezy o dwa rzedy wielkosci ponizej starego zachowania.
+    assert licznik["bajty"] < 10 * rozmiar, (
+        f"{licznik['bajty']} B zserializowane przy ramce {rozmiar} B "
+        f"— petla znowu jest kwadratowa")
