@@ -154,7 +154,7 @@ class Registry:
         re-IP — mogl wejsc na ten nick. Regula 1 (czlowiek > agent)."""
         self._open_addr.pop(nick, None)
 
-    def replay_hello(self, nick, instance_id):
+    def replay_hello(self, nick, instance_id, addr=None):
         # (A) replay zaufanej (juz raz zautoryzowanej) mutacji hello z logu
         # eventow po crashu — token NIGDY nie trafia do logu (bezpieczenstwo),
         # wiec replay nie moze i nie musi go ponownie weryfikowac; sama
@@ -173,7 +173,14 @@ class Registry:
         if nick not in self.roles:
             self.roles[nick] = "agent"
             self.groups.setdefault(nick, [])
-        return self._bump(nick, instance_id)
+        gen = self._bump(nick, instance_id)
+        # `addr` odtwarza wiazanie B7 z eventu — bez tego przezywalo tylko to,
+        # co zdazyl zlapac snapshot. None znaczy "to hello nie wiazalo adresu"
+        # (log sprzed tego pola, hello tokenowe, bind loopback) i NIE zwalnia
+        # istniejacego wiazania: zwalnia je wylacznie kick.
+        if isinstance(addr, str) and addr:
+            self._open_addr[nick] = addr
+        return gen
 
     def _bump(self, nick, instance_id):
         if self._instance.get(nick) != instance_id:

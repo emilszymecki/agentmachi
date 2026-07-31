@@ -405,3 +405,25 @@ def test_restore_znosi_snapshot_bez_open_addr_i_smieci():
 
     with pytest.raises(ValueError):
         Registry.restore(tokens, dict(stary, open_addr="nie-dict"))
+
+
+def test_replay_hello_odtwarza_wiazanie_adresu_z_eventu():
+    """Snapshot zapisuje sie co SNAPSHOT_EVERY eventow, wiec hello po ostatnim
+    ginelo przy crashu razem z wiazaniem — a w trybie otwartym wiazanie jest
+    JEDYNYM dowodem tozsamosci. Podszywacz odbijany przed padem przechodzil
+    po nim (drugie review Codexa)."""
+    registry = Registry({"human": {"token": "th", "role": "human", "groups": []}})
+    registry.replay_hello("agent1", "inst-1", "100.64.0.7")
+    with pytest.raises(AuthError):
+        registry.open_hello("agent1", "inst-podszywacz", "100.64.0.9")
+
+
+def test_replay_hello_bez_adresu_nie_zwalnia_wiazania():
+    """None znaczy "to hello nie wiazalo adresu" (log sprzed pola, hello
+    tokenowe, bind loopback), a NIE "zwolnij wiazanie". Inaczej zwykly
+    reconnect na loopbacku kasowalby ochrone zalozona na tailnecie."""
+    registry = Registry({"human": {"token": "th", "role": "human", "groups": []}})
+    registry.replay_hello("agent1", "inst-1", "100.64.0.7")
+    registry.replay_hello("agent1", "inst-2", None)
+    with pytest.raises(AuthError):
+        registry.open_hello("agent1", "inst-3", "100.64.0.9")

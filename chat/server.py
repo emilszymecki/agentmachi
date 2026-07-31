@@ -168,7 +168,20 @@ class ChatServer:
                     if isinstance(event.get("seq"), int):
                         self.status_seq[key] = event["seq"]
             elif etype == "hello":
-                self.registry.replay_hello(event["from"], event["instance_id"])
+                # `open_addr` bywa go brak: stary log sprzed tego pola oraz
+                # kazde hello tokenowe / przy bindzie loopback. None = "to
+                # hello nie wiazalo adresu", nie "zwolnij wiazanie".
+                self.registry.replay_hello(event["from"], event["instance_id"],
+                                           event.get("open_addr"))
+            elif etype == "kick":
+                # Rozkaz moderatora tez musi przezyc crash. `kick` zwalnia
+                # wiazanie nick->adres, zeby wyrzucony wrocil po re-IP; bez
+                # replayu snapshot wskrzeszal STARE wiazanie i blokowal mu
+                # powrot z nowego adresu (drugie review Codexa). `kick` jest
+                # w CONVERSATION_TYPES, wiec przezywa tez kompakcje.
+                cel = event.get("target")
+                if isinstance(cel, str) and cel:
+                    self.registry.release_open_addr(cel)
             elif etype == "membership_set":
                 # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
                 # Znana tozsamosc = `roles` (nadzbior `tokens`) — inaczej
@@ -560,6 +573,10 @@ class ChatServer:
                 # _open_mode(). Nick zajety przez ZYWE polaczenie nie jest
                 # odbierany (nizej): martwe sockety wypadaja same dzieki
                 # keepalive, wiec "zajety" znaczy "zajety naprawde".
+                # B7: adres, do ktorego to hello przypina tozsamosc. Musi byc
+                # zwiazany PRZED galezia, bo sciezka tokenowa go nie ustawia,
+                # a event budujemy wspolnie dla obu.
+                open_addr = None
                 if self.open_mode and not frame.get("token"):
                     zadany = frame.get("from")
                     # Brak propozycji nicka = "dajcie mi jakikolwiek". Agent
@@ -619,6 +636,7 @@ class ChatServer:
                     # AuthError (lapane nizej jak kazdy blad open_hello).
                     generation = trial_registry.open_hello(
                         zadany, frame.get("instance_id"), addr)
+                    open_addr = addr   # do EVENTU — snapshot sam nie wystarcza
                 else:
                     generation = trial_registry.hello(
                         frame.get("from"), frame.get("instance_id"),
@@ -671,10 +689,22 @@ class ChatServer:
             # idzie znow na swiezym klonie, wiec generacja podbija sie DOKLADNIE
             # raz). instance_id jest juz zwalidowany przez trial_registry.hello.
             try:
+                # `open_addr` w EVENCIE, nie tylko w snapshocie: w trybie
+                # otwartym wiazanie nick->adres jest JEDYNYM dowodem
+                # tozsamosci (nie ma tokenu), a snapshot zapisuje sie co
+                # SNAPSHOT_EVERY eventow. Hello po ostatnim snapshocie ginelo
+                # wiec przy crashu — i podszywacz odbijany przed padem
+                # przechodzil po nim (drugie review Codexa). Pole nie kosztuje
+                # agentow kontekstu: `wire_backlog` wycina hello z drutu,
+                # a hello nie jest w CONVERSATION_TYPES. Na DYSKU jest jawne —
+                # kto czyta events.jsonl, widzi adresy peerow. To ten sam
+                # tailnet, na ktorym wszyscy sie i tak widza, ale warto o tym
+                # wiedziec, zanim ktos wystawi log poza maszyne operatora.
                 self._append_durable(protocol.make_frame(
                     "hello", nick, time.time(),
                     instance_id=frame.get("instance_id"),
-                    groups=list(groups), role=role))
+                    groups=list(groups), role=role,
+                    **({"open_addr": open_addr} if open_addr else {})))
             except OSError:
                 # niezmiennik e: awaria storage (dysk pelny) na hello NIE moze
                 # zabic handlera brutalnym 1011 — hello odpowiada czysta ramka

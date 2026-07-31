@@ -2266,3 +2266,40 @@ def test_wolny_nick_omija_takze_nicki_znane_z_logu_po_restarcie(tmp_path):
 
     s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
     assert s2._wolny_nick() != "agent1"
+
+
+def test_wiazanie_adresu_przezywa_crash_bez_snapshotu(tmp_path):
+    """Cala droga: hello wiaze adres -> hub GINIE bez `stop` (zero snapshotu)
+    -> nowy hub czyta sam log. Bez `open_addr` w evencie wiazanie znikalo,
+    wiec podszywacz odbijany przed padem przechodzil po nim."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1._append_durable(__import__("chat.protocol", fromlist=["x"]).make_frame(
+        "hello", "agent1", 0.0, instance_id="inst-1", groups=[], role="agent",
+        open_addr="100.64.0.7"))
+    del s1                                    # crash: zaden snapshot nie powstal
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    with pytest.raises(Exception):            # AuthError z identity
+        s2.registry.open_hello("agent1", "inst-podszywacz", "100.64.0.9")
+    assert s2.registry.open_hello("agent1", "inst-2", "100.64.0.7") >= 1
+
+
+def test_kick_zwalnia_wiazanie_takze_po_restarcie(tmp_path):
+    """Rozkaz moderatora musi przezyc crash. `kick` zwalnia wiazanie, zeby
+    wyrzucony wrocil po re-IP — bez replayu snapshot wskrzeszal STARE
+    wiazanie i blokowal mu powrot z nowego adresu."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    protocol = __import__("chat.protocol", fromlist=["x"])
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("agent1", "inst-1", "100.64.0.7")
+    s1.snapshot()                             # wiazanie ZAPISANE w snapshocie
+    s1._append_durable(protocol.make_frame(
+        "kick", "server", 0.0, target="agent1", by="emil"))
+    del s1                                    # crash PO kicku, przed snapshotem
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    assert s2.registry.open_hello("agent1", "inst-2", "100.64.0.9") >= 1, \
+        "kick nie przezyl restartu — wyrzucony nie wroci z nowego adresu"
