@@ -45,6 +45,8 @@ from pathlib import Path
 
 import websockets
 
+from send import MAX_HUB_FRAME as _MAX_HUB_FRAME
+
 from chat import protocol
 
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
@@ -422,7 +424,9 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
     (fizyka huba — patrz CLAUDE.md/chat/server.py._publish_chat)."""
     state = NodeState.load(state_path) if Path(state_path).exists() \
         else _new_state(nick, runtime)
-    async with websockets.connect(url) as ws:
+    # max_size: patrz send.MAX_HUB_FRAME — hub wysyla backlog
+    # w jednej ramce, domyslny 1 MiB bywa za maly.
+    async with websockets.connect(url, max_size=_MAX_HUB_FRAME) as ws:
         reply = await _hello(ws, nick, token, state.last_context_seq,
                              instance_id=instance_id)
         groups = reply.get("groups", [])

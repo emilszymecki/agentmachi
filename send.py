@@ -51,6 +51,16 @@ def hub_id_from_url(url):
     return f"{p.hostname}:{port}"
 
 
+# Ile MAKSYMALNIE przyjmiemy w jednej ramce OD HUBA. Jawnie, bo domyslny
+# 1 MiB websockets jest ponizej tego, co hub legalnie wysyla: odpowiedz na
+# hello niesie caly backlog od kursora, wiec dlugo nieobecny agent dostawal
+# 1006 "message too big" i tracil calosc historii — zmierzone: 9000 ramek
+# rozmowy = rozlaczenie, 6000 = 772 KB, czyli tuz pod progiem. Sufit huba to
+# okno rozmowy (CONVERSATION_LIMIT) razy MAX_INBOUND_FRAME serwera; 32 MiB
+# jest nad nim z zapasem. Asymetria jest celowa: hub ogranicza WEJSCIE, bo
+# broni sie przed uczestnikami, a klient ufa hubowi, do ktorego sam wszedl.
+MAX_HUB_FRAME = 32 * 1024 * 1024
+
 URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")
 HUB_ID = hub_id_from_url(URI)
 HELLO_TIMEOUT = 10.0
@@ -336,7 +346,7 @@ async def send_once(nick, text, quiet=False):
     Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
     token = _require_token()
     session = _session(nick)  # kursor tylko do odczytu — nie ruszamy go
-    async with websockets.connect(URI) as ws:
+    async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         _wysylka_albo_padnij(await do_hello(ws, nick, session, token),
                              nick, session)
         # quiet -> typ `fyi`, ktory istnieje od planu B1: laduje w logu
@@ -365,7 +375,7 @@ async def listen(nick, context=None, once=False):
     try:
         while True:
             try:
-                async with websockets.connect(URI) as ws:
+                async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
                     boot = session or _BootIdentity()   # tozsamosc na pierwsze hello
                     reply = await do_hello(
                         ws, nick, boot, token,
@@ -496,7 +506,7 @@ async def oneshot_frame(nick, frame):
     Zwraca odpowiedz serwera (ok/error) albo None (np. status bez ACK)."""
     token = _require_token()
     session = _session(nick)
-    async with websockets.connect(URI) as ws:
+    async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         # Ta sama dziura co w send_once, tylko lepiej zamaskowana: po odmowie
         # hello ramka szla na zamykany socket, ACK nie przychodzil, a brak
         # ACK jest tu LEGALNY (status go nie dostaje) — wiec funkcja zwracala

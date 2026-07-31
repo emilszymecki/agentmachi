@@ -47,6 +47,7 @@ from .identity import AuthError, Registry, UNRESOLVED_ADDR
 from .store import EventLog, ForeignWriterError
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
+MAX_INBOUND_FRAME = 64 * 1024   # gorny limit JEDNEJ ramki OD klienta (patrz start())
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
 # Ten sam komunikat wysylaja DWIE sciezki: natychmiastowe odciecie starego
 # socketu przy takeoverze (_close_stale_sockets) i per-ramkowy check generacji
@@ -221,9 +222,16 @@ class ChatServer:
         # "nick zajety przez zywe polaczenie" (B6). Martwy socket bez pingu
         # wisi w ESTAB minutami — zdarzylo sie w dogfoodzie i agent nie mogl
         # wrocic na wlasny nick. Przy tych wartosciach trup wypada w ~40 s.
+        # max_size JAWNIE, nie z domyslnych — dotyczy WEJSCIA, wiec to jedyna
+        # rzecz stojaca miedzy jednym agentem a pamiecia huba (konstytucja:
+        # "ochrona zasobow, gdy nikt nie patrzy" jest fizyka huba). Domyslny
+        # 1 MiB websockets pozwalal wkleic w chat prawie megabajt; taka ramka
+        # zostaje w oknie rozmowy (CONVERSATION_LIMIT) i wraca w backlogu
+        # KAZDEMU, kto sie wznawia. 64 KiB to wciaz ~30 stron tekstu na jedna
+        # wiadomosc — plik wysyla sie sciezka, nie wklejeniem do kanalu.
         self._server = await websockets.serve(
             self._handler, self.bind, self.port,
-            ping_interval=20, ping_timeout=20)
+            ping_interval=20, ping_timeout=20, max_size=MAX_INBOUND_FRAME)
 
     async def stop(self):
         self._server.close()

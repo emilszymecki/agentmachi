@@ -9,6 +9,7 @@ lock listenera i fail-closed uszkodzonej sesji zapewnia chat.client_session.
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
 import json
 import os
@@ -27,7 +28,7 @@ from textual.widgets import Label, RichLog, Static, TextArea
 
 from chat import protocol
 from chat.client_session import ListenerLockHeld, Session, SessionError
-from send import hub_id_from_url
+from send import MAX_HUB_FRAME, hub_id_from_url
 
 # CLI agentmachi ustawia CHAT_PORT i AGENTMACHI_TOKENS; gołe `python3
 # tui.py` w repo zachowuje stare defaulty (hub.tokens.json + 8766)
@@ -230,7 +231,13 @@ class HubAdapter:
         self.uri = uri
         self.session = session or Session(
             HUB_ID, identity.nick, legacy_instance_file=LEGACY_SESSION_FILE)
-        self._connector = connector or websockets.connect
+        # max_size wpiety w KONSTRUKTOR connectora, nie w miejsce wywolania:
+        # limit jest wlasciwoscia prawdziwego polaczenia, a wstrzykiwane
+        # atrapy (testy) maja zostac przy swojej prostej sygnaturze.
+        # Po co w ogole: patrz send.MAX_HUB_FRAME — hub wysyla backlog
+        # w jednej ramce i domyslny 1 MiB bywa za maly.
+        self._connector = connector or functools.partial(
+            websockets.connect, max_size=MAX_HUB_FRAME)
         self._ws = None
         self._send_lock = asyncio.Lock()
         self._closing = False

@@ -16,7 +16,7 @@ import websockets
 
 from chat import protocol
 from chat.identity import AuthError
-from chat.server import ChatServer
+from chat.server import ChatServer, MAX_INBOUND_FRAME
 
 TOKENS = {
     "alfa": "ta",                                                     # stary format (kompat)
@@ -2357,3 +2357,79 @@ def test_kick_bez_wiazania_nie_zaslepia_nicka(tmp_path):
     s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
     assert s2.registry.open_hello("agent1", "inst-3", "100.64.0.7") >= 1, \
         "kick bez wiazania zaslepil nick, ktory byl wolny"
+
+
+# --- sufity ramek: hub musi umiec doreczyc to, co sam wysyla --------------
+
+def test_wracajacy_agent_dostaje_backlog_wiekszy_niz_domyslny_sufit(tmp_path):
+    """Odpowiedz na hello niesie CALY backlog od kursora w JEDNEJ ramce, wiec
+    dlugo nieobecny agent dostawal 1006/1009 "message too big" i tracil calosc
+    historii. Domyslny sufit websockets to 1 MiB po obu stronach — zmierzone
+    na zywym hubie: 6000 zwyklych ramek = 772 KB (tuz pod progiem),
+    9000 = rozlaczenie. Tu to samo, tylko szybciej: kilkanascie duzych ramek.
+
+    Test trzyma OBIE strony kontraktu: z sufitem klienta backlog dochodzi,
+    a z domyslnym 1 MiB polaczenie pada — czyli scenariusz jest prawdziwy,
+    a nie wymyslony pod zielony wynik."""
+    port = _free_port()
+    tokens = {"a": {"token": "ta", "role": "agent", "groups": []},
+              "b": {"token": "tb", "role": "agent", "groups": []}}
+    srv = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    for i in range(20):
+        srv._append_durable(protocol.make_frame(
+            "chat", "a", 0.0, text=f"{i}:" + "x" * (60 * 1024)))
+
+    async def _hello(max_size):
+        async with websockets.connect(f"ws://localhost:{port}",
+                                      max_size=max_size) as w:
+            await w.send(json.dumps({
+                "type": "hello", "ts": 0.0, "from": "b", "last_seq": 0,
+                "instance_id": f"i-{max_size}", "role": "agent", "token": "tb"}))
+            return json.loads(await asyncio.wait_for(w.recv(), 20))
+
+    async def scenario():
+        await srv.start()
+        try:
+            import send
+            odp = await _hello(send.MAX_HUB_FRAME)
+            assert odp["type"] == "ok" and len(odp["backlog"]) == 20, odp["type"]
+            # a z DOMYSLNYM sufitem to samo polaczenie pada
+            with pytest.raises(websockets.exceptions.ConnectionClosed):
+                await _hello(1024 * 1024)
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())
+
+
+def test_hub_odrzuca_ramke_ponad_wlasny_sufit_wejscia(tmp_path):
+    """Sufit WEJSCIA to jedyna rzecz miedzy jednym agentem a pamiecia huba
+    (konstytucja: ochrona zasobow, gdy nikt nie patrzy). Bez niego jedna
+    wklejka wchodzi do okna rozmowy i wraca w backlogu KAZDEMU, kto sie
+    wznawia — jeden agent psuje wznowienie wszystkim."""
+    port = _free_port()
+    tokens = {"a": {"token": "ta", "role": "agent", "groups": []}}
+    srv = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+
+    async def scenario():
+        await srv.start()
+        try:
+            import send
+            async with websockets.connect(f"ws://localhost:{port}",
+                                          max_size=send.MAX_HUB_FRAME) as w:
+                await w.send(json.dumps({
+                    "type": "hello", "ts": 0.0, "from": "a", "last_seq": 0,
+                    "instance_id": "i1", "role": "agent", "token": "ta"}))
+                await w.recv()
+                await w.send(json.dumps({
+                    "type": "chat", "from": "a", "ts": 0.0,
+                    "text": "X" * (MAX_INBOUND_FRAME + 5000)}))
+                with pytest.raises(websockets.exceptions.ConnectionClosed):
+                    await asyncio.wait_for(w.recv(), 10)
+            # log huba pozostaje czysty — przerosnieta ramka nigdy nie wchodzi
+            assert not [e for e in srv.log.replay()
+                        if e.get("type") == "chat"], "przerosnieta ramka w logu"
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())
