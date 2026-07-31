@@ -301,6 +301,20 @@ class ChatServer:
         # a PRZED snapshotem. Nieudany append (wyjatek z
         # log.append) rzuca zanim cokolwiek zmutujemy — brak dziury w numeracji
         # i brak przedwczesnej mutacji stanu zaleznego od trwalosci.
+        #
+        # `ts` NADAJE SERWER, tak samo jak `seq` — to jedyne miejsce, przez
+        # ktore przechodzi KAZDY trwaly event, wiec tu jest jedyna kontrola,
+        # ktorej nie da sie zapomniec przy nowym typie ramki. Klienci wysylaja
+        # `ts: 0.0` (patrz send.py, tui.py) i tak zostawalo na dysku: log mial
+        # kolejnosc, ale nie mial GODZINY. Cala rozmowa — czyli to, co czlowiek
+        # czyta, gdy chce zrozumiec, co sie stalo — byla bez czasu, a ramki
+        # serwerowe (hello, kick, takeover) czas mialy. Mieszanka gorsza niz
+        # brak: wygladala na dzialajaca.
+        #
+        # Wartosc klienta jest WEJSCIEM DO WALIDACJI, nigdy prawda (niezmiennik
+        # z CLAUDE.md). Zegar stoi tutaj, a nie w logice decyzyjnej — zadna
+        # decyzja huba nie zalezy od `ts`.
+        frame["ts"] = time.time()
         seq = self.log.append(frame)
         self._events_since_snapshot += 1
         return seq

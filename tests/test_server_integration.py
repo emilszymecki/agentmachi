@@ -2717,3 +2717,48 @@ def test_nowe_hello_zapisuje_klucz_open_addr_zawsze(srv):
         assert hellos[-1]["open_addr"] is None      # bind loopback: nic nie wiaze
         await ws.close()
     asyncio.run(srv(scenario))
+
+
+def test_serwer_stempluje_czas_na_kazdym_trwalym_evencie(srv):
+    """`ts` nadaje SERWER, tak samo jak `seq`.
+
+    Klienci wysylaja `ts: 0.0` (send.py, tui.py) i tak zostawalo na dysku:
+    log mial kolejnosc, ale nie mial GODZINY. Cala ROZMOWA — czyli to, co
+    czlowiek czyta, gdy chce zrozumiec, co sie stalo — byla bez czasu, a ramki
+    serwerowe (hello, kick, takeover) czas mialy. Mieszanka gorsza niz brak:
+    wygladala na dzialajaca."""
+    async def scenario(server):
+        przed = time.time()
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        await ws.send(json.dumps({"type": "chat", "from": "alfa", "ts": 0.0,
+                                  "text": "kiedy to bylo"}))
+        await ws.send(json.dumps({"type": "status", "from": "alfa", "ts": 0.0,
+                                  "state": "working"}))
+        await asyncio.sleep(0.4)
+        await ws.close()
+        po = time.time()
+
+        eventy = list(server.log.replay())
+        assert {e["type"] for e in eventy} >= {"hello", "chat", "status"}
+        for e in eventy:
+            assert przed <= e["ts"] <= po, (e["type"], e["ts"])
+        # i rosnie razem z seq — inaczej log klamalby o kolejnosci w czasie
+        czasy = [e["ts"] for e in sorted(eventy, key=lambda x: x["seq"])]
+        assert czasy == sorted(czasy)
+    asyncio.run(srv(scenario))
+
+
+def test_klient_nie_moze_podstawic_wlasnego_czasu(srv):
+    """Wartosc od klienta jest WEJSCIEM DO WALIDACJI, nigdy prawda. Bez tego
+    agent moglby wpisac sobie dowolna godzine w cudzy log."""
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        await ws.send(json.dumps({"type": "chat", "from": "alfa",
+                                  "ts": 9.99e8, "text": "rok 2001"}))
+        await asyncio.sleep(0.3)
+        await ws.close()
+        chat = [e for e in server.log.replay() if e["type"] == "chat"][-1]
+        assert chat["ts"] > 1.7e9, "serwer przyjal czas podstawiony przez klienta"
+    asyncio.run(srv(scenario))

@@ -53,9 +53,12 @@ Kolejność, nie sugestia:
 
 ## Inwarianty kodu (łamiesz = review odrzuca)
 
-- **Pola autorytatywne nadaje wyłącznie serwer**: `seq`, `generation`,
+- **Pola autorytatywne nadaje wyłącznie serwer**: `seq`, `ts`, `generation`,
   `groups`, `from`, `role`, `target`. Wartość z ramki klienta jest
-  wejściem do walidacji, nigdy prawdą.
+  wejściem do walidacji, nigdy prawdą. (`ts` dopisane 2026-07-31: klienci
+  wysyłają `0.0` i tak zostawało na dysku, więc rozmowa w logu miała
+  kolejność, ale nie miała godziny — a ramki serwerowe czas miały.
+  Mieszanka gorsza niż brak, bo wyglądała na działającą.)
 - **Trwałość przed publikacją**: najpierw zapis na dysk, potem
   broadcast. Nigdy odwrotnie.
 - **Kontrakt wejścia publicznych metod**: typy i niepustość każdego
