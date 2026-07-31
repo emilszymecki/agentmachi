@@ -262,8 +262,22 @@ _SHELLS = ("zsh", "bash", "sh", "dash", "fish", "setsid", "nohup", "timeout", "e
 
 
 def _ancestor_pids():
-    """My i wszyscy nasi przodkowie. Skaner nie ma prawa uznac zadnego z nich
-    za "juz dzialajacy hub" — to nie inny serwer, to my w drodze do startu."""
+    """My i cala nasza linia rodzicow. Jeden zbior, DWA powody — obie awarie
+    zmierzone, kazda osobno:
+
+    1. Skaner nie ma prawa uznac zadnego z nich za "juz dzialajacy hub" —
+       to nie inny serwer, to my w drodze do startu.
+    2. `kill` nie ma prawa ich ubic. `pkill -f <wzorzec>` dopasowuje takze
+       WLASNY wrapper powloki (wzorzec siedzi w jego argv) i zabija sam
+       siebie (exit 144). Ostrzezenie o tym jest w skillu od dawna; w jednej
+       sesji dogfoodu weszlo w te pulapke DWOCH agentow, obaj po przeczytaniu
+       ostrzezenia. Dokumentacja nie jest zabezpieczeniem.
+
+    Do 2026-07-31 byly to DWIE funkcje czytajace dwa rozne pliki /proc
+    (`status` -> PPid vs `stat` -> pole 4) i zwracajace — sprawdzone —
+    identyczny zbior. Dwie odpowiedzi na to samo pytanie bezpieczenstwa,
+    zrodzone z dwoch osobnych awarii i oddalone od siebie o 300 linii, wiec
+    niewidoczne. Jedna moglaby sie zepsuc bez drugiej."""
     out = set()
     cur = os.getpid()
     while cur and cur > 1 and cur not in out:
@@ -576,29 +590,10 @@ def cmd_list(args):
     return 0
 
 
-def _wlasne_pidy():
-    """PID-y, ktorych NIGDY nie wolno ubic: my sami i cala nasza linia
-    rodzicow. To jest caly sens tej komendy — `pkill -f <wzorzec>` dopasowuje
-    takze WLASNY wrapper powloki, bo wzorzec siedzi w jego argv, i zabija
-    sam siebie (exit 144). Ostrzezenie o tym jest w skillu od dawna; w jednej
-    sesji dogfoodu weszlo w te pulapke DWOCH agentow, obaj po przeczytaniu
-    ostrzezenia. Dokumentacja nie jest zabezpieczeniem."""
-    swoje = {os.getpid()}
-    pid = os.getppid()
-    while pid and pid > 1 and pid not in swoje:
-        swoje.add(pid)
-        try:
-            with open(f"/proc/{pid}/stat") as f:
-                pid = int(f.read().split(") ", 1)[1].split()[1])
-        except (OSError, IndexError, ValueError):
-            break
-    return swoje
-
-
 def cmd_kill(args):
     """Ubij procesy pasujace do wzorca — bez zabijania samego siebie."""
     wzorzec = args.wzorzec
-    swoje = _wlasne_pidy()
+    swoje = _ancestor_pids()
     trafione = []
     for wpis in Path("/proc").iterdir():
         if not wpis.name.isdigit():

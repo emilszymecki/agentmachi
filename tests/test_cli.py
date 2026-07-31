@@ -680,13 +680,13 @@ def test_restart_starts_room_that_was_not_running(home, monkeypatch, capsys):
 
 # --- agentmachi kill: pkill, ktory nie zabija sam siebie -------------------
 
-def test_wlasne_pidy_zawieraja_nas_i_rodzicow():
+def test_ancestor_pids_zawieraja_nas_i_rodzicow():
     """Sedno komendy: `pkill -f <wzorzec>` dopasowuje WLASNY wrapper powloki,
     bo wzorzec siedzi w jego argv, i zabija sam siebie (exit 144). W jednej
     sesji dogfoodu weszlo w te pulapke dwoch agentow, obaj po przeczytaniu
     ostrzezenia w skillu — dokumentacja nie jest zabezpieczeniem."""
-    from agentmachi.cli import _wlasne_pidy
-    swoje = _wlasne_pidy()
+    from agentmachi.cli import _ancestor_pids
+    swoje = _ancestor_pids()
     assert os.getpid() in swoje
     assert os.getppid() in swoje      # cala linia rodzicow, nie tylko my
     assert len(swoje) >= 2
