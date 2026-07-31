@@ -1007,8 +1007,11 @@ def test_howto_niesie_mechanike_a_nie_kulture_pracy():
     from pathlib import Path as _P
     howto = (_P(cli.__file__).with_name("howto_default.md")).read_text()
     bajty = len(howto.encode("utf-8"))
-    assert bajty <= 4096, (
-        f"howto ma {bajty} B — budzet drutu to 4096 B; reszta nalezy "
+    # 4096 -> 5120 (2026-08-01, decyzja operatora). Uzasadnienie i koszt:
+    # patrz BUDZETY w tests/test_skills.py — plik stal 6 B pod sufitem, wiec
+    # prostowanie nieprawdziwego opisu wymagalo kasowania innej tresci.
+    assert bajty <= 5120, (
+        f"howto ma {bajty} B — budzet drutu to 5120 B; reszta nalezy "
         f"do skilla")
 
     # POZYTYWNY KONTRAKT: bez tych dziewieciu rzeczy agent na obcym runtimie

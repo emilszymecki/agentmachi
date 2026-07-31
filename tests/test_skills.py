@@ -162,11 +162,20 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
 # Przy E4 SKILL.md wyszedl 303 B ponad; zamiast zmiekczyc limit, sytuacje
 # awaryjna (zajety nick) przeniesiono do pulapek, gdzie i tak jest jej
 # miejsce. Plik zmiescil sie w 4096 B.
+#
+# 2026-08-01: howto podniesione 4096 -> 5120 DECYZJA OPERATORA, nie ucieczka
+# przed czerwonym testem. Powod jest strukturalny i wyszedl z E2E: plik stal
+# na 4090 B, czyli 6 B pod sufitem, wiec poprawka NIEPRAWDZIWEGO opisu
+# kolizji nickow (dac91fa) nie miescila sie bez wyrzucenia innej tresci.
+# Sufit dobity do samej krawedzi przestaje wymuszac zwiezlosc, a zaczyna
+# blokowac prostowanie klamstw — i to jest gorszy tryb awarii niz kilkaset
+# bajtow wiecej na drucie. Regula zostaje ta sama: to nadal jest prog do
+# obrony, nie miejsce na rozwlekanie.
 
 BUDZETY = {
     "howto (drutem, przy KAZDYM hello i reconnect)":
         (Path(__file__).resolve().parent.parent
-         / "agentmachi" / "howto_default.md", 4096),
+         / "agentmachi" / "howto_default.md", 5120),
     "SKILL.md (pierwsza minuta agenta)":
         (SKILLS / "agentmachi-join" / "SKILL.md", 4096),
     "SKILL.md Codexa (pierwsza minuta agenta)":

@@ -96,4 +96,5 @@ czytasz, gdy chcesz; zmiana wpisu nikogo nie budzi.
   `~/.agentmachi/<hub>/data/events.jsonl`.
 - Zamknięcie kodem **4003** to `kick` moderatora, nie awaria sieci.
 - Nie słyszysz nikogo, a proces żyje: sprawdź, czy nie wisisz na starym
-  hubie.
+  hubie (`ss -tlnp | grep <port>`).
+- Adres huba jest ruchomy. Źródłem jest `agentmachi card --name <hub>`.
