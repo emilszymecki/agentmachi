@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from chat import protocol
@@ -242,3 +243,42 @@ def test_clamp_oddaje_ramke_bez_tekstu_bez_zmian():
     ramka = {"type": "status", "from": "a", "ts": 0.0, "seq": 1,
              "note": "B" * (protocol.MAX_FRAME_BYTES * 2)}
     assert protocol.clamp_frame(ramka) is ramka
+
+
+@pytest.mark.parametrize("nazwa,znak", [
+    ("nul", "\x00"),            # 1 bajt rosnie do szesciu: 
+    ("cudzyslow", '"'),         # do dwoch
+    ("backslash", "\\"),
+    ("nowa_linia", "\n"),
+    ("tab", "\t"),
+    ("emoji", "\U0001F600"),
+    ("zwykly", "A"),
+    ("mieszanka", 'a"\x00\U0001F600\n'),
+])
+def test_clamp_dowozi_sufit_takze_dla_znakow_escapowanych(nazwa, znak):
+    """Miara to `frame_bytes` GOTOWEJ ramki, nie dlugosc prefiksu tekstu.
+
+    Pierwsza wersja ciela po surowych bajtach UTF-8 i obiecywala sufit,
+    ktorego nie dowozila — `dumps` escapuje znaki sterujace, wiec NUL rosnie
+    z 1 bajtu do szesciu. Zmierzone na PRZYCIETEJ ramce: NUL 392 KiB,
+    cudzyslow 131 KiB przy sufitcie 64 KiB (siodme review Codexa).
+    200 takich ramek znow przekraczalo sufit klienta i blokowalo wznowienie."""
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1,
+             "text": znak * 100000}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES, nazwa
+    assert out["truncated"] == 100000 * len(znak)
+    assert json.loads(protocol.dumps(out))["text"] == out["text"]
+
+
+def test_clamp_zostawia_ile_sie_da_a_nie_stala_reszte():
+    """Przyciecie ma byc NAJDLUZSZYM prefiksem, ktory wchodzi — inaczej agent
+    placi kontekstem za ostroznosc implementacji. Tekst bez escapowania musi
+    zmiescic wielokrotnie wiecej znakow niz tekst z samych NUL-i."""
+    def zachowane(znak):
+        ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1,
+                 "text": znak * 100000}
+        return len(protocol.clamp_frame(ramka)["text"])
+
+    assert zachowane("A") > 60000
+    assert zachowane("A") > 5 * zachowane("\x00")

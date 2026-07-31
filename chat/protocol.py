@@ -48,7 +48,23 @@ def clamp_frame(frame):
     nietkniete, wiec kursor liczy sie dokladnie tak samo i nic nie znika
     z historii po cichu. Agent dostaje jawny znacznik i pole `truncated`
     z prawdziwa dlugoscia, a po calosc siega tam, gdzie howto i tak go
-    odsyla przy urwanych powiadomieniach: do events.jsonl."""
+    odsyla przy urwanych powiadomieniach: do events.jsonl.
+
+    Miara to `frame_bytes` GOTOWEJ ramki, nie dlugosc prefiksu tekstu.
+    Pierwsza wersja ciela po surowych bajtach UTF-8 i obiecywala sufit,
+    ktorego nie dowozila: `dumps` escapuje znaki sterujace, wiec NUL rosnie
+    z 1 bajtu do szesciu (`\\u0000`), a cudzyslow, backslash i nowa linia do
+    dwoch. Zmierzone na przycietej ramce: NUL 392 KiB, cudzyslow 131 KiB
+    przy sufitcie 64 KiB (siodme review Codexa). Szukamy wiec binarnie
+    NAJDLUZSZEGO prefiksu, ktory po serializacji wchodzi — logarytmicznie
+    malo serializacji, za to wynik jest sufitem, a nie przyblizeniem.
+
+    Ciecie po ZNAKACH (nie bajtach) nie moze rozlupac znaku wielobajtowego:
+    indeksowanie str idzie po punktach kodowych.
+
+    Gwarancja dotyczy ramek, ktore rozdyma `text`. Gdy ramka przekracza sufit
+    czyms innym, oddajemy ja bez zmian — udawanie, ze zmiescilismy, byloby
+    gorsze niz jawne oddanie za duzej ramki."""
     if frame_bytes(frame) <= MAX_FRAME_BYTES:
         return frame
     text = frame.get("text")
@@ -56,15 +72,21 @@ def clamp_frame(frame):
         return frame          # nie ma czego przyciac — oddajemy jak jest
     przyciety = dict(frame)
     przyciety["truncated"] = len(text)
-    narzut = frame_bytes({**przyciety, "text": TRUNCATION_MARK})
-    budzet = MAX_FRAME_BYTES - narzut
-    if budzet <= 0:
-        przyciety["text"] = TRUNCATION_MARK.strip()
-        return przyciety
-    # ciecie po BAJTACH (tak liczy max_size), `ignore` domyka rozciety
-    # znak wielobajtowy zamiast wpuszczac go na drut polamanego
-    przyciety["text"] = (
-        text.encode("utf-8")[:budzet].decode("utf-8", "ignore") + TRUNCATION_MARK)
+
+    def _miesci(dlugosc):
+        przyciety["text"] = text[:dlugosc] + TRUNCATION_MARK
+        return frame_bytes(przyciety) <= MAX_FRAME_BYTES
+
+    lo, hi = 0, len(text)
+    while lo < hi:
+        srodek = (lo + hi + 1) // 2
+        if _miesci(srodek):
+            lo = srodek
+        else:
+            hi = srodek - 1
+    if not _miesci(lo):
+        # nawet sam znacznik nie wchodzi — ramke rozdyma cos poza `text`
+        przyciety["text"] = ""
     return przyciety
 
 # (Runda 4 #5 / laka-nie-obora A2/A3/A4) Rozdzial typow: INBOUND to jedyne
