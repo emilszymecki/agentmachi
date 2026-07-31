@@ -375,3 +375,33 @@ def test_replay_hello_nie_kasuje_grup_odtworzonych_ze_snapshotu():
     restored.replay_hello("agent1", "inst-2")   # reconnect z ogona logu
     assert restored.groups_of("agent1") == ["admin"], \
         "replay reconnectu kasuje czlonkostwo odtworzone ze snapshotu"
+
+
+def test_wiazanie_adresu_przezywa_restart():
+    """B7 obiecuje, ze nick z trybu otwartego jest PRZYPIETY do maszyny —
+    a w trybie otwartym to jedyny dowod tozsamosci, bo nie ma tokenu.
+    Bez `open_addr` w snapshocie restart huba kasowal wiazanie, wiec
+    podszywacz odbijany przed restartem przechodzil po nim."""
+    tokens = {"human": {"token": "th", "role": "human", "groups": []}}
+    registry = Registry(tokens)
+    registry.open_hello("agent1", "inst-1", "100.64.0.7")
+
+    restored = Registry.restore(tokens, registry.dump())
+    with pytest.raises(AuthError):
+        restored.open_hello("agent1", "inst-podszywacz", "100.64.0.9")
+    # wlasciciel z tego samego adresu wchodzi normalnie
+    assert restored.open_hello("agent1", "inst-2", "100.64.0.7") >= 1
+
+
+def test_restore_znosi_snapshot_bez_open_addr_i_smieci():
+    """Stary snapshot nie ma klucza `open_addr` — brak wiazania jest legalny.
+    Wiazanie do nicka, ktorego rejestr nie zna, nie ma czego chronic."""
+    tokens = {"human": {"token": "th", "role": "human", "groups": []}}
+    stary = {"gen": {"human": 1}, "instance": {"human": "i1"}, "groups": {}}
+    assert Registry.restore(tokens, stary)._open_addr == {}
+
+    smieci = dict(stary, open_addr={"duch": "10.0.0.1", "human": ""})
+    assert Registry.restore(tokens, smieci)._open_addr == {}
+
+    with pytest.raises(ValueError):
+        Registry.restore(tokens, dict(stary, open_addr="nie-dict"))

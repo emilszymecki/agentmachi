@@ -323,11 +323,31 @@ class ChatServer:
         wiec byla to pierwsza rzecz, jaka uczestnik o sobie slyszal. "worker"
         mowi, ze jest wykonawca czyjegos polecenia; to ustroj, a nie
         mechanika. Ta sama zmiana co usuniecie domyslnej grupy `workers`.
-        """
+
+        WOLNY znaczy NIEZNANY REJESTROWI, nie "chwilowo nieobecny". Wczesniej
+        warunkiem bylo `not self.conns.get(...)`, wiec nick rozlaczonego
+        uczestnika wracal do puli — RAZEM Z JEGO GRUPAMI, bo `roles`/`groups`
+        rozlaczenia nie kasuja. Zmierzone na zywym hubie, bez restartu:
+        agent1 dostaje `admin`, rozlacza sie, a nastepny przybysz BEZ NICKA
+        dostaje `agent1` i `admin` w odpowiedzi na hello. Czyli hub sam
+        wreczal obcemu cudza tozsamosc wraz z uprawnieniem do kicka
+        (zlapane 2026-07-31, drugie review Codexa).
+
+        Cena: licznik rosnie przez cale zycie pokoju i agent, ktory nie
+        zachowal swojego nicka, wraca pod nowym. To jest wlasciwe zachowanie,
+        nie strata: hub NIE MA jak odroznic wracajacego od obcego, dopoki ten
+        nie poda nicka sam (CHAT_NICK). Nick recyklingowany miedzy roznymi
+        agentami klamie w logu o tym, kto co powiedzial.
+
+        `kick` swiadomie NIE zwalnia nicka — zwalnia tylko wiazanie adresu
+        (release_open_addr), zeby ten sam agent wrocil po re-IP. Oddanie
+        nazwy komus innemu bylo by dokladnie ta luka, ktora tu zamykamy."""
         n = 1
         while True:
             kandydat = f"{prefix}{n}"
-            if not self.conns.get(kandydat) and kandydat not in self.registry.tokens:
+            if (kandydat not in self.registry.roles
+                    and kandydat not in self.registry.tokens
+                    and not self.conns.get(kandydat)):
                 return kandydat
             n += 1
 

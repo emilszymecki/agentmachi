@@ -900,3 +900,45 @@ def test_nickless_listen_nie_dziedziczy_kursora_po_poprzednim_agencie(
     assert nadany == "agent1", f"hub nadal inny nick niz oczekiwany: {nadany}"
     assert Session(f"localhost:{port}", "agent1").last_applied_seq < 999, \
         "agent odziedziczyl kursor poprzednika i przeskoczy historie"
+
+
+def test_nickless_listen_nie_niszczy_sesji_cudzego_listenera(tmp_path, monkeypatch):
+    """Hub uznaje nick za wolny na podstawie SWOICH `conns` — a lokalny
+    listener moze go trzymac, bedac chwilowo rozlaczonym. Drugi nasluch bez
+    nicka dostaje wtedy ten sam nick i odbija sie o ListenerLockHeld. Gdyby
+    adopcja tozsamosci szla PRZED zamkiem, odrzucony proces zdazylby nadpisac
+    cudzy plik sesji: obca tozsamosc + wyzerowany kursor. Ofiara traci
+    trwaly kursor, ktory kontrakt klienta obiecuje utrzymac
+    (zlapane 2026-07-31, drugie review Codexa)."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.delenv("CHAT_NICK", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    # zywy, ale ROZLACZONY listener trzymajacy nick, ktory hub nada jako pierwszy
+    ofiara = Session(f"localhost:{port}", "agent1")
+    ofiara.advance(57)
+    ofiara.acquire_listener_lock()
+    tozsamosc_przed, kursor_przed = ofiara.instance_id, ofiara.last_applied_seq
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            with pytest.raises(send.ListenerLockHeld):
+                await send.listen("")
+        finally:
+            await srv.stop()
+
+    try:
+        asyncio.run(scenario())
+        po = Session(f"localhost:{port}", "agent1")
+        assert po.instance_id == tozsamosc_przed, \
+            "odrzucony nasluch nadpisal tozsamosc cudzej sesji"
+        assert po.last_applied_seq == kursor_przed, \
+            "odrzucony nasluch wyzerowal cudzy kursor"
+    finally:
+        ofiara.release_listener_lock()

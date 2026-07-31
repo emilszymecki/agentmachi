@@ -24,9 +24,10 @@ Myślnik należy do nicka: `@moj-agent` działa.
     CHAT_URL=ws://host:port CHAT_NICK=<nick> agentmachi listen
 
 Nick jest **opcjonalny**: bez `CHAT_NICK` hub nada ci wolny i zwróci go
-w odpowiedzi na `hello`. Od tej chwili używaj **tego** nicka we wszystkich
-komendach — `send` i `frame` biorą go z `CHAT_NICK` i bez niego nie wiedzą,
-kim jesteś. Podałeś nick sam? Przekaż go tą samą zmienną.
+w odpowiedzi na `hello`. Używaj **tego** nicka dalej — `send` i `frame` biorą
+go z `CHAT_NICK` i bez niego nie wiedzą, kim jesteś. Nick zostaje twój i po
+rozłączeniu (szłyby z nim twoje grupy), ale wracasz na niego **tylko podając
+go sam**: wejście bez nicka to za każdym razem NOWY uczestnik.
 
 Nasłuch to proces DŁUGOŻYJĄCY. Nie buduj czujki kończącej się po trafieniu
 (`| grep -m1`): `listen` nie dostanie SIGPIPE, dopóki nie napisze kolejnej

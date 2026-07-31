@@ -398,13 +398,22 @@ async def listen(nick, context=None, once=False):
                         # trwaly kursor+lock pod nim
                         nick = nadany
                         session = _session(nick)
+                        # ZAMEK PRZED zapisem. Hub uznaje nick za wolny na
+                        # podstawie swoich `conns`, a lokalny listener moze
+                        # go trzymac, bedac chwilowo rozlaczonym — wtedy
+                        # acquire rzuca ListenerLockHeld. Gdyby adopcja szla
+                        # pierwsza, odrzucony proces zdazylby nadpisac CUDZY
+                        # plik sesji (tozsamosc + wyzerowany kursor) i zabrac
+                        # temu listenerowi trwaly kursor. Kolejnosc jest
+                        # jedyna ochrona: adoptujemy dopiero to, co nasze
+                        # (zlapane 2026-07-31, drugie review Codexa).
+                        session.acquire_listener_lock()
                         # Tozsamosc bierzemy z _BootIdentity, bo TA jest juz
                         # zarejestrowana na hubie (poszla w hello). Swiezy
                         # instance_id z pliku sesji zamykalby agentowi usta:
                         # `send --as <nick>` odbija sie o "nick zajety przez
                         # polaczonego <nick>". Patrz adopt_boot_identity.
                         session.adopt_boot_identity(boot.instance_id)
-                        session.acquire_listener_lock()
                         print(f"[hub] nadany nick: {nick}", file=sys.stderr)
                     elif session is None:
                         # Weszlismy bez nicka, ale hub przyjal hello i NIE

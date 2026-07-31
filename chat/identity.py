@@ -190,9 +190,16 @@ class Registry:
         return self._gen.get(nick, 0)
 
     def dump(self):
+        # `open_addr` MUSI byc w snapshocie: to jedyny dowod tozsamosci, jaki
+        # ma tryb otwarty (nie ma tokenu). Bez niego restart huba kasowal
+        # wiazanie nick->adres, wiec podszywacz odbijany przed restartem
+        # przechodzil po nim — a B7 obiecuje, ze nick jest przypiety do
+        # maszyny. Klucz nowy: stary snapshot go nie ma i to jest w porzadku
+        # (brak wiazania = stan sprzed pierwszego hello).
         return {"gen": dict(self._gen), "instance": dict(self._instance),
                 "groups": {nick: list(groups)
-                           for nick, groups in self.groups.items()}}
+                           for nick, groups in self.groups.items()},
+                "open_addr": dict(self._open_addr)}
 
     @classmethod
     def restore(cls, tokens, data):
@@ -224,4 +231,14 @@ class Registry:
             for nick in registry.roles:
                 if nick in saved_groups:
                     registry.set_groups(nick, saved_groups[nick])
+        saved_addr = data.get("open_addr")
+        if saved_addr is not None:
+            if not isinstance(saved_addr, dict):
+                raise ValueError(f"bad open_addr in registry snapshot: {saved_addr!r}")
+            # Tylko dla tozsamosci, ktore nadal istnieja — wiazanie do nicka
+            # nieznanego rejestrowi nie ma czego chronic.
+            registry._open_addr = {
+                nick: adres for nick, adres in saved_addr.items()
+                if isinstance(nick, str) and nick and nick in registry.roles
+                and isinstance(adres, str) and adres}
         return registry

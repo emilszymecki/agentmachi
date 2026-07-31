@@ -2230,3 +2230,39 @@ def test_agent_z_trybu_otwartego_zachowuje_grupy_po_restarcie_huba(tmp_path):
         "restart odebral agentowi z trybu otwartego grupe admin"
     assert s2.groups.get("agent1") == {"admin"}, \
         "lustro grup po restarcie nie widzi agenta z trybu otwartego"
+
+
+def test_hub_nie_wreca_przybyszowi_cudzej_tozsamosci(tmp_path):
+    """Rozlaczenie NIE zwalnia nicka do puli. Wczesniej `_wolny_nick` pytal
+    tylko o `conns`, wiec nick rozlaczonego uczestnika wracal do puli razem
+    z jego grupami — `roles`/`groups` rozlaczenia nie kasuja. Zmierzone na
+    zywym hubie, bez restartu: agent1 dostaje `admin`, rozlacza sie,
+    a nastepny przybysz BEZ NICKA dostaje `agent1` i `admin` w odpowiedzi
+    na hello. Hub sam wreczal obcemu cudze uprawnienie do kicka
+    (zlapane 2026-07-31, drugie review Codexa).
+
+    Tozsamosc i uprawnienia sa niezmiennikami serwera (konstytucja) — wiec
+    to serwer, nie konwencja, ma tego pilnowac."""
+    server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=_free_port())
+    server.registry.open_hello("agent1", "inst-1", None)
+    server.registry.set_groups("agent1", ["admin"])
+    server.conns["agent1"] = set()       # wszedl i sie rozlaczyl
+
+    kandydat = server._wolny_nick()
+    assert kandydat != "agent1", \
+        "hub oddaje przybyszowi nick rozlaczonego uczestnika razem z admin"
+    assert server.registry.groups_of(kandydat) == []
+
+
+def test_wolny_nick_omija_takze_nicki_znane_z_logu_po_restarcie(tmp_path):
+    """Ta sama regula po restarcie: nick odtworzony z logu/snapshotu jest
+    ZNANA tozsamoscia, nie wolnym miejscem."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("agent1", "inst-1", None)
+    s1.registry.set_groups("agent1", ["admin"])
+    s1.snapshot()
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    assert s2._wolny_nick() != "agent1"
