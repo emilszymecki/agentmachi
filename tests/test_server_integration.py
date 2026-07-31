@@ -2990,3 +2990,48 @@ def test_hello_z_resyncem_nie_wywala_handlera_na_dogonieniu(tmp_path):
             await server.stop()
 
     asyncio.run(scenario())
+
+
+def test_ostrzezenie_o_nicku_nie_klamie_gdy_czlowiek_slucha(srv):
+    """ZLAPANE E2E przez agent1 (S16), nie przez moj wlasny test.
+
+    Hub mowil nadawcy "wzmianka nikogo nie obudzila" i ROWNOCZESNIE doreczal
+    te ramke podlaczonemu czlowiekowi. Ludzie dostaja kazdy chat niezaleznie
+    od wzmianek (_publish_chat doklada wszystkie podlaczone role human), wiec
+    "nikogo" bylo po prostu nieprawda.
+
+    Moj test tej poprawki sprawdzal TYLKO nadawce — dlatego przeszedl.
+    Scenariusz E2E patrzyl na oba konce drutu naraz i dlatego zlapal."""
+    async def scenario(server):
+        ws_h, r_h = await hello("emil", "te", role="human")
+        assert r_h["type"] == "ok"
+        ws_a, r_a = await hello("alfa", "ta")
+        assert r_a["type"] == "ok"
+
+        await ws_a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 0.0,
+                                    "text": "@nikt-taki halo"}))
+
+        ostrzezenie = None
+        for _ in range(5):
+            d = json.loads(await asyncio.wait_for(ws_a.recv(), 5))
+            if d.get("type") == "error":
+                ostrzezenie = d
+                break
+        assert ostrzezenie, "nadawca nie dostal ostrzezenia"
+        assert "nieznany nick" in ostrzezenie["text"]
+        assert "nikogo nie obudzila" not in ostrzezenie["text"], \
+            "hub nadal twierdzi 'nikogo', a czlowiek te ramke dostaje"
+        assert "ZADEN AGENT" in ostrzezenie["text"]
+
+        # i drugi koniec drutu: czlowiek NAPRAWDE ja dostal
+        dostal = None
+        for _ in range(6):
+            d = json.loads(await asyncio.wait_for(ws_h.recv(), 5))
+            if d.get("type") == "chat" and "nikt-taki" in d.get("text", ""):
+                dostal = d
+                break
+        assert dostal, "czlowiek nie dostal ramki — wtedy ostrzezenie bylo OK"
+
+        await ws_a.close()
+        await ws_h.close()
+    asyncio.run(srv(scenario))

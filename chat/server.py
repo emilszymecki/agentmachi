@@ -562,11 +562,18 @@ class ChatServer:
         nieznane_nicki = sorted(
             m for m in mentions if m != "all" and m not in znani)
         if nieznane_nicki:
+            # "zaden AGENT", nie "nikt". Ludzie dostaja kazdy chat niezaleznie
+            # od wzmianek (_publish_chat dokłada wszystkie podlaczone role
+            # human), wiec zdanie "nikogo nie obudzila" bylo NIEPRAWDA przy
+            # podlaczonym czlowieku: hub mowil "nikogo" i rownoczesnie
+            # dorecza1. Zlapane E2E przez agent1 (S16) na scenariuszu, ktorego
+            # moj wlasny test nie mial — bo sprawdzalem tylko nadawce.
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
-                text=f"nieznany nick: {', '.join(nieznane_nicki)} — wzmianka "
-                     f"nikogo nie obudzila (kto jest na kanale: participants "
-                     f"w odpowiedzi na hello)"))
+                text=f"nieznany nick: {', '.join(nieznane_nicki)} — nie ma "
+                     f"takiego uczestnika, wiec ZADEN AGENT sie nie obudzil. "
+                     f"Ramka poszla normalnie do logu i do podlaczonych ludzi. "
+                     f"Kto jest na kanale: participants w odpowiedzi na hello."))
         seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
         frame["seq"] = seq
         await self._publish_chat(frame, mentions, groups_mentioned, set(unknown_groups))
