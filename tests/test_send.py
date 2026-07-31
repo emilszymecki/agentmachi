@@ -1025,3 +1025,87 @@ def test_send_odmawia_surogatu_zamiast_gubic_po_cichu(tmp_path, monkeypatch):
             await srv.stop()
 
     assert "chat" not in asyncio.run(scenario())
+
+
+def test_send_pokazuje_ostrzezenie_serwera_bez_nasluchu(tmp_path, monkeypatch, capsys):
+    """Ostrzezenia (nieznany nick, nieznana grupa) leca WYLACZNIE na zywo
+    i NIE sa utrwalane — zmierzone przez agent1: w events.jsonl nie ma ani
+    jednej ramki `error`. Kto wysyla jednorazowo, bez podniesionego nasluchu,
+    nie mial ich SKAD przeczytac: hub mowil do sciany.
+
+    Nie utrwalamy `error` w logu (taka byla pierwsza propozycja), bo ramka
+    jest adresowana do JEDNEGO nadawcy, a log czyta kazdy przy wznowieniu.
+    Pytamy o nia tam, gdzie powstala."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            await send.send_once("agent1", "@nikt-takiego halo")
+            return [f.get("type") for f in srv.log.replay()]
+        finally:
+            await srv.stop()
+
+    typy = asyncio.run(scenario())
+    err = capsys.readouterr().err
+    assert "hub:" in err and "nieznany nick" in err, err
+    # ramka MIMO TO doszla — to ostrzezenie, nie odmowa
+    assert "chat" in typy
+
+
+def test_send_bez_ostrzezenia_nie_placi_pelnego_okna(tmp_path, monkeypatch):
+    """Cisza jest sciezka SZCZESLIWA, wiec kazda zwykla wysylka placi pelne
+    okno. Pierwsza wersja miala 1.0 s i spowalniala wszystko; okno jest
+    oparte na pomiarze (2.4-5.6 ms na zywym hubie), nie na ostroznosci."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+    assert send.OKNO_OSTRZEZENIA <= 0.5, \
+        "okno uroslo — kazda wysylka placi je w calosci"
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            start = time.monotonic()
+            await send.send_once("agent1", "zwykla wiadomosc bez wzmianki")
+            return time.monotonic() - start
+        finally:
+            await srv.stop()
+
+    trwalo = asyncio.run(scenario())
+    assert trwalo < 2.0, f"wysylka trwala {trwalo:.2f} s"
+
+
+def test_send_ignoruje_cudze_ramki_we_wspolnym_oknie(tmp_path, monkeypatch, capsys):
+    """`send_once` dzieli instance_id z nasluchem, wiec serwer pcha do
+    WSZYSTKICH socketow nicka. Cudzy ruch nie moze udawac ostrzezenia —
+    ani nic tu nie ginie: ta sama ramka poszla rownolegle do nasluchu
+    i siedzi w logu."""
+    class _FakeWs:
+        def __init__(self):
+            self.ramki = [
+                json.dumps({"type": "chat", "from": "ktos", "seq": 9,
+                            "text": "cudza rozmowa"}),
+                json.dumps({"type": "error", "from": "server",
+                            "text": "nieznany nick: duch"}),
+            ]
+
+        async def recv(self):
+            if self.ramki:
+                return self.ramki.pop(0)
+            await asyncio.sleep(10)
+
+    wynik = asyncio.run(send._pokaz_ostrzezenie_serwera(_FakeWs()))
+    assert wynik is not None and "duch" in wynik["text"]
+    err = capsys.readouterr().err
+    assert "cudza rozmowa" not in err, "cudza ramka wyciekla jako ostrzezenie"

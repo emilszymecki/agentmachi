@@ -24,6 +24,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -386,6 +387,64 @@ def _sprawdz_rozmiar(wire):
     return wire
 
 
+# Ile czekamy na ewentualne `error` po wyslaniu chat/fyi. ZMIERZONE na zywym
+# hubie, nie zgadniete: ostrzezenie wraca w 2.4-5.6 ms (piec prob, loopback),
+# bo serwer wysyla je PRZED zapisem ramki. 250 ms to ~45x zapas nad pomiarem
+# i mieszczi sie w nim takze hub w tailnecie. Pierwsza wersja miala 1.0 s
+# i to byl blad w rozumowaniu: napisalem, ze "sciezka szczesliwa placi tylko
+# gdy serwer milczy", a CISZA JEST sciezka szczesliwa — czyli kazda zwykla
+# wysylka placila pelna sekunde. Za krotkie okno gubi ostrzezenie, czyli
+# wraca do stanu sprzed tej zmiany; za dlugie spowalnia KAZDA wysylke.
+OKNO_OSTRZEZENIA = 0.25
+
+
+async def _pokaz_ostrzezenie_serwera(ws):
+    """Po wyslaniu chat/fyi poczekaj CHWILE na ewentualne `error` i wypisz je.
+
+    `chat` nie ma ACK, wiec dotad `send` konczyl sie zerem niezaleznie od
+    tego, co serwer o tej ramce sadzil. Ostrzezenia (nieznany nick, nieznana
+    grupa) leca WYLACZNIE na zywo i NIE sa utrwalane — zmierzone przez
+    agent1: w events.jsonl nie ma ani jednej ramki `error`. Kto wysyla
+    jednorazowo, bez podniesionego nasluchu, nie mial ich wiec SKAD
+    przeczytac: hub mowil do sciany.
+
+    Dlaczego nie utrwalamy `error` w logu, choc taka byla pierwsza
+    propozycja: ramka jest adresowana do JEDNEGO nadawcy, a log czyta kazdy
+    przy wznowieniu. Zamiast tego pytamy o nia tam, gdzie powstala.
+
+    Okno konczy sie na PIERWSZEJ ramce, ale cisza trwa pelne okno — a cisza
+    to wlasnie sciezka szczesliwa, wiec KAZDA zwykla wysylka za nie placi.
+    Dlatego jest krotkie i oparte na pomiarze (patrz OKNO_OSTRZEZENIA), a nie
+    na ostroznosci: serwer wysyla ostrzezenie PRZED zapisem ramki
+    (_handle_chat), wiec jesli ma cokolwiek do powiedzenia, mowi od razu.
+
+    Kod wyjscia zostaje ZERO. Ramka doszla do logu i do ludzi — to
+    ostrzezenie, nie odmowa, a skrypt traktujacy niezerowy kod jako
+    "nie wyslano" dostalby falszywy sygnal.
+
+    Cudze ramki moga tu wpasc, bo `send_once` dzieli instance_id z nasluchem
+    i serwer pcha do WSZYSTKICH socketow nicka — pomijamy je i nic nie ginie:
+    ta sama ramka poszla rownolegle do nasluchu i siedzi w logu.
+    """
+    koniec = time.monotonic() + OKNO_OSTRZEZENIA
+    while True:
+        zostalo = koniec - time.monotonic()
+        if zostalo <= 0:
+            return None                      # cisza = sukces, chat nie ma ACK
+        try:
+            surowe = await asyncio.wait_for(ws.recv(), zostalo)
+        except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
+            return None
+        try:
+            ramka = json.loads(surowe)
+        except ValueError:
+            continue
+        if isinstance(ramka, dict) and ramka.get("type") == "error":
+            print(f"hub: {ramka.get('text', '(bez tresci)')}", file=sys.stderr)
+            return ramka
+        # cokolwiek innego to cudzy ruch na wspolnym nicku — nie nasza sprawa
+
+
 async def send_once(nick, text, quiet=False):
     """quiet=True: ramka trafia do logu i do ludzi, ale NIE budzi agentow.
     Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
@@ -400,6 +459,7 @@ async def send_once(nick, text, quiet=False):
         await ws.send(protocol.dumps(_sprawdz_rozmiar({
             "type": "fyi" if quiet else "chat",
             "from": nick, "ts": 0.0, "text": text})))
+        await _pokaz_ostrzezenie_serwera(ws)
 
 
 async def listen(nick, context=None, once=False):
