@@ -942,3 +942,56 @@ def test_nickless_listen_nie_niszczy_sesji_cudzego_listenera(tmp_path, monkeypat
             "odrzucony nasluch wyzerowal cudzy kursor"
     finally:
         ofiara.release_listener_lock()
+
+
+def test_send_odmawia_zamiast_gubic_po_cichu(tmp_path, monkeypatch):
+    """`chat` NIE MA ACK. Hub odrzuca ramke ponad sufit kodem 1009, a menedzer
+    kontekstu websockets polyka to zamkniecie — bez kontroli u klienta
+    `agentmachi send` konczy sie ZEREM, a wiadomosci nie ma ani w logu, ani
+    u nikogo. Agent idzie dalej przekonany, ze powiedzial.
+
+    Cicha utrata jest gorsza niz odmowa, wiec klient ma powiedziec NIE sam
+    (zlapane 2026-07-31, piate review Codexa)."""
+    from chat.server import ChatServer
+    from chat import protocol
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+    za_duzy = "X" * (protocol.MAX_FRAME_BYTES + 1000)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            with pytest.raises(send.SessionError) as e:
+                await send.send_once("agent1", za_duzy)
+            assert "sufit" in str(e.value)
+            return [f.get("type") for f in srv.log.replay()]
+        finally:
+            await srv.stop()
+
+    typy = asyncio.run(scenario())
+    assert "chat" not in typy, "przerosnieta ramka mimo wszystko weszla do logu"
+
+
+def test_sufit_klienta_pokrywa_najgorsza_legalna_odpowiedz():
+    """Sufit odbioru ma byc POCHODNA arytmetyki, nie liczba z powietrza:
+    najgorsza legalna odpowiedz to okno rozmowy razy sufit jednej ramki.
+    Gdyby ktos podniosl CONVERSATION_LIMIT albo MAX_FRAME_BYTES i zapomnial
+    o kliencie, wracajacy agent znow wypadalby na wlasnym backlogu."""
+    from chat import protocol, store
+    assert send.MAX_HUB_FRAME >= store.CONVERSATION_LIMIT * protocol.MAX_FRAME_BYTES
+
+
+def test_dumps_nie_rozpycha_znakow_spoza_ascii():
+    """Sufity licza bajty UTF-8, a domyslny json.dumps rozpisuje kazdy znak
+    spoza ASCII na \\uXXXX — emoji puchnie z 4 bajtow do 12. Ramka, ktora
+    przeszla sufit WEJSCIA, wracala w odpowiedzi trzy razy wieksza i sufit
+    wyjscia gonilby wejscie w nieskonczonosc."""
+    import json
+    from chat import protocol
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "text": "😀" * 1000}
+    assert protocol.frame_bytes(ramka) < len(json.dumps(ramka).encode()) / 2.5
+    assert json.loads(protocol.dumps(ramka)) == ramka

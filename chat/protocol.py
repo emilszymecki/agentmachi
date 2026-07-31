@@ -1,7 +1,35 @@
 """Ramki i wzmianki. Zero I/O."""
+import json
 import math
 import re
 import sys
+
+# Sufit JEDNEJ ramki na drucie, w bajtach UTF-8. Mieszka TUTAJ, bo obie
+# strony musza mierzyc to samo: serwer egzekwuje go jako `max_size` (obrona
+# pamieci huba przed jednym uczestnikiem), a klient sprawdza go PRZED
+# wyslaniem. Bez sprawdzenia u klienta `chat` ginie po cichu: chat nie ma
+# ACK, serwer zamyka polaczenie kodem 1009, a menedzer kontekstu websockets
+# polyka wyjatek — komenda konczy sie zerem, wiadomosci nie ma nigdzie.
+MAX_FRAME_BYTES = 64 * 1024
+
+
+def dumps(obj):
+    """Serializacja ramki NA DRUT. Zawsze `ensure_ascii=False`.
+
+    Nie jest to kosmetyka, tylko warunek spojnosci sufitow. `max_size`
+    websockets liczy bajty UTF-8, a domyslny `json.dumps` rozpisuje kazdy
+    znak spoza ASCII na `\\uXXXX` — emoji puchnie z 4 bajtow do 12. Ramka,
+    ktora przeszla sufit WEJSCIA jako 65 252 B, wracala w odpowiedzi jako
+    195 652 B (zmierzone: 3.0x). Przy oknie rozmowy 200 ramek dawalo to
+    37 MB odpowiedzi i klient znow nie mogl sie wznowic — sufit wyjscia
+    goniby wejscie w nieskonczonosc. Z `ensure_ascii=False` wyjscie ma ten
+    sam rzad co wejscie i arytmetyka sufitow sie domyka."""
+    return json.dumps(obj, ensure_ascii=False)
+
+
+def frame_bytes(obj):
+    """Ile ta ramka zajmie na drucie (dokladnie tak, jak liczy max_size)."""
+    return len(dumps(obj).encode("utf-8"))
 
 # (Runda 4 #5 / laka-nie-obora A2/A3/A4) Rozdzial typow: INBOUND to jedyne
 # typy, ktore klient moze przyslac. OUTBOUND to typy WYLACZNIE serwerowe,

@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 
 import websockets
 
+from chat import protocol, store
 from chat.client_session import ListenerLockHeld, Session, SessionError
 
 PORT = os.environ.get("CHAT_PORT", "8765")
@@ -52,14 +53,20 @@ def hub_id_from_url(url):
 
 
 # Ile MAKSYMALNIE przyjmiemy w jednej ramce OD HUBA. Jawnie, bo domyslny
-# 1 MiB websockets jest ponizej tego, co hub legalnie wysyla: odpowiedz na
-# hello niesie caly backlog od kursora, wiec dlugo nieobecny agent dostawal
-# 1006 "message too big" i tracil calosc historii — zmierzone: 9000 ramek
-# rozmowy = rozlaczenie, 6000 = 772 KB, czyli tuz pod progiem. Sufit huba to
-# okno rozmowy (CONVERSATION_LIMIT) razy MAX_INBOUND_FRAME serwera; 32 MiB
-# jest nad nim z zapasem. Asymetria jest celowa: hub ogranicza WEJSCIE, bo
-# broni sie przed uczestnikami, a klient ufa hubowi, do ktorego sam wszedl.
-MAX_HUB_FRAME = 32 * 1024 * 1024
+# 1 MiB websockets lezy PONIZEJ tego, co hub legalnie wysyla: odpowiedz na
+# hello niesie caly backlog od kursora w jednej ramce. Zmierzone na zywym
+# hubie: 6000 ramek rozmowy = 772 KB (tuz pod progiem), 9000 = rozlaczenie
+# kodem 1006, czyli agent wraca po przerwie i wypada.
+#
+# Liczone Z ARYTMETYKI, nie z sufitu wzietego z powietrza: najgorsza legalna
+# odpowiedz to okno rozmowy (CONVERSATION_LIMIT) razy sufit jednej ramki,
+# plus snapshot stanu i howto. Mnoznik 4 to zapas na te dodatki. Warunek
+# `protocol.dumps` (ensure_ascii=False) jest tu istotny — bez niego kazda
+# ramka spoza ASCII puchla na wyjsciu 3x i arytmetyka sie nie domykala
+# (piate review Codexa: 200 ramek emoji = 37 MB przy sufitcie 32 MB).
+# Asymetria wobec huba jest celowa: hub ogranicza WEJSCIE, bo broni sie
+# przed uczestnikami; klient ufa hubowi, do ktorego SAM wszedl.
+MAX_HUB_FRAME = 4 * store.CONVERSATION_LIMIT * protocol.MAX_FRAME_BYTES
 
 URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")
 HUB_ID = hub_id_from_url(URI)
@@ -341,6 +348,32 @@ def _wysylka_albo_padnij(reply, nick, session):
     sys.exit(1)
 
 
+class SendTooLarge(SessionError):
+    """Ramka nie zmiesci sie w sufit huba. Dziedziczy po SessionError, wiec
+    main() konczy sie kodem 4 (blad kontraktu klienta), a nie zerem."""
+
+
+def _sprawdz_rozmiar(wire):
+    """Odrzuc ramke, ktora nie zmiesci sie w sufit huba. NIE jest to
+    dublowanie walidacji serwera — jest to jedyne miejsce, gdzie agent
+    w ogole DOWIE SIE, ze wiadomosc nie doszla.
+
+    `chat` nie ma ACK. Serwer zamyka polaczenie kodem 1009, a menedzer
+    kontekstu websockets polyka to zamkniecie — bez tej kontroli
+    `agentmachi send` konczy sie ZEREM, a wiadomosci nie ma ani w logu, ani
+    u nikogo. Cicha utrata jest gorsza niz odmowa: agent idzie dalej
+    przekonany, ze powiedzial (zlapane 2026-07-31, piate review Codexa)."""
+    rozmiar = protocol.frame_bytes(wire)
+    if rozmiar > protocol.MAX_FRAME_BYTES:
+        raise SendTooLarge(
+            f"ramka ma {rozmiar} B, sufit huba to {protocol.MAX_FRAME_BYTES} B "
+            f"({protocol.MAX_FRAME_BYTES // 1024} KiB). Hub odrzuca takie ramki "
+            f"i NIE odsyla bledu dla chat — dlatego mowie to tutaj. "
+            f"Podziel wiadomosc albo przekaz sciezke do pliku zamiast wklejac "
+            f"tresc na kanal.")
+    return wire
+
+
 async def send_once(nick, text, quiet=False):
     """quiet=True: ramka trafia do logu i do ludzi, ale NIE budzi agentow.
     Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
@@ -352,8 +385,9 @@ async def send_once(nick, text, quiet=False):
         # quiet -> typ `fyi`, ktory istnieje od planu B1: laduje w logu
         # i dociera do ludzi, ale NIE budzi agentow. Nie dodajemy drugiego
         # mechanizmu obok istniejacego — brakowalo tylko wygodnego wejscia.
-        await ws.send(json.dumps({"type": "fyi" if quiet else "chat",
-                                  "from": nick, "ts": 0.0, "text": text}))
+        await ws.send(protocol.dumps(_sprawdz_rozmiar({
+            "type": "fyi" if quiet else "chat",
+            "from": nick, "ts": 0.0, "text": text})))
 
 
 async def listen(nick, context=None, once=False):
@@ -513,7 +547,8 @@ async def oneshot_frame(nick, frame):
         # None, czyli "sukces".
         _wysylka_albo_padnij(await do_hello(ws, nick, session, token),
                              nick, session)
-        await ws.send(json.dumps({"from": nick, "ts": 0.0, **frame}))
+        await ws.send(protocol.dumps(
+            _sprawdz_rozmiar({"from": nick, "ts": 0.0, **frame})))
         try:
             while True:
                 reply = json.loads(await asyncio.wait_for(ws.recv(), 5))

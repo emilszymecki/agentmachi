@@ -16,7 +16,7 @@ import websockets
 
 from chat import protocol
 from chat.identity import AuthError
-from chat.server import ChatServer, MAX_INBOUND_FRAME
+from chat.server import ChatServer
 
 TOKENS = {
     "alfa": "ta",                                                     # stary format (kompat)
@@ -2423,7 +2423,7 @@ def test_hub_odrzuca_ramke_ponad_wlasny_sufit_wejscia(tmp_path):
                 await w.recv()
                 await w.send(json.dumps({
                     "type": "chat", "from": "a", "ts": 0.0,
-                    "text": "X" * (MAX_INBOUND_FRAME + 5000)}))
+                    "text": "X" * (protocol.MAX_FRAME_BYTES + 5000)}))
                 with pytest.raises(websockets.exceptions.ConnectionClosed):
                     await asyncio.wait_for(w.recv(), 10)
             # log huba pozostaje czysty — przerosnieta ramka nigdy nie wchodzi

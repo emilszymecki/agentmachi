@@ -400,9 +400,18 @@ class HubAdapter:
         if self._ws is None:
             raise TuiError("brak polaczenia z hubem")
         wire = {"from": self.identity.nick, "ts": 0.0, **frame}
+        # Sufit sprawdzamy TUTAJ, bo `chat` nie ma ACK: hub zamknie
+        # polaczenie kodem 1009, a operator zobaczylby tylko "hub
+        # rozlaczony" — nigdy powodu. Patrz protocol.MAX_FRAME_BYTES.
+        rozmiar = protocol.frame_bytes(wire)
+        if rozmiar > protocol.MAX_FRAME_BYTES:
+            raise TuiError(
+                f"wiadomosc ma {rozmiar // 1024} KiB, sufit huba to "
+                f"{protocol.MAX_FRAME_BYTES // 1024} KiB — hub odrzuci ja bez "
+                f"wyjasnienia. Podziel ja albo podaj sciezke do pliku.")
         async with self._send_lock:
             try:
-                await self._ws.send(json.dumps(wire, ensure_ascii=False))
+                await self._ws.send(protocol.dumps(wire))
             except (OSError, websockets.exceptions.ConnectionClosed) as exc:
                 raise TuiError("wysylka nieudana: hub rozlaczony") from exc
 

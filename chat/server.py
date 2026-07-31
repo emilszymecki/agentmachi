@@ -47,7 +47,6 @@ from .identity import AuthError, Registry, UNRESOLVED_ADDR
 from .store import EventLog, ForeignWriterError
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
-MAX_INBOUND_FRAME = 64 * 1024   # gorny limit JEDNEJ ramki OD klienta (patrz start())
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
 # Ten sam komunikat wysylaja DWIE sciezki: natychmiastowe odciecie starego
 # socketu przy takeoverze (_close_stale_sockets) i per-ramkowy check generacji
@@ -231,7 +230,8 @@ class ChatServer:
         # wiadomosc — plik wysyla sie sciezka, nie wklejeniem do kanalu.
         self._server = await websockets.serve(
             self._handler, self.bind, self.port,
-            ping_interval=20, ping_timeout=20, max_size=MAX_INBOUND_FRAME)
+            ping_interval=20, ping_timeout=20,
+            max_size=protocol.MAX_FRAME_BYTES)
 
     async def stop(self):
         self._server.close()
@@ -429,11 +429,11 @@ class ChatServer:
         NIE zamyka socketu. Trzy miejsca robia po bledzie jawne `ws.close()`
         z ROZNYMI kodami (1008 dla zlego wejscia, 1011 dla awarii storage) —
         to musi zostac ich decyzja, nie ukrytym efektem helpera."""
-        await ws.send(json.dumps(protocol.make_frame(
+        await ws.send(protocol.dumps(protocol.make_frame(
             "error", "server", time.time(), text=text, **fields)))
 
     async def _send(self, nick, payload):
-        data = json.dumps(payload)
+        data = protocol.dumps(payload)
         for ws in list(self.conns.get(nick, ())):
             try:
                 await ws.send(data)
@@ -456,7 +456,7 @@ class ChatServer:
                 bucket.discard(old_ws)
         for old_ws in stale:
             try:
-                await old_ws.send(json.dumps(protocol.make_frame(
+                await old_ws.send(protocol.dumps(protocol.make_frame(
                     "error", "server", time.time(), text=STALE_GENERATION)))
             except websockets.exceptions.ConnectionClosed:
                 pass
@@ -828,7 +828,7 @@ class ChatServer:
                                  # wejsciach naraz zgadywanie sie lamie)
                     generation=generation, role=role, groups=list(groups),
                     backlog=wire_backlog, last_seq=self.log.last_seq, **extra)
-            await ws.send(json.dumps(reply))
+            await ws.send(protocol.dumps(reply))
             await self._push_presence(nick, True)
             # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
             # domykamy polityke snapshot-co-100 tutaj, PO swapie live=klon, zeby
@@ -1070,7 +1070,7 @@ class ChatServer:
                                     target=target, by=nick)
         seq = self._append(event)      # trwalosc PRZED publikacja
         event["seq"] = seq
-        await ws.send(json.dumps(protocol.make_frame(
+        await ws.send(protocol.dumps(protocol.make_frame(
             "ok", "server", now, target=target)))
         # JEDYNY WYJATEK od reguly "agenta budzi tylko wzmianka" — i ma nim
         # zostac. Uzasadnienie: kick zmienia SKLAD ZESPOLU, a nie tresc
@@ -1116,7 +1116,7 @@ class ChatServer:
         self.registry = trial
         self.groups[frame["target"]] = set(groups)
         self._maybe_snapshot()
-        await ws.send(json.dumps(protocol.make_frame(
+        await ws.send(protocol.dumps(protocol.make_frame(
             "ok", "server", now, target=frame["target"], groups=groups)))
         if frame["target"] != nick:
             await self._send(frame["target"], event)

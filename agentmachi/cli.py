@@ -998,8 +998,16 @@ def cmd_send(args):
               file=sys.stderr)
         return 2
     send = _import_send()
-    asyncio.run(send.send_once(nick, args.text,
-                               quiet=getattr(args, "quiet", False)))
+    try:
+        asyncio.run(send.send_once(nick, args.text,
+                                   quiet=getattr(args, "quiet", False)))
+    except send.SessionError as e:
+        # Kontrakt klienta zlamany PRZED drutem (np. ramka ponad sufit huba).
+        # Czytelna linia zamiast tracebacku: odbiorca tego komunikatu to agent,
+        # ktory ma z niego wyciagnac, co zrobic inaczej — stos wywolan mu w tym
+        # nie pomaga, tylko zjada kontekst.
+        print(f"agentmachi send: {e}", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -1,4 +1,5 @@
 import argparse
+import argparse
 import json
 import os
 import stat
@@ -1259,3 +1260,23 @@ def test_nicki_pokoju_pomija_server_i_znosi_zepsuty_log(home, tmp_path):
     nicki = cli._nicki_pokoju("pokoj")
     assert "server" not in nicki
     assert {"agent1", "agent2"} <= nicki
+
+
+def test_send_konczy_sie_czytelnym_bledem_zamiast_tracebackiem(home, monkeypatch,
+                                                               capsys):
+    """Odbiorca tego komunikatu to AGENT — ma z niego wyciagnac, co zrobic
+    inaczej. Stos wywolan mu w tym nie pomaga, tylko zjada kontekst."""
+    class _Send:
+        SessionError = cli._import_send().SessionError
+
+        @staticmethod
+        async def send_once(nick, text, quiet=False):
+            raise _Send.SessionError("ramka ma 70057 B, sufit huba to 65536 B")
+
+    monkeypatch.setattr(cli, "_import_send", lambda: _Send)
+    args = argparse.Namespace(name="pokoj", as_nick="agent1", text="x",
+                              nick=None, quiet=False, legacy_text=None)
+    assert cli.cmd_send(args) == 1
+    err = capsys.readouterr().err
+    assert "agentmachi send:" in err and "sufit huba" in err
+    assert "Traceback" not in err
