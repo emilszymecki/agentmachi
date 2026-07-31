@@ -2433,3 +2433,48 @@ def test_hub_odrzuca_ramke_ponad_wlasny_sufit_wejscia(tmp_path):
             await srv.stop()
 
     asyncio.run(scenario())
+
+
+def test_upgrade_huba_ze_stara_wielka_historia_nie_blokuje_wznowienia(tmp_path):
+    """UPGRADE istniejacego pokoju. Sufit wejscia obowiazuje od TERAZ i nie
+    przepisuje `events.jsonl`, wiec log zalozony pod poprzednim domyslnym
+    sufitem websockets trzyma ramki blisko 1 MiB. 51 takich w oknie rozmowy
+    przekracza sufit odbioru klienta i wznowienie znowu pada — dokladnie po
+    upgradzie, czyli tam, gdzie nikt tego nie szuka (szoste review Codexa).
+
+    Kontrakt: odpowiedz miesci sie w sufit klienta, a kursor liczy sie
+    NIETKNIETY — zadna ramka nie znika, najwyzej ma przyciety tekst."""
+    port = _free_port()
+    tokens = {"a": {"token": "ta", "role": "agent", "groups": []},
+              "b": {"token": "tb", "role": "agent", "groups": []}}
+    srv = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    STARE = 60
+    for i in range(STARE):                     # legalne pod STARYM sufitem
+        srv._append_durable(protocol.make_frame(
+            "chat", "a", 0.0, text=f"{i}:" + "x" * (1000 * 1024)))
+    koniec_logu = srv.log.last_seq
+
+    async def scenario():
+        await srv.start()
+        try:
+            import send
+            async with websockets.connect(f"ws://localhost:{port}",
+                                          max_size=send.MAX_HUB_FRAME) as w:
+                await w.send(json.dumps({
+                    "type": "hello", "ts": 0.0, "from": "b", "last_seq": 0,
+                    "instance_id": "i1", "role": "agent", "token": "tb"}))
+                return json.loads(await asyncio.wait_for(w.recv(), 30))
+        finally:
+            await srv.stop()
+
+    odp = asyncio.run(scenario())
+    assert odp["type"] == "ok"
+    assert len(odp["backlog"]) == STARE, "ramka zniknela z historii po cichu"
+    # wlasne hello klienta tez ladu-je w logu, wiec koniec jest o nie dalszy
+    assert odp["last_seq"] >= koniec_logu, "kursor cofnal sie wzgledem logu"
+    assert max(f["seq"] for f in odp["backlog"]) == koniec_logu, \
+        "ostatnia ramka rozmowy nie doszla"
+    assert all(f.get("truncated", 0) > protocol.MAX_FRAME_BYTES
+               for f in odp["backlog"]), "brak znacznika przyciecia"
+    assert max(protocol.frame_bytes(f) for f in odp["backlog"]) \
+        <= protocol.MAX_FRAME_BYTES

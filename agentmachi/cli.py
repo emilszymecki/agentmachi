@@ -1035,7 +1035,13 @@ def cmd_frame(args):
     if not isinstance(frame, dict) or not frame.get("type"):
         raise CliError("ramka musi byc obiektem z polem type")
     send = _import_send()
-    reply = asyncio.run(send.oneshot_frame(nick, frame))
+    try:
+        reply = asyncio.run(send.oneshot_frame(nick, frame))
+    except send.SessionError as e:
+        # ta sama granica co w cmd_send: kontrakt klienta zlamany PRZED drutem
+        # (np. ramka ponad sufit) ma wyjsc jedna czytelna linia, nie stosem.
+        print(f"agentmachi frame: {e}", file=sys.stderr)
+        return 1
     if reply is None:
         print("(wyslane; serwer nie odsyla ACK dla tego typu)")
         return 0

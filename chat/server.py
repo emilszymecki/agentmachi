@@ -804,7 +804,10 @@ class ChatServer:
                     snapshot_seq=self.log.snapshot_seq,
                     state={"registry": self.registry.dump(),
                            "status": dict(self.status)},
-                    conversation=self.log.conversation_after(last_seq),
+                    # clamp: log sprzed sufitu wejscia moze trzymac ramki
+                    # blisko 1 MiB — patrz protocol.clamp_frame.
+                    conversation=[protocol.clamp_frame(e)
+                                  for e in self.log.conversation_after(last_seq)],
                     generation=generation, role=role, groups=list(groups), **extra)
             else:
                 # F2 (B5): backlog NA DRUCIE pomija ramki hello (zmierzone na
@@ -818,7 +821,8 @@ class ChatServer:
                 # zapetlalby sie prosząc w kolko o ramki, ktorych nigdy nie
                 # dostanie (por. test_reconnect_with_wire_last_seq_gives_
                 # empty_backlog_no_loop).
-                wire_backlog = [e for e in backlog if e.get("type") != "hello"]
+                wire_backlog = [protocol.clamp_frame(e) for e in backlog
+                                if e.get("type") != "hello"]
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
                     nick=nick,   # KIM jestes — jawnie, nie do wywnioskowania

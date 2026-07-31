@@ -31,6 +31,42 @@ def frame_bytes(obj):
     """Ile ta ramka zajmie na drucie (dokladnie tak, jak liczy max_size)."""
     return len(dumps(obj).encode("utf-8"))
 
+
+TRUNCATION_MARK = " […ramka przycieta — calosc w events.jsonl]"
+
+
+def clamp_frame(frame):
+    """Przytnij ramke Z LOGU do sufitu drutu. Zwraca ramke albo jej KOPIE.
+
+    Sufit wejscia dotyczy tylko tego, co przychodzi OD TERAZ — nie przepisuje
+    historii. Log zalozony pod poprzednim domyslnym sufitem websockets moze
+    trzymac ramki blisko 1 MiB, wiec 51 takich w oknie rozmowy przekracza
+    sufit odbioru klienta i wznowienie znowu pada — po UPGRADZIE huba, czyli
+    tam, gdzie nikt tego nie szuka (szoste review Codexa).
+
+    Przycinamy `text`, a nie pomijamy ramke: `seq`, `from` i `type` zostaja
+    nietkniete, wiec kursor liczy sie dokladnie tak samo i nic nie znika
+    z historii po cichu. Agent dostaje jawny znacznik i pole `truncated`
+    z prawdziwa dlugoscia, a po calosc siega tam, gdzie howto i tak go
+    odsyla przy urwanych powiadomieniach: do events.jsonl."""
+    if frame_bytes(frame) <= MAX_FRAME_BYTES:
+        return frame
+    text = frame.get("text")
+    if not isinstance(text, str) or not text:
+        return frame          # nie ma czego przyciac — oddajemy jak jest
+    przyciety = dict(frame)
+    przyciety["truncated"] = len(text)
+    narzut = frame_bytes({**przyciety, "text": TRUNCATION_MARK})
+    budzet = MAX_FRAME_BYTES - narzut
+    if budzet <= 0:
+        przyciety["text"] = TRUNCATION_MARK.strip()
+        return przyciety
+    # ciecie po BAJTACH (tak liczy max_size), `ignore` domyka rozciety
+    # znak wielobajtowy zamiast wpuszczac go na drut polamanego
+    przyciety["text"] = (
+        text.encode("utf-8")[:budzet].decode("utf-8", "ignore") + TRUNCATION_MARK)
+    return przyciety
+
 # (Runda 4 #5 / laka-nie-obora A2/A3/A4) Rozdzial typow: INBOUND to jedyne
 # typy, ktore klient moze przyslac. OUTBOUND to typy WYLACZNIE serwerowe,
 # generowane w locie (backlog/resync_required/error/ok). Cala obora wycieta —

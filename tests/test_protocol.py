@@ -198,3 +198,47 @@ def test_hello_context_fail_closed_takze_bez_nicka(baza):
     assert protocol.validate(baza) is None                    # brak = full
     assert protocol.validate({**baza, "context": "bare"}) is not None
     assert protocol.validate({**baza, "context": 1}) is not None
+
+
+# --- clamp_frame: log sprzed sufitu wejscia -------------------------------
+
+def test_clamp_nie_rusza_ramki_ktora_sie_miesci():
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 7, "text": "krotko"}
+    assert protocol.clamp_frame(ramka) is ramka
+
+
+def test_clamp_przycina_stara_wielka_ramke_zachowujac_tozsamosc():
+    """Sufit wejscia nie przepisuje historii: log sprzed niego moze trzymac
+    ramki blisko 1 MiB, a 51 takich w oknie rozmowy przekracza sufit odbioru
+    klienta — wznowienie pada po UPGRADZIE huba (szoste review Codexa).
+
+    Przycinamy `text`, a NIE pomijamy ramki: seq/from/type zostaja, wiec
+    kursor liczy sie tak samo i nic nie znika po cichu."""
+    tekst = "A" * (protocol.MAX_FRAME_BYTES * 2)
+    ramka = {"type": "chat", "from": "stary", "ts": 1.0, "seq": 42, "text": tekst}
+    out = protocol.clamp_frame(ramka)
+
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert (out["seq"], out["from"], out["type"]) == (42, "stary", "chat")
+    assert out["truncated"] == len(tekst), "brak prawdziwej dlugosci oryginalu"
+    assert out["text"].endswith(protocol.TRUNCATION_MARK)
+    assert ramka["text"] == tekst, "clamp zmutowal ramke z logu"
+
+
+def test_clamp_nie_lamie_znaku_wielobajtowego():
+    """Ciecie idzie po BAJTACH (tak liczy max_size), wiec musi domknac
+    rozciety znak — inaczej na drut szedlby polamany UTF-8."""
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1,
+             "text": "😀" * protocol.MAX_FRAME_BYTES}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    out["text"].encode("utf-8").decode("utf-8")     # nie rzuca = znak domkniety
+    assert "�" not in out["text"]
+
+
+def test_clamp_oddaje_ramke_bez_tekstu_bez_zmian():
+    """Nie ma czego przyciac (np. wielki snapshot w innym polu) — oddajemy
+    jak jest zamiast udawac, ze zmiescilismy."""
+    ramka = {"type": "status", "from": "a", "ts": 0.0, "seq": 1,
+             "note": "B" * (protocol.MAX_FRAME_BYTES * 2)}
+    assert protocol.clamp_frame(ramka) is ramka

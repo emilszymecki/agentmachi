@@ -1280,3 +1280,25 @@ def test_send_konczy_sie_czytelnym_bledem_zamiast_tracebackiem(home, monkeypatch
     err = capsys.readouterr().err
     assert "agentmachi send:" in err and "sufit huba" in err
     assert "Traceback" not in err
+
+
+def test_frame_konczy_sie_czytelnym_bledem_zamiast_tracebackiem(home, monkeypatch,
+                                                                capsys):
+    """Ta sama granica co w cmd_send. `cli.main` lapie tylko CliError, wiec
+    SendTooLarge z oneshot_frame wychodzilo stosem — a `frame` jest komenda
+    AGENTOWA, wiec traceback ladowal prosto w jego kontekscie."""
+    class _Send:
+        SessionError = cli._import_send().SessionError
+
+        @staticmethod
+        async def oneshot_frame(nick, frame):
+            raise _Send.SessionError("ramka ma 70057 B, sufit huba to 65536 B")
+
+    monkeypatch.setattr(cli, "_import_send", lambda: _Send)
+    monkeypatch.setenv("CHAT_NICK", "agent1")
+    args = argparse.Namespace(name="pokoj", nick="agent1",
+                              json='{"type":"status","state":"idle"}')
+    assert cli.cmd_frame(args) == 1
+    err = capsys.readouterr().err
+    assert "agentmachi frame:" in err and "sufit huba" in err
+    assert "Traceback" not in err
