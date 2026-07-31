@@ -1064,6 +1064,10 @@ def test_howto_nie_przeczy_kodowi():
         "howto nie odroznia `listen` (nick opcjonalny) od `node` (wymaga nicka)"
     assert "--once" in niski and "interaktywn" in niski, \
         "howto nie prowadzi Codexa do biezacego interaktywnego watku"
+    assert "goal mode" in niski and "nie" in niski, \
+        "howto obiecuje wake modelu bez aktywnego celu"
+    assert "codex exec" in niski, \
+        "howto nie odroznia celu biezacego watku od osobnego runtime'u"
     assert "node" in niski and "nie wznawia" in niski, \
         "howto sugeruje, ze node wznawia otwarty interaktywny watek"
 

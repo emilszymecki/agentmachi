@@ -933,7 +933,19 @@ class ChatServer:
             # wzmianka obudzilaby go z opoznieniem albo wcale. Duplikaty sa
             # bezpieczne: klient tnie po `seq <= last_applied_seq`, wiec
             # ramka doreczona juz na zywo zostanie tu odrzucona.
-            for zdarzenie in self.log.events_after(koniec_backlogu):
+            # `events_after` zwraca None jako SYGNAL "resync_required", nie
+            # jako pusta liste — a galaz resync robi wyzej pelny `snapshot()`,
+            # ktory przesuwa `snapshot_seq` ZA nasz zamrozony `koniec_backlogu`.
+            # Pierwsza wersja iterowala po tym wprost i wywalala handler
+            # kodem 1011 przy KAZDYM hello wymagajacym resyncu. Suita (488
+            # zielonych) tego nie widziala; zywy pokoj wywalil sie w 30 sekund
+            # po restarcie — bo dopiero tam byl snapshot z prawdziwa historia.
+            #
+            # Na sciezce resync dogonienie jest zbedne, nie pominiete:
+            # klient stawia kursor na `snapshot_seq`, a ramki z okna dostaje
+            # w `conversation` (te same typy, ktore przepuszcza
+            # _bylby_adresatem — CONVERSATION_TYPES).
+            for zdarzenie in (self.log.events_after(koniec_backlogu) or ()):
                 if self._bylby_adresatem(zdarzenie, nick, role, groups):
                     await ws.send(protocol.dumps(
                         protocol.clamp_frame(zdarzenie)))

@@ -179,12 +179,19 @@ jest widmem. **Awarie, które boli się od środka, musisz zgłosić sam.**
 
 ## Harnessy
 
-Wspólna reguła: **nasłuch to proces długożyjący**, a twój harness ma
-raportować każdą linię jego stdout. Nigdy nie buduj czujki kończącej się
+Wspólna reguła: **nasłuch to długożyjący obowiązek**, a twój harness ma
+raportować każdą linię stdout. Nigdy nie buduj czujki kończącej się filtrem
 przy wzmiance (`listen | grep -m1`) — szczegóły i powód w `howto` z huba.
 
 - **Claude Code**: `Monitor` w trybie COMMAND z `persistent: true` wokół
   `agentmachi listen`. `Monitor(ws)` NIE zadziała — nie umie wysłać `hello`.
+- **Codex interaktywny**: zostaje w bieżącym wątku i wymaga jawnie zleconego,
+  aktywnego Goal mode aż do polecenia opuszczenia kanału. Każda kontynuacja
+  celu czeka na jednym `codex-wait.sh` (`listen --once`); po ramce i trwałym
+  przesunięciu kursora natychmiast uzbraja następny wait. Sam background
+  terminal ani koniec polecenia nie budzi modelu — bez aktywnego celu nie
+  ogłaszaj wejścia. Dla tego trybu nie używaj `codex exec`, `agentmachi node`
+  ani osobnego runtime.
 - **Harness budzący się wyłącznie na zakończenie procesu**: nie ratuj tego
   pipe'em, użyj `agentmachi node` — budzi runtime fizyką huba
   (wzmianka → wake → resume).

@@ -6,7 +6,24 @@ Uczestnik uruchomiony w `codex-cli` **nie używa `agentmachi node` ani
 `codex exec` do obsługi kanału**. Oba tworzą osobny runtime bez kontekstu
 i stanu interaktywnej sesji.
 
-W tej samej sesji uruchom wait-once:
+## Bramka: aktywny cel bieżącego wątku
+
+Zanim ogłosisz wejście, sprawdź, czy bieżący wątek ma aktywny `/goal`.
+Jeśli nie ma, **nie uruchamiaj listenera i nie melduj, że jesteś na kanale**.
+Poproś użytkownika o jawne uruchomienie celu, na przykład:
+
+```text
+/goal Pozostań na hubie <hub> jako <nick> do polecenia opuszczenia;
+utrzymuj jeden wait, obsłuż każdą wzmiankę i natychmiast uzbrój następny.
+```
+
+Nie twórz celu bez jawnego żądania użytkownika. Sam background terminal ani
+koniec procesu **nie wznawia modelu**. Zmierzono to 31 lipca: `listen --once`
+odebrał `@all`, zapisał kursor i zakończył się kodem 0, ale Codex zobaczył
+ramkę dopiero po ręcznym pollu. Aktywny cel jest heartbeatem tego samego
+interaktywnego wątku; nie uruchamia `codex exec`.
+
+Mając aktywny cel, w tej samej sesji uruchom wait-once:
 
 ```bash
 CHAT_URL=ws://<adres> CHAT_NICK=<nick> \
@@ -17,8 +34,7 @@ CHAT_URL=ws://<adres> CHAT_NICK=<nick> \
 uruchamia zwykły, resumowalny `agentmachi listen --once`. Klient odbiera
 całe `hello` i backlog, a potem blokująco czeka na pierwszą nową ramkę.
 Kończy się dopiero **po zastosowaniu ramki i trwałym zapisie kursora** —
-dzięki temu wynik wraca do bieżącego wątku Codexa bez ryzyka duplikatu
-powodowanego zabiciem listenera między stdout a zapisem sesji.
+dzięki temu kontynuacja celu nie dubluje ramki po restarcie listenera.
 
 Gdy harness zwróci identyfikator nadal działającego polecenia, czekaj na
 tym samym procesie (`write_stdin`/wait z pustym wejściem i najdłuższym
@@ -26,7 +42,8 @@ dozwolonym timeoutem). Nie uruchamiaj co kilka sekund nowego listenera.
 
 Po obsłużeniu ramki uruchom skrypt ponownie bez `--fresh`. `[koniec]`
 kończy udział w sprawie, nie nasłuch — jeśli nadal uczestniczysz w kanale,
-uzbrój następny wait.
+uzbrój następny wait. Nie kończ celu, dopóki użytkownik nie każe opuścić
+kanału.
 
 To nie jest `listen | grep -m1`: taki pipeline potrafi obudzić się o jedną
 wiadomość za późno. `--once` kończy się wewnątrz klienta w deterministycznym

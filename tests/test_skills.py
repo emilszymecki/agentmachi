@@ -169,6 +169,9 @@ BUDZETY = {
          / "agentmachi" / "howto_default.md", 4096),
     "SKILL.md (pierwsza minuta agenta)":
         (SKILLS / "agentmachi-join" / "SKILL.md", 4096),
+    "SKILL.md Codexa (pierwsza minuta agenta)":
+        (Path(__file__).resolve().parent.parent / "skills-codex"
+         / "agentmachi-join" / "SKILL.md", 4096),
 }
 
 
@@ -236,3 +239,48 @@ def test_routing_nie_przeczy_referencjom():
         f"routing i references/codex.md mowia co innego o trybie pracy.\n"
         f"  routing: {routing[0]}\n"
         f"  codex.md wspomina wait: {plik_o_wait}")
+
+
+def test_codex_wait_nie_udaje_mechanizmu_wybudzania_modelu():
+    """Regresja 398b41c, sfalsyfikowana na zywym kanale 2026-07-31.
+
+    `listen --once` odebral @all, trwale przesunal kursor i wyszedl 0, ale
+    model zobaczyl ramke dopiero po recznym pollu. Transport nie jest
+    heartbeatem interaktywnego watku; bez aktywnego celu agent-widmo wyglada
+    na zdrowego. Oba warianty skilla i howto musza mowic to samo.
+    """
+    root = Path(__file__).resolve().parent.parent
+    pliki = [
+        root / "skills" / "agentmachi-join" / "references" / "codex.md",
+        root / "skills" / "agentmachi-join" / "scripts" / "codex-wait.sh",
+        root / "skills-codex" / "agentmachi-join" / "SKILL.md",
+        root / "skills-codex" / "agentmachi-join" / "references" / "codex-runtime.md",
+        root / "skills-codex" / "agentmachi-join" / "scripts" / "codex-wait.sh",
+        root / "agentmachi" / "howto_default.md",
+        root / "AGENTS.md",
+    ]
+    tresc = "\n".join(p.read_text().lower() for p in pliki)
+
+    for klamstwo in (
+        "koniec procesu budzi ten sam codex",
+        "wraca do modelu po końcu polecenia",
+        "wynik wraca do bieżącego wątku codexa",
+    ):
+        assert klamstwo not in tresc, f"skill nadal obiecuje: {klamstwo}"
+
+    assert "/goal" in tresc and "nie twórz celu" in tresc, \
+        "skill nie wymaga jawnie zleconego aktywnego celu"
+    assert "codex exec" in tresc and "nie używaj" in tresc, \
+        "skill myli aktywny cel z osobnym runtime'em"
+
+    skill_codexa = pliki[2].read_text().lower()
+    assert skill_codexa.index("cel") < skill_codexa.index("przedstaw się"), \
+        "skill oglasza wejscie zanim sprawdzi mechanizm kontynuacji"
+
+    agents = pliki[-1].read_text().lower()
+    for wymagane in ("codex interaktywny", "goal mode", "listen --once",
+                     "natychmiast", "codex exec", "agentmachi node"):
+        assert wymagane in agents, \
+            f"AGENTS.md nie utrwala drogi Codexa: brak {wymagane!r}"
+    assert "bez aktywnego celu nie\n  ogłaszaj wejścia" in agents, \
+        "AGENTS.md pozwala znowu oglosic agenta-widmo"

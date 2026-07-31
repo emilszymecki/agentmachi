@@ -2926,3 +2926,67 @@ def test_all_nie_jest_nieznanym_nickiem(srv):
             await asyncio.wait_for(ws.recv(), 0.6)
         await ws.close()
     asyncio.run(srv(scenario))
+
+
+def test_hello_z_resyncem_nie_wywala_handlera_na_dogonieniu(tmp_path):
+    """ZLAPANE NA ZYWYM POKOJU, nie przez suite (488 zielonych tego nie
+    widzialo). Po restarcie huba pierwszy `hello` z kursorem sprzed
+    snapshotu wywalal handler kodem 1011 — i tak przy KAZDYM nastepnym.
+
+    `events_after` zwraca None jako SYGNAL "resync_required", nie jako pusta
+    liste, a galaz resync robi pelny `snapshot()`, ktory przesuwa
+    `snapshot_seq` ZA zamrozony `koniec_backlogu`. Dogonienie okna
+    takeoveru iterowalo po tym wprost.
+
+    Testy nie widzialy tego, bo zaden nie laczyl resyncu z dogonieniem:
+    swiezy pokoj w tescie nie ma historii sprzed kursora."""
+    port = _free_port()
+    tokens = {"alfa": {"token": "ta", "role": "agent", "groups": []}}
+    server = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    for i in range(5):
+        server._append_durable(protocol.make_frame(
+            "chat", "alfa", 0.0, text=f"historia {i}"))
+    server.snapshot()                     # snapshot_seq > 0
+    assert server.log.snapshot_seq > 0
+    assert server.log.events_after(0) is None, "test nie odtwarza resyncu"
+
+    async def scenario():
+        await server.start()
+        try:
+            import send
+            # PIERWSZE polaczenie — zeby drugie bylo TAKEOVEREM. To warunek
+            # konieczny: `_announce_takeover` dopisuje event MIEDZY zamrozonym
+            # `koniec_backlogu` a `snapshot()` z galezi resync, i dopiero
+            # wtedy snapshot_seq przeskakuje nasz punkt. Sam resync nie
+            # wystarcza — dlatego pierwsza wersja tego testu przechodzila
+            # na zepsutym kodzie.
+            pierwszy = await websockets.connect(f"ws://localhost:{port}",
+                                                max_size=send.MAX_HUB_FRAME)
+            await pierwszy.send(json.dumps({
+                "type": "hello", "ts": 0.0, "from": "alfa", "last_seq": 0,
+                "instance_id": "i0", "role": "agent", "token": "ta"}))
+            await asyncio.wait_for(pierwszy.recv(), 10)
+            async with websockets.connect(f"ws://localhost:{port}",
+                                          max_size=send.MAX_HUB_FRAME) as w:
+                await w.send(json.dumps({
+                    "type": "hello", "ts": 0.0, "from": "alfa", "last_seq": 0,
+                    "instance_id": "i1", "role": "agent", "token": "ta"}))
+                odp = json.loads(await asyncio.wait_for(w.recv(), 10))
+                assert odp["type"] == "resync_required", odp["type"]
+                # handler ma ZYC dalej — wczesniej lecial 1011 zaraz po reply
+                await w.send(json.dumps({"type": "chat", "from": "alfa",
+                                         "ts": 0.0, "text": "@nikt zyje?"}))
+                dalej = json.loads(await asyncio.wait_for(w.recv(), 5))
+                assert dalej["type"] == "error"
+                assert "nieznany nick" in dalej["text"]
+            # sprawdzamy PRZED stop(): stop robi snapshot i KOMPAKTUJE log,
+            # wiec replay po nim jest pusty i test przechodzilby na zepsutym
+            # kodzie. Ta sama pulapka juz dzis dwa razy — mierz stan pokoju
+            # zanim sie z nim pozegnasz.
+            assert [e for e in server.log.replay()
+                    if e.get("type") == "chat" and "zyje?" in e.get("text", "")], \
+                "ramka nie doszla do logu — handler padl mimo wszystko"
+        finally:
+            await server.stop()
+
+    asyncio.run(scenario())

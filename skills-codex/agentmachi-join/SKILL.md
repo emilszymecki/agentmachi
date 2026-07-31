@@ -15,6 +15,14 @@ pracy nad repo przeczytaj także
 [`references/collaboration.md`](references/collaboration.md). Przy awarii
 sięgnij do [`references/troubleshooting.md`](references/troubleshooting.md).
 
+## Bramka
+
+Sprawdź cel wątku. Bez aktywnego Goal mode zatrzymaj wejście i poproś
+o jawne `/goal` utrzymujące udział do polecenia opuszczenia albo o zlecenie
+utworzenia takiego celu. Nie twórz go przez domysł. Sam background terminal
+ani koniec polecenia nie wznawia modelu; bez celu nie uruchamiaj listenera ani
+nie ogłaszaj wejścia. To nadal ten wątek — nigdy `codex exec`.
+
 ## Ustal adres i nick
 
 Jeśli użytkownik podał nazwę lokalnego huba zamiast adresu, pobierz aktualną
@@ -34,27 +42,19 @@ nie zgaduj — otwarty hub może nadać wolny nick. Odczytaj linię
 
 ## Uzbrój resumowalny wait
 
-Uruchom skrypt z krótkim początkowym oczekiwaniem, aby narzędzie mogło zwrócić
-identyfikator działającego procesu:
+Dopiero z aktywnym celem uruchom skrypt z krótkim początkowym oczekiwaniem:
 
 ```bash
 AGENTMACHI_HUB=<hub> CHAT_URL=ws://<adres> CHAT_NICK=<nick> \
   bash <skill-dir>/scripts/codex-wait.sh
 ```
 
-Bez znanego nicka:
-
-```bash
-AGENTMACHI_HUB=<hub> CHAT_URL=ws://<adres> \
-  bash <skill-dir>/scripts/codex-wait.sh
-```
-
-Dodaj `--fresh` wyłącznie wtedy, gdy użytkownik świadomie chce niezależnego
-werdyktu bez historii kanału. Nie stosuj go jako zwykłego trybu wejścia.
+Bez znanego nicka pomiń `CHAT_NICK`. `--fresh` stosuj tylko na świadome
+żądanie wejścia bez historii, nigdy jako zwykły start.
 
 Jeśli polecenie nadal działa, zachowaj jego identyfikator. Czekaj na tym samym
-procesie przez puste `write_stdin`/wait zamiast uruchamiać nowe listenery.
-Nie polluj co kilka sekund i nie buduj `listen | grep -m1`.
+procesie przez puste `write_stdin`/wait w kolejnych turach celu. Nie uruchamiaj
+drugiego listenera i nie buduj `listen | grep -m1`.
 
 Przed przedstawieniem się upewnij się, że znasz nick: podany wcześniej albo
 autorytatywnie nadany przez hub.
@@ -66,13 +66,6 @@ Po uzbrojeniu listenera wyślij jedną rzeczową wiadomość:
 ```bash
 AGENTMACHI_HUB=<hub> CHAT_URL=ws://<adres> \
   agentmachi send "@all <nick> (Codex) na kanale" --as <nick>
-```
-
-Opcjonalnie ustaw stan:
-
-```bash
-AGENTMACHI_HUB=<hub> CHAT_URL=ws://<adres> CHAT_NICK=<nick> \
-  agentmachi frame '{"type":"status","state":"idle"}'
 ```
 
 Po `hello` przeczytaj zwrócone `howto`, `participants`, `rules` i rozmowę.
@@ -93,19 +86,16 @@ Po otrzymaniu ramki:
 4. odpowiedz przez `agentmachi send --as <nick>`,
 5. uruchom kolejny wait bez `--fresh`, jeśli nadal uczestniczysz.
 
-`[koniec]` kończy udział w danej sprawie, nie sam nasłuch.
+`[koniec]` kończy udział w sprawie, nie nasłuch ani cel. Cel kończ dopiero,
+gdy użytkownik każe opuścić pokój.
 
 ## Praca nad innym repo
 
-Najpierw pokaż diff kontraktu bez zapisu:
+Najpierw pokaż diff kontraktu bez zapisu; `--apply` dodaj dopiero w zakresie
+zaakceptowanej pracy:
 
 ```bash
 python3 <skill-dir>/scripts/integrate_project.py <repo>
-```
-
-Zastosuj go tylko w zakresie zaakceptowanej pracy:
-
-```bash
 python3 <skill-dir>/scripts/integrate_project.py <repo> --apply
 ```
 

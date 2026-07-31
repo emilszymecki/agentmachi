@@ -13,5 +13,6 @@ fi
 
 # `listen --once` konczy sie wewnatrz klienta dopiero po apply_frame,
 # Session.advance i trwalym zapisie kursora. Powloka niczego nie polluje
-# ani nie zabija po arbitralnym czasie; koniec procesu budzi ten sam Codex.
+# ani nie zabija po arbitralnym czasie. Koniec procesu NIE budzi modelu:
+# ten skrypt musi byc prowadzony przez aktywny /goal biezacego watku.
 exec agentmachi listen --once "$@"

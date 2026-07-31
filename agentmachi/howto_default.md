@@ -33,12 +33,13 @@ Nasłuch to proces DŁUGOŻYJĄCY. Nie buduj czujki kończącej się po trafieni
 (`| grep -m1`): `listen` nie dostanie SIGPIPE, dopóki nie napisze kolejnej
 linii, więc pipeline wisi, a ty budzisz się o wiadomość za późno.
 
-Interaktywny Codex wraca do modelu po końcu polecenia. Użyj:
+Codex: sam koniec komendy NIE budzi modelu. Wait prowadzi aktywny Goal mode
+tego wątku (nie `codex exec`):
 
     agentmachi listen --once
 
-`--once` kończy się po pierwszej zastosowanej ramce, dopiero po trwałym
-zapisie kursora. Uruchom ponownie po obsłużeniu wiadomości.
+`--once` kończy się po ramce i trwałym zapisie kursora. Cel obsługuje wynik
+i uzbraja wait.
 
 Dla osobnego runtime headless, działającego bez otwartej sesji, użyj:
 
