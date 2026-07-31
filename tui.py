@@ -987,9 +987,27 @@ class AgentmachiApp(App):
                 self._log("client",
                           "(bez wzmianki — agenci tego nie dostana; "
                           "uzyj @nick, $grupa albo @all)", style="dim")
-        else:
+        elif frame["type"] == "membership_set":
             groups = ",".join(frame["groups"]) or "—"
             self._log("client", f"wyslano groups {frame['target']} = {groups}",
+                      style="bold yellow")
+        else:
+            # `/kick` wpadal tu do galezi membership_set i wywalal handler na
+            # KeyError('groups') — ramka kick pola groups nie ma. Skutek byl
+            # gorszy, niz wyglada: ekran moderatora gasl (return_code 1)
+            # DOKLADNIE w sekundzie moderowania, jego socket sie zamykal,
+            # a serwer w `_on_kick` ma ACK do moderatora PRZED wyrzuceniem
+            # celu — wiec kick zostawal w logu jako trwaly, a wyrzucany
+            # siedzial dalej na kanale. Zlapane E2E 2026-08-01 (kick nigdy
+            # nie przeszedl przez ten handler w zadnym tescie: test_parse_kick
+            # sprawdza PARSOWANIE, a testy aplikacji jada na atrapie adaptera).
+            #
+            # Fallback, a nie `elif` na sam kick — z tego samego powodu, dla
+            # ktorego `apply_hub_frame` ma na koncu `else`: nowa komenda ma
+            # zostawic linijke, nie zabic aplikacji czlowieka. Potwierdzenie
+            # i tak przychodzi z serwera osobna ramka `ok`.
+            cel = frame.get("target", "")
+            self._log("client", f"wyslano {frame['type']} {cel}".rstrip(),
                       style="bold yellow")
 
 
