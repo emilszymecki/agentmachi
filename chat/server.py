@@ -1095,7 +1095,21 @@ class ChatServer:
             return
         event = protocol.make_frame("kick", "server", now,
                                     target=target, by=nick)
-        seq = self._append(event)      # trwalosc PRZED publikacja
+        # DURABLE APPEND -> MUTACJA -> dopiero potem auto-snapshot. Ten sam
+        # uklad co przy status i membership_set, i z tego samego powodu: gdy
+        # ten event wypada na SNAPSHOT_EVERY-tym, `_append` robi snapshot
+        # ZANIM zwolnimy wiazanie — snapshot utrwala stare (albo
+        # UNRESOLVED_ADDR), a kick laduje NA snapshot_seq, wiec replay go nie
+        # powtorzy. Moderator dostaje `ok`, a po restarcie tozsamosc jest
+        # znowu zablokowana. Dziesiate review Codexa; ten sam blad kolejnosci
+        # naprawialem tego dnia dla status i nie rozejrzalem sie, gdzie
+        # jeszcze siedzi.
+        seq = self._append_durable(event)
+        # B7: rozkaz roota bije wiazanie — zwolnij przypiecie nick->adres,
+        # zeby ten sam agent po re-IP (albo ktos inny) mogl wejsc na ten nick
+        # z nowego adresu, a nick z zaslepka UNRESOLVED_ADDR mial jak wrocic.
+        self.registry.release_open_addr(target)
+        self._maybe_snapshot()
         event["seq"] = seq
         await ws.send(protocol.dumps(protocol.make_frame(
             "ok", "server", now, target=target)))
@@ -1117,11 +1131,6 @@ class ChatServer:
                 await sock.close(code=4003, reason="kicked")
             except websockets.exceptions.ConnectionClosed:
                 pass
-        # B7: rozkaz roota bije wiazanie — zwolnij przypiecie nick->adres,
-        # zeby ten sam agent po re-IP (albo ktos inny) mogl wejsc na ten nick
-        # z nowego adresu. Bez tego wyrzucony agent, ktory zmienil IP, byloby
-        # trwale zablokowany z wlasnego nicka.
-        self.registry.release_open_addr(target)
 
     async def _on_membership_set(self, frame, requested_groups, nick, ws):
         """Przekaz funkcje przez grupy; bez RBAC, elekcji i CAS."""

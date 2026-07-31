@@ -237,12 +237,19 @@ def test_clamp_nie_lamie_znaku_wielobajtowego():
     assert "�" not in out["text"]
 
 
-def test_clamp_oddaje_ramke_bez_tekstu_bez_zmian():
-    """Nie ma czego przyciac (np. wielki snapshot w innym polu) — oddajemy
-    jak jest zamiast udawac, ze zmiescilismy."""
+def test_clamp_nie_oddaje_ramki_ponad_sufit_gdy_brak_text():
+    """KONTRAKT ZMIENIONY. Ten test twierdzil wczesniej, ze ramka bez `text`
+    wraca NIETKNIETA — "nie ma czego przyciac". To bylo bledne i wlasnie ta
+    dziura wyszla w dziesiatym review: `note` albo dowolne obce pole
+    rozdymalo ramke ponad sufit, a clamp ja przepuszczal. 60 takich ramek
+    z pre-upgrade'owego logu = 55 MB odpowiedzi, czyli znowu brak wznowienia.
+
+    Gwarancja jest teraz BEZWARUNKOWA: wynik zawsze miesci sie w sufit."""
     ramka = {"type": "status", "from": "a", "ts": 0.0, "seq": 1,
              "note": "B" * (protocol.MAX_FRAME_BYTES * 2)}
-    assert protocol.clamp_frame(ramka) is ramka
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert out["truncated"] == protocol.MAX_FRAME_BYTES * 2
 
 
 @pytest.mark.parametrize("nazwa,znak", [
@@ -347,3 +354,59 @@ def test_clamp_znosi_ramke_z_setkami_wzmianek():
     out = protocol.clamp_frame(
         {"type": "chat", "from": "a", "ts": 0.0, "seq": 1, "text": tekst})
     assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+
+
+# --- gwarancja clampa jest BEZWARUNKOWA -----------------------------------
+
+def test_clamp_tnie_takze_pole_spoza_text():
+    """Stary log przepuszczal DOWOLNE dodatkowe pola do 1 MiB. Ramke moze
+    wiec rozdymac cos, o czym ten kod nie wie z nazwy — 60 takich ramek
+    zostawalo 55 MB po przycieciu samego `text`, czyli ponad sufitem klienta
+    (dziesiate review Codexa)."""
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1,
+             "text": "krotko", "padding": "P" * 900000}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert out["dropped"] == ["padding"]
+    assert out["text"] == "krotko", "przyciety zostal nie ten element"
+    assert ramka["padding"], "clamp zmutowal ramke z logu"
+
+
+def test_clamp_przycina_takze_note():
+    ramka = {"type": "status", "from": "a", "ts": 0.0, "seq": 1,
+             "note": "N" * 200000}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert out["truncated"] == 200000
+    assert out["note"].endswith(protocol.TRUNCATION_MARK)
+
+
+def test_clamp_zawsze_zostawia_rdzen():
+    """`type`, `from`, `ts`, `seq` nie moga wypasc — na nich stoi kursor
+    i rozpoznanie nadawcy."""
+    ramka = {"type": "chat", "from": "a", "ts": 1.5, "seq": 9,
+             **{f"pole{i}": "Z" * 50000 for i in range(40)}}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert (out["type"], out["from"], out["ts"], out["seq"]) == ("chat", "a", 1.5, 9)
+
+
+def test_clamp_gwarancja_jest_bezwarunkowa():
+    """Fuzz po ksztaltach ramek: losowe pola, losowe dlugosci, znaki ktore
+    escapowanie rozdyma. Gwarancja ma obowiazywac ZAWSZE — inaczej cala
+    arytmetyka sufitow jest zyczeniem, a to ona decyduje, czy agent zdola
+    sie wznowic."""
+    import random
+    import string
+    rng = random.Random(1)
+    alfabet = string.printable + "\x00\U0001F600" + '"' + "\\"
+    for i in range(120):
+        ramka = {"type": rng.choice(["chat", "fyi", "status", "kick"]),
+                 "from": "a" * rng.randint(1, 50), "ts": 0.0, "seq": i}
+        for pole in rng.sample(["text", "note", "padding", "state", "meta"],
+                               rng.randint(0, 4)):
+            ramka[pole] = "".join(rng.choice(alfabet) for _ in
+                                  range(rng.choice([0, 10, 5000, 120000])))
+        out = protocol.clamp_frame(ramka)
+        assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES, (i, sorted(ramka))
+        assert all(k in out for k in ("type", "from", "ts", "seq")), i

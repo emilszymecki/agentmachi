@@ -65,61 +65,100 @@ def frame_bytes(obj):
 TRUNCATION_MARK = " […ramka przycieta — calosc w events.jsonl]"
 
 
+_RDZEN = ("type", "from", "ts", "seq")
+_MARKERY = ("truncated", "dropped")
+
+
 def clamp_frame(frame):
     """Przytnij ramke Z LOGU do sufitu drutu. Zwraca ramke albo jej KOPIE.
 
-    Sufit wejscia dotyczy tylko tego, co przychodzi OD TERAZ — nie przepisuje
-    historii. Log zalozony pod poprzednim domyslnym sufitem websockets moze
-    trzymac ramki blisko 1 MiB, wiec 51 takich w oknie rozmowy przekracza
-    sufit odbioru klienta i wznowienie znowu pada — po UPGRADZIE huba, czyli
-    tam, gdzie nikt tego nie szuka (szoste review Codexa).
+    GWARANCJA BEZWARUNKOWA: wynik ma <= MAX_FRAME_BYTES. Bez niej cala
+    arytmetyka sufitow jest zyczeniem — a to ona decyduje, czy agent zdola
+    sie wznowic.
 
-    Przycinamy `text`, a nie pomijamy ramke: `seq`, `from` i `type` zostaja
-    nietkniete, wiec kursor liczy sie dokladnie tak samo i nic nie znika
-    z historii po cichu. Agent dostaje jawny znacznik i pole `truncated`
-    z prawdziwa dlugoscia, a po calosc siega tam, gdzie howto i tak go
-    odsyla przy urwanych powiadomieniach: do events.jsonl.
+    Po co w ogole: sufit wejscia dotyczy tylko tego, co przychodzi OD TERAZ,
+    i nie przepisuje historii. Log zalozony pod poprzednim domyslnym sufitem
+    websockets moze trzymac ramki blisko 1 MiB — dosc, by przekroczyc sufit
+    odbioru klienta i zablokowac wznowienie PO UPGRADZIE huba, czyli tam,
+    gdzie nikt nie szuka przyczyny.
 
-    Miara to `frame_bytes` GOTOWEJ ramki, nie dlugosc prefiksu tekstu.
-    Pierwsza wersja ciela po surowych bajtach UTF-8 i obiecywala sufit,
-    ktorego nie dowozila: `dumps` escapuje znaki sterujace, wiec NUL rosnie
-    z 1 bajtu do szesciu (`\\u0000`), a cudzyslow, backslash i nowa linia do
-    dwoch. Zmierzone na przycietej ramce: NUL 392 KiB, cudzyslow 131 KiB
-    przy sufitcie 64 KiB (siodme review Codexa). Szukamy wiec binarnie
-    NAJDLUZSZEGO prefiksu, ktory po serializacji wchodzi — logarytmicznie
-    malo serializacji, za to wynik jest sufitem, a nie przyblizeniem.
+    Trzy kroki, od najmniej do najbardziej niszczacego:
 
-    Ciecie po ZNAKACH (nie bajtach) nie moze rozlupac znaku wielobajtowego:
-    indeksowanie str idzie po punktach kodowych.
+    1. `text` — przycinany, bo to zwykle on rozdyma ramke. ZBIOR WZMIANEK
+       jest niezmiennikiem: `@nick` i `$grupa` przenosza sie za znacznik.
+       Wzmianka to jedyny mechanizm budzenia (`node._should_wake` parsuje
+       dostarczony tekst), wiec zgubiona znaczy, ze adresat sie nie obudzi.
+       Rozciety token urywamy dopiero, gdy porownanie zbiorow pokaze, ze
+       zmyslil wzmianke — `@beta-dwa` -> `@beta` budzi NIE TEGO agenta.
+    2. `note` — to samo, bez wzmianek.
+    3. pola spoza rdzenia, od najwiekszego — usuwane, nazwy trafiaja do
+       `dropped`. Krok istnieje, bo ramke moze rozdymac pole, o ktorym ten
+       kod nie wie: stary log przepuszczal dowolne dodatkowe pola do 1 MiB.
+       60 takich ramek zostawalo 55 MB po przycieciu samego `text`
+       (dziesiate review Codexa).
 
-    Gwarancja dotyczy ramek, ktore rozdyma `text`. Gdy ramka przekracza sufit
-    czyms innym, oddajemy ja bez zmian — udawanie, ze zmiescilismy, byloby
-    gorsze niz jawne oddanie za duzej ramki."""
+    Miara to `frame_bytes` GOTOWEJ ramki, nie dlugosc prefiksu: `dumps`
+    escapuje znaki sterujace, wiec NUL rosnie z 1 bajtu do szesciu.
+    Ciecie po ZNAKACH nie rozlupie znaku wielobajtowego — indeksowanie str
+    idzie po punktach kodowych.
+    """
     if frame_bytes(frame) <= MAX_FRAME_BYTES:
         return frame
-    text = frame.get("text")
-    if not isinstance(text, str) or not text:
-        return frame          # nie ma czego przyciac — oddajemy jak jest
-    przyciety = dict(frame)
-    przyciety["truncated"] = len(text)
+    out = dict(frame)
 
-    # WZMIANKI PRZEZYWAJA PRZYCIECIE. Nie jest to uprzejmosc wobec czytelnika:
-    # wzmianka to jedyny mechanizm BUDZENIA (`node._should_wake` parsuje
-    # dostarczony tekst), wiec `@nick` za miejscem ciecia znaczy, ze adresat
-    # nigdy sie nie obudzi — a nadawca nie ma jak sie o tym dowiedziec.
-    # Przenosimy je za znacznik, zeby zbior wzmianek byl TEN SAM co
-    # w oryginale (dziewiate review Codexa).
-    wzmianki = sorted(parse_mentions(text))
-    grupy = sorted(parse_groups(text))
-    etykiety = [f"@{n}" for n in wzmianki] + [f"${g}" for g in grupy]
+    for pole in ("text", "note"):
+        if frame_bytes(out) <= MAX_FRAME_BYTES:
+            break
+        wartosc = out.get(pole)
+        if isinstance(wartosc, str) and wartosc:
+            _przytnij_pole(out, pole, wartosc)
+
+    if frame_bytes(out) <= MAX_FRAME_BYTES:
+        return out
+
+    # Krok 3: ramke rozdyma cos, czego ten kod nie zna z nazwy.
+    usuniete = []
+    kandydaci = sorted(
+        (k for k in out if k not in _RDZEN and k not in _MARKERY),
+        key=lambda k: len(dumps(out[k])), reverse=True)
+    for klucz in kandydaci:
+        if frame_bytes(out) <= MAX_FRAME_BYTES:
+            break
+        del out[klucz]
+        usuniete.append(klucz)
+    if usuniete:
+        out["dropped"] = usuniete
+        # sam spis nazw tez moze nie wejsc (setki pol) — wtedy tylko liczba
+        if frame_bytes(out) > MAX_FRAME_BYTES:
+            out["dropped"] = len(usuniete)
+    return out
+
+
+def _przytnij_pole(out, pole, wartosc):
+    """Najdluzszy prefiks `wartosc`, przy ktorym cala ramka wchodzi w sufit.
+
+    Najpierw sprawdzamy, czy to pole W OGOLE jest problemem: gdy ramka nie
+    miesci sie nawet z PUSTYM tym polem, rozdyma ja co innego — wtedy
+    zostawiamy je nietkniete i oddajemy robote krokowi 3. Bez tej kontroli
+    ramka z krotkim `text` i wielkim obcym polem tracila `text` do zera,
+    zanim ktokolwiek tknal winowajce."""
+    oryginal = out[pole]
+    out[pole] = ""
+    if frame_bytes(out) > MAX_FRAME_BYTES:
+        out[pole] = oryginal
+        return
+    out["truncated"] = len(wartosc)
+    if pole == "text":
+        wzmianki, grupy = parse_mentions(wartosc), parse_groups(wartosc)
+    else:
+        wzmianki, grupy = set(), set()
+    etykiety = ([f"@{n}" for n in sorted(wzmianki)]
+                + [f"${g}" for g in sorted(grupy)])
     ogon = TRUNCATION_MARK + (" " + " ".join(etykiety) if etykiety else "")
 
     def _bez_rozcietego_tokenu(prefiks):
-        """Ciecie w SRODKU tokenu potrafi ZMYSLIC wzmianke: `@beta` przyciete
-        do `@bet` adresuje kogos innego. Wykrywamy to porownaniem zbiorow
-        i dopiero wtedy urywamy koncowy ciag bez bialych znakow."""
-        if (parse_mentions(prefiks) <= set(wzmianki)
-                and parse_groups(prefiks) <= set(grupy)):
+        if (parse_mentions(prefiks) <= wzmianki
+                and parse_groups(prefiks) <= grupy):
             return prefiks
         i = len(prefiks)
         while i > 0 and not prefiks[i - 1].isspace():
@@ -127,17 +166,14 @@ def clamp_frame(frame):
         return prefiks[:i]
 
     def _miesci(dlugosc, sufiks):
-        przyciety["text"] = _bez_rozcietego_tokenu(text[:dlugosc]) + sufiks
-        return frame_bytes(przyciety) <= MAX_FRAME_BYTES
+        out[pole] = _bez_rozcietego_tokenu(wartosc[:dlugosc]) + sufiks
+        return frame_bytes(out) <= MAX_FRAME_BYTES
 
     if not _miesci(0, ogon):
-        # Sam ogon nie wchodzi (setki wzmianek albo ramke rozdyma cos poza
-        # `text`) — schodzimy do samego znacznika, a potem do pustki.
-        ogon = TRUNCATION_MARK if _miesci(0, TRUNCATION_MARK) else ""
-        przyciety["text"] = ogon
-        return przyciety
+        out[pole] = TRUNCATION_MARK if _miesci(0, TRUNCATION_MARK) else ""
+        return
 
-    lo, hi = 0, len(text)
+    lo, hi = 0, len(wartosc)
     while lo < hi:
         srodek = (lo + hi + 1) // 2
         if _miesci(srodek, ogon):
@@ -145,7 +181,6 @@ def clamp_frame(frame):
         else:
             hi = srodek - 1
     _miesci(lo, ogon)
-    return przyciety
 
 # (Runda 4 #5 / laka-nie-obora A2/A3/A4) Rozdzial typow: INBOUND to jedyne
 # typy, ktore klient moze przyslac. OUTBOUND to typy WYLACZNIE serwerowe,

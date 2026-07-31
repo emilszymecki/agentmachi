@@ -2612,3 +2612,48 @@ def test_zaslepka_po_starym_logu_da_sie_zdjac_kickiem(tmp_path):
     asyncio.run(scenario())
     assert s2.registry.open_hello("agent1", "inst-3", "100.64.0.7") >= 1, \
         "wlasciciel nadal zablokowany po kicku moderatora"
+
+
+def test_kick_na_granicy_snapshotu_naprawde_zwalnia_wiazanie(tmp_path):
+    """Gdy event kicka wypada na SNAPSHOT_EVERY-tym, `_append` robil snapshot
+    ZANIM zwolnilismy wiazanie: snapshot utrwalal stare, a kick ladowal NA
+    snapshot_seq, wiec replay go nie powtarzal. Moderator dostawal `ok`,
+    a po restarcie tozsamosc byla znowu zablokowana — cichy blad, bo
+    komunikat mowil, ze sie udalo (dziesiate review Codexa).
+
+    Ten sam blad kolejnosci naprawialem tego dnia dla `status` i nie
+    rozejrzalem sie, gdzie jeszcze siedzi."""
+    from chat.server import SNAPSHOT_EVERY
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    srv_ = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    srv_.registry.open_hello("agent1", "i-stary", "100.64.0.7")
+    # ustaw licznik tak, zeby TO kick byl eventem wyzwalajacym snapshot
+    srv_._events_since_snapshot = SNAPSHOT_EVERY - 1
+
+    async def scenario():
+        await srv_.start()
+        try:
+            ws = await websockets.connect(f"ws://localhost:{port}")
+            await ws.send(json.dumps({
+                "type": "hello", "from": "emil", "ts": 0.0, "last_seq": 0,
+                "instance_id": "ih", "role": "human", "token": "te"}))
+            await ws.recv()
+            srv_._events_since_snapshot = SNAPSHOT_EVERY - 1
+            await ws.send(json.dumps({"type": "kick", "from": "emil",
+                                      "ts": 0.0, "target": "agent1"}))
+            await asyncio.sleep(0.4)
+            await ws.close()
+        finally:
+            # CRASH, nie `stop()`. `stop()` robi WLASNY snapshot i zapisalby
+            # juz zwolnione wiazanie — test przechodzilby na zepsutym kodzie,
+            # bo mierzylby stan po pozegnaniu, a nie po padzie. Ten sam blad
+            # popelnilem przy weryfikacji wiazania B7 kilka commitow wczesniej.
+            srv_._server.close()
+
+    asyncio.run(scenario())
+
+    # RESTART z dysku: snapshot musi juz nie znac wiazania
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    assert s2.registry.open_hello("agent1", "i-nowy", "100.64.0.9") >= 1, \
+        "kick zameldowal sukces, a po restarcie tozsamosc znow zablokowana"
