@@ -95,7 +95,18 @@ def _reject_json_constant(value):
 
 
 def _strict_json_loads(raw):
-    return json.loads(raw, parse_constant=_reject_json_constant)
+    frame = json.loads(raw, parse_constant=_reject_json_constant)
+    # Osamotniony surogat (`\ud800`) jest POPRAWNYM JSON-em, ale nie ma go
+    # w UTF-8. Odbijamy go TUTAJ, na jedynych drzwiach wejsciowych — nie
+    # w validate() — bo hello omija walidacje typow, a jego pola (instance_id,
+    # groups) tez ida do logu. `chat` jest trwaly PRZED publikacja, wiec
+    # ramka wpuszczona raz zostaje na zawsze i wywala handler przy KAZDYM
+    # nastepnym hello, ktorego backlog ja obejmuje: zmierzone — pokoj oddawal
+    # 1011 kazdemu wznawiajacemu sie, a zabic go mogl dowolny uczestnik
+    # jednym stringiem (osme review Codexa).
+    if not protocol.utf8_safe(frame):
+        raise ValueError("ramka zawiera osamotniony surogat — nie jest UTF-8")
+    return frame
 
 
 class ChatServer:

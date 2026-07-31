@@ -2478,3 +2478,58 @@ def test_upgrade_huba_ze_stara_wielka_historia_nie_blokuje_wznowienia(tmp_path):
                for f in odp["backlog"]), "brak znacznika przyciecia"
     assert max(protocol.frame_bytes(f) for f in odp["backlog"]) \
         <= protocol.MAX_FRAME_BYTES
+
+
+# --- osamotniony surogat: jeden string mogl trwale zabic pokoj ------------
+
+_SUROGAT_RAMKA = '{"type":"chat","from":"alfa","ts":0.0,"text":"\\ud800 trucizna"}'
+
+
+def test_hub_odbija_surogat_zamiast_zapisac_go_na_zawsze(srv):
+    """`\\ud800` jest POPRAWNYM JSON-em, wiec json.loads go przyjmowal,
+    a walidacja przepuszczala. UTF-8 takiego znaku nie ma, wiec serializacja
+    na drut rzucala UnicodeEncodeError — ale `chat` jest trwaly PRZED
+    publikacja, wiec ramka byla juz na dysku. Skutek: handler wywalal sie
+    kodem 1011 przy KAZDYM nastepnym hello, ktorego backlog ja obejmowal.
+    Dowolny uczestnik zabijal pokoj jednym stringiem (osme review Codexa).
+
+    Regresja wprowadzona razem z `ensure_ascii=False` — stary serializator
+    escapowal surogat i nigdy nie kodowal go do UTF-8."""
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        await ws.send(_SUROGAT_RAMKA)
+        odp = json.loads(await asyncio.wait_for(ws.recv(), 5))
+        assert odp["type"] == "error", odp
+        await ws.close()
+        assert not [e for e in server.log.replay() if e.get("type") == "chat"], \
+            "ramka z surogatem trafila do logu — pokoj zostalby zatruty"
+    asyncio.run(srv(scenario))
+
+
+def test_pokoj_juz_zatruty_daje_sie_wznowic(tmp_path):
+    """Log zapisany PRZED poprawka moze juz zawierac taka ramke. Hub ma go
+    obsluzyc, a nie odmawiac obslugi — inaczej naprawa wymaga recznej edycji
+    events.jsonl, czyli dokladnie tego, przed czym trwaly log ma chronic."""
+    port = _free_port()
+    tokens = {"b": {"token": "tb", "role": "agent", "groups": []}}
+    srv_ = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    srv_._append_durable(protocol.make_frame(
+        "chat", "duch", 0.0, text="\ud800 stara trucizna z logu"))
+
+    async def scenario():
+        await srv_.start()
+        try:
+            import send
+            async with websockets.connect(f"ws://localhost:{port}",
+                                          max_size=send.MAX_HUB_FRAME) as w:
+                await w.send(json.dumps({
+                    "type": "hello", "ts": 0.0, "from": "b", "last_seq": 0,
+                    "instance_id": "i1", "role": "agent", "token": "tb"}))
+                return json.loads(await asyncio.wait_for(w.recv(), 15))
+        finally:
+            await srv_.stop()
+
+    odp = asyncio.run(scenario())
+    assert odp["type"] == "ok", "zatruty log nadal blokuje wznowienie"
+    assert len(odp["backlog"]) == 1, "historia zniknela przy okazji"

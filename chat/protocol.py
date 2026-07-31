@@ -13,6 +13,24 @@ import sys
 MAX_FRAME_BYTES = 64 * 1024
 
 
+def utf8_safe(obj):
+    """Czy ta struktura da sie w ogole zapisac jako UTF-8?
+
+    `\\ud800` (osamotniony surogat) jest POPRAWNYM JSON-em i `json.loads`
+    zwraca go jako zwykly znak w stringu — ale UTF-8 takiego znaku nie ma,
+    wiec `.encode("utf-8")` rzuca. Pytamy o to PRZED wpuszczeniem ramki,
+    bo `chat` jest trwaly PRZED publikacja: raz zapisana taka ramka zostaje
+    w events.jsonl i wywala handler przy KAZDYM nastepnym hello, ktorego
+    backlog ja obejmuje. Zmierzone: pokoj po jednej takiej ramce oddawal
+    1011 kazdemu wznawiajacemu sie — dowolny uczestnik mogl go trwale zabic
+    (osme review Codexa)."""
+    try:
+        json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def dumps(obj):
     """Serializacja ramki NA DRUT. Zawsze `ensure_ascii=False`.
 
@@ -23,8 +41,20 @@ def dumps(obj):
     195 652 B (zmierzone: 3.0x). Przy oknie rozmowy 200 ramek dawalo to
     37 MB odpowiedzi i klient znow nie mogl sie wznowic — sufit wyjscia
     goniby wejscie w nieskonczonosc. Z `ensure_ascii=False` wyjscie ma ten
-    sam rzad co wejscie i arytmetyka sufitow sie domyka."""
-    return json.dumps(obj, ensure_ascii=False)
+    sam rzad co wejscie i arytmetyka sufitow sie domyka.
+
+    NIGDY nie rzuca. Osamotniony surogat nie ma reprezentacji w UTF-8, wiec
+    dla takiej ramki wracamy do escapowania — brzydziej i trzy razy wiecej
+    bajtow, ale ramka WYCHODZI. To nie jest zapasowa sciezka dla nowych
+    danych (te odbija walidacja wejscia), tylko warunek WYLECZALNOSCI pokoju,
+    ktory taka ramke juz ma w logu: bez tego zostawalby zatruty na zawsze,
+    a naprawa wymagalaby recznej edycji events.jsonl."""
+    try:
+        tekst = json.dumps(obj, ensure_ascii=False)
+        tekst.encode("utf-8")
+    except UnicodeEncodeError:
+        return json.dumps(obj)
+    return tekst
 
 
 def frame_bytes(obj):

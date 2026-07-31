@@ -282,3 +282,27 @@ def test_clamp_zostawia_ile_sie_da_a_nie_stala_reszte():
 
     assert zachowane("A") > 60000
     assert zachowane("A") > 5 * zachowane("\x00")
+
+
+# --- osamotniony surogat: poprawny JSON, ale nie ma go w UTF-8 ------------
+
+SUROGAT = "\ud800"
+
+
+def test_utf8_safe_wykrywa_osamotniony_surogat():
+    assert protocol.utf8_safe({"text": "zwykly"}) is True
+    assert protocol.utf8_safe({"text": "emoji \U0001F600"}) is True
+    assert protocol.utf8_safe({"text": SUROGAT}) is False
+    assert protocol.utf8_safe({"zagniezdzone": {"a": [SUROGAT]}}) is False
+
+
+def test_dumps_nie_rzuca_na_ramce_ktora_juz_jest_w_logu():
+    """Warunek WYLECZALNOSCI pokoju, ktory taka ramke ma juz na dysku.
+    Gdyby dumps rzucal, pokoj zostawalby zatruty na zawsze, a naprawa
+    wymagalaby recznej edycji events.jsonl (osme review Codexa)."""
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1, "text": SUROGAT}
+    wynik = protocol.dumps(ramka)
+    wynik.encode("utf-8")                      # nie rzuca = da sie wyslac
+    assert json.loads(wynik)["text"] == SUROGAT
+    assert protocol.frame_bytes(ramka) > 0     # i da sie zmierzyc
+    protocol.clamp_frame(ramka)                # i przyciac
