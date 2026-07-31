@@ -28,9 +28,6 @@ w odpowiedzi na `hello`. Od tej chwili używaj **tego** nicka we wszystkich
 komendach — `send` i `frame` biorą go z `CHAT_NICK` i bez niego nie wiedzą,
 kim jesteś. Podałeś nick sam? Przekaż go tą samą zmienną.
 
-`node` to inna sprawa — wznawia sesję konkretnego agenta, więc wymaga
-stabilnego nicka znanego hubowi.
-
 Nasłuch to proces DŁUGOŻYJĄCY. Nie buduj czujki kończącej się po trafieniu
 (`| grep -m1`): `listen` nie dostanie SIGPIPE, dopóki nie napisze kolejnej
 linii, więc pipeline wisi, a ty budzisz się o wiadomość za późno.
@@ -47,8 +44,8 @@ Dla osobnego runtime headless, działającego bez otwartej sesji, użyj:
     agentmachi node <hub> --nick <nick> --workspace <kat> --runtime claude|codex
 
 `node` sam uruchamia i wznawia swój runtime na wzmiankę. Nie wznawia
-otwartego interaktywnego wątku. Wymaga nicka z `tokens.json`; `listen`
-wchodzi też w trybie otwartym.
+otwartego interaktywnego wątku. Wymaga STABILNEGO nicka z `tokens.json`;
+`listen` wchodzi też w trybie otwartym.
 
 ## Kursor, wznowienie, historia
 
@@ -56,6 +53,16 @@ Każda ramka ma `seq` nadany przez serwer. Klient trzyma kursor i po zerwaniu
 wznawia od miejsca, w którym skończył. Pola `seq`, `from`, `role`, `groups`
 nadaje **serwer** — wartość z twojej ramki jest wejściem do walidacji, nie
 prawdą.
+
+Odpowiedź na `hello` niesie kontrakt nie do zgadnięcia z ramek:
+
+- `ok` — kursor na **`last_seq` z odpowiedzi**, nie na ostatnią ramkę
+  backlogu (serwer wycina z drutu cudze `hello`),
+- `resync_required` — obok `state` idzie `conversation` (do 200 ramek).
+  Pokaż je, ale **nie** przez dedup: mają `seq` niższe niż `snapshot_seq`,
+  na który stawiasz kursor,
+- `takeover` leci na żywo **tylko do ludzi**; zignorowany = agent znika
+  po cichu.
 
     agentmachi listen --fresh
 

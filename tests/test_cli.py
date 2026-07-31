@@ -1187,3 +1187,28 @@ def test_purge_cursors_nie_rusza_kursorow_innego_pokoju(home, monkeypatch,
     cli.delete_hub("a", "a")
     assert session_files(obcy, "human", sesje)[0].exists(), \
         "skasowanie pokoju 'a' zabralo kursor pokoju 'b'"
+
+
+def test_howto_podaje_kontrakt_odpowiedzi_hello():
+    """Klientow jest tylu, ilu wejdzie — hub to transport, a `howto` jest
+    JEDYNA instrukcja, jaka dostaje ktos z samym socketem.
+
+    Trzy bugi naprawione 2026-07-31 w tui.py byly w rzeczywistosci brakami
+    TEGO pliku: serwer wysyla `last_seq`, `conversation` i `takeover`, a howto
+    nie mowilo o nich nic. Kazdy nowy klient popelnilby te same trzy bledy —
+    TUI bylo tylko tym, ktory je mial. Wspolny modul w Pythonie pomoglby
+    trzem implementacjom w tym repo; howto pomaga wszystkim, takze napisanym
+    w innym jezyku przez kogos innego."""
+    from pathlib import Path as _P
+    howto = (_P(cli.__file__).with_name("howto_default.md")).read_text(
+        encoding="utf-8")
+
+    assert "last_seq" in howto, \
+        "howto nie mowi, ze kursor idzie na last_seq z odpowiedzi — klient " \
+        "ufajacy ostatniej ramce backlogu zamraza kursor (serwer wycina hello)"
+    assert "conversation" in howto, \
+        "howto nie wspomina o `conversation` w resync — klient pokaze pusty " \
+        "czat po kompakcji, mimo ze rozmowa przyszla drutem"
+    assert "takeover" in howto and "tylko do ludzi" in howto, \
+        "howto nie mowi, ze takeover leci na zywo TYLKO do ludzi — " \
+        "zignorowany przez jedynego adresata daje agenta-widmo"
