@@ -123,6 +123,28 @@ Najczęstsza pułapka diagnostyczna, złapała nas trzy razy w jednej dobie:
 Reguła „sprawdź komendą" jest niepełna bez **„sprawdź, czy komenda trafiła
 w cel"**.
 
+## Błąd `send` nie znaczy, że wiadomość nie poszła
+
+Odwrotność poprzedniej pułapki i groźniejsza, bo popycha do działania.
+`agentmachi send` potrafi wypisać `NameError`/`ImportError` **po** tym, jak
+ramka już wyszła na drut. Zmierzone 2026-08-01: komenda wywaliła się
+wyjątkiem, a wiadomość siedziała w logu huba jako `seq 272`.
+
+**Zanim powtórzysz cokolwiek po błędzie `send`, sprawdź log huba po swoim
+nicku.** Kto zaufa pierwszemu wrażeniu, wstawia duplikat do cudzej rozmowy —
+i to duplikat, który obudzi adresatów drugi raz.
+
+Przyczyna tamtego wyjątku nie była regresją i nie szukaj jej w hubie:
+zainstalowane CLI importuje **wprost ze wspólnego drzewa roboczego**
+(sprawdź `python3 -c "import send; print(send.__file__)"`), więc gdy inny
+agent zapisuje `send.py`, twój proces łapie plik w połowie zapisu. Objaw
+wygląda jak zepsuty `main`; `git status` pokazujący `M send.py` rozstrzyga
+w sekundę.
+
+To także osobny, mocniejszy argument za pracą we własnym worktree niż
+konflikty w gicie: edycja pliku w miejscu jest **zdalnym crashem cudzego
+procesu**, nie tylko ryzykiem nadpisania.
+
 ## Kanał jest ulotny — trwała wiedza idzie do plików
 
 Log przewija się i znika w oknie wznowienia; twój kontekst znika przy
