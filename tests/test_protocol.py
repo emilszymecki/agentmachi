@@ -410,3 +410,48 @@ def test_clamp_gwarancja_jest_bezwarunkowa():
         out = protocol.clamp_frame(ramka)
         assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES, (i, sorted(ramka))
         assert all(k in out for k in ("type", "from", "ts", "seq")), i
+
+
+def test_clamp_tnie_takze_rdzen_gdy_to_on_rozdyma_ramke():
+    """Nick nie ma limitu dlugosci, wiec pokoj zalozony pod starym sufitem
+    1 MiB mogl miec uczestnika o nicku wiekszym niz cala dzisiejsza ramka —
+    i wtedy KAZDY jego wpis w logu byl ponad sufitem, bo pola rdzenia nigdy
+    nie byly kandydatami do usuniecia (jedenaste review Codexa).
+
+    `seq` zostaje nietkniety: na nim stoi kursor."""
+    ramka = {"type": "chat", "from": "N" * 70000, "ts": 1.5, "seq": 77,
+             "text": "krotko"}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert out["seq"] == 77 and out["ts"] == 1.5
+    assert out["from"].endswith(protocol.TRUNCATION_MARK)
+
+
+def test_clamp_tnie_rdzen_dopiero_na_koncu():
+    """Kolejnosc krokow ma znaczenie: przyciecie `from` psuje rozpoznanie
+    nadawcy, wiec siega sie po nie DOPIERO, gdy usuniecie obcych pol nie
+    wystarczylo. Ramka z normalnym nickiem i wielkim obcym polem ma
+    zachowac nadawce."""
+    ramka = {"type": "chat", "from": "beta", "ts": 0.0, "seq": 1,
+             "text": "krotko", "padding": "P" * 900000}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert out["from"] == "beta", "nadawca przyciety, choc winne bylo obce pole"
+    assert out["text"] == "krotko"
+
+
+def test_clamp_gwarancja_obejmuje_takze_rdzen():
+    """Fuzz z losowo rozdmuchanym rdzeniem — gwarancja ma nie miec wyjatkow."""
+    import random
+    rng = random.Random(7)
+    for i in range(60):
+        ramka = {"type": "c" * rng.choice([4, 100, 90000]),
+                 "from": "n" * rng.choice([3, 100, 90000]),
+                 "ts": 0.0, "seq": i}
+        if rng.random() < 0.5:
+            ramka["text"] = "t" * rng.choice([5, 90000])
+        if rng.random() < 0.5:
+            ramka["obce"] = "o" * rng.choice([5, 900000])
+        out = protocol.clamp_frame(ramka)
+        assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES, i
+        assert out["seq"] == i, "kursor musi przezyc kazde przyciecie"

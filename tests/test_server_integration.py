@@ -2657,3 +2657,63 @@ def test_kick_na_granicy_snapshotu_naprawde_zwalnia_wiazanie(tmp_path):
     s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
     assert s2.registry.open_hello("agent1", "i-nowy", "100.64.0.9") >= 1, \
         "kick zameldowal sukces, a po restarcie tozsamosc znow zablokowana"
+
+
+def test_hello_tokenowe_nie_dostaje_zaslepki_po_kicku(tmp_path):
+    """Hello TOKENOWE tez nie niesie adresu — bo swiadomie nic nie wiaze.
+    Replay bral je za stary format i po sekwencji kick -> hello nakladal na
+    legalna tozsamosc zaslepke UNRESOLVED_ADDR, blokujac jej pozniejsze
+    wejscie bez tokenu az do kolejnego kicka (jedenaste review Codexa).
+
+    Rozroznia je OBECNOSC KLUCZA `open_addr`, nie jego wartosc: nowy format
+    zapisuje go zawsze, takze jako None."""
+    port = _free_port()
+    tokens = {"beta": {"token": "tb", "role": "agent", "groups": []},
+              "emil": {"token": "te", "role": "human", "groups": []}}
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("beta", "i-1", "100.64.0.7")
+    s1.snapshot()                                   # wiazanie w snapshocie
+    s1._append_durable(protocol.make_frame(
+        "kick", "server", 0.0, target="beta", by="emil"))
+    s1._append_durable(protocol.make_frame(         # NOWY format, token: brak adresu
+        "hello", "beta", 0.0, instance_id="i-2", groups=[], role="agent",
+        open_addr=None))
+    del s1
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    assert s2.registry.open_hello("beta", "i-3", "100.64.0.9") >= 1, \
+        "legalne hello tokenowe potraktowane jak stary log i zaslepione"
+
+
+def test_stary_log_nadal_dostaje_zaslepke(tmp_path):
+    """Straznik drugiej strony: rekord BEZ klucza `open_addr` to naprawde
+    stary log i zaslepka ma sie nalezec."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("agent1", "i-1", "100.64.0.7")
+    s1.snapshot()
+    s1._append_durable(protocol.make_frame(
+        "kick", "server", 0.0, target="agent1", by="emil"))
+    stare = protocol.make_frame("hello", "agent1", 0.0, instance_id="i-2",
+                                groups=[], role="agent")
+    assert "open_addr" not in stare
+    s1._append_durable(stare)
+    del s1
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    with pytest.raises(AuthError):
+        s2.registry.open_hello("agent1", "obcy", "100.64.0.99")
+
+
+def test_nowe_hello_zapisuje_klucz_open_addr_zawsze(srv):
+    """Kontrakt logu: klucz jest ZAWSZE, wartosc bywa None. Bez tego
+    rozroznienie nowy/stary format nie ma sie o co oprzec."""
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        hellos = [e for e in server.log.replay() if e.get("type") == "hello"]
+        assert hellos and all("open_addr" in e for e in hellos), hellos
+        assert hellos[-1]["open_addr"] is None      # bind loopback: nic nie wiaze
+        await ws.close()
+    asyncio.run(srv(scenario))

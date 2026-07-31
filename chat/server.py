@@ -189,8 +189,13 @@ class ChatServer:
                 # kazde hello tokenowe / przy bindzie loopback. None = "to
                 # hello nie wiazalo adresu", nie "zwolnij wiazanie".
                 kto = event["from"]
+                # KLUCZ obecny = nowy format: wierzymy wartosci, takze gdy
+                # jest None ("to hello swiadomie nic nie wiazalo" — sciezka
+                # tokenowa albo bind loopback). Zaslepka nalezy sie WYLACZNIE
+                # rekordom, w ktorych klucza NIE MA, czyli naprawde starym.
+                nowy_format = "open_addr" in event
                 adres = event.get("open_addr")
-                if adres is None and kto in osierocone_kickiem:
+                if adres is None and not nowy_format and kto in osierocone_kickiem:
                     # STARY LOG, sekwencja kick -> ponowne wejscie. Kick
                     # skasowal wiazanie, a to hello nie niesie adresu, wiec
                     # rejestr nie ma jak odtworzyc, do czego nick byl
@@ -745,7 +750,14 @@ class ChatServer:
                     "hello", nick, time.time(),
                     instance_id=frame.get("instance_id"),
                     groups=list(groups), role=role,
-                    **({"open_addr": open_addr} if open_addr else {})))
+                    # ZAWSZE, takze gdy None. Obecnosc KLUCZA (nie wartosci)
+                    # odroznia nowy format od starego — a to jedyny sposob,
+                    # zeby replay wiedzial, czy brak adresu znaczy "to hello
+                    # swiadomie nic nie wiazalo" (token / bind loopback), czy
+                    # "log sprzed tego pola, nie wiadomo". Bez klucza replay
+                    # brał legalne hello TOKENOWE za stary format i nakladal
+                    # na nie zaslepke (jedenaste review Codexa).
+                    open_addr=open_addr))
             except OSError:
                 # niezmiennik e: awaria storage (dysk pelny) na hello NIE moze
                 # zabic handlera brutalnym 1011 — hello odpowiada czysta ramka

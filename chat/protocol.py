@@ -131,20 +131,41 @@ def clamp_frame(frame):
         # sam spis nazw tez moze nie wejsc (setki pol) — wtedy tylko liczba
         if frame_bytes(out) > MAX_FRAME_BYTES:
             out["dropped"] = len(usuniete)
+    if frame_bytes(out) <= MAX_FRAME_BYTES:
+        return out
+
+    # Krok 4: rozdyma nas SAM RDZEN. Nick nie ma limitu dlugosci, wiec pokoj
+    # zalozony pod starym sufitem 1 MiB mogl miec uczestnika o nicku wiekszym
+    # niz cala dzisiejsza ramka — i wtedy KAZDY jego wpis w logu byl ponad
+    # sufitem (jedenaste review Codexa). Przycinamy `from`/`type` na koncu,
+    # bo to psuje rozpoznanie nadawcy — ale ramka ponad sufitem psuje
+    # wznowienie WSZYSTKIM, wiec wybor jest miedzy zla a gorsza opcja.
+    # `ts` i `seq` zostaja nietkniete: na `seq` stoi kursor.
+    for pole in ("from", "type"):
+        if frame_bytes(out) <= MAX_FRAME_BYTES:
+            break
+        wartosc = out.get(pole)
+        if isinstance(wartosc, str) and wartosc:
+            _przytnij_pole(out, pole, wartosc, wymus=True)
     return out
 
 
-def _przytnij_pole(out, pole, wartosc):
+def _przytnij_pole(out, pole, wartosc, wymus=False):
     """Najdluzszy prefiks `wartosc`, przy ktorym cala ramka wchodzi w sufit.
 
-    Najpierw sprawdzamy, czy to pole W OGOLE jest problemem: gdy ramka nie
-    miesci sie nawet z PUSTYM tym polem, rozdyma ja co innego — wtedy
-    zostawiamy je nietkniete i oddajemy robote krokowi 3. Bez tej kontroli
-    ramka z krotkim `text` i wielkim obcym polem tracila `text` do zera,
-    zanim ktokolwiek tknal winowajce."""
+    Domyslnie sprawdzamy najpierw, czy to pole W OGOLE jest problemem: gdy
+    ramka nie miesci sie nawet z PUSTYM tym polem, rozdyma ja co innego —
+    wtedy zostawiamy je nietkniete i oddajemy robote nastepnemu krokowi. Bez
+    tej kontroli ramka z krotkim `text` i wielkim obcym polem tracila `text`
+    do zera, zanim ktokolwiek tknal winowajce.
+
+    `wymus=True` te kontrole wylacza i jest konieczne w kroku 4, gdzie
+    rozdyma nas KILKA pol rdzenia naraz: przy wielkim `type` I wielkim
+    `from` kontrola odpowiada "to nie ja" dla obu, wiec zadne nie zostaje
+    przyciete i gwarancja pada. Zlapane fuzzem, nie przemysleniem."""
     oryginal = out[pole]
     out[pole] = ""
-    if frame_bytes(out) > MAX_FRAME_BYTES:
+    if not wymus and frame_bytes(out) > MAX_FRAME_BYTES:
         out[pole] = oryginal
         return
     out["truncated"] = len(wartosc)
