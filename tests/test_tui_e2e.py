@@ -308,3 +308,111 @@ def test_e2e_restart_huba_pod_otwartym_tui_odbudowuje_panel(tmp_path):
             if ws is not None:
                 await ws.close()
     asyncio.run(scenariusz())
+
+
+# --- 6. takeover: ramka, ktora hub pcha WYLACZNIE do ludzi -----------------
+
+def test_e2e_takeover_dociera_na_ekran_czlowieka(tmp_path):
+    """`takeover` ma jednego adresata na zywo — czlowieka (`_should_push`:
+    `return role == "human"`). Raz juz zniknal po cichu, bo TUI nie mialo
+    galezi na ten typ, i nikt tego nie zobaczyl: agent tej ramki nie
+    dostaje, wiec zaden test agenta jej nie obroni. Jesli zginie znowu,
+    czlowiek traci JEDYNY sygnal, ze ktos na kanale wyglada na obecnego,
+    a juz nie slyszy."""
+    port = _free_port()
+    app, _ = _build_app(tmp_path, port)
+
+    async def scenariusz():
+        server = ChatServer(data_dir=tmp_path / "hub", tokens=TOKENS,
+                            port=port)
+        await server.start()
+        try:
+            async with app.run_test() as pilot:
+                await _until(pilot, lambda: app.connected, opis="polaczenie")
+                ws1, _ = await _agent_hello(port, instance="i1")
+                await _until(pilot, lambda: "beta" in _panel(app),
+                             opis="pierwszy klient agenta w panelu")
+
+                # drugi klient na TYM SAMYM nicku, inny instance_id
+                ws2, _ = await _agent_hello(port, instance="i2")
+                await _until(
+                    pilot,
+                    lambda: any("wypar" in t and "beta" in t
+                                for _, t in app.history),
+                    opis="czlowiek zobaczyl takeover na ekranie")
+                # tresc jest SERWEROWA, nie fallbackiem TUI — gdyby TUI
+                # zjadlo ramke i zalogowalo wlasny domysl, brakloby numerow
+                # generacji, a to one mowia czlowiekowi, ktore polaczenie
+                # wygralo
+                slad = [t for _, t in app.history if "wypar" in t][-1]
+                assert "generacja" in slad and "1 -> 2" in slad, slad
+                await ws1.close()
+                await ws2.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenariusz())
+
+
+# --- 7. /groups z ekranu zmienia board po stronie serwera ------------------
+
+def test_e2e_groups_z_ekranu_dochodzi_i_wraca_na_panel(tmp_path):
+    port = _free_port()
+    app, _ = _build_app(tmp_path, port)
+
+    async def scenariusz():
+        server = ChatServer(data_dir=tmp_path / "hub", tokens=TOKENS,
+                            port=port)
+        await server.start()
+        try:
+            async with app.run_test() as pilot:
+                await _until(pilot, lambda: app.connected, opis="polaczenie")
+                ws, _ = await _agent_hello(port)
+                await _until(pilot, lambda: "beta" in _panel(app),
+                             opis="agent w panelu")
+
+                wejscie = app.query_one("#message-input")
+                wejscie.focus()
+                await pilot.pause()
+                wejscie.text = "/groups beta head,admin"
+                await pilot.press("enter")
+
+                await _until(pilot, lambda: "head" in _panel(app),
+                             opis="nowe grupy widoczne w panelu czlowieka")
+                assert app.roster["beta"].groups == ["head", "admin"]
+                # i serwer naprawde je zna, nie tylko ekran
+                # `groups_of` zwraca LISTE (kolejnosc znaczaca), nie zbior
+                assert list(server.registry.groups_of("beta")) == ["head",
+                                                                   "admin"]
+                await ws.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenariusz())
+
+
+# --- 8. rules z huba laduja w panelu -------------------------------------
+
+def test_e2e_rules_z_huba_laduja_w_panelu(tmp_path):
+    """`rules` sa opcjonalne i naleza do pokoju. Jesli nie dojda na ekran,
+    czlowiek moderuje pokoj, ktorego regulaminu nie widzi."""
+    port = _free_port()
+    dane = tmp_path / "hub"
+    dane.mkdir(parents=True, exist_ok=True)
+    (dane / "rules.md").write_text("regula pokoju: nie budz bez wzmianki\n",
+                                   encoding="utf-8")
+    app, _ = _build_app(tmp_path, port)
+
+    async def scenariusz():
+        server = ChatServer(data_dir=dane, tokens=TOKENS, port=port)
+        await server.start()
+        try:
+            async with app.run_test() as pilot:
+                await _until(pilot, lambda: app.connected, opis="polaczenie")
+                await _until(
+                    pilot,
+                    lambda: "nie budz bez wzmianki" in app.rules_text,
+                    opis="rules pokoju na ekranie czlowieka")
+                widok = app.query_one("#rules", tui.Static).render().plain
+                assert "nie budz bez wzmianki" in widok
+        finally:
+            await server.stop()
+    asyncio.run(scenariusz())
