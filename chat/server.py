@@ -1223,8 +1223,31 @@ class ChatServer:
         self.registry.release_open_addr(target)
         self._maybe_snapshot()
         event["seq"] = seq
-        await ws.send(protocol.dumps(protocol.make_frame(
-            "ok", "server", now, target=target)))
+        # ACK dla moderatora jest BEST-EFFORT — kolejnosc zostaje, znika
+        # tylko mozliwosc wywrocenia nia calego rozkazu. Poprzednio `ok` szlo
+        # bez zabezpieczenia: gdy
+        # jego socket byl juz martwy (padlo TUI, zerwana siec, zamkniete okno),
+        # `send` rzucal ConnectionClosed, handler przerywal — i NIE wykonywal
+        # ani broadcastu kicka, ani close(4003). Kick zostawal TRWALE w logu,
+        # a wyrzucony siedzial dalej na kanale: log mowil "wyrzucony", kanal
+        # mowil "jest". Zmierzone przez agent4 trzema przebiegami (TUI padalo
+        # na wlasnym KeyError), ale przyczyna jest NIEZALEZNA od tamtego buga —
+        # kazde zerwanie socketu moderatora w tym oknie daje ten sam rozjazd.
+        #
+        # To bylo spelnienie "trwalosc przed publikacja" tylko w polowie:
+        # trwalosc byla, publikacji nie bylo, i nic jej nie ponawialo. Skutek
+        # rozkazu nie moze zalezec od tego, czy rozkazodawca jeszcze zyje.
+        #
+        # NIE przestawiam ACK-u za broadcast, choc tak bylo w pierwszej
+        # wersji: wywalilo to cudzy test, ktory pilnuje, ze rozkazodawca
+        # poznaje wynik WLASNEJ komendy przed cudzym ruchem. Nie umiem
+        # udowodnic, ze tamten kontrakt jest bledny, a bledem bylo co innego —
+        # brak zabezpieczenia. Naprawiam to, czego dowiodl pomiar.
+        try:
+            await ws.send(protocol.dumps(protocol.make_frame(
+                "ok", "server", now, target=target)))
+        except websockets.exceptions.ConnectionClosed:
+            pass
         # JEDYNY WYJATEK od reguly "agenta budzi tylko wzmianka" — i ma nim
         # zostac. Uzasadnienie: kick zmienia SKLAD ZESPOLU, a nie tresc
         # rozmowy. Agent, ktory wlasnie uzgodnil podzial pracy z wyrzuconym,

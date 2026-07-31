@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 import websockets
+from websockets.exceptions import ConnectionClosed
 
 from chat import protocol
 from chat.identity import AuthError
@@ -3035,3 +3036,61 @@ def test_ostrzezenie_o_nicku_nie_klamie_gdy_czlowiek_slucha(srv):
         await ws_a.close()
         await ws_h.close()
     asyncio.run(srv(scenario))
+
+
+def test_kick_dziala_gdy_socket_moderatora_juz_nie_zyje(tmp_path):
+    """ZLAPANE PRZEZ agent4 na scenariuszu TUI, ale przyczyna jest po stronie
+    SERWERA i NIEZALEZNA od tamtego buga interfejsu.
+
+    `ok` szlo do moderatora PRZED broadcastem i przed close(4003), i bez
+    zabezpieczenia. Gdy jego socket byl juz martwy (padlo TUI, zerwana siec,
+    zamkniete okno), send rzucal ConnectionClosed, handler przerywal — i nie
+    wykonywal ani rozgloszenia, ani rozlaczenia celu. Kick zostawal TRWALE
+    w logu, a wyrzucony siedzial dalej: log mowil "wyrzucony", kanal mowil
+    "jest". Spelnienie "trwalosc przed publikacja" w polowie: trwalosc byla,
+    publikacji nie bylo i nic jej nie ponawialo.
+
+    Kazde zerwanie socketu moderatora w tym oknie daje ten sam rozjazd, wiec
+    test nie udaje TUI — zabija sam socket rozkazodawcy."""
+    server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=_free_port())
+
+    class _MartwyWs:
+        """Socket moderatora, ktory juz nie przyjmuje ramek."""
+        def __init__(self):
+            self.proby = 0
+
+        async def send(self, _data):
+            self.proby += 1
+            raise ConnectionClosed(None, None)
+
+    class _CelWs:
+        def __init__(self):
+            self.wyslane, self.zamkniety = [], None
+
+        async def send(self, data):
+            self.wyslane.append(json.loads(data))
+
+        async def close(self, code=None, reason=None):
+            self.zamkniety = code
+
+    class _SwiadekWs(_CelWs):
+        pass
+
+    moderator, cel, swiadek = _MartwyWs(), _CelWs(), _SwiadekWs()
+    server.roles["emil"] = "human"
+    server.conns["emil"] = {moderator}
+    server.conns["beta"] = {cel}
+    server.conns["gamma"] = {swiadek}
+
+    asyncio.run(server._on_kick({"type": "kick", "target": "beta"}, "emil",
+                                moderator))
+
+    assert moderator.proby >= 1, "test nie dotknal sciezki ACK"
+    assert cel.zamkniety == 4003, \
+        "cel NIE zostal rozlaczony — log mowilby 'wyrzucony', kanal 'jest'"
+    assert any(f.get("type") == "kick" for f in swiadek.wyslane), \
+        "rozgloszenie kicka nie doszlo do pozostalych uczestnikow"
+    assert any(f.get("type") == "error" for f in cel.wyslane), \
+        "cel nie dostal informacji, dlaczego wypada"
+    # i trwalosc byla, jak przedtem
+    assert [e for e in server.log.replay() if e.get("type") == "kick"]
