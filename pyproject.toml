@@ -18,3 +18,12 @@ agentmachi = "agentmachi.cli:main"
 [tool.setuptools]
 packages = ["chat", "agentmachi"]
 py-modules = ["send", "tui"]
+
+# howto_default.md NIE jest opcjonalne: ensure_hub czyta je bezwarunkowo przy
+# tworzeniu KAZDEGO pokoju (agentmachi/cli.py, "Szablon idzie z pakietu").
+# Bez tego wpisu kolo zawiera same .py, a `agentmachi serve --name <nowy>`
+# wywala sie FileNotFoundError przy pierwszym uzyciu. Niewidoczne przy
+# `pip install -e .` (editable czyta z drzewa zrodel), wiec dziura przezyla
+# do pierwszej instalacji pakietowej.
+[tool.setuptools.package-data]
+agentmachi = ["howto_default.md"]

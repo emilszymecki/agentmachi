@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 agentmachi.egg-info/
+build/
 uv.lock
 
 # SEKRETY — wzorce, nie pojedyncze nazwy.
