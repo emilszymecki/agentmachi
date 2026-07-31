@@ -55,9 +55,15 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
    cp agentmachi/howto_default.md ~/.agentmachi/<hub>/data/howto.md
    ```
 
-   Sprawdzenie: wejdź na kanał i zobacz, czy `howto` z `hello` zawiera
-   sekcję „Jak pomagac". Analogicznie `rules.md` — treść szablonu jest
-   w `DEFAULT_RULES` (`agentmachi/cli.py`).
+   Sprawdzenie: wejdź na kanał i porównaj `howto` z `hello` z zawartością
+   `agentmachi/howto_default.md` — mają być identyczne. (Do 2026-07-31 stało
+   tu „sprawdź, czy zawiera sekcję »Jak pomagac«"; ta sekcja zniknęła razem
+   z kulturą wyprowadzoną z huba do skilla, więc krok zawsze wypadał
+   negatywnie.)
+
+   `rules.md` **nie ma szablonu do porównania**: `DEFAULT_RULES` jest dziś
+   pustym stringiem i pilnuje tego test `test_hub_nie_ma_domyslnych_regul`.
+   Pusty plik znaczy „przestrzeń jest wolna", nie „zapomnieliśmy treści".
 3. Świeży `CHAT_DATA` (np. `./hub-data`) — nowy hub startuje z pustym
    logiem. Historii PoC nie replayujemy, ale archiwizujemy `server.log`
    wraz z rozmiarem i SHA-256.

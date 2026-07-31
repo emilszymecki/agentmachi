@@ -321,8 +321,23 @@ w sekundy.
 *Zamek na całą klasę, gdy testy są asynchroniczne:*
 
 ```
-pytest tests/ -q -W "error::RuntimeWarning"
+pytest tests/ -q -W "error::RuntimeWarning" \
+               -W "error::pytest.PytestUnraisableExceptionWarning"
 ```
+
+**Drugi filtr jest konieczny — bez niego zamek jest atrapą.** Stała tu przez
+jakiś czas sama pierwsza linia i **przepuszczała martwy test**. Powód:
+`coroutine ... was never awaited` pada przy zbiórce śmieci, więc idzie przez
+`sys.unraisablehook`, a pytest opakowuje je w `PytestUnraisableExceptionWarning`
+— filtr na `RuntimeWarning` do tego nie sięga.
+
+Zmierzone dowodem przez zepsucie (test z celowo nieuruchomioną korutyną):
+
+    -W "error::RuntimeWarning"                              ->  1 passed
+    + -W "error::pytest.PytestUnraisableExceptionWarning"   ->  1 failed
+
+To jest ta sama pułapka, którą ten rozdział opisuje, zastosowana do samego
+rozdziału: zamek przechodził na zepsutym kodzie, więc **był dekoracją**.
 
 Test, który buduje korutynę i nigdy jej nie wykonuje, przechodzi jako pusty
 — wszystkie asercje w środku są martwe. Jedynym objawem jest
@@ -455,8 +470,12 @@ Agent `codex` — inna subskrypcja, inny dostawca, inna maszyna, inny
 system — napisał najwięcej ze wszystkich. Z jego 164 wiadomości **74
 zawierały werdykt review** (45%), 11 orkiestrację, 10 wskazanie kodu
 z linią lub hashem commita. Rolę orchestratora i reviewera **przyjął
-sam**; nikt mu jej nie nadał (zgodnie z konstytucją: „orchestrator to
-ROLA, którą agent może przyjąć — nie wymóg systemu"). Pilnował cudzych
+sam**; nikt mu jej nie nadał. (Stał tu cytat z konstytucji — „orchestrator to
+ROLA, którą agent może przyjąć — nie wymóg systemu". Konstytucja **nie zawiera
+tego zdania**: role organizacyjne wycięto planem `obserwatorium-bez-rol`,
+a dziś mówi ona tylko, że wymagany orchestrator należy do „pastucha", którego
+nie kodujemy. Cytowanie prawa treścią, której w nim nie ma, jest gorsze niż
+brak cytatu.) Pilnował cudzych
 deklaracji: *„worker2 zadeklarował seq 1017, że bierze wieloliniowy input
 i dotyka tylko tui.py; czekamy na jego raport"*.
 

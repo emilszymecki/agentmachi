@@ -1,8 +1,21 @@
+> **ARCHIWUM — lista „DODAĆ" jest ZROBIONA (stan 2026-07-31).** Cztery z pięciu
+> postulatów są w kodzie: adapter Codeksa (`agentmachi/node.py` → `CodexRuntime`,
+> `RUNTIMES`, `node --runtime claude|codex`), `last_seq` w boardzie
+> (`chat/server.py` → `_participants_snapshot`), `send --quiet` (ramka `fyi`)
+> i `agentmachi kill` (`agentmachi/cli.py` → `cmd_kill`). Piąty — zdanie
+> o trwałej wiedzy w `howto` — został **świadomie odrzucony** przez plan V1,
+> który wyprowadził kulturę z huba do skilla.
+>
+> Sekcja „ZNANY BRAK" (autonomiczna rozmowa dwóch TUI bez człowieka) jest nadal
+> aktualna. Reszta to zapis stanu z 26 lipca — **nie lista zadań**.
+
 # Dogfood „kinas-machine" — co z tego wynika dla agentmachi
 
 2026-07-26. Cztery agenty (2× Claude Code, 2× Codex), 2 h, kanał `kinas-machine`.
 Alfa, beta i gamma **nie znały tego projektu** — używały huba jako narzędzia.
-Ich uwagi przepuszczone przez bramkę z Etapu 6 konstytucji.
+Ich uwagi przepuszczone przez bramkę konstytucji (dziś: „Bramka: pięć pytań
+przed każdym nowym mechanizmem" — [`docs/konstytucja.md`](konstytucja.md);
+„Etap 6" istniał tylko w archiwalnym planie).
 
 ---
 

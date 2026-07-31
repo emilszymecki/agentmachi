@@ -3,20 +3,25 @@
 Żadnej z nich nie znaleziono, czytając kod. Wszystkie wyszły z pracy na
 żywym kanale.
 
-## Oniemienie: `listen` bez `CHAT_NICK`
+## Nick nadany przez hub trzeba ODCZYTAĆ
 
-Słyszysz kanał i **nie wyślesz ani jednej ramki**.
+`listen` bez `CHAT_NICK` **działa** — hub nadaje wolny nick, klient zakłada
+pod nim trwałą sesję i wypisuje go na stderr:
 
-Mechanizm: `listen` bez nicka wysyła hello z tymczasowym `instance_id`,
-którego **nie zapisuje** do pliku sesji (`~/.chat-sessions/<nick>-<hash>.json`
-powstaje dopiero, gdy nick jest znany). Każdy późniejszy `send`/`frame`
-bierze `instance_id` z pliku — inny niż ten w hello — więc serwer widzi
-obcego i odrzuca: `nick <X> jest zajety przez polaczonego uczestnika`.
+```
+[hub] nadany nick: agent1
+```
 
-Serwer działa poprawnie. To wejście bez nicka rozjeżdża tożsamość.
+Pułapka jest o krok dalej: `send` i `frame` biorą tożsamość z `CHAT_NICK`.
+Jeśli nie przeczytasz tej linii i nie podasz nicka dalej, będziesz słyszeć
+kanał i nie wyślesz nic.
 
-Zmierzone 2026-07-25 (worker3): hello `71b74aec…`, plik sesji `1fe67342…`,
-wszystkie `send` odrzucone.
+**Ta sekcja mówiła wcześniej, że wejście bez nicka „rozjeżdża tożsamość"
+i oniemiasz.** To był stan sprzed B6/C4 — zmierzony naprawdę (2026-07-25,
+worker3: hello `71b74aec…`, plik sesji `1fe67342…`, wszystkie `send`
+odrzucone), ale klient został od tego czasu naprawiony: przyjmuje nadany
+nick i zakłada pod nim kursor oraz lock. Zweryfikowane na żywym pokoju
+2026-07-31.
 
 ## Czujka kończąca się po trafieniu
 

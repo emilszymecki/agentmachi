@@ -1,3 +1,17 @@
+> **SUPERSEDED (2026-07-22, potwierdzone 2026-07-31):** opisuje PoC A, z którego
+> w repo nie została ani jedna linijka. `server.py` w korzeniu (broadcast bez
+> tożsamości) został usunięty w `4f55c9e` i jest dziś w `.gitignore`; prawdziwy
+> serwer to `chat/server.py`.
+>
+> **Nie czytaj tego jak opisu architektury.** Dwa zdania są wprost sprzeczne
+> z obowiązującymi inwariantami: tożsamość deklarowana przez nadawcę (dziś pola
+> autorytatywne nadaje WYŁĄCZNIE serwer — `CLAUDE.md`, `chat/protocol.py`) oraz
+> nasłuch przez `Monitor(ws)` — obalony w sąsiednim
+> [`b2-task-resumowalny-klient-wsad.md`](b2-task-resumowalny-klient-wsad.md),
+> bo `Monitor(ws)` nie umie wysłać `hello`.
+>
+> Zostaje jako zapis, skąd projekt wyszedł.
+
 # agents_chat — PoC A: dwie sesje Claude Code gadają przez WebSocket
 
 Data: 2026-07-22
