@@ -495,6 +495,35 @@ class ChatServer:
             except websockets.exceptions.ConnectionClosed:
                 pass
 
+    def _bylby_adresatem(self, event, nick, role, groups):
+        """Czy ta ramka POSZLABY na zywo do tego nicka, gdyby byl podlaczony?
+
+        Istnieje po to, zeby dogonienie okna takeoveru dostarczalo DOKLADNIE
+        to, co dostarczylby routing na zywo — ani mniej, ani wiecej. Pierwsza
+        wersja dogonienia replayowala wszystko po kolei i wysylala agentom
+        `takeover`, ktory z zasady idzie tylko do ludzi. Zlamalo to niezmiennik
+        "live push do agentow jest WYLACZNIE wzmiankowy" i zlapalo sie na
+        pieciu cudzych testach — kazda ramka wyslana agentowi kosztuje go
+        tokeny, wiec nie ma "przy okazji dosle jeszcze to"."""
+        if event.get("from") == nick:
+            return False
+        typ = event.get("type")
+        if typ == "kick":
+            return True              # jedyny udokumentowany wyjatek od reguly
+        if typ == "takeover":
+            return role == "human"   # patrz _announce_takeover
+        if typ not in ("chat", "fyi"):
+            return False
+        if role == "human":
+            return True              # ludzie slysza kanal bez wzmianek
+        if typ == "fyi":
+            return False             # `fyi` z definicji nie budzi agentow
+        tekst = event.get("text", "")
+        wzmianki = protocol.parse_mentions(tekst)
+        if "all" in wzmianki or nick in wzmianki:
+            return True
+        return bool(protocol.parse_groups(tekst) & set(groups))
+
     async def _publish_chat(self, event, mentions, groups_mentioned, unknown_groups):
         sender = event["from"]
         targets = set()
@@ -772,6 +801,17 @@ class ChatServer:
                     # brał legalne hello TOKENOWE za stary format i nakladal
                     # na nie zaslepke (jedenaste review Codexa).
                     open_addr=open_addr))
+                # KONIEC BACKLOGU zamrozony TUTAJ, nie przy budowaniu
+                # odpowiedzi. Miedzy tym punktem a wyslaniem reply sa awaity
+                # (zamkniecie starych socketow — do close_timeout, gdy stary
+                # klient jest trupem — plus announce takeover), a nick nie
+                # jest w tym czasie w `conns`. Ramka wyslana w tym oknie
+                # laduje w logu, NIE idzie live i wliczalaby sie do
+                # `self.log.last_seq` czytanego pozno — czyli klient
+                # przesuwalby kursor ZA nia i nie zobaczylby jej nigdy.
+                # Takeover zdarza sie przy kazdym restarcie procesu agenta,
+                # wiec to nie jest rzadki wyscig.
+                koniec_backlogu = self.log.last_seq
             except OSError:
                 # niezmiennik e: awaria storage (dysk pelny) na hello NIE moze
                 # zabic handlera brutalnym 1011 — hello odpowiada czysta ramka
@@ -868,8 +908,19 @@ class ChatServer:
                                  # kim zostal, a przy dwoch swiezych
                                  # wejsciach naraz zgadywanie sie lamie)
                     generation=generation, role=role, groups=list(groups),
-                    backlog=wire_backlog, last_seq=self.log.last_seq, **extra)
+                    backlog=wire_backlog, last_seq=koniec_backlogu, **extra)
             await ws.send(protocol.dumps(reply))
+            # DOGONIENIE OKNA: co przyszlo, gdy nick byl juz wypiety z conns,
+            # a nowy socket jeszcze nie wpiety. Kursor klienta stoi na
+            # `koniec_backlogu`, wiec tych ramek nie przeskoczy — ale sam
+            # z siebie dostalby je dopiero przy NASTEPNYM reconnekcie, czyli
+            # wzmianka obudzilaby go z opoznieniem albo wcale. Duplikaty sa
+            # bezpieczne: klient tnie po `seq <= last_applied_seq`, wiec
+            # ramka doreczona juz na zywo zostanie tu odrzucona.
+            for zdarzenie in self.log.events_after(koniec_backlogu):
+                if self._bylby_adresatem(zdarzenie, nick, role, groups):
+                    await ws.send(protocol.dumps(
+                        protocol.clamp_frame(zdarzenie)))
             await self._push_presence(nick, True)
             # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
             # domykamy polityke snapshot-co-100 tutaj, PO swapie live=klon, zeby

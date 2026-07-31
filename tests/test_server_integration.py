@@ -2762,3 +2762,110 @@ def test_klient_nie_moze_podstawic_wlasnego_czasu(srv):
         chat = [e for e in server.log.replay() if e["type"] == "chat"][-1]
         assert chat["ts"] > 1.7e9, "serwer przyjal czas podstawiony przez klienta"
     asyncio.run(srv(scenario))
+
+
+# --- okno takeoveru: kursor nie moze przeskoczyc niedoreczonych ramek -----
+
+def test_takeover_nie_przeskakuje_ramek_z_okna_zamykania(srv):
+    """Miedzy wypieciem starego socketu z `conns` a wpieciem nowego jest
+    okno: `_close_stale_sockets` czeka na handshake zamkniecia (do
+    close_timeout, gdy stary klient jest trupem — a wlasnie dlatego robi sie
+    takeover), potem idzie announce. Ramka wyslana w tym oknie laduje
+    w logu, NIE idzie live (nicka nie ma w conns) — a `last_seq` bylo
+    czytane DOPIERO przy budowaniu odpowiedzi, wiec wliczalo ja i klient
+    przesuwal kursor ZA nia. Nie zobaczylby jej nigdy.
+
+    Takeover zdarza sie przy kazdym restarcie procesu agenta, wiec to nie
+    jest rzadki wyscig. Okno jest tu wstrzykniete, zeby bylo deterministyczne.
+    """
+    async def scenario(server):
+        ws1, r1 = await hello("alfa", "ta", instance="i1")
+        assert r1["type"] == "ok"
+
+        w_oknie = {}
+        oryginalny = server._close_stale_sockets
+
+        async def z_oknem(nick):
+            await oryginalny(nick)
+            # ramka przychodzi DOKLADNIE wtedy, gdy nick jest wypiety
+            assert not server.conns.get(nick), "nick nadal w conns — zle okno"
+            w_oknie["seq"] = server._append_durable(protocol.make_frame(
+                "chat", "beta", 0.0, text="@alfa pilne w oknie"))
+        server._close_stale_sockets = z_oknem
+
+        ws2, r2 = await hello("alfa", "ta", instance="i2")   # TAKEOVER
+        assert r2["type"] == "ok"
+        assert w_oknie.get("seq"), "okno sie nie odpalilo"
+
+        # 1. kursor NIE przeskakuje ramki z okna
+        assert r2["last_seq"] < w_oknie["seq"], (
+            f"last_seq {r2['last_seq']} >= seq ramki z okna {w_oknie['seq']} "
+            f"— klient przeskoczy ja i nie zobaczy nigdy")
+
+        # 2. i dostaje ja od razu, a nie dopiero przy nastepnym reconnekcie
+        ramka = json.loads(await asyncio.wait_for(ws2.recv(), 5))
+        assert ramka["type"] == "chat" and ramka["seq"] == w_oknie["seq"]
+        assert ramka["text"] == "@alfa pilne w oknie"
+
+        await ws2.close()
+        await ws1.close()
+    asyncio.run(srv(scenario))
+
+
+def test_dogonienie_okna_nie_budzi_agenta_cudza_rozmowa(srv):
+    """Dogonienie idzie DOKLADNIE tymi samymi regulami co routing na zywo.
+    Pierwsza wersja replayowala wszystko po kolei i wysylala agentowi
+    `takeover` oraz cudze rozmowy bez wzmianki — zlamalo to niezmiennik
+    "live push do agentow jest WYLACZNIE wzmiankowy" i zlapalo sie na pieciu
+    cudzych testach. Kazda ramka wyslana agentowi kosztuje go tokeny."""
+    async def scenario(server):
+        ws1, _ = await hello("alfa", "ta", instance="i1")
+        oryginalny = server._close_stale_sockets
+        seqs = {}
+
+        async def z_oknem(nick):
+            await oryginalny(nick)
+            seqs["obca"] = server._append_durable(protocol.make_frame(
+                "chat", "beta", 0.0, text="rozmowa bez wzmianki"))
+            seqs["moja"] = server._append_durable(protocol.make_frame(
+                "chat", "beta", 0.0, text="@alfa tylko to mnie budzi"))
+        server._close_stale_sockets = z_oknem
+
+        ws2, r2 = await hello("alfa", "ta", instance="i2")
+        assert r2["last_seq"] < seqs["obca"]
+
+        ramka = json.loads(await asyncio.wait_for(ws2.recv(), 5))
+        assert ramka["seq"] == seqs["moja"], \
+            f"agent dostal ramke {ramka.get('text')!r} bez wzmianki do niego"
+        # i nic wiecej nie leci
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(ws2.recv(), 0.6)
+        await ws2.close()
+        await ws1.close()
+    asyncio.run(srv(scenario))
+
+
+def test_czlowiek_dostaje_z_okna_takze_takeover_i_rozmowe(srv):
+    """Druga strona tej samej reguly: czlowiek slyszy kanal bez wzmianek
+    i to on reaguje na widmo, wiec `takeover` nalezy sie wlasnie jemu."""
+    async def scenario(server):
+        assert server._bylby_adresatem(
+            {"type": "takeover", "from": "server"}, "emil", "human", []) is True
+        assert server._bylby_adresatem(
+            {"type": "takeover", "from": "server"}, "alfa", "agent", []) is False
+        assert server._bylby_adresatem(
+            {"type": "chat", "from": "beta", "text": "bez wzmianki"},
+            "emil", "human", []) is True
+        assert server._bylby_adresatem(
+            {"type": "chat", "from": "beta", "text": "bez wzmianki"},
+            "alfa", "agent", []) is False
+        assert server._bylby_adresatem(
+            {"type": "chat", "from": "beta", "text": "$head zbiorka"},
+            "alfa", "agent", ["head"]) is True
+        assert server._bylby_adresatem(
+            {"type": "fyi", "from": "beta", "text": "@alfa cicho"},
+            "alfa", "agent", []) is False, "fyi z definicji nie budzi agentow"
+        assert server._bylby_adresatem(
+            {"type": "chat", "from": "alfa", "text": "@alfa do siebie"},
+            "alfa", "agent", []) is False, "wlasna ramka nie wraca"
+    asyncio.run(srv(scenario))
