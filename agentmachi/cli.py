@@ -420,7 +420,7 @@ def hub_rows():
                      # hub bez pidfile dziala, ale `stop` nie zostawi po sobie
                      # sladu w katalogu — user ma to widziec, a nie zgadywac
                      "pidfile": (d / "hub.pid").exists(),
-                     "nicks": nicks, "dir": d})
+                     "nicks": nicks})
     return rows
 
 
@@ -434,7 +434,7 @@ def connect_host(bind):
     return "localhost" if bind in ("127.0.0.1", "0.0.0.0", "localhost") else bind
 
 
-def print_card(name, port, tokens, participants=None, bind=DEFAULT_BIND):
+def print_card(name, port, tokens, bind=DEFAULT_BIND):
     """Karta wejsciowa: wszystko, czego potrzebuje czlowiek i agenci."""
     d = hub_dir(name)
     addr = f"ws://{connect_host(bind)}:{port}"
@@ -453,11 +453,6 @@ dane:    {d / 'data'}
         role = entry.get("role", "agent")
         groups = ",".join(entry.get("groups", [])) or "-"
         line = f"  {nick}  {role}  [{groups}]"
-        if participants:
-            live = {p["nick"]: p for p in participants}
-            if live.get(nick, {}).get("connected"):
-                status = (live[nick].get("status") or {}).get("state", "")
-                line += f"  ONLINE {status}".rstrip()
         print(line)
     print(f"""
 czlowiek (TUI):
@@ -700,7 +695,7 @@ def _port_accepts(port, bind):
 READY_MARK = "chat server on"     # linia, ktora wypisuje NASZ serwer
 
 
-def _wait_until_listening(port, bind, timeout=10.0, pid=None,
+def _wait_until_listening(timeout=10.0, pid=None,
                           log_path=None, log_from=0):
     """Czekaj, az NASZ hub potwierdzi start WLASNYM glosem.
 
@@ -781,7 +776,7 @@ def cmd_start(args):
             "--name", args.name, "--port", str(port), "--bind", bind]
     log_before = log_path.stat().st_size if log_path.exists() else 0
     pid = _spawn_detached(argv, log_path)
-    if not _wait_until_listening(port, bind, 10.0, pid=pid,
+    if not _wait_until_listening(10.0, pid=pid,
                                  log_path=log_path, log_from=log_before):
         # pidfile NIE powstaje przy nieudanym starcie — martwy plik klamalby
         # potem `list` i `stop`.

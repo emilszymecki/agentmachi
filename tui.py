@@ -15,7 +15,6 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
 
 import websockets
 from rich.text import Text
@@ -436,7 +435,7 @@ class MessageInput(TextArea):
         self._history_pos = 0
 
     class Submitted(Message):
-        """Operator zatwierdzil tekst (Ctrl+S) — do wyslania na hub."""
+        """Operator zatwierdzil tekst (Enter) — do wyslania na hub."""
 
         def __init__(self, input: "MessageInput", text: str) -> None:
             self.input = input
@@ -551,6 +550,10 @@ class AgentmachiApp(App):
             for nick, item in roster.items()
         }
         self.rules_text = ""
+        # Czytane przez tests/test_tui.py — punkt obserwacyjny na to, co
+        # naprawde trafilo do czatu. RichLog nie daje sie odpytac o tresc,
+        # wiec bez tego nie da sie zweryfikowac renderowania ramki. Audyt
+        # 2026-07-31 wzial to za martwy kod (grep tylko po tui.py) — NIE JEST.
         self.history = []
         self.connected = False
 

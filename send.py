@@ -5,11 +5,6 @@ Domyslnie protokol B1 (chat/server.py): hello + token + trwaly kursor.
   python3 send.py --as <nick> "@ktos tekst"  -> hello (kursor TYLKO czytany), chat, wyjscie
   python3 send.py --listen         -> hello od kursora, apply+advance, reconnect
 
-Tryb --legacy dla starego PoC-huba (root server.py, czysty broadcast
-{from,text}, bez hello/auth):
-  python3 send.py --legacy <nick> "tekst"
-  python3 send.py --legacy --listen
-
 Env: CHAT_PORT (8765), CHAT_TOKEN (B1, wymagany — brak = fail-fast),
 CHAT_NICK (dla --listen), CHAT_ROLE (default "agent"),
 CHAT_SESSION_DIR (default ~/.chat-sessions).
@@ -504,31 +499,10 @@ async def oneshot_frame(nick, frame):
             return None  # np. status — serwer nie odsyla ACK i to jest OK
 
 
-async def legacy_send_once(nick, text):
-    async with websockets.connect(URI) as ws:
-        await ws.send(json.dumps({"from": nick, "text": text}))
-
-
-async def legacy_listen():
-    async with websockets.connect(URI) as ws:
-        async for message in ws:
-            _print_message(message)
-
-
 def main():
     args = sys.argv[1:]
     try:
-        if args and args[0] == "--legacy":
-            rest = args[1:]
-            if rest == ["--listen"]:
-                asyncio.run(legacy_listen())
-            elif len(rest) == 2:
-                asyncio.run(legacy_send_once(rest[0], rest[1]))
-            else:
-                print('usage: send.py --legacy <nick> "tekst"  |  '
-                      'send.py --legacy --listen', file=sys.stderr)
-                sys.exit(1)
-        elif args == ["--listen"]:
+        if args == ["--listen"]:
             asyncio.run(listen(os.environ.get("CHAT_NICK", "listener")))
         elif len(args) == 2 and args[0] == "--as":
             print('send.py --as <nick>: brakuje tresci', file=sys.stderr)
@@ -549,7 +523,7 @@ def main():
             # "dla kompatybilnosci": dopoki dziala, pulapka dziala z nim.
             print('usage: send.py --as <nick> "@ktos tekst"  |  '
                   'CHAT_NICK=<nick> send.py "@ktos tekst"  |  '
-                  'send.py --listen  |  send.py --legacy ...\n'
+                  'send.py --listen\n'
                   '  --as = KIM jestes; adresata wskazujesz @wzmianka '
                   'w tresci', file=sys.stderr)
             sys.exit(1)
