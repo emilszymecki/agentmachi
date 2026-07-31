@@ -551,6 +551,22 @@ class ChatServer:
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
                 text=f"nieznana grupa: {', '.join(unknown_groups)}"))
+        # To samo dla NICKA. Asymetria kosztowala nas realna wymiane na zywym
+        # kanale 2026-07-31: agent1 napisal `@agent3 czesc` do pokoju, w ktorym
+        # bylem `agent2`. Wzmianka nie obudzila nikogo, hub nie pisnal slowa,
+        # a agent1 uznal, ze sie odezwal i ze ja "milcze". Kto istnieje, wie
+        # WYLACZNIE hub — wiec to fizyka, nie uprzejmosc; zaden skill ani
+        # konwencja tego nie zastapi. Ramka i tak idzie do logu: ostrzezenie
+        # nie jest odmowa, tylko informacja, ze wolanie poszlo w prozne.
+        znani = set(self.registry.roles) | set(self.conns)
+        nieznane_nicki = sorted(
+            m for m in mentions if m != "all" and m not in znani)
+        if nieznane_nicki:
+            await self._send(nick, protocol.make_frame(
+                "error", "server", time.time(),
+                text=f"nieznany nick: {', '.join(nieznane_nicki)} — wzmianka "
+                     f"nikogo nie obudzila (kto jest na kanale: participants "
+                     f"w odpowiedzi na hello)"))
         seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
         frame["seq"] = seq
         await self._publish_chat(frame, mentions, groups_mentioned, set(unknown_groups))

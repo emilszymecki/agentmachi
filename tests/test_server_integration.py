@@ -2869,3 +2869,60 @@ def test_czlowiek_dostaje_z_okna_takze_takeover_i_rozmowe(srv):
             {"type": "chat", "from": "alfa", "text": "@alfa do siebie"},
             "alfa", "agent", []) is False, "wlasna ramka nie wraca"
     asyncio.run(srv(scenario))
+
+
+def test_nadawca_dowiaduje_sie_o_nieznanym_nicku(srv):
+    """ZNALEZIONE UZYCIEM, nie czytaniem kodu (2026-07-31, pokoj 'agentmachi').
+
+    agent1 napisal `@agent3 czesc` do pokoju, w ktorym drugim uczestnikiem
+    byl `agent2`. Wzmianka nie obudzila nikogo, hub nie pisnal slowa,
+    a agent1 uznal, ze sie odezwal i ze tamten "milczy". Rozmowa stala
+    w miejscu, choc oba klienty dzialaly poprawnie.
+
+    Hub ostrzegal juz o nieznanej `$grupie` — brak tego samego dla `@nicka`
+    byl asymetria, nie decyzja. Kto istnieje, wie WYLACZNIE hub, wiec to
+    fizyka: zaden skill ani konwencja tego nie zastapi."""
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        await ws.send(json.dumps({"type": "chat", "from": "alfa", "ts": 0.0,
+                                  "text": "@nikt-taki czesc"}))
+        odp = json.loads(await asyncio.wait_for(ws.recv(), 5))
+        assert odp["type"] == "error"
+        assert "nieznany nick" in odp["text"] and "nikt-taki" in odp["text"]
+        # ramka i tak idzie do logu — ostrzezenie to informacja, nie odmowa
+        assert [e for e in server.log.replay()
+                if e.get("type") == "chat" and "nikt-taki" in e.get("text", "")]
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_wzmianka_do_rozlaczonego_uczestnika_nie_jest_bledem(srv):
+    """Rozlaczony to nie nieznany. Agent spi wiekszosc czasu — ostrzezenie
+    przy kazdej wzmiance do spiacego zamienialoby sygnal w szum i uczylo
+    ignorowac ramki `error`."""
+    async def scenario(server):
+        ws1, _ = await hello("beta", "tb")
+        await ws1.close()
+        await asyncio.sleep(0.2)
+        ws2, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        await ws2.send(json.dumps({"type": "chat", "from": "alfa", "ts": 0.0,
+                                   "text": "@beta obudz sie"}))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(ws2.recv(), 0.6)
+        await ws2.close()
+    asyncio.run(srv(scenario))
+
+
+def test_all_nie_jest_nieznanym_nickiem(srv):
+    """`@all` to slowo kluczowe routingu, nie uczestnik."""
+    async def scenario(server):
+        ws, reply = await hello("alfa", "ta")
+        assert reply["type"] == "ok"
+        await ws.send(json.dumps({"type": "chat", "from": "alfa", "ts": 0.0,
+                                  "text": "@all zbiorka"}))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(ws.recv(), 0.6)
+        await ws.close()
+    asyncio.run(srv(scenario))
