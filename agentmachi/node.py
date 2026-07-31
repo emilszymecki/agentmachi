@@ -91,7 +91,7 @@ class NodeState:
         path = Path(path)
         tmp = path.with_suffix(".tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(dataclasses.asdict(self), f)
             f.flush()
             os.fsync(f.fileno())
@@ -99,7 +99,7 @@ class NodeState:
 
     @classmethod
     def load(cls, path):
-        return cls(**json.loads(Path(path).read_text()))
+        return cls(**json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 class RateLimiter:

@@ -65,7 +65,7 @@ def hub_dir(name):
 
 def _write_0600(path, text):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
 
 
@@ -81,7 +81,7 @@ def _porty_innych_hubow(wlasna_nazwa):
         if not d.is_dir() or d.name == wlasna_nazwa:
             continue
         try:
-            cfg = json.loads((d / "config.json").read_text())
+            cfg = json.loads((d / "config.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         p = cfg.get("port")
@@ -170,19 +170,19 @@ def ensure_hub(name, port, bind="127.0.0.1"):
         _write_0600(tokens_path, json.dumps(tokens, indent=2))
     rules_path = d / "data" / "rules.md"
     if not rules_path.exists():
-        rules_path.write_text(DEFAULT_RULES)
+        rules_path.write_text(DEFAULT_RULES, encoding="utf-8")
     # F5 (B5): howto ma dojsc do agenta PROTOKOLEM (hub czyta ten plik i
     # doklada do hello) — plik w repo jest bezuzyteczny dla klienta, ktory
     # ma tylko socket. Szablon idzie z pakietu; human moze go nadpisac.
     howto_path = d / "data" / "howto.md"
     if not howto_path.exists():
         howto_path.write_text(
-            (Path(__file__).with_name("howto_default.md")).read_text())
+            (Path(__file__).with_name("howto_default.md")).read_text(encoding="utf-8"))
     config_path = d / "config.json"
     if config_path.exists():
         # Hub ISTNIEJACY zachowuje swoj port — nigdy go nie przesuwamy,
         # bo kursory klientow sa per host:port.
-        port = json.loads(config_path.read_text()).get("port", port)
+        port = json.loads(config_path.read_text(encoding="utf-8")).get("port", port)
     else:
         # C5: NOWY hub nie moze zabrac portu innemu (ani niczemu w systemie).
         wybrany = _wybierz_port(port, name, bind)
@@ -190,7 +190,7 @@ def ensure_hub(name, port, bind="127.0.0.1"):
             print(f"agentmachi: port {port} jest zajety — hub '{name}' "
                   f"dostaje {wybrany}", file=sys.stderr)
         port = wybrany
-        config_path.write_text(json.dumps({"port": port, "bind": bind}))
+        config_path.write_text(json.dumps({"port": port, "bind": bind}), encoding="utf-8")
     return d, port
 
 
@@ -200,20 +200,20 @@ def load_tokens(name):
     if not tokens_path.exists():
         raise CliError(f"hub {name!r} nie istnieje (brak {tokens_path}); "
                        f"najpierw: agentmachi start --name {name}")
-    return json.loads(tokens_path.read_text()), d
+    return json.loads(tokens_path.read_text(encoding="utf-8")), d
 
 
 def hub_port(name, fallback=DEFAULT_PORT):
     config = hub_dir(name) / "config.json"
     if config.exists():
-        return json.loads(config.read_text()).get("port", fallback)
+        return json.loads(config.read_text(encoding="utf-8")).get("port", fallback)
     return fallback
 
 
 def hub_bind(name, fallback=DEFAULT_BIND):
     config = hub_dir(name) / "config.json"
     if config.exists():
-        return json.loads(config.read_text()).get("bind", fallback)
+        return json.loads(config.read_text(encoding="utf-8")).get("bind", fallback)
     return fallback
 
 
@@ -269,7 +269,7 @@ def _ancestor_pids():
     while cur and cur > 1 and cur not in out:
         out.add(cur)
         try:
-            status = Path(f"/proc/{cur}/status").read_text()
+            status = Path(f"/proc/{cur}/status").read_text(encoding="utf-8")
         except OSError:
             break
         ppid = next((l.split()[1] for l in status.splitlines()
@@ -380,7 +380,7 @@ def hub_pid(name):
     if not path.exists():
         return _scan_hub_pid(name)
     try:
-        pid = int(path.read_text().strip())
+        pid = int(path.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
         path.unlink(missing_ok=True)
         return _scan_hub_pid(name)
@@ -395,7 +395,7 @@ def hub_pid(name):
 
 
 def write_hub_pid(name):
-    (hub_dir(name) / "hub.pid").write_text(str(os.getpid()))
+    (hub_dir(name) / "hub.pid").write_text(str(os.getpid()), encoding="utf-8")
 
 
 def hub_rows():
@@ -410,7 +410,7 @@ def hub_rows():
             continue
         pid = hub_pid(name)
         try:
-            tokens = json.loads((d / "tokens.json").read_text())
+            tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))
             nicks = sorted(tokens)
         except (json.JSONDecodeError, OSError):
             nicks = []
@@ -533,7 +533,7 @@ def cmd_serve(args):
     d, port = ensure_hub(args.name, args.port, bind=args.bind)
     bind = hub_bind(args.name, fallback=args.bind)
     write_hub_pid(args.name)
-    tokens = json.loads((d / "tokens.json").read_text())
+    tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))
     print_card(args.name, port, tokens, bind=bind)
     os.environ["CHAT_TOKENS"] = str(d / "tokens.json")
     os.environ["CHAT_DATA"] = str(d / "data")
@@ -761,15 +761,15 @@ def cmd_start(args):
     d, port = ensure_hub(args.name, port, bind=bind)
     if istnieje and args.port is not None and hub_port(args.name) != args.port:
         config = d / "config.json"
-        dane = json.loads(config.read_text())
+        dane = json.loads(config.read_text(encoding="utf-8"))
         dane["port"] = args.port
-        config.write_text(json.dumps(dane))
+        config.write_text(json.dumps(dane), encoding="utf-8")
         port = args.port
     if args.bind is not None and hub_bind(args.name) != args.bind:
         config = d / "config.json"
-        dane = json.loads(config.read_text())
+        dane = json.loads(config.read_text(encoding="utf-8"))
         dane["bind"] = args.bind
-        config.write_text(json.dumps(dane))
+        config.write_text(json.dumps(dane), encoding="utf-8")
         bind = args.bind
     log_path = d / "serve.log"
     argv = [sys.executable, "-m", "agentmachi.cli", "serve",
@@ -782,7 +782,7 @@ def cmd_start(args):
         # potem `list` i `stop`.
         powod = ""
         if log_path.exists():
-            with log_path.open() as f:
+            with log_path.open(encoding="utf-8") as f:
                 f.seek(log_before)
                 ogon = f.read().strip().splitlines()
             if ogon:
@@ -791,8 +791,8 @@ def cmd_start(args):
               f"  pelny log: {log_path}\n"
               f"  czy port {port} jest wolny:  agentmachi list", file=sys.stderr)
         return 1
-    (d / "hub.pid").write_text(str(pid))
-    tokens = json.loads((d / "tokens.json").read_text())
+    (d / "hub.pid").write_text(str(pid), encoding="utf-8")
+    tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))
     print_card(args.name, port, tokens, bind=bind)
     # NIE "kto jest w srodku: list". `list` czyta sam dysk i zna wylacznie
     # tozsamosci z configu — obecnosc widzi tylko TUI, ktore trzyma polaczenie.
@@ -853,11 +853,11 @@ def _nicki_pokoju(name):
     d = hub_dir(name)
     nicki = set()
     try:
-        nicki |= set(json.loads((d / "tokens.json").read_text()))
+        nicki |= set(json.loads((d / "tokens.json").read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError, TypeError):
         pass
     try:
-        stan = json.loads((d / "data" / "snapshot.json").read_text())
+        stan = json.loads((d / "data" / "snapshot.json").read_text(encoding="utf-8"))
         gen = stan.get("state", {}).get("registry", {}).get("gen", {})
         if isinstance(gen, dict):
             nicki |= {n for n in gen if isinstance(n, str) and n}
