@@ -48,6 +48,11 @@ from .store import EventLog, ForeignWriterError
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
+# Ten sam komunikat wysylaja DWIE sciezki: natychmiastowe odciecie starego
+# socketu przy takeoverze (_close_stale_sockets) i per-ramkowy check generacji
+# w _on_frame. Musza mowic klientowi doslownie to samo, wiec jest stala.
+STALE_GENERATION = ("stale generation: ten socket zostal wyparty przez "
+                    "nowsze hello")
 STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
@@ -341,6 +346,23 @@ class ChatServer:
         return path.read_text(encoding="utf-8")
 
     # -- dostarczanie ------------------------------------------------------
+    async def _error(self, ws, text, **fields):
+        """Jedno gardlo dla ramek `error` do KONKRETNEGO socketu.
+
+        Wzorzec powtarzal sie kilkanascie razy i domyka dwie rzeczy, ktore
+        dotad trzymala wylacznie dyscyplina:
+        - regula "detal implementacji NIGDY do klienta" (errno, sciezki
+          absolutne) — teraz jest jedno miejsce, ktore da sie obwarowac,
+        - `command_id` przenosilo sie tylko w czesci wywolan, mimo ze
+          komentarz przy _on_frame deklaruje, ze pole zostaje "dla korelacji,
+          gdyby ktorys przyszly typ znow je wprowadzil".
+
+        NIE zamyka socketu. Trzy miejsca robia po bledzie jawne `ws.close()`
+        z ROZNYMI kodami (1008 dla zlego wejscia, 1011 dla awarii storage) —
+        to musi zostac ich decyzja, nie ukrytym efektem helpera."""
+        await ws.send(json.dumps(protocol.make_frame(
+            "error", "server", time.time(), text=text, **fields)))
+
     async def _send(self, nick, payload):
         data = json.dumps(payload)
         for ws in list(self.conns.get(nick, ())):
@@ -366,8 +388,7 @@ class ChatServer:
         for old_ws in stale:
             try:
                 await old_ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(),
-                    text="stale generation: ten socket zostal wyparty przez nowsze hello")))
+                    "error", "server", time.time(), text=STALE_GENERATION)))
             except websockets.exceptions.ConnectionClosed:
                 pass
             try:
@@ -441,21 +462,17 @@ class ChatServer:
             try:
                 frame = _strict_json_loads(raw)
             except ValueError:
-                await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(), text="invalid json")))
+                await self._error(ws, "invalid json")
                 await ws.close(code=1008, reason="invalid json")
                 return
             if not isinstance(frame, dict):
                 # niezmiennik E: skalar/lista jako JSON nie moze zabic
                 # handlera przez .get() na nie-dict — error + jawne zamkniecie
-                await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(),
-                    text="ramka musi byc obiektem JSON")))
+                await self._error(ws, "ramka musi byc obiektem JSON")
                 await ws.close(code=1008, reason="ramka musi byc obiektem JSON")
                 return
             if frame.get("type") != "hello":
-                await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(), text="pierwsza ramka musi byc hello")))
+                await self._error(ws, "pierwsza ramka musi byc hello")
                 return
             # (Runda 5 C3) pierwsze hello przez WSPOLNY schemat (type/from/ts)
             # PRZED auth — dotad hello NIGDY nie przechodzilo przez
@@ -465,8 +482,7 @@ class ChatServer:
             # identity/serwerze ponizej.
             hello_err = protocol.validate(frame)
             if hello_err:
-                await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(), text=hello_err)))
+                await self._error(ws, hello_err)
                 return
             nick_candidate = frame.get("from")
             # niezmiennik C: generacja SPRZED tego hello — potrzebna zeby
@@ -544,10 +560,9 @@ class ChatServer:
                             # to wtedy proxy, nie peer — IP-binding daloby
                             # falszywa ochrone. Nie ufamy: open bez tokenu
                             # odrzucone, tozsamosc wraca do tokenu.
-                            await ws.send(json.dumps(protocol.make_frame(
-                                "error", "server", time.time(),
-                                text="hub za proxy/tunelem — wejscie bez tokenu "
-                                     "niedostepne; podaj CHAT_TOKEN")))
+                            await self._error(
+                                ws, "hub za proxy/tunelem — wejscie bez tokenu "
+                                    "niedostepne; podaj CHAT_TOKEN")
                             return
                         addr = host
                     # Odmowa TYLKO gdy zywy nick nalezy do INNEGO instance_id.
@@ -567,11 +582,11 @@ class ChatServer:
                         # agent, ktoremu nick zajal ktos inny, po prostu
                         # umiera — zmierzone na kanale rube: Codex utknal
                         # na kilkanascie minut, majac propozycje przed oczami.
-                        await ws.send(json.dumps(protocol.make_frame(
-                            "error", "server", time.time(),
-                            suggested_nick=wolny,
-                            text=f"nick {zadany} jest zajety przez polaczonego "
-                                 f"uczestnika; wolny nick: {wolny}")))
+                        await self._error(
+                            ws,
+                            f"nick {zadany} jest zajety przez polaczonego "
+                            f"uczestnika; wolny nick: {wolny}",
+                            suggested_nick=wolny)
                         return
                     # B7 host-check + zapis wiazania — w open_hello, na trial
                     # (provisional-then-commit). Inny adres na przypiety nick =
@@ -583,8 +598,7 @@ class ChatServer:
                         frame.get("from"), frame.get("instance_id"),
                         frame.get("token"))
             except AuthError as e:
-                await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(), text=str(e))))
+                await self._error(ws, str(e))
                 return
             nick = frame["from"]
             # role jest stala z configu; groups to aktualny, trwaly stan
@@ -644,8 +658,7 @@ class ChatServer:
                 # sieci i moze legalnie retry. Pelny wyjatek (w tym sciezka FS)
                 # trafia WYLACZNIE do logu operatora; klient dostaje staly tekst.
                 LOGGER.exception("storage failure during hello for nick=%r", nick)
-                await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(), text=STORAGE_UNAVAILABLE)))
+                await self._error(ws, STORAGE_UNAVAILABLE)
                 await ws.close(code=1011, reason="storage unavailable")
                 return
             # COMMIT: dopiero po udanym durable appendzie swap live=klon, a
@@ -661,40 +674,7 @@ class ChatServer:
             # czym meldowac (reconnect z tym samym instance_id nie bumpuje
             # generacji, wiec tez tu nie wpada).
             if generation != old_gen and old_gen:
-                # zostaw SLAD. Bez niego wyparty agent znika po cichu:
-                # dla reszty kanalu wciaz jest "connected", a jego nasluch juz
-                # nic nie slyszy — agent-widmo, ktory milczy i nikt nie wie
-                # dlaczego. Zdarzylo sie w dogfoodzie B5 i kosztowalo godzine
-                # szukania winy w kliencie. Trwale (nie efemerycznie jak
-                # presence), bo pytanie "dlaczego zamilkl" pada PO fakcie.
-                takeover = protocol.make_frame(
-                    "takeover", "server", time.time(), nick=nick,
-                    generation=generation, previous_generation=old_gen,
-                    text=(f"{nick}: nowe polaczenie wyparlo poprzednie "
-                          f"(generacja {old_gen} -> {generation}); "
-                          f"stare sockety zamkniete"))
-                # trwalosc PRZED publikacja (inwariant projektowy)
-                seq = self._append_durable(takeover)
-                event = {**takeover, "seq": seq}
-                # Push NA ZYWO tylko do ludzi — tak samo jak presence: to oni
-                # reaguja na widmo (restart, ubicie klienta), a agentow nie
-                # budzimy ramka bez wzmianki. Agenci dostana ten slad z logu
-                # przy swoim najblizszym hello: takeover jest w
-                # CONVERSATION_TYPES, wiec wraca w 'conversation' i przezywa
-                # kompakcje.
-                # UWAGA na nazwe zmiennej petli: `role` jest juz zajete —
-                # trzyma AUTORYTATYWNA role wchodzacego (z trial_registry,
-                # linia ~593) i leci nizej do `self.roles[nick]` oraz do
-                # odpowiedzi hello. Rebind w tej petli podstawial tam role
-                # OSTATNIEGO uczestnika w dict: agent po takeoverze dostawal
-                # `human` i zaczynal byc budzony kazda ramka bez wzmianki,
-                # a czlowiek dostawal `agent` i TUI slepla. Board pokazywal
-                # przy tym prawde (czyta registry), wiec bylo to niewidoczne
-                # z zewnatrz. Zlapane 2026-07-31.
-                for other, rola_obserwatora in self.roles.items():
-                    if (rola_obserwatora == "human" and other != nick
-                            and self.conns.get(other)):
-                        await self._send(other, event)
+                await self._announce_takeover(nick, generation, old_gen)
             self.conns.setdefault(nick, set()).add(ws)
             self.roles[nick] = role
             self.groups[nick] = set(groups)
@@ -769,45 +749,7 @@ class ChatServer:
             # ewentualny snapshot #100 zlapal juz NOWA generacje. resync-branch
             # zrobil pelny snapshot() wyzej (licznik=0), wiec to wtedy no-op.
             self._maybe_snapshot()
-            async for raw in ws:
-                try:
-                    frame = _strict_json_loads(raw)
-                except ValueError:
-                    await ws.send(json.dumps(protocol.make_frame(
-                        "error", "server", time.time(), text="invalid json")))
-                    continue
-                if not isinstance(frame, dict):
-                    # niezmiennik E: w petli — error bez rozlaczania
-                    await ws.send(json.dumps(protocol.make_frame(
-                        "error", "server", time.time(),
-                        text="ramka musi byc obiektem JSON")))
-                    continue
-                try:
-                    stop = await self._on_frame(frame, nick, generation, ws)
-                except OSError:
-                    # Storage detail moze zawierac errno i absolutna sciezke.
-                    # Loguj go operatorowi, ale nigdy nie odbijaj klientowi.
-                    LOGGER.exception(
-                        "storage failure for nick=%r type=%r command_id=%r",
-                        nick, frame.get("type"), frame.get("command_id"))
-                    await ws.send(json.dumps(protocol.make_frame(
-                        "error", "server", time.time(),
-                        command_id=frame.get("command_id"),
-                        text=STORAGE_UNAVAILABLE)))
-                    stop = False
-                except Exception:
-                    # Ostatnia linia obrony (niezmiennik e): detal tylko w logu,
-                    # odpowiedz publiczna nie ujawnia implementacji ani sciezek.
-                    LOGGER.exception(
-                        "internal frame failure for nick=%r type=%r command_id=%r",
-                        nick, frame.get("type"), frame.get("command_id"))
-                    await ws.send(json.dumps(protocol.make_frame(
-                        "error", "server", time.time(),
-                        command_id=frame.get("command_id"),
-                        text="internal error")))
-                    stop = False
-                if stop:
-                    break
+            await self._frame_loop(ws, nick, generation)
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
@@ -822,22 +764,106 @@ class ChatServer:
                     except Exception:
                         pass
 
+    async def _announce_takeover(self, nick, generation, old_gen):
+        """Trwaly slad wyparcia nicka + rozgloszenie go ludziom NA ZYWO.
+
+        Bez tego wyparty agent znika po cichu: dla reszty kanalu wciaz jest
+        "connected", a jego nasluch juz nic nie slyszy — agent-widmo, ktory
+        milczy i nikt nie wie dlaczego. Zdarzylo sie w dogfoodzie B5
+        i kosztowalo godzine szukania winy w kliencie. Slad jest TRWALY
+        (nie efemeryczny jak presence), bo pytanie "dlaczego zamilkl" pada
+        PO fakcie.
+
+        Wolane WYLACZNIE po `self.registry = trial_registry` i po
+        `_close_stale_sockets` — opisuje fakt JUZ utrwalony. Wewnatrz
+        kolejnosc jest czescia kontraktu: durable append PRZED publikacja.
+
+        Wydzielone z _handler, bo petla rozgloszenia miala zmienna `role`,
+        ktora REBINDOWALA autorytatywna role wchodzacego, ustawiona kilkadziesiat
+        linii wyzej w tym samym scope. Wlasny scope funkcji czyni te klase
+        bledu niemozliwa — patrz test_takeover_nie_podmienia_roli_gdy_human_
+        wszedl_ostatni."""
+        takeover = protocol.make_frame(
+            "takeover", "server", time.time(), nick=nick,
+            generation=generation, previous_generation=old_gen,
+            text=(f"{nick}: nowe polaczenie wyparlo poprzednie "
+                  f"(generacja {old_gen} -> {generation}); "
+                  f"stare sockety zamkniete"))
+        seq = self._append_durable(takeover)   # trwalosc PRZED publikacja
+        event = {**takeover, "seq": seq}
+        # Push NA ZYWO tylko do ludzi — tak samo jak presence: to oni reaguja
+        # na widmo (restart, ubicie klienta), a agentow nie budzimy ramka bez
+        # wzmianki. Agenci dostana ten slad z logu przy swoim najblizszym
+        # hello: takeover jest w CONVERSATION_TYPES, wiec wraca
+        # w 'conversation' i przezywa kompakcje.
+        for other, rola in self.roles.items():
+            if rola == "human" and other != nick and self.conns.get(other):
+                await self._send(other, event)
+
+    async def _frame_loop(self, ws, nick, generation):
+        """Petla ramek po udanym hello. `generation` PRZYCHODZI ARGUMENTEM —
+        niezmiennik a) mowi, ze jest przypieta do SOCKETU, wiec nie wolno jej
+        tu odczytywac z self.registry.
+
+        Drabina wyjatkow jest per-RAMKA i musi taka zostac: niezmiennik e)
+        brzmi "zaden pojedynczy zly frame nie moze zabic handlera". Gdyby
+        `except Exception` opasywal cala petle zamiast pojedynczy obieg,
+        pierwsza zla ramka konczylaby polaczenie."""
+        async for raw in ws:
+            try:
+                frame = _strict_json_loads(raw)
+            except ValueError:
+                await self._error(ws, "invalid json")
+                continue
+            if not isinstance(frame, dict):
+                # niezmiennik E: w petli — error bez rozlaczania
+                await self._error(ws, "ramka musi byc obiektem JSON")
+                continue
+            try:
+                stop = await self._on_frame(frame, nick, generation, ws)
+            except websockets.exceptions.ConnectionClosed:
+                # ROZLACZENIE, NIE AWARIA. ConnectionClosed nie jest podklasa
+                # OSError (MRO: ConnectionClosed -> WebSocketException ->
+                # Exception), wiec bez tej galezi wpadalo nizej i logowalo
+                # pelny traceback jako "internal frame failure". Zmierzone:
+                # rutynowe rozlaczenia zglaszane jako wewnetrzna awaria
+                # serwera, czyli rozcienczanie jedynego sygnalu, ktory ma
+                # cos znaczyc dla operatora. Wychodzimy z petli — obsluge
+                # przejmuje `except ConnectionClosed` w _handler.
+                raise
+            except OSError:
+                # Storage detail moze zawierac errno i absolutna sciezke.
+                # Loguj go operatorowi, ale nigdy nie odbijaj klientowi.
+                LOGGER.exception(
+                    "storage failure for nick=%r type=%r command_id=%r",
+                    nick, frame.get("type"), frame.get("command_id"))
+                await self._error(ws, STORAGE_UNAVAILABLE,
+                                  command_id=frame.get("command_id"))
+                stop = False
+            except Exception:
+                # Ostatnia linia obrony (niezmiennik e): detal tylko w logu,
+                # odpowiedz publiczna nie ujawnia implementacji ani sciezek.
+                LOGGER.exception(
+                    "internal frame failure for nick=%r type=%r command_id=%r",
+                    nick, frame.get("type"), frame.get("command_id"))
+                await self._error(ws, "internal error",
+                                  command_id=frame.get("command_id"))
+                stop = False
+            if stop:
+                break
+
     async def _on_frame(self, frame, nick, sock_gen, ws):
         # niezmiennik a): generation przypieta do SOCKETU, nie frame.get(...)
         if self.registry.generation_of(nick) != sock_gen:
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", time.time(),
-                command_id=frame.get("command_id"),
-                text="stale generation: ten socket zostal wyparty przez nowsze hello")))
+            await self._error(ws, STALE_GENERATION,
+                              command_id=frame.get("command_id"))
             return True  # zamknij petle tego (juz nieaktualnego) polaczenia
         err = protocol.validate(frame)
         if err:
             # error niesie command_id z ramki, jesli byl — aktualne typy inbound
             # go nie uzywaja (-> None, nieszkodliwe); pole zostaje dla korelacji,
             # gdyby ktorys przyszly typ znow go wprowadzil.
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", time.time(),
-                command_id=frame.get("command_id"), text=err)))
+            await self._error(ws, err, command_id=frame.get("command_id"))
             return False
         # niezmiennik D: pola autorytatywne (seq/generation/groups/role) nadaje
         # WYLACZNIE serwer. membership_set.groups jest tylko zwalidowanym
@@ -872,10 +898,8 @@ class ChatServer:
             if target != nick and not (
                     self.registry.role_of(nick) == "human"
                     or "admin" in self.registry.groups_of(nick)):
-                await ws.send(json.dumps(protocol.make_frame(
-                    "error", "server", time.time(),
-                    text="forbidden: cudzy status wymaga human albo "
-                         "grupy admin")))
+                await self._error(
+                    ws, "forbidden: cudzy status wymaga human albo grupy admin")
                 return False
             frame["target"] = target  # pole autorytatywne: server-side default
             # DURABLE -> MUTACJA -> dopiero potem ewentualny snapshot. Reguly
@@ -925,9 +949,8 @@ class ChatServer:
         elif ftype == "membership_set":
             await self._on_membership_set(frame, requested_groups, nick, ws)
         else:
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", time.time(),
-                text=f"nieoczekiwany typ ramki od klienta: {ftype}")))
+            await self._error(
+                ws, f"nieoczekiwany typ ramki od klienta: {ftype}")
         return False
 
     async def _on_kick(self, frame, nick, ws):
@@ -948,14 +971,11 @@ class ChatServer:
         # rozkaz roota — rule 2 rules.md.)
         if (self.registry.role_of(nick) != "human"
                 and "admin" not in self.registry.groups_of(nick)):
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", now,
-                text="forbidden: kick wymaga roli human albo grupy admin")))
+            await self._error(
+                ws, "forbidden: kick wymaga roli human albo grupy admin")
             return
         if not self.conns.get(target):
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", now,
-                text=f"kick: {target} nie jest polaczony")))
+            await self._error(ws, f"kick: {target} nie jest polaczony")
             return
         event = protocol.make_frame("kick", "server", now,
                                     target=target, by=nick)
@@ -992,16 +1012,14 @@ class ChatServer:
         now = time.time()
         if (self.registry.role_of(nick) != "human"
                 and "admin" not in self.registry.groups_of(nick)):
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", now,
-                text="forbidden: membership_set wymaga human albo grupy admin")))
+            await self._error(
+                ws, "forbidden: membership_set wymaga human albo grupy admin")
             return
         trial = copy.deepcopy(self.registry)
         try:
             groups = trial.set_groups(frame["target"], requested_groups)
         except AuthError as e:
-            await ws.send(json.dumps(protocol.make_frame(
-                "error", "server", now, text=str(e))))
+            await self._error(ws, str(e))
             return
         event = {**frame, "groups": groups}
         seq = self._append_durable(event)

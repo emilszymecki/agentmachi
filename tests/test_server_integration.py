@@ -2120,3 +2120,42 @@ def test_membership_set_dziala_dla_agenta_z_trybu_otwartego(srv):
         for ws in (agent, emil):
             await ws.close()
     asyncio.run(srv(scenario))
+
+
+def test_rozlaczenie_klienta_nie_jest_awaria_serwera(srv, caplog):
+    """`websockets.ConnectionClosed` NIE jest podklasa OSError (MRO:
+    ConnectionClosed -> WebSocketException -> Exception), wiec wpadalo
+    w `except Exception` i logowalo pelny traceback jako "internal frame
+    failure" — rutynowe rozlaczenie zglaszane jako wewnetrzna awaria.
+
+    W repo, ktorego doktryna brzmi "glosny log operatora zamiast ciszy",
+    to rozcienczanie jedynego sygnalu diagnostycznego.
+
+    Wyjatek WSTRZYKUJEMY zamiast scigac wyscig: zadanie drabiny to
+    KLASYFIKACJA, wiec testujemy ja wprost. Proby odtworzenia przez
+    `close()` i `transport.abort()` przechodzily na zepsutym kodzie —
+    czyli bylyby dekoracja, nie pokryciem."""
+    import logging
+
+    async def scenario(server):
+        prawdziwy = server._on_frame
+
+        async def rozlaczony(frame, nick, generation, ws):
+            if frame.get("type") == "chat":
+                raise websockets.exceptions.ConnectionClosedOK(None, None)
+            return await prawdziwy(frame, nick, generation, ws)
+
+        server._on_frame = rozlaczony
+        ws, _ = await hello("alfa", "ta")
+        await ws.send(json.dumps({"type": "chat", "from": "alfa",
+                                  "ts": 0.0, "text": "cokolwiek"}))
+        await asyncio.sleep(0.3)
+        await ws.close()
+
+    with caplog.at_level(logging.ERROR, logger="chat.server"):
+        asyncio.run(srv(scenario))
+    awarie = [r for r in caplog.records
+              if "internal frame failure" in r.getMessage()]
+    assert not awarie, (
+        "rozlaczenie klienta zgloszone jako wewnetrzna awaria serwera "
+        f"({len(awarie)}x) — drabina wyjatkow zle je klasyfikuje")
