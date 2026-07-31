@@ -306,3 +306,44 @@ def test_dumps_nie_rzuca_na_ramce_ktora_juz_jest_w_logu():
     assert json.loads(wynik)["text"] == SUROGAT
     assert protocol.frame_bytes(ramka) > 0     # i da sie zmierzyc
     protocol.clamp_frame(ramka)                # i przyciac
+
+
+# --- przyciecie NIE MOZE gubic wzmianek (to mechanizm budzenia) -----------
+
+@pytest.mark.parametrize("nazwa,tekst,wzmianki,grupy", [
+    ("za cieciem", "x" * 66536 + " @beta", {"beta"}, set()),
+    ("grupa za cieciem", "x" * 66536 + " $workers", set(), {"workers"}),
+    ("all", "x" * 66536 + " @all", {"all"}, set()),
+    ("wiele", "x" * 66000 + " @a @b $g1 $g2", {"a", "b"}, {"g1", "g2"}),
+    ("bez wzmianek", "x" * 66536, set(), set()),
+])
+def test_clamp_zachowuje_wzmianki(nazwa, tekst, wzmianki, grupy):
+    """Wzmianka to JEDYNY mechanizm budzenia — `node._should_wake` parsuje
+    dostarczony tekst. `@nick` za miejscem ciecia znaczy, ze adresat nigdy
+    sie nie obudzi, a nadawca nie ma jak sie o tym dowiedziec
+    (dziewiate review Codexa)."""
+    ramka = {"type": "chat", "from": "a", "ts": 0.0, "seq": 1, "text": tekst}
+    out = protocol.clamp_frame(ramka)
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+    assert protocol.parse_mentions(out["text"]) == wzmianki, nazwa
+    assert protocol.parse_groups(out["text"]) == grupy, nazwa
+
+
+def test_clamp_nie_zmysla_wzmianki_tnac_w_srodku_tokenu():
+    """Ciecie w SRODKU tokenu adresuje kogos innego: `@beta-dwa` przyciete
+    do `@beta` obudzi nie tego agenta. Gorsze niz zgubienie wzmianki, bo
+    wyglada na dzialajace."""
+    tekst = "x" * 65500 + " @beta-dwa " + "y" * 5000
+    out = protocol.clamp_frame(
+        {"type": "chat", "from": "a", "ts": 0.0, "seq": 1, "text": tekst})
+    assert protocol.parse_mentions(out["text"]) == {"beta-dwa"}
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES
+
+
+def test_clamp_znosi_ramke_z_setkami_wzmianek():
+    """Gdy sam ogon ze wzmiankami nie wchodzi w sufit, schodzimy do znacznika
+    zamiast oddawac ramke ponad limit."""
+    tekst = " ".join(f"@nick{i}" for i in range(20000))
+    out = protocol.clamp_frame(
+        {"type": "chat", "from": "a", "ts": 0.0, "seq": 1, "text": tekst})
+    assert protocol.frame_bytes(out) <= protocol.MAX_FRAME_BYTES

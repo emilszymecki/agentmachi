@@ -995,3 +995,33 @@ def test_dumps_nie_rozpycha_znakow_spoza_ascii():
     ramka = {"type": "chat", "from": "a", "ts": 0.0, "text": "😀" * 1000}
     assert protocol.frame_bytes(ramka) < len(json.dumps(ramka).encode()) / 2.5
     assert json.loads(protocol.dumps(ramka)) == ramka
+
+
+def test_send_odmawia_surogatu_zamiast_gubic_po_cichu(tmp_path, monkeypatch):
+    """Ta sama cicha utrata co przy przekroczonym sufitcie, tylko innym
+    wejsciem. `protocol.dumps` dla ramki z osamotnionym surogatem wraca do
+    escapowania i NIE rzuca, wiec sam pomiar rozmiaru jej nie wykrywa. Hub
+    odbija ja na wejsciu, ale `chat` nie ma ACK — komenda konczy sie zerem,
+    a wiadomosci nie ma nigdzie.
+
+    Zrodlem bywa argv zdekodowane przez `surrogateescape` (nazwa pliku spoza
+    UTF-8), wiec agent nie musi tego robic celowo (dziewiate review)."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            with pytest.raises(send.SessionError) as e:
+                await send.send_once("agent1", "\ud800 nazwa pliku spoza utf-8")
+            assert "surogat" in str(e.value)
+            return [f.get("type") for f in srv.log.replay()]
+        finally:
+            await srv.stop()
+
+    assert "chat" not in asyncio.run(scenario())

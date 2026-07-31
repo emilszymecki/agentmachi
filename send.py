@@ -363,6 +363,18 @@ def _sprawdz_rozmiar(wire):
     `agentmachi send` konczy sie ZEREM, a wiadomosci nie ma ani w logu, ani
     u nikogo. Cicha utrata jest gorsza niz odmowa: agent idzie dalej
     przekonany, ze powiedzial (zlapane 2026-07-31, piate review Codexa)."""
+    # Surogat PRZED rozmiarem: `protocol.dumps` dla takiej ramki wraca do
+    # escapowania i NIE rzuca, wiec sam pomiar rozmiaru jej nie wykryje.
+    # Hub odbija ja na wejsciu, ale `chat` nie ma ACK — czyli dokladnie ta
+    # cicha utrata, dla ktorej ten przedlot powstal. Zrodlem bywa argv
+    # zdekodowane przez `surrogateescape` (nazwa pliku spoza UTF-8), wiec
+    # agent nie musi tego robic celowo (dziewiate review Codexa).
+    if not protocol.utf8_safe(wire):
+        raise SendTooLarge(
+            "ramka zawiera osamotniony surogat (\\udXXX) — nie da sie jej "
+            "zapisac jako UTF-8 i hub ja odrzuci. Zwykle zrodlo: tekst "
+            "wziety z nazwy pliku albo argv spoza UTF-8. Przekoduj tresc "
+            "albo przekaz sciezke zamiast wklejac zawartosc.")
     rozmiar = protocol.frame_bytes(wire)
     if rozmiar > protocol.MAX_FRAME_BYTES:
         raise SendTooLarge(

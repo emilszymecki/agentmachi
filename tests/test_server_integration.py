@@ -2533,3 +2533,82 @@ def test_pokoj_juz_zatruty_daje_sie_wznowic(tmp_path):
     odp = asyncio.run(scenario())
     assert odp["type"] == "ok", "zatruty log nadal blokuje wznowienie"
     assert len(odp["backlog"]) == 1, "historia zniknela przy okazji"
+
+
+def test_moderator_moze_wyrzucic_nieobecnego(srv):
+    """Kick dziala na TOZSAMOSCI, nie na sockecie.
+
+    Wczesniej wymagal zywego polaczenia — i to zamykalo jedyna droge wyjscia
+    z zaslepki UNRESOLVED_ADDR: nick, ktorego wiazania nie dalo sie odtworzyc
+    z logu, jest z definicji ROZLACZONY. Reklamowalem te droge w komunikacie
+    open_hello, a moj wlasny test przechodzil tylko dlatego, ze wolal
+    release_open_addr WPROST, z pominieciem kicka (dziewiate review Codexa)."""
+    async def scenario(server):
+        server.registry.open_hello("agent1", "i-stary", "100.64.0.7")
+        ws, reply = await hello("emil", "te", role="human")
+        assert reply["type"] == "ok"
+        await ws.send(json.dumps({"type": "kick", "from": "emil", "ts": 0.0,
+                                  "target": "agent1"}))
+        await asyncio.sleep(0.3)
+        assert server.registry._open_addr.get("agent1") is None, \
+            "kick nieobecnego nie zwolnil wiazania"
+        # i wlasciciel wchodzi z NOWEGO adresu
+        assert server.registry.open_hello("agent1", "i-nowy", "100.64.0.9") >= 1
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_kick_nieznanego_nicka_nadal_odbija(srv):
+    """Moderacja dziala na uczestnikach tego pokoju, nie na dowolnym stringu."""
+    async def scenario(server):
+        ws, reply = await hello("emil", "te", role="human")
+        assert reply["type"] == "ok"
+        await ws.send(json.dumps({"type": "kick", "from": "emil", "ts": 0.0,
+                                  "target": "ktos-kogo-nie-ma"}))
+        # presence leci do humanow na zywo — czytamy az do wlasciwej ramki
+        for _ in range(5):
+            odp = json.loads(await asyncio.wait_for(ws.recv(), 5))
+            if odp["type"] != "presence":
+                break
+        assert odp["type"] == "error" and "kick:" in odp["text"], odp
+        await ws.close()
+    asyncio.run(srv(scenario))
+
+
+def test_zaslepka_po_starym_logu_da_sie_zdjac_kickiem(tmp_path):
+    """Domkniecie sciezki z commita 1b02af2: zaslepka UNRESOLVED_ADDR ma
+    droge wyjscia, ktora moderator NAPRAWDE moze przejsc — przez `kick`,
+    a nie przez wolanie registry z testu."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("agent1", "inst-1", "100.64.0.7")
+    s1.snapshot()
+    s1._append_durable(protocol.make_frame(
+        "kick", "server", 0.0, target="agent1", by="emil"))
+    s1._append_durable(protocol.make_frame(          # STARY format: bez open_addr
+        "hello", "agent1", 0.0, instance_id="inst-2", groups=[], role="agent"))
+    del s1
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    with pytest.raises(AuthError):                   # zaslepka dziala
+        s2.registry.open_hello("agent1", "obcy", "100.64.0.99")
+
+    async def scenario():
+        await s2.start()
+        try:
+            ws = await websockets.connect(f"ws://localhost:{port}")
+            await ws.send(json.dumps({
+                "type": "hello", "from": "emil", "ts": 0.0, "last_seq": 0,
+                "instance_id": "ih", "role": "human", "token": "te"}))
+            await ws.recv()
+            await ws.send(json.dumps({"type": "kick", "from": "emil",
+                                      "ts": 0.0, "target": "agent1"}))
+            await asyncio.sleep(0.3)
+            await ws.close()
+        finally:
+            await s2.stop()
+
+    asyncio.run(scenario())
+    assert s2.registry.open_hello("agent1", "inst-3", "100.64.0.7") >= 1, \
+        "wlasciciel nadal zablokowany po kicku moderatora"

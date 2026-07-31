@@ -103,20 +103,48 @@ def clamp_frame(frame):
     przyciety = dict(frame)
     przyciety["truncated"] = len(text)
 
-    def _miesci(dlugosc):
-        przyciety["text"] = text[:dlugosc] + TRUNCATION_MARK
+    # WZMIANKI PRZEZYWAJA PRZYCIECIE. Nie jest to uprzejmosc wobec czytelnika:
+    # wzmianka to jedyny mechanizm BUDZENIA (`node._should_wake` parsuje
+    # dostarczony tekst), wiec `@nick` za miejscem ciecia znaczy, ze adresat
+    # nigdy sie nie obudzi — a nadawca nie ma jak sie o tym dowiedziec.
+    # Przenosimy je za znacznik, zeby zbior wzmianek byl TEN SAM co
+    # w oryginale (dziewiate review Codexa).
+    wzmianki = sorted(parse_mentions(text))
+    grupy = sorted(parse_groups(text))
+    etykiety = [f"@{n}" for n in wzmianki] + [f"${g}" for g in grupy]
+    ogon = TRUNCATION_MARK + (" " + " ".join(etykiety) if etykiety else "")
+
+    def _bez_rozcietego_tokenu(prefiks):
+        """Ciecie w SRODKU tokenu potrafi ZMYSLIC wzmianke: `@beta` przyciete
+        do `@bet` adresuje kogos innego. Wykrywamy to porownaniem zbiorow
+        i dopiero wtedy urywamy koncowy ciag bez bialych znakow."""
+        if (parse_mentions(prefiks) <= set(wzmianki)
+                and parse_groups(prefiks) <= set(grupy)):
+            return prefiks
+        i = len(prefiks)
+        while i > 0 and not prefiks[i - 1].isspace():
+            i -= 1
+        return prefiks[:i]
+
+    def _miesci(dlugosc, sufiks):
+        przyciety["text"] = _bez_rozcietego_tokenu(text[:dlugosc]) + sufiks
         return frame_bytes(przyciety) <= MAX_FRAME_BYTES
+
+    if not _miesci(0, ogon):
+        # Sam ogon nie wchodzi (setki wzmianek albo ramke rozdyma cos poza
+        # `text`) — schodzimy do samego znacznika, a potem do pustki.
+        ogon = TRUNCATION_MARK if _miesci(0, TRUNCATION_MARK) else ""
+        przyciety["text"] = ogon
+        return przyciety
 
     lo, hi = 0, len(text)
     while lo < hi:
         srodek = (lo + hi + 1) // 2
-        if _miesci(srodek):
+        if _miesci(srodek, ogon):
             lo = srodek
         else:
             hi = srodek - 1
-    if not _miesci(lo):
-        # nawet sam znacznik nie wchodzi — ramke rozdyma cos poza `text`
-        przyciety["text"] = ""
+    _miesci(lo, ogon)
     return przyciety
 
 # (Runda 4 #5 / laka-nie-obora A2/A3/A4) Rozdzial typow: INBOUND to jedyne

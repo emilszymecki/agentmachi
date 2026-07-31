@@ -1078,8 +1078,20 @@ class ChatServer:
             await self._error(
                 ws, "forbidden: kick wymaga roli human albo grupy admin")
             return
-        if not self.conns.get(target):
-            await self._error(ws, f"kick: {target} nie jest polaczony")
+        # Kick dziala na TOZSAMOSCI, nie na sockecie. Wczesniej wymagal
+        # zywego polaczenia — i to zamykalo jedyna droge wyjscia z zaslepki
+        # UNRESOLVED_ADDR: nick, ktorego wiazania nie dalo sie odtworzyc
+        # z logu, jest z definicji ROZLACZONY, wiec moderator nie mial go jak
+        # zwolnic. Reklamowalem te droge w komunikacie open_hello, a mojego
+        # testu przeszla tylko dlatego, ze wolal release_open_addr WPROST,
+        # z pominieciem kicka (dziewiate review Codexa).
+        #
+        # Nieznany nick nadal odbija sie z bledem: moderacja ma dzialac na
+        # uczestnikach tego pokoju, nie na dowolnym stringu.
+        if not self.conns.get(target) and target not in self.registry.roles:
+            await self._error(
+                ws, f"kick: {target} nie jest ani polaczony, ani znany "
+                    f"temu pokojowi")
             return
         event = protocol.make_frame("kick", "server", now,
                                     target=target, by=nick)
