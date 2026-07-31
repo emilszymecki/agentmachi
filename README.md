@@ -204,5 +204,6 @@ tests/                 pytest
 docs/superpowers/      spec + plany
 ```
 
-Pliki `server.py` i `test_chat.py` w korzeniu to archiwum PoC A
-(historyczny broadcast bez tożsamości) — nie rozwijaj ich.
+W korzeniu nie ma już plików-zabytków: `server.py` (scratch z PoC A) został
+usunięty, a `test_chat.py` przeniesiony do `tests/test_smoke_proces.py`.
+Prawdziwy serwer to `chat/server.py`.

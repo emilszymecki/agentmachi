@@ -1,6 +1,14 @@
-"""Testy legacy (PoC A) — server.py w korzeniu zostaje nietkniety jako
-zabytek, ale te testy teraz gonia chat/server.py (krok B1: hello/auth,
-echo po nicku, wzmianki) uruchamiany jako `python -m chat.server`.
+"""Smoke na poziomie PROCESU: hub i klient odpalane jako subprocess.
+
+Uzupelniaja, nie dubluja testow in-process z test_server_integration.py —
+tamte wolaja ChatServer bezposrednio, te sprawdzaja, czy `python -m
+chat.server` i `send.py` naprawde startuja, gadaja i schodza. Trzy rzeczy
+mozna zweryfikowac WYLACZNIE tedy: czysty SIGTERM zapisujacy snapshot,
+przezycie rozlaczenia klienta i niezerowy exit `send.py` przy padlym hubie.
+
+(Plik lezal do 2026-07-31 w korzeniu jako `test_chat.py` i NIE byl w suicie
+— `pytest tests/` go nie dotykalo. Przez ten czas zgnil: asertowal pozycyjny
+`send.py <nick> "tekst"`, wycofany w 4f30cdc. Przeniesiony i naprawiony.)
 
 Serwer odpalany raz na sesje testowa jako subprocess na porcie CHAT_PORT
 (domyślnie efemerycznym, zeby nie zderzyc sie z reczna instancja), z
@@ -29,7 +37,7 @@ try:
 except ImportError:
     HAVE_PYTEST_ASYNCIO = False
 
-REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _free_port():
@@ -242,7 +250,8 @@ async def test_sender_does_not_receive_own_frame(chat_server):
 async def test_send_py_success_delivers_json(chat_server):
     listener, _ = await hello("s1", TOKENS["s1"])
     try:
-        result = run_send_py(["beta", "@s1 hej alfa"], token=TOKENS["beta"])
+        result = run_send_py(["--as", "beta", "@s1 hej alfa"],
+                             token=TOKENS["beta"])
         assert result.returncode == 0, f"stderr: {result.stderr}"
 
         data = await recv_frame(listener)
