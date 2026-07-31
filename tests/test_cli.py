@@ -1212,3 +1212,50 @@ def test_howto_podaje_kontrakt_odpowiedzi_hello():
     assert "takeover" in howto and "tylko do ludzi" in howto, \
         "howto nie mowi, ze takeover leci na zywo TYLKO do ludzi — " \
         "zignorowany przez jedynego adresata daje agenta-widmo"
+
+
+def test_del_zabiera_kursor_agenta_ktorego_nie_ma_w_snapshocie(home, monkeypatch,
+                                                               tmp_path):
+    """Hub, ktory padl bez `stop`, nie zdazyl dopisac swojego snapshotu —
+    agent, ktory wszedl po ostatnim, istnieje wtedy WYLACZNIE w events.jsonl.
+    Bez czytania logu jego kursor przezywal pokoj i wybuchal dopiero pod
+    nastepnym hubem na tym porcie (zlapane 2026-07-31, review Codexa)."""
+    from chat.client_session import Session, session_files
+    sesje = tmp_path / "sesje"
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
+    d, port = cli.ensure_hub("pokoj", 8933)
+    hub_id = f"localhost:{port}"
+
+    (d / "data").mkdir(parents=True, exist_ok=True)
+    (d / "data" / "snapshot.json").write_text(json.dumps(
+        {"snapshot_seq": 2, "state": {"registry": {"gen": {}}}}))
+    # log: hello agenta PO snapshocie + ogon uciety crashem
+    (d / "data" / "events.jsonl").write_text(
+        json.dumps({"type": "hello", "seq": 3, "from": "agent9",
+                    "instance_id": "i9"}) + "\n"
+        + json.dumps({"type": "membership_set", "seq": 4, "from": "human",
+                      "target": "agent9", "groups": ["admin"]}) + "\n"
+        + '{"type": "chat", "seq": 5, "fr', encoding="utf-8")
+    Session(hub_id, "agent9", base_dir=sesje).advance(11)
+
+    ok, _ = cli.delete_hub("pokoj", "pokoj")
+    assert ok is True
+    assert not session_files(hub_id, "agent9", sesje)[0].exists(), \
+        "kursor agenta znanego tylko z logu przezyl skasowanie pokoju"
+
+
+def test_nicki_pokoju_pomija_server_i_znosi_zepsuty_log(home, tmp_path):
+    """`from: server` to nadawca ramek systemowych, nie uczestnik — nie ma
+    sesji do sprzatania. Uciety ogon logu (crash w trakcie zapisu) nie moze
+    przerwac sprzatania reszty."""
+    d, _ = cli.ensure_hub("pokoj", 8934)
+    (d / "data").mkdir(parents=True, exist_ok=True)
+    (d / "data" / "events.jsonl").write_text(
+        json.dumps({"type": "takeover", "seq": 1, "from": "server",
+                    "target": "agent1"}) + "\n"
+        + "{ to nie jest json\n"
+        + json.dumps({"type": "chat", "seq": 2, "from": "agent2"}) + "\n",
+        encoding="utf-8")
+    nicki = cli._nicki_pokoju("pokoj")
+    assert "server" not in nicki
+    assert {"agent1", "agent2"} <= nicki

@@ -6,7 +6,8 @@ import threading
 import pytest
 
 from chat.client_session import (ListenerLockHeld, Session, SessionError,
-                                 MAX_ACTIVATIONS, _slug)
+                                 MAX_ACTIVATIONS, _slug, purge_session_files,
+                                 session_files)
 
 
 HUB = "localhost:8766"
@@ -195,3 +196,84 @@ def test_reset_cursor_zachowuje_prawa_pliku(tmp_path):
     s.advance(3)
     s.reset_cursor()
     assert stat.S_IMODE(os.stat(s.path).st_mode) == 0o600
+
+
+# --- sprzatanie po skasowanym pokoju (purge_session_files) -----------------
+
+def test_purge_zabiera_kursor_i_osierocone_zamki(tmp_path):
+    s = make(tmp_path)
+    s.advance(7)
+    s.acquire_listener_lock()
+    s.release_listener_lock()          # zamek zostaje na dysku, ale wolny
+    kursor, state_lock, listener_lock = session_files(HUB, "beta", tmp_path)
+    assert kursor.exists() and listener_lock.exists()
+
+    assert purge_session_files(HUB, "beta", tmp_path) >= 2
+    assert not kursor.exists()
+    assert not listener_lock.exists()
+
+
+def test_purge_nie_rusza_zamka_zywego_listenera(tmp_path):
+    """Kasowanie pokoju nie moze rozbroic zamka nasluchu.
+
+    Odlaczenie nazwy NIE zwalnia locka — lock siedzi na i-wezle. Gdyby
+    sprzatanie kasowalo plik zamka trzymanego przez zywy proces, nastepny
+    listener zalozylby NOWY i-wezel i zablokowal go bez oporu: dwa nasluchy
+    na jednym nicku, czyli dokladnie to, przed czym zamek chroni. A pokoj
+    da sie skasowac, gdy hub stoi — listener w tym czasie normalnie
+    reconnectuje (zlapane 2026-07-31, review Codexa).
+
+    Kursor ma zniknac mimo to: to on jest powodem sprzatania."""
+    zywy = make(tmp_path)
+    zywy.advance(3)
+    zywy.acquire_listener_lock()
+    try:
+        kursor, _, listener_lock = session_files(HUB, "beta", tmp_path)
+        purge_session_files(HUB, "beta", tmp_path)
+
+        assert not kursor.exists(), "kursor mial zniknac"
+        assert listener_lock.exists(), \
+            "sprzatanie skasowalo zamek trzymany przez zywy listener"
+        # dowod, ze zamek NADAL dziala: drugi listener ma sie odbic
+        with pytest.raises(ListenerLockHeld):
+            make(tmp_path).acquire_listener_lock()
+    finally:
+        zywy.release_listener_lock()
+
+
+def test_purge_na_pustym_katalogu_nic_nie_psuje(tmp_path):
+    assert purge_session_files(HUB, "nikt", tmp_path) == 0
+    assert not any(session_files(HUB, "nikt", tmp_path)[i].exists()
+                   for i in (0, 1, 2)), "sprzatanie STWORZYLO pliki"
+
+
+# --- wejscie bez nicka: tozsamosc z drutu (adopt_boot_identity) ------------
+
+def test_adopt_boot_identity_przejmuje_tozsamosc_i_zeruje_kursor(tmp_path):
+    """Wejscie bez nicka: hello poszlo z tozsamoscia tymczasowa, a plik sesji
+    powstaje dopiero po odpowiedzi huba. Sesja musi przejac instance_id
+    Z DRUTU — inaczej `send --as <nick>` odbija sie od "nick zajety przez
+    polaczonego <nick>" (serwer odmawia, gdy zywy nick ma INNY instance_id).
+
+    Kursor leci do zera, bo nadany nick moze byc po poprzednim agencie:
+    hello poszlo z last_seq=0, backlog przyszedl od poczatku, a cudzy kursor
+    zjadlby go w apply_frame (dedup po seq)."""
+    s = make(tmp_path, nick="agent1")
+    s.advance(42)                       # kursor po POPRZEDNIM agencie
+    stary = s.instance_id
+
+    boot = "instancja-ktora-poszla-w-hello"
+    assert s.adopt_boot_identity(boot) == boot
+    assert boot != stary
+    assert s.instance_id == boot
+    assert s.last_applied_seq == 0
+
+    # trwale, nie tylko w pamieci — send_once czyta ten plik z innego procesu
+    assert make(tmp_path, nick="agent1").instance_id == boot
+
+
+def test_adopt_boot_identity_odrzuca_pusta_tozsamosc(tmp_path):
+    s = make(tmp_path)
+    for zle in ("", None, 7):
+        with pytest.raises(SessionError):
+            s.adopt_boot_identity(zle)

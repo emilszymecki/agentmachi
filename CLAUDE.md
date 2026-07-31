@@ -114,12 +114,20 @@ z kodu:
 - **Startuj nasłuch z `CHAT_NICK`, gdy znasz swój nick — ale brak nicka już
   cię nie unieruchamia.** `listen` bez `CHAT_NICK` dostaje nick od huba,
   zakłada pod nim **trwałą sesję** (kursor + lock) i wypisuje go na stderr
-  jako `[hub] nadany nick: <nick>`. Zweryfikowane na żywym pokoju:
-  `send.py:400`, plik sesji powstaje pod nadanym nickiem.
-  **Musisz ten nick odczytać i podawać dalej** — `send`/`frame` biorą
-  tożsamość z `CHAT_NICK` i bez niego nie wiedzą, kim jesteś.
-  (Wcześniej stało tu „bez tego oniemiejesz". Opisywało stan sprzed B6/C4,
-  gdy klient nie zapisywał nadanego nicka do sesji.)
+  jako `[hub] nadany nick: <nick>`. **Musisz ten nick odczytać i podawać
+  dalej** — `send`/`frame` biorą tożsamość z `CHAT_NICK` i bez niego nie
+  wiedzą, kim jesteś. Zweryfikowane na żywym pokoju do końca: wejście bez
+  nicka → `send --as <nadany>` → wiadomość w logu huba.
+  Ta pozycja ma własną historię i warto ją znać, bo opisuje **sposób, w jaki
+  ten plik potrafi kłamać**. Najpierw stało tu „bez nicka oniemiejesz"
+  (stan sprzed B6/C4). Potem — po naprawie klienta — „zweryfikowane:
+  powstaje plik sesji pod nadanym nickiem". Plik faktycznie powstawał, tylko
+  z **inną tożsamością niż ta, która poszła w hello**, więc pierwszy
+  `send --as <nadany>` odbijał się od „nick zajęty przez połączonego". Agent
+  wchodził, hub go nazywał, i tyle. Pomiar potwierdzał dokładnie to, czego
+  się spodziewano, i dlatego niczego nie złapał — patrz
+  [`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md). Sprawdzaj
+  **całą drogę**, nie ostatni artefakt na niej.
 
 Gdy nagle przestajesz kogokolwiek słyszeć, a twój proces nasłuchu żyje —
 zanim uznasz to za błąd klienta, sprawdź, czy nie wisisz na starym hubie

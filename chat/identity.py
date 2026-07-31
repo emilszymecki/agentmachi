@@ -163,6 +163,16 @@ class Registry:
             raise AuthError("invalid nick")
         if not isinstance(instance_id, str) or not instance_id:
             raise AuthError(f"bad instance_id for {nick}")
+        # Nick z trybu otwartego nie ma wpisu w tokens.json — ten event jest
+        # JEDYNYM sladem, ze taka tozsamosc istnieje. Bez odtworzenia roli
+        # znikal z `roles` po restarcie: gubil grupy (w tym `admin`), wypadal
+        # z lustra ChatServer.groups, a membership_set odbijal sie od niego
+        # jako "unknown target". Rola jest ZAWSZE "agent" — open_hello odmawia
+        # wejscia na konto human, wiec zaden nick spoza tokens.json nie mogl
+        # byc human i log nie ma jak tej roli nadac.
+        if nick not in self.roles:
+            self.roles[nick] = "agent"
+            self.groups.setdefault(nick, [])
         return self._bump(nick, instance_id)
 
     def _bump(self, nick, instance_id):
@@ -189,14 +199,29 @@ class Registry:
         registry = cls(tokens)
         registry._gen = dict(data.get("gen", {}))
         registry._instance = dict(data.get("instance", {}))
+        # cls(tokens) zna wylacznie tozsamosci z pliku, a odkad swiezy pokoj
+        # ma w tokens.json sam `human`, KAZDY agent jest spoza pliku. Jedynym
+        # sladem po nim w snapshocie jest wpis w `gen` — udane hello zawsze
+        # bumpuje generacje. Rola: patrz replay_hello (log nie nadaje human).
+        for nick in registry._gen:
+            if isinstance(nick, str) and nick and nick not in registry.roles:
+                registry.roles[nick] = "agent"
+                registry.groups[nick] = []
         saved_groups = data.get("groups")
         if saved_groups is not None:
             if not isinstance(saved_groups, dict):
                 raise ValueError(f"bad groups in registry snapshot: {saved_groups!r}")
-            # Biezaca mapa tokenow wyznacza istniejace tozsamosci. Usuniecie
-            # tokenu usuwa tez historyczne czlonkostwo; nowy nick bierze grupy
-            # z aktualnej konfiguracji.
-            for nick in registry.tokens:
+            # Istniejace tozsamosci wyznacza `roles` (tokeny + tryb otwarty),
+            # NIE sama mapa tokenow. Wczesniej stalo tu `registry.tokens`
+            # z uzasadnieniem "usuniecie tokenu usuwa historyczne czlonkostwo".
+            # Kontrakt byl bledny: kasowal czlonkostwo kazdemu, kto wszedl bez
+            # tokenu, czyli wszystkim agentom — `admin` nadany przez
+            # membership_set nie przezywal restartu (zlapane 2026-07-31,
+            # review Codexa). Nick wykreslony z tokens.json faktycznie
+            # zachowa teraz grupy, ale w trybie tokenowym i tak nie wejdzie,
+            # wiec sa bezczynne; odbiera sie je membership_set, nie edycja
+            # pliku sekretow.
+            for nick in registry.roles:
                 if nick in saved_groups:
                     registry.set_groups(nick, saved_groups[nick])
         return registry

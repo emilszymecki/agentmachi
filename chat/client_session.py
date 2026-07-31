@@ -117,6 +117,53 @@ def session_files(hub, nick, base_dir=None):
             base / f"{slug}.listener.lock"]
 
 
+def _unlink_if_unlocked(path):
+    """Skasuj plik ZAMKA tylko wtedy, gdy nikt go nie trzyma. Zwraca bool.
+
+    Odlaczenie nazwy NIE zwalnia locka — lock siedzi na i-wezle, nie na
+    sciezce. Kasowanie zamka trzymanego przez zywy proces daje wiec skutek
+    odwrotny do zamierzonego: nastepny listener tworzy NOWY i-wezel, blokuje
+    go bez oporu i pokoj ma dwa nasluchy na jednym nicku — czyli dokladnie
+    to, przed czym zamek chroni. Nieblokujaca proba przejecia jest jedynym
+    sposobem, zeby odroznic zamek osierocony od zamka w uzyciu."""
+    try:
+        fd = os.open(path, os.O_WRONLY)   # bez O_CREAT: nie ma pliku, nie ma roboty
+    except OSError:
+        return False
+    try:
+        try:
+            _lock_exclusive(fd, blocking=False)
+        except (BlockingIOError, OSError):
+            return False                  # ktos trzyma — zostaw w spokoju
+        try:
+            path.unlink()
+            return True
+        except OSError:
+            return False
+    finally:
+        os.close(fd)                      # zwalnia tez lock, jesli go wzielismy
+
+
+def purge_session_files(hub, nick, base_dir=None):
+    """Sprzatanie sesji (hub, nick) przy kasowaniu pokoju. Liczba usunietych.
+
+    Kursor leci zawsze — to on jest powodem sprzatania. Zamki tylko wtedy,
+    gdy sa osierocone (patrz _unlink_if_unlocked): zywy listener moze
+    reconnectowac do pokoju, ktory wlasnie znika, a jego zamek ma przezyc
+    ten pokoj."""
+    kursor, state_lock, listener_lock = session_files(hub, nick, base_dir)
+    usuniete = 0
+    try:
+        kursor.unlink()
+        usuniete += 1
+    except OSError:
+        pass          # nie ma / cudze prawa — sprzatanie jest best-effort
+    for zamek in (state_lock, listener_lock):
+        if _unlink_if_unlocked(zamek):
+            usuniete += 1
+    return usuniete
+
+
 def _atomic_write_0600(path, payload):
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -265,6 +312,35 @@ class Session:
             _atomic_write_0600(self.path, disk)
             self._state = disk
         return True
+
+    def adopt_boot_identity(self, instance_id):
+        """Przejmij tozsamosc, ktora POSZLA JUZ NA DRUT. Zwraca instance_id.
+
+        Dotyczy wejscia BEZ nicka (B6): nick nadaje hub, wiec plik sesji da
+        sie zalozyc dopiero PO hello — a hello poszlo z tozsamoscia
+        tymczasowa. Bez przejecia sesja dostaje swiezy losowy instance_id
+        i rozjezdza sie z tym, co zna serwer. Skutek: pierwszy
+        `agentmachi send --as <nick>` z tego samego komputera odbija sie od
+        "nick zajety przez polaczonego <nick>" — serwer odmawia, gdy zywy
+        nick nalezy do INNEGO instance_id. Czyli agent wchodzi, hub go
+        nazywa, i on nie ma jak sie odezwac.
+
+        Kursor leci do zera razem z tozsamoscia i to nie jest ostroznosc:
+        hello poszlo z last_seq=0 sesji tymczasowej, wiec backlog przyszedl
+        od poczatku. Nadany nick wraca do puli po poprzednim agencie, wiec
+        pod ta sama nazwa moze lezec CUDZY kursor — a apply_frame tnie po
+        `seq <= last_applied_seq` i zjadlby wlasnie dostarczona historie.
+        """
+        if not isinstance(instance_id, str) or not instance_id:
+            raise SessionError(f"invalid instance_id: {instance_id!r}")
+        with self._state_lock():
+            disk = self._reload_locked()
+            disk["instance_id"] = instance_id
+            disk["last_applied_seq"] = 0
+            disk["applied_activations"] = []
+            _atomic_write_0600(self.path, disk)
+            self._state = disk
+        return instance_id
 
     def is_activation_applied(self, activation_id):
         """Sam ODCZYT klucza idempotencji: True = juz zastosowana (suppress).

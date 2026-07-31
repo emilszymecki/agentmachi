@@ -2159,3 +2159,74 @@ def test_rozlaczenie_klienta_nie_jest_awaria_serwera(srv, caplog):
     assert not awarie, (
         "rozlaczenie klienta zgloszone jako wewnetrzna awaria serwera "
         f"({len(awarie)}x) — drabina wyjatkow zle je klasyfikuje")
+
+
+# --- rozgloszenie iteruje po KOPII, nie po zywym rejestrze -----------------
+
+def _server_z_przechwyconym_send(tmp_path, nowy_nick):
+    """ChatServer, ktorego _send symuluje to, co robi prawdziwy: oddaje
+    sterowanie petli. W tej szczelinie dopisujemy nick do rejestru — tak
+    samo jak zrobiloby to cudze hello konczace sie w tym samym momencie."""
+    server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=_free_port())
+    wyslane = []
+
+    async def _send(nick, frame):
+        wyslane.append((nick, frame))
+        await asyncio.sleep(0)              # tu wchodzi cudze hello
+        server.roles.setdefault(nowy_nick, "agent")
+    server._send = _send
+    return server, wyslane
+
+
+def test_presence_przezywa_dojscie_uczestnika_w_trakcie_rozgloszenia(tmp_path):
+    """`_send` oddaje sterowanie petli, wiec MIEDZY iteracjami moze dokonczyc
+    sie cudze hello i dopisac nick do `self.roles`. Iteracja po zywym dicie
+    leci wtedy RuntimeError: dictionary changed size during iteration —
+    i wywala handler w polowie rozgloszenia (zlapane 2026-07-31, review
+    Codexa)."""
+    server, wyslane = _server_z_przechwyconym_send(tmp_path, "spozniony")
+    server.conns["emil"] = {object()}
+    server.conns["alfa"] = {object()}
+    server.roles["emil"] = "human"
+    server.roles["alfa"] = "human"        # dwoch ludzi = dwa obiegi petli
+
+    asyncio.run(server._push_presence("beta", True))
+    assert [n for n, _ in wyslane] and "spozniony" in server.roles
+
+
+def test_takeover_przezywa_dojscie_uczestnika_w_trakcie_rozgloszenia(tmp_path):
+    """To samo w _announce_takeover, gdzie boli najbardziej: wyjatek leci PO
+    zamknieciu starego socketu, a PRZED zarejestrowaniem nowego — nick
+    zostaje bez zadnego polaczenia."""
+    server, wyslane = _server_z_przechwyconym_send(tmp_path, "spozniony")
+    server.conns["emil"] = {object()}
+    server.conns["alfa"] = {object()}
+    server.roles["emil"] = "human"
+    server.roles["alfa"] = "human"
+
+    asyncio.run(server._announce_takeover("beta", 2, 1))
+    assert [n for n, _ in wyslane] and "spozniony" in server.roles
+    # trwalosc PRZED publikacja zostaje: event takeover jest w logu
+    assert any(e.get("type") == "takeover" for e in server.log.replay())
+
+
+def test_agent_z_trybu_otwartego_zachowuje_grupy_po_restarcie_huba(tmp_path):
+    """Sciezka od konca do konca: agent wchodzi bez tokenu, dostaje `admin`,
+    hub sie restartuje ze snapshotu — i grupa ma tam byc. Wczesniej `roles`
+    po restarcie zawieralo wylacznie nicki z tokens.json, wiec agent tracil
+    czlonkostwo, wypadal z lustra ChatServer.groups i membership_set
+    odbijalo sie od niego jako "unknown target"."""
+    port = _free_port()
+    tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
+
+    s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    s1.registry.open_hello("agent1", "inst-1", None)
+    s1.registry.set_groups("agent1", ["admin"])
+    s1.groups["agent1"] = {"admin"}
+    s1.snapshot()
+
+    s2 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
+    assert s2.registry.groups_of("agent1") == ["admin"], \
+        "restart odebral agentowi z trybu otwartego grupe admin"
+    assert s2.groups.get("agent1") == {"admin"}, \
+        "lustro grup po restarcie nie widzi agenta z trybu otwartego"

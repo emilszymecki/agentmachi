@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import pytest
+import websockets
 
 import send
 from chat.client_session import Session
@@ -802,3 +803,100 @@ def test_odmowa_wysylki_przepuszcza_poprawne_hello(tmp_path):
     """Bezpiecznik nie moze blokowac zdrowej sciezki."""
     sesja = Session("localhost:9999", "codex", base_dir=tmp_path)
     send._wysylka_albo_padnij({"type": "ok", "last_seq": 3}, "codex", sesja)
+
+
+def test_nickless_listen_nie_zamyka_sobie_ust(tmp_path, monkeypatch):
+    """Po nadaniu nicka agent MUSI umiec sie odezwac. Sesja zakladana pod
+    nadanym nickiem brala swiezy losowy instance_id, a serwer znal ten
+    z hello — a serwer odmawia, gdy zywy nick nalezy do INNEGO instance_id.
+    Skutek: hub nazywa agenta, po czym odbija kazde jego `send --as <nick>`
+    komunikatem "nick zajety przez polaczonego <nick>". Wejscie bez nicka
+    bylo wiec wejsciem na nieme konto (zlapane 2026-07-31, review Codexa).
+
+    Dowod idzie przez DRUT, nie przez pole w obiekcie: druga ramka leci
+    tozsamoscia z pliku sesji i musi trafic do logu huba."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.delenv("CHAT_NICK", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+    wynik = {}
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            task = asyncio.create_task(send.listen(""))
+            await asyncio.sleep(1.5)
+            nadany = next(iter(srv.conns))          # nick nadany przez huba
+            wynik["nadany"] = nadany
+            # to samo, co robi `agentmachi send --as <nick>`: osobne polaczenie,
+            # tozsamosc czytana z pliku sesji
+            sesja = Session(send.HUB_ID, nadany)
+            wynik["instancja_sesji"] = sesja.instance_id
+            wynik["instancja_huba"] = srv.registry.instance_of(nadany)
+            async with websockets.connect(send.URI) as ws:
+                odp = await send.do_hello(ws, nadany, sesja, None)
+                wynik["hello"] = odp
+                if odp.get("type") == "ok":
+                    await ws.send(json.dumps({
+                        "type": "chat", "from": nadany, "ts": 0.0,
+                        "text": "@all jestem"}))
+                    await asyncio.sleep(0.3)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            wynik["log"] = [e.get("text") for e in srv.log.replay()]
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())
+
+    assert wynik["instancja_sesji"] == wynik["instancja_huba"], (
+        "plik sesji ma inna tozsamosc niz ta, ktora poszla w hello — "
+        f"{wynik['instancja_sesji']} != {wynik['instancja_huba']}")
+    assert wynik["hello"].get("type") == "ok", wynik["hello"]
+    assert "@all jestem" in wynik["log"], \
+        "agent nazwany przez huba nie potrafi sie odezwac pod wlasnym nickiem"
+
+
+def test_nickless_listen_nie_dziedziczy_kursora_po_poprzednim_agencie(
+        tmp_path, monkeypatch):
+    """Nadany nick wraca do puli, wiec pod ta sama nazwa moze lezec CUDZY
+    kursor. Hello poszlo z last_seq=0 sesji tymczasowej, wiec backlog
+    przyszedl od poczatku — a apply_frame tnie po `seq <= last_applied_seq`
+    i zjadlby wlasnie dostarczona historie."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.delenv("CHAT_NICK", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+    # kursor po POPRZEDNIM agencie na nicku, ktory hub nada jako pierwszy
+    Session(f"localhost:{port}", "agent1").advance(999)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            task = asyncio.create_task(send.listen(""))
+            await asyncio.sleep(1.5)
+            nadany = next(iter(srv.conns))
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            return nadany
+        finally:
+            await srv.stop()
+
+    nadany = asyncio.run(scenario())
+    assert nadany == "agent1", f"hub nadal inny nick niz oczekiwany: {nadany}"
+    assert Session(f"localhost:{port}", "agent1").last_applied_seq < 999, \
+        "agent odziedziczyl kursor poprzednika i przeskoczy historie"

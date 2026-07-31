@@ -259,7 +259,13 @@ class ChatServer:
             "presence", "server", time.time(), nick=nick,
             connected=bool(connected),
             status=self.status.get(nick))
-        for other, role in self.roles.items():
+        # `list(...)` nie jest ostroznoscia — jest warunkiem poprawnosci.
+        # `_send` oddaje sterowanie petli, wiec MIEDZY iteracjami moze
+        # dokonczyc sie cudze hello i dopisac nick do `self.roles`; iteracja
+        # po zywym dicie leci wtedy RuntimeError, ktory wywala handler
+        # w polowie rozgloszenia. Pozostale rozgloszenia (kick, membership,
+        # status) robily juz kopie — te dwa zostaly w tyle.
+        for other, role in list(self.roles.items()):
             if role == "human" and self.conns.get(other):
                 await self._send(other, frame)
 
@@ -796,7 +802,10 @@ class ChatServer:
         # wzmianki. Agenci dostana ten slad z logu przy swoim najblizszym
         # hello: takeover jest w CONVERSATION_TYPES, wiec wraca
         # w 'conversation' i przezywa kompakcje.
-        for other, rola in self.roles.items():
+        # kopia PRZED await — patrz _push_presence. Tu boli najbardziej:
+        # RuntimeError leci PO zamknieciu starego socketu, a PRZED
+        # zarejestrowaniem nowego, wiec nick zostaje bez zadnego polaczenia.
+        for other, rola in list(self.roles.items()):
             if rola == "human" and other != nick and self.conns.get(other):
                 await self._send(other, event)
 

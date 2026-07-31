@@ -308,3 +308,70 @@ def test_nieznany_agent_nie_dostaje_domyslnej_grupy():
     assert reg.groups_of("ktos-nowy") == [], \
         "hub zapisuje wchodzacego do klasy, ktorej nikt nie zadeklarowal"
     assert reg.role_of("ktos-nowy") == "agent"
+
+
+def test_agent_z_trybu_otwartego_zachowuje_admina_po_restarcie():
+    """Odkad swiezy pokoj ma w tokens.json sam `human`, KAZDY agent wchodzi
+    bez tokenu — a `restore()` odtwarzalo grupy wylacznie dla nickow z pliku.
+    Skutek: `admin` nadany przez membership_set znikal przy pierwszym
+    restarcie huba, razem z cala rola. Jedyna droga do uprawnien konczyla sie
+    wiec na pierwszym `stop`/`serve`.
+
+    Snapshot ma po takim nicku dokladnie jeden slad — wpis w `gen`. To on
+    wystarcza, zeby go odtworzyc: rola moze byc tylko "agent", bo open_hello
+    odmawia wejscia na konto human (zlapane 2026-07-31, review Codexa)."""
+    tokens = {"human": {"token": "th", "role": "human", "groups": []}}
+    registry = Registry(tokens)
+    registry.open_hello("agent1", "inst-1", None)
+    registry.set_groups("agent1", ["admin"])
+
+    restored = Registry.restore(tokens, registry.dump())
+    assert restored.role_of("agent1") == "agent"
+    assert restored.groups_of("agent1") == ["admin"], \
+        "restart odbiera agentowi z trybu otwartego grupy nadane przez admina"
+    # tozsamosc ma byc ZNANA, inaczej membership_set odbija sie od niej
+    restored.set_groups("agent1", ["admin", "head"])
+
+
+def test_restore_nie_nadaje_roli_human_nickowi_spoza_tokenow():
+    """Odtwarzanie tozsamosci z `gen` nie moze byc furtka do moderacji:
+    rola human pochodzi WYLACZNIE z tokens.json. Gdyby nick wykreslony
+    z pliku wracal jako human, edycja pliku sekretow przestalaby cokolwiek
+    odbierac."""
+    tokens = {"human": {"token": "th", "role": "human", "groups": []},
+              "bylec": {"token": "tb", "role": "human", "groups": ["admin"]}}
+    registry = Registry(tokens)
+    registry.hello("bylec", "inst-1", "tb")
+    snapshot = registry.dump()
+
+    bez_bylca = {"human": {"token": "th", "role": "human", "groups": []}}
+    restored = Registry.restore(bez_bylca, snapshot)
+    assert restored.role_of("bylec") == "agent", \
+        "nick wykreslony z tokens.json wraca z rola moderatora"
+
+
+def test_replay_hello_odtwarza_tozsamosc_z_trybu_otwartego():
+    """Agent, ktory wszedl PO ostatnim snapshocie, istnieje tylko w logu.
+    Bez odtworzenia roli w replay_hello wypadal z `roles` po restarcie —
+    a wtedy membership_set odbijalo sie od niego jako "unknown target"
+    i lustro ChatServer.groups go nie widzialo."""
+    registry = Registry({"human": {"token": "th", "role": "human", "groups": []}})
+    registry.replay_hello("agent7", "inst-7")
+    assert registry.role_of("agent7") == "agent"
+    assert registry.groups_of("agent7") == []
+    assert registry.set_groups("agent7", ["admin"]) == ["admin"]
+
+
+def test_replay_hello_nie_kasuje_grup_odtworzonych_ze_snapshotu():
+    """Kolejnosc bootu to snapshot -> replay logu. Gdyby replay_hello
+    zerowal grupy przy KAZDYM hello, reconnect zapisany po membership_set
+    kasowalby wlasnie odtworzone czlonkostwo."""
+    tokens = {"human": {"token": "th", "role": "human", "groups": []}}
+    registry = Registry(tokens)
+    registry.open_hello("agent1", "inst-1", None)
+    registry.set_groups("agent1", ["admin"])
+    restored = Registry.restore(tokens, registry.dump())
+
+    restored.replay_hello("agent1", "inst-2")   # reconnect z ogona logu
+    assert restored.groups_of("agent1") == ["admin"], \
+        "replay reconnectu kasuje czlonkostwo odtworzone ze snapshotu"

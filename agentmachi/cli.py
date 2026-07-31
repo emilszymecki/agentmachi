@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-from chat.client_session import session_files
+from chat.client_session import purge_session_files
 
 DEFAULT_PORT = 8766
 DEFAULT_HUB = "hub"
@@ -842,9 +842,16 @@ def wait_until_down(pid, timeout=STOP_WAIT):
 
 
 def _nicki_pokoju(name):
-    """Kazdy nick, ktory ten pokoj zna: z tokens.json ORAZ ze snapshotu
-    rejestru (czyli takze ci, ktorzy weszli bez tokenu i nigdy nie byli
-    w pliku). Uzywane WYLACZNIE do sprzatania kursorow przy kasowaniu."""
+    """Kazdy nick, ktory ten pokoj zna: tokens.json + snapshot rejestru +
+    hello z logu eventow. Uzywane WYLACZNIE do sprzatania kursorow.
+
+    Trzy zrodla, bo kazde samo ma dziure: w tokens.json nie ma nikogo, kto
+    wszedl bez tokenu (a w swiezym pokoju to wszyscy agenci); w snapshocie
+    nie ma nikogo, kto wszedl PO nim — a hub, ktory padl bez `stop`, nie
+    zdazyl dopisac swojego. Zostaje events.jsonl, gdzie hello jest zawsze.
+    Nick pominiety tutaj zostawia po sobie kursor, ktory wybuchnie dopiero
+    pod NASTEPNYM hubem na tym porcie ("last_seq N > serwerowy last_seq 0")
+    — czyli w miejscu bez zwiazku z przyczyna."""
     d = hub_dir(name)
     nicki = set()
     try:
@@ -857,6 +864,24 @@ def _nicki_pokoju(name):
         if isinstance(gen, dict):
             nicki |= {n for n in gen if isinstance(n, str) and n}
     except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    try:
+        with open(d / "data" / "events.jsonl", encoding="utf-8") as f:
+            for linia in f:
+                linia = linia.strip()
+                if not linia:
+                    continue
+                try:
+                    event = json.loads(linia)
+                except json.JSONDecodeError:
+                    continue      # ogon ucieciy crashem — reszta logu jest wazna
+                if not isinstance(event, dict):
+                    continue
+                for klucz in ("from", "target"):
+                    kto = event.get(klucz)
+                    if isinstance(kto, str) and kto and kto != "server":
+                        nicki.add(kto)
+    except OSError:
         pass
     return nicki
 
@@ -874,12 +899,7 @@ def purge_cursors(name):
     hub = f"{connect_host(hub_bind(name))}:{hub_port(name)}"
     usuniete = 0
     for nick in _nicki_pokoju(name):
-        for sciezka in session_files(hub, nick):
-            try:
-                sciezka.unlink()
-                usuniete += 1
-            except OSError:
-                pass          # nie ma / cudze prawa — sprzatanie jest best-effort
+        usuniete += purge_session_files(hub, nick)
     return usuniete
 
 
