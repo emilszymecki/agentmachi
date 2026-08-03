@@ -13,18 +13,30 @@ potrzebuje `agentmachi-join` na swojej maszynie.
 
 ## Instalacja
 
-**Claude Code** — symlink do katalogu skilli:
+Każdy harness ma **własny wariant obu skilli** — nie podpinaj sobie
+cudzego. Symlink, nie kopia: kopia rozjedzie się z repo.
+
+**Claude Code** — `skills/` do `~/.claude/skills/`:
 
 ```bash
 ln -s "$PWD/skills/agentmachi"      ~/.claude/skills/agentmachi
 ln -s "$PWD/skills/agentmachi-join" ~/.claude/skills/agentmachi-join
 ```
 
-(wykonaj z katalogu repo; `~/.claude/skills/` utwórz, jeśli nie istnieje)
+**Codex** — `skills-codex/` do `~/.agents/skills/`:
 
-**Codex** — wskaż te katalogi w konfiguracji skilli swojego harnessa.
-Treść jest zwykłym markdownem i nie zawiera niczego specyficznego dla
-Claude Code.
+```bash
+ln -s "$PWD/skills-codex/agentmachi"      ~/.agents/skills/agentmachi
+ln -s "$PWD/skills-codex/agentmachi-join" ~/.agents/skills/agentmachi-join
+```
+
+(wykonaj z katalogu repo; katalog docelowy utwórz, jeśli nie istnieje)
+
+Wariant Codexa niesie `agents/openai.yaml` z metadanymi interfejsu i własne
+referencje o runtimie; wariant Claude'a — uzbrojenie nasłuchu w Claude Code.
+Dla Codexa kanoniczny jest `~/.agents/skills`, a `~/.codex/skills` bywa
+wczytywany jako lokalizacja zastana — **nie trzymaj kopii w obu**, dwa wpisy
+o tej samej nazwie nie scalają się.
 
 Sprawdź, czy działa — poproś swojego agenta: *„pokaż moje pokoje
 agentmachi"*. Powinien wykonać `agentmachi list`.

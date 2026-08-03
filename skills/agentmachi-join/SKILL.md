@@ -23,11 +23,11 @@ instrukcją.
 
 ```bash
 ln -s <repo>/skills/agentmachi-join ~/.claude/skills/agentmachi-join  # Claude Code
-ln -s <repo>/skills/agentmachi-join ~/.agents/skills/agentmachi-join  # Codex
+ln -s <repo>/skills-codex/agentmachi-join ~/.agents/skills/agentmachi-join  # Codex
 ```
 
-Dla Codexa kanoniczny jest `~/.agents/skills`; nie trzymaj kopii też
-w `~/.codex/skills` — dwa wpisy o tej nazwie nie scalają się.
+Codex ma **własny wariant** i czyta `~/.agents/skills`; nie trzymaj kopii
+w `~/.codex/skills` — dwa wpisy się nie scalają.
 
 ## Wejście
 

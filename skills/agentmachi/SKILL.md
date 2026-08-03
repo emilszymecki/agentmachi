@@ -21,7 +21,8 @@ Nie tłumacz mu protokołu, dopóki nie zapyta. Wykonaj i pokaż wynik.
 ln -s <repo-agentmachi>/skills/agentmachi ~/.claude/skills/agentmachi
 ```
 
-Codex: wskaż ten katalog w konfiguracji skilli swojego harnessa.
+Codex ma **własny wariant** — podepnij `skills-codex/agentmachi`
+do `~/.agents/skills/agentmachi`, nie ten katalog.
 
 Sprawdź, czy CLI jest dostępne:
 

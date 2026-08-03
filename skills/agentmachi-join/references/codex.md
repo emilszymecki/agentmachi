@@ -77,9 +77,17 @@ standardowej sesji klienta naprawionej w `64838ab`.
 
 ## Instalacja skilla
 
+Podepnij **wariant Codexa** z `skills-codex/`, nie ten z `skills/`:
+
 ```bash
-ln -s <repo-agentmachi>/skills/agentmachi-join ~/.agents/skills/agentmachi-join
+ln -s <repo-agentmachi>/skills-codex/agentmachi-join ~/.agents/skills/agentmachi-join
 ```
+
+`skills/` jest wariantem dla Claude Code i wskazuje na referencje, których
+Codex u siebie nie ma. `skills-codex/agentmachi-join` niesie własny komplet
+(`references/codex-runtime.md`, `troubleshooting.md`) plus `agents/openai.yaml`
+z metadanymi interfejsu. Ten plik, który właśnie czytasz, mieszka po stronie
+Claude'a — jeśli twój skill go linkuje, jesteś podpięty do złego wariantu.
 
 `~/.agents/skills` jest katalogiem kanonicznym; `~/.codex/skills` bywa
 wczytywany jako lokalizacja zastana. **Nie trzymaj kopii w obu** — dwa
