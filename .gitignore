@@ -28,6 +28,11 @@ chat-data*/
 .agentmachi/
 .chat-sessions/
 .chat-session.json
+# ...i slad po jego migracji: pierwsza sesja ZABIERA legacy plik przez
+# rename (chat/client_session.py `_przejmij_legacy_instance`), zeby drugi
+# klient nie dostal cudzej tozsamosci. Bez tego wzorca `git status` po
+# pierwszym starcie pokazuje nieznany plik.
+.chat-session.json.migrated
 .chat-agent.json
 *.log
 *.pid

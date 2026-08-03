@@ -93,6 +93,28 @@ def test_legacy_instance_migration(tmp_path):
     assert s2.instance_id and s2.instance_id != "stary-iid"
 
 
+def test_legacy_nie_rozdaje_jednej_tozsamosci_wielu_nickom(tmp_path):
+    """Migracja jest JEDNORAZOWA — legacy nalezal do JEDNEGO klienta.
+
+    Zmierzone na zywym hubie 2026-08-03: `.chat-session.json` w katalogu
+    repo byl tylko CZYTANY, wiec kazda nowa sesja — dowolny nick, dowolny
+    hub — dostawala ten sam instance_id. `send.py` i `tui.py` wskazuja na
+    ten sam plik, wiec `human` z TUI i wszyscy agenci mieli jedna
+    tozsamosc. Serwer odmawia wejscia na zywy nick TYLKO wtedy, gdy
+    instance_id jest INNY (`server.py`, galaz trybu otwartego) — obrona
+    przed kolizja dostawala wiec falszywa informacje, ze to ten sam
+    klient wraca, i wpuszczala dwoch roznych agentow pod `agent1`.
+    """
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(json.dumps({"instance_id": "stary-iid"}))
+    a = make(tmp_path, nick="alfa", legacy=legacy)
+    b = make(tmp_path, nick="beta", legacy=legacy)
+    assert a.instance_id == "stary-iid", "pierwszy migruje swoja tozsamosc"
+    assert b.instance_id != a.instance_id, (
+        "drugi nick dostal tozsamosc pierwszego — hub zobaczy ich jako "
+        "jedna instancje i przepusci kolizje nickow")
+
+
 def test_activation_check_does_not_mark(tmp_path):
     """is_activation_applied to czysty odczyt — mark osobno, PO apply."""
     s = make(tmp_path)

@@ -250,22 +250,50 @@ class Session:
                     f"schema={SCHEMA}). Fail-closed. Naprawa: skasuj "
                     f"{self.path} = swiadomy pelny resync.")
             return state
-        instance = None
-        if (self._legacy_instance_file is not None
-                and self._legacy_instance_file.exists()):
-            try:
-                legacy = json.loads(self._legacy_instance_file.read_text(encoding="utf-8"))
-                candidate = legacy.get("instance_id")
-                if isinstance(candidate, str) and candidate:
-                    instance = candidate
-            except (json.JSONDecodeError, OSError):
-                instance = None  # legacy zepsute -> swieza tozsamosc
+        instance = (self._przejmij_legacy_instance()
+                    if self._legacy_instance_file is not None else None)
         state = {"schema": SCHEMA,
                  "instance_id": instance or str(uuid.uuid4()),
                  "last_applied_seq": 0,
                  "applied_activations": []}
         _atomic_write_0600(self.path, state)
         return state
+
+    def _przejmij_legacy_instance(self):
+        """Zabierz instance_id ze starego, WSPOLNEGO pliku sesji — raz.
+
+        Migracja dotyczy JEDNEGO klienta: przed podzialem na sesje per
+        hub+nick istnial jeden `.chat-session.json`, wiec jego tozsamosc
+        nalezy do tego, kto przyjdzie pierwszy. Wczesniej plik byl tylko
+        CZYTANY i nigdy nie znikal, wiec kazda nowa sesja — dowolny nick,
+        dowolny hub — dostawala ten sam instance_id.
+
+        Skutek zmierzony na zywym hubie 2026-08-03: `human` z TUI i wszyscy
+        agenci miel identyczny instance_id (`send.py` i `tui.py` wskazuja
+        na ten sam plik). Serwer odmawia wejscia na zywy nick TYLKO wtedy,
+        gdy instance_id jest INNY, wiec obrona przed kolizja dostawala
+        falszywa informacje, ze to ten sam klient wraca — i dwoch roznych
+        agentow siedzialo pod `agent1` naraz, nie widzac sie nawzajem.
+
+        Zabranie idzie przez `os.replace`, nie read+unlink: dwa klienty
+        startujace jednoczesnie to DOKLADNIE ten przypadek, w ktorym bug
+        boli, a oba zdazylyby przeczytac przed skasowaniem. Rename jest
+        atomowy — kto wygra, ten migruje; przegrany dostaje swieza
+        tozsamosc, co jest poprawne, bo jest drugim klientem."""
+        zabrany = self._legacy_instance_file.with_name(
+            self._legacy_instance_file.name + ".migrated")
+        try:
+            os.replace(self._legacy_instance_file, zabrany)
+        except OSError:
+            return None       # nie ma pliku albo ktos inny wlasnie go zabral
+        try:
+            legacy = json.loads(zabrany.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None       # legacy zepsute -> swieza tozsamosc
+        if not isinstance(legacy, dict):
+            return None
+        candidate = legacy.get("instance_id")
+        return candidate if isinstance(candidate, str) and candidate else None
 
     @property
     def instance_id(self):
