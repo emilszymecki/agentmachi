@@ -13,7 +13,8 @@ przezycie rozlaczenia klienta i niezerowy exit `send.py` przy padlym hubie.
 Serwer odpalany raz na sesje testowa jako subprocess na porcie CHAT_PORT
 (domyślnie efemerycznym, zeby nie zderzyc sie z reczna instancja), z
 tymczasowym plikiem tokenow (CHAT_TOKENS) i tymczasowym katalogiem danych
-(CHAT_DATA) — zero wplywu na prawdziwy tokens.json/chat-data/.
+(CHAT_DATA) — zero wplywu na prawdziwy tokens.json/chat-data/. Kursory
+klienta (CHAT_SESSION_DIR) tez ida w tmp — patrz `_sesje_klienta_poza_domem`.
 
 Uzywa pytest-asyncio jesli jest dostepny; w przeciwnym razie kazdy test
 async jest owijany w asyncio.run() recznie (patrz `run_async` nizej).
@@ -88,6 +89,28 @@ def _wait_for_server(proc, timeout):
         if line.startswith("chat server on ws://"):
             return True, "".join(output)
     return False, "".join(output)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _sesje_klienta_poza_domem(tmp_path_factory):
+    """Kursory klienta z tego pliku NIE moga wpasc do ~/.chat-sessions.
+
+    Kazdy podproces tutaj buduje env z `dict(os.environ)`, wiec bez tego
+    `send.py` zapisuje sesje do prawdziwego katalogu domowego. Port jest
+    efemeryczny, a slug to sha256("host:port\\nnick") — przy kazdym przebiegu
+    INNY. Smieci wiec przyrastaja w nieskonczonosc i zaden `agentmachi del`
+    ich nie sprzatnie, bo nie naleza do zadnego istniejacego pokoju (purge
+    chodzi po nickach skasowanego huba).
+
+    Zmierzone 2026-08-03: przebieg zostawial pare `beta-<hash>.json/.lock`,
+    a docstring tego pliku obiecywal „zero wplywu" juz wtedy — obietnica
+    pokrywala CHAT_TOKENS i CHAT_DATA, a o sesjach klienta milczala.
+
+    Autouse zamiast parametru `send_env`, bo wtedy KAZDY podproces tego
+    pliku jest zabezpieczony, takze ten dopisany jutro."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("CHAT_SESSION_DIR", str(tmp_path_factory.mktemp("sesje")))
+        yield
 
 
 @pytest.fixture(scope="session")
