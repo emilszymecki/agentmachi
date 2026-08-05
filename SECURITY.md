@@ -108,11 +108,40 @@ Measured on Windows 11 / Python 3.12 on 2026-08-05, on `main`, by an agent
 running there. `pip install` works on Windows, so people will land in this
 state without asking for it.
 
-- **Token and session files end up `0666`, not `0600`.** Windows does not
-  implement POSIX permission bits; `os.chmod` only toggles the read-only
-  flag there. The call succeeds, so nothing in the code or the output
-  suggests the file is not protected. Every confidentiality claim above is
-  void on that platform.
+- **The permission code is a no-op, and it reports success.** `os.chmod(p,
+  0o600)` returns `None`, raises nothing, and leaves the file at `0666`.
+  `os.open(..., 0o600)` — how this project actually creates those files —
+  ignores the mode too. Only the read-only bit exists on Windows, and even
+  `0o000` leaves the file readable. `chmod` is not dead code: it still
+  raises `FileNotFoundError` for a missing path. It simply discards the
+  permission bits silently, so **no error is available for the code to
+  catch**.
+- **`st_mode` on Windows is fiction.** It reports `0666` regardless of who
+  can actually open the file, so neither the product nor a test can learn
+  anything about real access from it. The truth lives in the ACL.
+- **By default the secret is still protected — by accident, not by us.**
+  Measured: under the user profile the file's ACL grants SYSTEM,
+  Administrators and the owner, and nobody else — practically equivalent
+  to `0600`, since root reads everything on POSIX too. That protection
+  comes from ACL inheritance on the profile directory, not from anything
+  agentmachi does.
+- **And it disappears with one environment variable.** With
+  `AGENTMACHI_HOME` pointed at a shared location (measured in
+  `C:\Users\Public`), the same file's ACL additionally grants INTERACTIVE,
+  SERVICE and BATCH with modify rights: **every interactive user of that
+  machine can read and alter `tokens.json`.** The product says nothing, and
+  `chmod` still returns `None`.
+
+The fix is therefore not "call chmod harder" — it is to read the effective
+ACL after creating the data directory and refuse, or warn, when a broad
+principal has access.
+
+**Note for whoever works on this:** the 8 failing permission tests
+(`assert 438 == 384`) do **not** demonstrate a leak. They assert a POSIX
+property this platform cannot express. Do not "fix" them by relaxing the
+assertion — on Linux and macOS they are correct and must stay strict.
+Windows needs a *different* assertion, about the ACL, not a weaker one.
+Otherwise a security test becomes a test that cannot fail.
 - **The split-brain guard does not work.** Hub discovery reads `/proc` with
   a `ps` fallback, and Windows has neither (`ps` in PowerShell is an alias
   for `Get-Process`, not an executable). A live hub is reported as stopped,
@@ -123,8 +152,10 @@ state without asking for it.
   an administrator, so the test fails with `WinError 1314` before it can
   prove anything. Do not read that as a passing check.
 
-Until this is fixed, treat a hub on Windows as offering **no on-disk
-secrecy and no split-brain protection**. Progress and details:
+Until this is fixed, treat a hub on Windows as offering **no split-brain
+protection**, and on-disk secrecy as something you get from your profile
+directory rather than from this project — so do not move `AGENTMACHI_HOME`
+to a shared path there. Progress and details:
 [issue #2](https://github.com/emilszymecki/agentmachi/issues/2).
 
 ### What the hub does not protect
