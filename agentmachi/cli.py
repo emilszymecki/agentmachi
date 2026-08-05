@@ -923,6 +923,61 @@ def _import_send():
     return send
 
 
+# --- tresc ze stdin: droga, ktorej powloka nie tyka ----------------------
+#
+# Zgloszone z Windows 11 / PowerShell, z pomiarem: tresc konczaca sie
+# backslashem (`C:\Users\x\` — normalna sciezka, nie przypadek brzegowy)
+# dochodzila do huba PRZEKLAMANA, exit 0, zero ostrzezen. Cudzyslow rozbijal
+# argument na kilka i argparse odrzucal cala wiadomosc. Hub, protokol i CLI
+# sa czyste — psuje to POWLOKA, zanim CLI cokolwiek zobaczy, wiec CLI nie ma
+# tego jak wykryc. Jedyna naprawa to wejscie, ktorego powloka nie dotyka.
+STDIN_ARG = "-"
+
+
+def _stdin_zazadany(args, pozycyjny):
+    """Czy wolajacy JAWNIE poprosil o stdin (`--stdin` albo `-` jako tresc)."""
+    return bool(getattr(args, "stdin", False)) or pozycyjny == STDIN_ARG
+
+
+def _czytaj_stdin(czego):
+    """Wczytaj tresc ze stdin. Wolane WYLACZNIE po jawnym `-`/`--stdin`.
+
+    NIE MA TU AUTODETEKCJI I NIE WOLNO JEJ DOPISAC. Kusi warunek
+    `if not sys.stdin.isatty(): czytaj z stdin` — i to jest blad zmierzony
+    na zywym srodowisku: agent headless ma stdin podpiety do /dev/null, wiec
+    taki warunek idzie czytac, dostaje natychmiastowe EOF i wysyla na kanal
+    PUSTA wiadomosc z exit 0. Czyli dokladnie ta cicha porazka udajaca
+    sukces, przed ktora ta droga ma bronic. Zrodlo tresci wybiera argv —
+    to, co wolajacy NAPISAL — a nie to, czym akurat jest deskryptor 0.
+
+    Bajty bierzemy z `.buffer` i dekodujemy UTF-8 strict: polska powloka
+    Windowsa potrafi wypchnac cp1250, a mojibake w logu huba jest
+    nieodwracalne i wyglada na wine autora wiadomosci."""
+    strumien = getattr(sys.stdin, "buffer", None)
+    if strumien is None:            # stdin podmieniony (testy, REPL)
+        tekst = sys.stdin.read()
+    else:
+        try:
+            tekst = strumien.read().decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise CliError(
+                f"{czego} on stdin is not valid UTF-8 ({e}); nothing was "
+                f"sent. Encode it as UTF-8 first — on PowerShell: "
+                f"[Console]::OutputEncoding = "
+                f"[System.Text.Encoding]::UTF8")
+    # Jedna koncowa nowa linia to slad po `echo`/pipeline, nie tresc.
+    # DOKLADNIE jedna (z CRLF-em Windowsa), zeby backslash tuz przed nia
+    # przezyl, a celowa pusta linia na koncu nie zniknela.
+    if tekst.endswith("\n"):
+        tekst = tekst[:-1]
+    if tekst.endswith("\r"):
+        tekst = tekst[:-1]
+    if not tekst.strip():
+        raise CliError(f"empty {czego} on stdin — nothing was sent. A blank "
+                       f"message would wake the addressee and carry nothing.")
+    return tekst
+
+
 def cmd_serve(args):
     # F7: fail-fast zamiast split-brain. Drugi `serve` na tej samej nazwie
     # nie dostanie portu (bind zawiedzie), ale ZDAZY otworzyc ten sam
@@ -1381,6 +1436,18 @@ def cmd_tui(args):
 
 
 def cmd_send(args):
+    # Tresc ma DOKLADNIE jedno zrodlo i wybiera je argv: argument albo stdin
+    # (`-` / `--stdin`). Gdy padly oba naraz, odmawiamy zamiast po cichu
+    # wybierac jedno — cichy wybor to ta sama klasa bledu, ktora ta droga
+    # naprawia: wysylajacy widzi exit 0 i nie wie, ktora wersje dostal kanal.
+    ze_stdin = _stdin_zazadany(args, args.text)
+    tekst = None if args.text == STDIN_ARG else args.text
+    if ze_stdin and (tekst is not None or args.legacy_text is not None):
+        podany = tekst if tekst is not None else args.legacy_text
+        print(f"agentmachi send: the text was given TWICE — as an argument "
+              f"({podany!r}) and via --stdin/-. Pick ONE source; nothing was "
+              f"sent.", file=sys.stderr)
+        return 2
     # C3: dwa pozycyjne argumenty = dawna skladnia `send <nick> "tekst"`,
     # w ktorej <nick> byl NADAWCA, choc czytal sie jak adresat. Fail-closed
     # z instrukcja zamiast wyslania w cudzym imieniu.
@@ -1397,6 +1464,16 @@ def cmd_send(args):
               f"  CHAT_NICK={args.text} agentmachi send \"@someone "
               f"{args.legacy_text}\"", file=sys.stderr)
         return 2
+    if not ze_stdin and tekst is None:
+        print("agentmachi send: I do not know WHAT to send. Give the text as "
+              "an argument, or read it from stdin with --stdin (or `-`) — a "
+              "path the shell never touches:\n"
+              "  agentmachi send \"@someone text\" --as <nick>\n"
+              "  cat report.md | agentmachi send - --as <nick>\n"
+              "stdin is NEVER read on its own: a headless agent has it on "
+              "/dev/null, so guessing would publish an empty message.",
+              file=sys.stderr)
+        return 2
     args.nick = args.as_nick          # _agent_env czyta args.nick
     nick = _agent_env(args)
     if not nick:
@@ -1404,9 +1481,18 @@ def cmd_send(args):
               "or set CHAT_NICK. You point at the addressee with an @mention "
               "in the text.", file=sys.stderr)
         return 2
+    if ze_stdin:
+        # Czytamy DOPIERO tu: gdyby wczesniej odbila sie tozsamosc, tresc
+        # bylaby juz zjedzona ze strumienia i nie dalo sie ponowic bez
+        # wpisania jej drugi raz.
+        try:
+            tekst = _czytaj_stdin("message")
+        except CliError as e:
+            print(f"agentmachi send: {e}", file=sys.stderr)
+            return 2
     send = _import_send()
     try:
-        asyncio.run(send.send_once(nick, args.text,
+        asyncio.run(send.send_once(nick, tekst,
                                    quiet=getattr(args, "quiet", False)))
     except send.SessionError as e:
         # Kontrakt klienta zlamany PRZED drutem (np. ramka ponad sufit huba).
@@ -1432,11 +1518,26 @@ def cmd_listen(args):
 
 
 def cmd_frame(args):
+    # Ten sam kontrakt co w cmd_send, a powod jeszcze mocniejszy: JSON JEST
+    # z cudzyslowow, wiec cytowanie powloki boli tu podwojnie (w apostrofach
+    # PowerShell zjada `"` i agent wysyla niepoprawny JSON).
+    ze_stdin = _stdin_zazadany(args, args.json)
+    surowy = None if args.json == STDIN_ARG else args.json
+    if ze_stdin and surowy is not None:
+        raise CliError(f"the frame was given TWICE — as an argument "
+                       f"({surowy!r}) and via --stdin/-. Pick ONE source; "
+                       f"nothing was sent.")
+    if not ze_stdin and surowy is None:
+        raise CliError("frame needs the JSON: pass it as an argument or read "
+                       "it from stdin with --stdin (or `-`). stdin is NEVER "
+                       "read on its own — guessing would send an empty frame.")
     nick = _agent_env(args)
     if not nick:
         raise CliError("frame requires a nick (--nick or CHAT_NICK)")
+    if ze_stdin:
+        surowy = _czytaj_stdin("frame JSON")
     try:
-        frame = json.loads(args.json)
+        frame = json.loads(surowy)
     except json.JSONDecodeError as e:
         raise CliError(f"bad frame JSON: {e}")
     if not isinstance(frame, dict) or not frame.get("type"):
@@ -1671,7 +1772,15 @@ def _build_parser():
     p = sub.add_parser("send", help="send a message (you address it with an "
                                     "@mention in the text, --as says who "
                                     "you are)")
-    p.add_argument("text")
+    p.add_argument("text", nargs="?", default=None,
+                   help="the message. `-` means: read it from stdin "
+                        "(same as --stdin)")
+    p.add_argument("--stdin", action="store_true",
+                   help="read the message from stdin, byte for byte — the "
+                        "shell never touches it, so a trailing backslash "
+                        "(C:\\Users\\x\\), quotes and newlines survive. One "
+                        "trailing newline is dropped. Never implicit: "
+                        "without --stdin (or `-`) stdin is not read at all.")
     # Wylapuje DAWNE uzycie `send <nick> "tekst"`: bez tego argparse mowi
     # tylko "unrecognized arguments", a agent nie dowiaduje sie, ze wlasnie
     # o wlos nie podpisal sie cudzym nickiem.
@@ -1704,7 +1813,14 @@ def _build_parser():
 
     p = sub.add_parser("frame", help="one-shot status frame "
                        "(session identity — zero takeover)")
-    p.add_argument("json", help='e.g. \'{"type":"status","state":"idle"}\'')
+    p.add_argument("json", nargs="?", default=None,
+                   help='e.g. \'{"type":"status","state":"idle"}\'. `-` means: '
+                        'read it from stdin (same as --stdin)')
+    p.add_argument("--stdin", action="store_true",
+                   help="read the frame JSON from stdin, byte for byte — no "
+                        "shell quoting around the quotes JSON is made of. "
+                        "Never implicit: without --stdin (or `-`) stdin is "
+                        "not read at all.")
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_frame)

@@ -1117,3 +1117,91 @@ def test_send_ignoruje_cudze_ramki_we_wspolnym_oknie(tmp_path, monkeypatch, caps
     assert wynik is not None and "duch" in wynik["text"]
     err = capsys.readouterr().err
     assert "cudza rozmowa" not in err, "cudza ramka wyciekla jako ostrzezenie"
+
+
+# --- CLI + stdin: droga, ktorej powloka nie tyka (zgloszenie z Windows) ---
+
+def test_cli_send_stdin_dostarcza_tresc_bajt_w_bajt(tmp_path):
+    """DOWOD PRZEZ CALA DROGE, nie przez ostatni artefakt na niej: prawdziwy
+    proces `python -m agentmachi.cli send -`, prawdziwy hub, tresc czytana
+    z logu huba.
+
+    Mierzone na Windows 11 / PowerShell: tresc konczaca sie backslashem
+    (`C:\\Users\\x\\` — normalna sciezka, nie przypadek brzegowy) dochodzila
+    do huba PRZEKLAMANA, z exit 0 i bez ostrzezenia, bo psula ja powloka,
+    zanim CLI cokolwiek zobaczylo. Testy jednostkowe stdin (test_cli.py)
+    sprawdzaja kontrakt argumentow; ten sprawdza, ze bajty przezywaja
+    granice procesu, protokol i zapis na dysk."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    tresc = ('raport z "C:\\Users\\test\\" i \'apostrofu\'\n'
+             'sciezka koncowa: C:\\Users\\test\\')
+    env = {**os.environ,
+           "CHAT_URL": f"ws://localhost:{port}",
+           "CHAT_TOKEN": "", "CHAT_NICK": "",
+           "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "AGENTMACHI_HOME": str(tmp_path / "home"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("AGENTMACHI_HUB", None)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "agentmachi.cli", "send", "-",
+                "--as", "beta", cwd=str(REPO), env=env,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE)
+            # nowa linia na koncu jak z `echo`/pipeline'u — ma zniknac,
+            # backslash tuz przed nia ma zostac
+            out, err = await proc.communicate((tresc + "\n").encode("utf-8"))
+            await asyncio.sleep(0.3)
+            return (proc.returncode, err.decode("utf-8", "replace"),
+                    [e["text"] for e in srv.log.replay() if e.get("text")])
+        finally:
+            await srv.stop()
+
+    kod, err, teksty = asyncio.run(scenario())
+    assert kod == 0, f"exit {kod}; stderr:\n{err}"
+    assert teksty == [tresc], f"log huba: {teksty!r}\nstderr:\n{err}"
+
+
+def test_cli_send_bez_stdin_i_bez_tresci_nie_wysyla_pustki(tmp_path):
+    """Agent headless ma stdin na /dev/null. Gdyby CLI zgadywalo tresc
+    z `not isatty()`, dostaloby natychmiastowe EOF i wyslalo PUSTA
+    wiadomosc z exit 0 — cicha porazka udajaca sukces. Dowod na zywym
+    procesie ze stdin=/dev/null, bo to jest to samo srodowisko."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    env = {**os.environ,
+           "CHAT_URL": f"ws://localhost:{port}",
+           "CHAT_TOKEN": "", "CHAT_NICK": "",
+           "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "AGENTMACHI_HOME": str(tmp_path / "home")}
+    env.pop("AGENTMACHI_HUB", None)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            with open(os.devnull, "rb") as devnull:
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", "agentmachi.cli", "send",
+                    "--as", "beta", cwd=str(REPO), env=env, stdin=devnull,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE)
+                out, err = await proc.communicate()
+            await asyncio.sleep(0.3)
+            return (proc.returncode, err.decode("utf-8", "replace"),
+                    [e.get("text") for e in srv.log.replay()])
+        finally:
+            await srv.stop()
+
+    kod, err, teksty = asyncio.run(scenario())
+    assert kod == 2, f"exit {kod}; stderr:\n{err}"
+    assert teksty == [], f"pusta wiadomosc wyladowala w logu huba: {teksty!r}"
+    assert "--stdin" in err

@@ -7,7 +7,12 @@ settle between yourselves, or take from the rules of the project you sit in.
 
     agentmachi send "@someone text" --as <me>    # wakes the addressee
     agentmachi send "text" --as <me> --quiet     # log + humans, NO wake
+    agentmachi send - --as <me> < report.md      # text from stdin, verbatim
     agentmachi frame '{"type":"status","state":"idle"}'   # board
+
+The shell mangles what it quotes: a path ending in `\` arrives corrupted, exit
+0. `-` (or `--stdin`) is the path no shell touches — byte for byte, minus one
+trailing newline; `frame --stdin` takes JSON the same way.
 
 `--as` says WHO you are. You point at the addressee with an `@mention` in the
 text — there is no separate "to" field. `frame` needs a nick (`--nick` or

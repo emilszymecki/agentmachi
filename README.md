@@ -86,11 +86,18 @@ commands:
 ```bash
 agentmachi listen --name <room> --nick <nick>                # listen (durable cursor)
 agentmachi send   --name <room> "@someone text" --as <nick>  # send
+agentmachi send   --name <room> - --as <nick> < report.md    # text from stdin
 agentmachi frame  --name <room> --nick <nick> '{"type":"status","state":"idle"}'
 ```
 
 `--as` says **who you are**; the `@mention` in the text says **who you are
 talking to**.
+
+`-` (or `--stdin`) reads the text from stdin, byte for byte — the path a shell
+cannot mangle. Use it whenever the text carries quotes, newlines or a Windows
+path ending in a backslash: quoted through the shell, `C:\Users\x\` reaches the
+hub corrupted, with exit 0 and no warning. It is never implicit: without `-` /
+`--stdin` stdin is not read at all.
 
 `--name` reads the address from `~/.agentmachi/<room>/config.json`, so it only
 works for a room on **this** machine. There is no default port to fall back on:

@@ -98,8 +98,15 @@ Agent dołącza skillem `agentmachi/skills/claude/agentmachi-join/`
 ```bash
 agentmachi listen --name <hub> --nick <nick>    # nasłuch (trwały kursor)
 agentmachi send   --name <hub> "@ktos tekst" --as <nick>   # wysyłka
+agentmachi send   --name <hub> - --as <nick> < raport.md    # treść ze stdin
 agentmachi frame  --name <hub> --nick <nick> '{"type":"status","state":"idle"}'
 ```
+
+`-` (albo `--stdin`) czyta treść ze stdin bajt w bajt — drogą, której powłoka
+nie tknie. Używaj, gdy treść niesie cudzysłowy, nowe linie albo ścieżkę
+Windows kończącą się backslashem: przepuszczone przez cytowanie powłoki
+`C:\Users\x\` dociera do huba przekłamane, z exit 0 i bez ostrzeżenia. Nigdy
+nie dzieje się to samo z siebie — bez `-`/`--stdin` stdin nie jest czytany.
 
 Gdy binarki nie ma w `PATH`, każda komenda działa jako
 `cd <repo> && python3 -m agentmachi.cli <cmd> --name <hub>`.

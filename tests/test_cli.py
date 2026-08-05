@@ -1093,6 +1093,253 @@ def test_send_bez_nicka_failcloses(home, monkeypatch, capsys):
     assert "--as" in capsys.readouterr().err
 
 
+# -- tresc ze stdin: droga, ktorej powloka nie tyka -----------------------
+#
+# Zgloszone z Windows 11 / PowerShell przez agenta, ktory MIERZYL, nie
+# zgadywal: tresc konczaca sie backslashem (a tak konczy sie kazda sciezka
+# `C:\Users\x\`) trafia do huba PRZEKLAMANA, z exit 0 i bez ostrzezenia.
+# Hub, protokol i CLI sa czyste — psuje to powloka, ZANIM CLI cokolwiek
+# zobaczy, wiec CLI nie ma tego jak wykryc. Jedyna naprawa to droga, ktorej
+# powloka nie dotyka: stdin.
+
+class _Stdin:
+    """Atrapa stdin. Zapamietuje, czy ktokolwiek ja PRZECZYTAL — kilka
+    testow nizej pilnuje wlasnie tego, ze CLI po stdin nie siega."""
+
+    def __init__(self, tresc):
+        self.bajty = (tresc if isinstance(tresc, bytes)
+                      else tresc.encode("utf-8"))
+        self.czytany = False
+        atrapa = self
+
+        class _Buf:
+            def read(self):
+                atrapa.czytany = True
+                return atrapa.bajty
+
+        self.buffer = _Buf()
+
+    def read(self):
+        self.czytany = True
+        return self.bajty.decode("utf-8")
+
+    def isatty(self):
+        return False
+
+
+def _lapacz_wysylki(monkeypatch, wyslane):
+    monkeypatch.setattr(cli, "_import_send",
+                        lambda: type("S", (), {"send_once": staticmethod(
+                            lambda nick, text, quiet=False: wyslane.append(
+                                (nick, text)))})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+
+
+def _pokoj_alpha(monkeypatch):
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")     # patrz komentarz przy test_send_as_
+    cli.ensure_hub("alpha", 8931)
+
+
+# Dokladnie ta tresc, ktora ginie w powloce: backslash na koncu, cudzyslowy
+# w srodku, apostrof i nowa linia. Ma dojsc bajt w bajt.
+TRESC_Z_WINDOWS = (
+    'raport z "C:\\Users\\test\\" i \'apostrofu\'\n'
+    'sciezka koncowa: C:\\Users\\test\\')
+
+
+@pytest.mark.parametrize("argv", [
+    ["send", "-", "--as", "worker2", "--name", "alpha"],
+    ["send", "--stdin", "--as", "worker2", "--name", "alpha"],
+])
+def test_send_czyta_tresc_ze_stdin_bajt_w_bajt(argv, home, monkeypatch):
+    """`-` i `--stdin` znacza to samo i nie ruszaja ani jednego bajtu."""
+    wyslane = []
+    _lapacz_wysylki(monkeypatch, wyslane)
+    _pokoj_alpha(monkeypatch)
+    monkeypatch.setattr(cli.sys, "stdin", _Stdin(TRESC_Z_WINDOWS + "\n"))
+    assert cli.cmd_send(_parse_send(argv)) == 0
+    assert wyslane == [("worker2", TRESC_Z_WINDOWS)]
+
+
+def test_send_ze_stdin_zdejmuje_dokladnie_jedna_koncowa_nowa_linie(
+        home, monkeypatch):
+    """`echo` dokleja \\n, a wiadomosc czatu go nie potrzebuje. Zdejmujemy
+    JEDEN (z CRLF-em Windowsa), zeby backslash tuz przed nim przezyl —
+    i zeby druga, celowa pusta linia nie zniknela."""
+    wyslane = []
+    _lapacz_wysylki(monkeypatch, wyslane)
+    _pokoj_alpha(monkeypatch)
+    monkeypatch.setattr(cli.sys, "stdin", _Stdin("C:\\Users\\test\\\r\n"))
+    assert cli.cmd_send(_parse_send(
+        ["send", "-", "--as", "worker2", "--name", "alpha"])) == 0
+    assert wyslane == [("worker2", "C:\\Users\\test\\")]
+
+    wyslane.clear()
+    monkeypatch.setattr(cli.sys, "stdin", _Stdin("dwie\nlinie\n\n"))
+    assert cli.cmd_send(_parse_send(
+        ["send", "-", "--as", "worker2", "--name", "alpha"])) == 0
+    assert wyslane == [("worker2", "dwie\nlinie\n")]
+
+
+@pytest.mark.parametrize("argv", [
+    ["send", "--stdin", "tresc z argumentu", "--as", "worker2",
+     "--name", "alpha"],
+    ["send", "-", "tresc z argumentu", "--as", "worker2", "--name", "alpha"],
+])
+def test_send_tresc_z_dwoch_zrodel_naraz_to_blad(argv, home, monkeypatch,
+                                                 capsys):
+    """Podano tresc I argumentem, I przez stdin. Cichy wybor jednego z nich
+    jest dokladnie ta klasa bledu, ktora ta zmiana naprawia: wysylajacy
+    zobaczylby exit 0 i nie dowiedzialby sie, ktora wersje dostal kanal.
+    Odmawiamy — i nie tykamy stdin, bo nie my o nim decydujemy."""
+    wyslane = []
+    _lapacz_wysylki(monkeypatch, wyslane)
+    _pokoj_alpha(monkeypatch)
+    stdin = _Stdin("tresc ze stdin")
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    assert cli.cmd_send(_parse_send(argv)) == 2
+    assert wyslane == []
+    assert not stdin.czytany, "odmowa nie ma prawa zjesc cudzego strumienia"
+    assert "--stdin" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("tresc", ["", "\n", "   \n\t\n"])
+def test_send_pusty_stdin_to_blad_a_nie_pusta_wiadomosc(tresc, home,
+                                                        monkeypatch, capsys):
+    """Pusta wiadomosc na kanale to szum, ktory budzi adresata i nic nie
+    niesie. Zadany stdin bez tresci = blad, exit 2, zero ramek."""
+    wyslane = []
+    _lapacz_wysylki(monkeypatch, wyslane)
+    _pokoj_alpha(monkeypatch)
+    monkeypatch.setattr(cli.sys, "stdin", _Stdin(tresc))
+    assert cli.cmd_send(_parse_send(
+        ["send", "-", "--as", "worker2", "--name", "alpha"])) == 2
+    assert wyslane == []
+    assert "empty" in capsys.readouterr().err.lower()
+
+
+def test_send_nigdy_nie_zgaduje_stdin_z_tego_ze_nie_jest_terminalem(
+        home, monkeypatch, capsys):
+    """ZAMEK NA AUTODETEKCJE. Kusi napisac `if not sys.stdin.isatty(): czytaj`
+    — i to jest blad zmierzony na zywym srodowisku: agent headless ma stdin
+    podpiety do /dev/null, wiec autodetekcja poszlaby czytac, dostala EOF
+    i wyslala PUSTA wiadomosc z exit 0. Czyli ta sama cicha porazka udajaca
+    sukces, ktora naprawiamy.
+
+    Kontrakt: bez `-` i bez `--stdin` stdin NIE ISTNIEJE dla `send`."""
+    wyslane = []
+    _lapacz_wysylki(monkeypatch, wyslane)
+    _pokoj_alpha(monkeypatch)
+    stdin = _Stdin("tresc, po ktora nikt nie prosil")
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    assert cli.cmd_send(_parse_send(
+        ["send", "--as", "worker2", "--name", "alpha"])) == 2
+    assert wyslane == [], "brak tresci nie moze skonczyc sie wysylka"
+    assert not stdin.czytany, "stdin przeczytany bez `-`/`--stdin`"
+    err = capsys.readouterr().err
+    assert "--stdin" in err, "odmowa ma pokazac droge, ktorej powloka nie tyka"
+
+
+def test_send_argument_wygrywa_i_zostawia_stdin_w_spokoju(home, monkeypatch):
+    """Odwrotna strona tego samego zamka: tresc podana argumentem idzie
+    w drut nietknieta, a strumien (np. `while read` czytajacy plik) zostaje
+    caly dla tego, kto go otworzyl."""
+    wyslane = []
+    _lapacz_wysylki(monkeypatch, wyslane)
+    _pokoj_alpha(monkeypatch)
+    stdin = _Stdin("cudze dane")
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    assert cli.cmd_send(_parse_send(
+        ["send", "@opus_c czesc", "--as", "worker2", "--name", "alpha"])) == 0
+    assert wyslane == [("worker2", "@opus_c czesc")]
+    assert not stdin.czytany
+
+
+def test_send_stdin_nie_jest_utf8_to_blad_zamiast_mojibake(home, monkeypatch,
+                                                           capsys):
+    """Polski Windows potrafi wypchnac cp1250. Mojibake w logu huba jest
+    nieodwracalne i wyglada na wine autora — lepiej odmowic."""
+    wyslane = []
+    _lapacz_wysylki(monkeypatch, wyslane)
+    _pokoj_alpha(monkeypatch)
+    monkeypatch.setattr(cli.sys, "stdin",
+                        _Stdin("zażółć".encode("cp1250")))
+    assert cli.cmd_send(_parse_send(
+        ["send", "-", "--as", "worker2", "--name", "alpha"])) == 2
+    assert wyslane == []
+    assert "UTF-8" in capsys.readouterr().err
+
+
+# -- to samo dla `frame`: cudzyslowy w JSON to ten sam problem, tylko gorszy
+
+def _lapacz_ramek(monkeypatch, ramki):
+    monkeypatch.setattr(cli, "_import_send",
+                        lambda: type("S", (), {
+                            "SessionError": RuntimeError,
+                            "oneshot_frame": staticmethod(
+                                lambda nick, frame: ramki.append(
+                                    (nick, frame)))})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: None)
+
+
+@pytest.mark.parametrize("argv", [
+    ["frame", "-", "--nick", "agent1", "--name", "alpha"],
+    ["frame", "--stdin", "--nick", "agent1", "--name", "alpha"],
+])
+def test_frame_czyta_json_ze_stdin(argv, home, monkeypatch, capsys):
+    """W `frame` cytowanie boli podwojnie: JSON JEST z cudzyslowow. W apostrofach
+    PowerShell zjada `"`, wiec agent wysyla niepoprawny JSON i dostaje blad
+    parsera zamiast statusu na boardzie."""
+    ramki = []
+    _lapacz_ramek(monkeypatch, ramki)
+    _pokoj_alpha(monkeypatch)
+    monkeypatch.setattr(cli.sys, "stdin", _Stdin(
+        '{"type":"status","state":"working","note":"sciezka C:\\\\tmp\\\\"}\n'))
+    assert cli.cmd_frame(_parse_send(argv)) == 0
+    assert ramki == [("agent1", {"type": "status", "state": "working",
+                                 "note": "sciezka C:\\tmp\\"})]
+
+
+def test_frame_tresc_z_dwoch_zrodel_naraz_to_blad(home, monkeypatch):
+    ramki = []
+    _lapacz_ramek(monkeypatch, ramki)
+    _pokoj_alpha(monkeypatch)
+    stdin = _Stdin('{"type":"status"}')
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    with pytest.raises(cli.CliError) as blad:
+        cli.cmd_frame(_parse_send(["frame", "--stdin", '{"type":"status"}',
+                                   "--nick", "agent1", "--name", "alpha"]))
+    assert "--stdin" in str(blad.value)
+    assert ramki == [] and not stdin.czytany
+
+
+def test_frame_pusty_stdin_to_blad(home, monkeypatch):
+    ramki = []
+    _lapacz_ramek(monkeypatch, ramki)
+    _pokoj_alpha(monkeypatch)
+    monkeypatch.setattr(cli.sys, "stdin", _Stdin("\n"))
+    with pytest.raises(cli.CliError) as blad:
+        cli.cmd_frame(_parse_send(["frame", "-", "--nick", "agent1",
+                                   "--name", "alpha"]))
+    assert "empty" in str(blad.value).lower()
+    assert ramki == []
+
+
+def test_frame_bez_json_i_bez_stdin_to_blad(home, monkeypatch):
+    """Ten sam zamek na autodetekcje co przy `send`."""
+    ramki = []
+    _lapacz_ramek(monkeypatch, ramki)
+    _pokoj_alpha(monkeypatch)
+    stdin = _Stdin('{"type":"status"}')
+    monkeypatch.setattr(cli.sys, "stdin", stdin)
+    with pytest.raises(cli.CliError) as blad:
+        cli.cmd_frame(_parse_send(["frame", "--nick", "agent1",
+                                   "--name", "alpha"]))
+    assert "--stdin" in str(blad.value)
+    assert ramki == [] and not stdin.czytany
+
+
 # -- C5: nowy hub nie kradnie portu istniejacemu -------------------------
 
 def test_nowy_hub_bierze_wolny_port_gdy_domyslny_zajety(home):
