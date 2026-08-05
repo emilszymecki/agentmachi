@@ -61,7 +61,11 @@ def _komendy_z_kodu(tekst):
             fragmenty.extend(re.findall(r"`([^`]+)`", linia))
     komendy = set()
     for f in fragmenty:
-        komendy.update(re.findall(r"\bagentmachi\s+([a-z]+)", f))
+        # Myslnik jest czescia nazwy komendy (`install-skills`), nie jej
+        # koncem. Bez niego skill uczacy `agentmachi install-skills` zglasza
+        # nieistniejaca komende `install` — czyli test lapie wlasna literowke
+        # zamiast bledu skilla.
+        komendy.update(re.findall(r"\bagentmachi\s+([a-z][a-z-]*)", f))
     return komendy
 
 
@@ -88,7 +92,14 @@ def test_skille_nie_ucza_komend_ktorych_CLI_nie_ma():
     with contextlib.redirect_stdout(buf), contextlib.suppress(SystemExit):
         cli.main(["--help"])
     tekst = buf.getvalue()
-    dopasowanie = re.search(r"\{([a-z,]+)\}", tekst)
+    # Klasa znakow musi znac myslnik, bo znaja go nazwy subkomend
+    # (`install-skills`, T6). KONTRAKT sie nie zmienil — zrodlem prawdy dalej
+    # jest parser argparse, nie lista w tescie. Zmienil sie sposob CZYTANIA
+    # tej listy: `[a-z,]+` nie dopasowywalo grupy `{...}` z myslnikiem
+    # w srodku, wiec test padal na `assert None` — na wlasnym parserze, nie na
+    # tresci skilla. Docstring obiecywal, ze test nie zdezaktualizuje sie po
+    # dodaniu komendy; ta poprawka dotrzymuje obietnicy.
+    dopasowanie = re.search(r"\{([a-z,-]+)\}", tekst)
     assert dopasowanie, f"nie umiem odczytac subkomend z --help:\n{tekst}"
     znane = set(dopasowanie.group(1).split(","))
     assert "start" in znane and "send" in znane, \

@@ -1220,11 +1220,68 @@ def cmd_node(args):
     return 0
 
 
+def cmd_install_skills(args) -> int:
+    from agentmachi import skills_install
+
+    harnessy = (
+        list(skills_install.HARNESSY) if args.harness == "all" else [args.harness]
+    )
+    lacznie = 0
+    for harness in harnessy:
+        cel = (
+            Path(args.dest)
+            if args.dest
+            else skills_install.HARNESSY[harness]
+        )
+        try:
+            zainstalowane = skills_install.zainstaluj(harness, cel, args.force)
+        except FileNotFoundError as e:
+            # CliError to wzorzec repo: main() lapie go i zwraca 2 z prefiksem
+            # "agentmachi:". Wlasny print + return 1 dalby inny format bledu
+            # niz reszta komend.
+            raise CliError(str(e)) from e
+        cel_pokazany = cel.expanduser()
+        if zainstalowane:
+            print(f"{harness}: {', '.join(zainstalowane)} -> {cel_pokazany}")
+            lacznie += len(zainstalowane)
+        else:
+            print(
+                f"{harness}: nic nowego w {cel_pokazany} "
+                f"(uzyj --force, zeby nadpisac)"
+            )
+    if lacznie:
+        print("gotowe — powiedz swojemu agentowi: 'pokaz moje pokoje agentmachi'")
+    return 0
+
+
 def _build_parser():
     parser = argparse.ArgumentParser(
         prog="agentmachi",
         description="serwer Hamachi dla agentow — wspolna przestrzen rozmowy")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # Pierwsza komenda po `pip install agentmachi`, wiec stoi pierwsza
+    # w --help: bez skilli CLI dziala, ale agent nie ma jak wejsc na kanal.
+    p = sub.add_parser(
+        "install-skills",
+        help="wypakuj skille agentmachi do katalogu harnessu",
+    )
+    p.add_argument(
+        "--harness",
+        choices=["claude", "codex", "all"],
+        default="all",
+        help="dla kogo instalowac (domyslnie: oba)",
+    )
+    p.add_argument(
+        "--dest",
+        help="katalog docelowy (domyslnie zalezny od harnessu)",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="nadpisz istniejace skille",
+    )
+    p.set_defaults(fn=cmd_install_skills)
 
     p = sub.add_parser("serve", help="odpal hub (tworzy ~/.agentmachi/<name>)")
     p.add_argument("--name", default=DEFAULT_HUB)
