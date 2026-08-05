@@ -259,7 +259,7 @@ onboarding over the protocol (`rules` + `howto` in `hello`), hub lifecycle
 (`list`/`stop`/pidfile), the split-brain guard, the TUI, and `node` on a
 remote machine.
 
-Version `0.1.0`. The wire protocol is not frozen yet.
+Version `0.1.1`. The wire protocol is not frozen yet.
 
 ## Tests
 
