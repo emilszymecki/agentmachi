@@ -1,46 +1,51 @@
-# Współpraca przez agentmachi
+# Collaborating through agentmachi
 
-Traktuj ten plik jako playbook. Zasady użytkownika i docelowego repo mają
-pierwszeństwo.
+Treat this file as a playbook. The user's rules and the target repo's rules
+take precedence.
 
-## Zmierz sprzężenie przed podziałem
+## Measure the coupling before you split
 
-Jeśli zakresy dzielą jeden plik, format danych, wspólny budżet albo częste
-zmiany wejścia, praca jest ciasno sprzężona. Zamiast dzielić implementację,
-wykonajcie niezależne warianty i zestawcie wyniki.
+If your scopes share one file, one data format, a common budget or frequent
+input changes, the work is tightly coupled. Instead of splitting the
+implementation, produce independent variants and compare the results.
 
-Jeśli zakresy są rozłączne, podzielcie je. Przy niezależnym wariancie użyj
-`listen --fresh`, aby cudze rozumowanie nie kotwiczyło wyniku.
+If the scopes are disjoint, split them. For an independent variant use
+`listen --fresh`, so that someone else's reasoning does not anchor your
+result.
 
-## Zadeklaruj odpowiedzialność
+## Declare responsibility
 
-Przed pracą napisz na kanale, jaki efekt bierzesz i czego nie dotykasz.
-Deklaruj zachowanie od wejścia do wyniku, nie ogólną warstwę typu „serwer”.
+Before you work, write on the channel which outcome you are taking and what
+you will not touch. Declare a behaviour from entry to result, not a general
+layer such as "the server".
 
-Kolizję wyłącznego zasobu rozstrzyga wcześniejsza deklaracja w logu (`seq`).
-Jeden zasób ma jednego piszącego; ten sam problem może mieć kilku świadomie
-niezależnych autorów.
+A collision over an exclusive resource is settled by the earlier declaration
+in the log (`seq`). One resource has one writer; the same problem may have
+several deliberately independent authors.
 
-## Chroń wspólne drzewo
+## Protect the shared tree
 
-- Dodawaj do indeksu wyłącznie jawne ścieżki; nie używaj `git add -A`.
-- Nie cofaj pliku do `HEAD`, jeśli może zawierać cudze lub niezapisane zmiany.
-- Użyj osobnego worktree, gdy niezależne warianty dotykają tych samych plików.
-- Sprawdź `git status` przed i po zmianie.
+- Stage explicit paths only; do not use `git add -A`.
+- Do not revert a file to `HEAD` if it may contain someone else's or unsaved
+  changes.
+- Use a separate worktree when independent variants touch the same files.
+- Check `git status` before and after a change.
 
-## Raportuj dowodem
+## Report with proof
 
-Podaj commit, ścieżkę i linię, wynik testu albo dokładne repro. Nie uznawaj
-ciszy komendy za potwierdzenie — najpierw sprawdź kod wyjścia i cel polecenia.
+Give the commit, the path and the line, the test result or an exact repro. Do
+not take a command's silence for confirmation — check the exit code and the
+target of the command first.
 
-Nie zatwierdzaj własnej pracy jako jedyny recenzent. Test naprawy sprawdź
-również przez kontrolowane przywrócenie błędu, jeśli da się to zrobić bez
-naruszania cudzych zmian.
+Do not approve your own work as the sole reviewer. Verify a fix's test by
+controlled reintroduction of the bug as well, if that can be done without
+disturbing someone else's changes.
 
-## Oszczędzaj uwagę
+## Spend attention sparingly
 
-Wzmiankuj tylko wtedy, gdy potrzebujesz reakcji. Do publikacji bez budzenia
-użyj `send --quiet`. Łącz finding, dowód i prośbę w jedną wiadomość.
+Mention someone only when you need a reaction. For publishing without waking
+anyone, use `send --quiet`. Combine the finding, the proof and the request
+into one message.
 
-Status na boardzie jest deklaracją, nie diagnozą. Porównuj `status_seq`
-z bieżącym `last_seq`, zanim uznasz go za aktualny.
+A status on the board is a declaration, not a diagnosis. Compare `status_seq`
+against the current `last_seq` before you treat it as up to date.

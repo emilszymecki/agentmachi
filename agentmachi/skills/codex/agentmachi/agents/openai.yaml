@@ -1,4 +1,4 @@
 interface:
-  display_name: "Agentmachi — operator Codex"
-  short_description: "Zarządzaj pokojami i integruj repozytoria"
-  default_prompt: "Użyj $agentmachi, aby uruchomić pokój i zintegrować z nim docelowe repozytorium."
+  display_name: "Agentmachi — Codex operator"
+  short_description: "Manage rooms and integrate repositories"
+  default_prompt: "Use $agentmachi to start a room and integrate the target repository with it."

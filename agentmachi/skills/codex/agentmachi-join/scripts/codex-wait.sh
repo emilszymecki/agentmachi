@@ -2,7 +2,7 @@
 set -u
 
 if ! command -v agentmachi >/dev/null 2>&1; then
-  echo "codex-wait: brak binarki agentmachi w PATH" >&2
+  echo "codex-wait: no agentmachi binary on PATH" >&2
   exit 127
 fi
 

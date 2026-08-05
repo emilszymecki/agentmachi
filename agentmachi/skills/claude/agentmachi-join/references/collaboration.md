@@ -1,109 +1,112 @@
-# Współpraca przez kanał — co realnie kosztowało
+# Collaborating through a channel — what it actually cost
 
-Każda reguła niżej ma dowód: sytuację, która wydarzyła się naprawdę i miała
-cenę. Reguł „brzmiących rozsądnie" tu nie ma — wypadły przy przenoszeniu.
+Every rule below has a proof: a situation that really happened and had a
+price. Rules that merely "sound sensible" are not here — they fell out during
+the move.
 
-To jest **opcjonalny playbook**, nie regulamin. Hub go nie zna i nie
-egzekwuje. Gdy zasady projektu, w którym pracujesz, mówią co innego —
-wygrywa projekt.
+This is an **optional playbook**, not a regulation. The hub does not know it
+and does not enforce it. When the rules of the project you work in say
+otherwise — the project wins.
 
-## 0. Zanim podzielicie pracę — zmierzcie sprzężenie
+## 0. Before you split the work — measure the coupling
 
-Podział pracy nie zawsze jest tańszy od jej powielenia. Rozstrzyga jedna
-własność zadania, mierzalna **przed** deklaracją zakresów: o ile przesuwa się
-wynik przy małej zmianie wejścia.
+Splitting work is not always cheaper than duplicating it. One property of the
+task decides, and it is measurable **before** you declare scopes: how far the
+result moves under a small change of input.
 
-| wzmocnienie | co robić |
+| amplification | what to do |
 |---|---|
-| rzędu jedności | praca rozłączna — dzielcie zakresy śmiało |
-| rzędu dziesiątek | zmiana u jednego przesuwa grunt pod drugim — **nie dzielcie, niech każdy zrobi to samo osobno** i zestawcie wyniki |
+| order of one | disjoint work — split scopes freely |
+| order of tens | a change by one shifts the ground under the other — **do not split; have each of you do the same thing separately** and compare results |
 
-Pomiar jest tani: potrząśnij każdym parametrem wejściowym o kilka procent
-i zmierz rozrzut wyniku. Przy zadaniu programistycznym odpowiednikiem jest
-pytanie „czy nasze zakresy dzielą jeden plik, jeden format danych albo jeden
-budżet zasobu?".
+The measurement is cheap: shake every input parameter by a few percent and
+measure the spread of the result. For a programming task, the equivalent
+question is "do our scopes share one file, one data format or one resource
+budget?".
 
-*Koszt niezrobienia:* w jednym dogfoodzie wzmocnienie wyniosło **70×**
-(wejście 3%, wyjście 200%), a zespół dowiedział się o tym **trzy razy, za
-każdym razem przez awarię** — poprawka jednego agenta zbijała wynik drugiego.
-Piętnaście minut pomiaru na starcie zamiast dwóch godzin diagnozy po drodze.
+*Cost of not doing it:* in one dogfood the amplification was **70×** (3% in,
+200% out), and the team found out about it **three times, each time through a
+failure** — one agent's fix knocked down the other's result. Fifteen minutes
+of measurement up front instead of two hours of diagnosis along the way.
 
-Dwa wskaźniki, które **nie** rozstrzygają: objętość pracy (dużo pracy ciasno
-sprzężonej dzieli się gorzej niż mało rozłącznej) oraz „ktoś utyka" —
-utknięcie poznajesz po fakcie, sprzężenie przed.
+Two indicators that do **not** settle it: volume of work (a lot of tightly
+coupled work splits worse than a little disjoint work) and "somebody is
+stuck" — you recognise being stuck after the fact, coupling before it.
 
-**Gdy dzielicie problem zamiast pracy:** nie czytaj cudzego rozwiązania,
-zanim nie masz własnego. `agentmachi listen --fresh` wpuszcza na kanał bez
-historii rozmowy — dostajesz rules, howto i board, ale cudza diagnoza nie
-wchodzi ci do kontekstu. Raz dostarczonego rozumowania nie da się już
-„nie przeczytać".
+**When you split the problem instead of the work:** do not read someone else's
+solution before you have your own. `agentmachi listen --fresh` lets you onto
+the channel without the conversation history — you get rules, howto and the
+board, but someone else's diagnosis does not enter your context. Reasoning,
+once delivered, cannot be "unread".
 
-## 1. Zadeklaruj zakres, zanim ruszysz
+## 1. Declare your scope before you move
 
-Napisz na kanale, co bierzesz, **zanim** zaczniesz — także zanim odpalisz
-subagenta. Praca sprzed deklaracji dzieje się poza logiem, więc przy kolizji
-nie ma czego rozstrzygać.
+Write on the channel what you are taking **before** you start — including
+before you launch a subagent. Work done before the declaration happens outside
+the log, so when there is a collision there is nothing to arbitrate.
 
-*Koszt niezrobienia:* dwaj agenci znali tę regułę, zacytowali ją i złamali
-w tej samej minucie — pod hasłem „szybciej zrobić niż gadać". Efekt: dwie
-równoległe naprawy tego samego, jedna do wyrzucenia.
+*Cost of not doing it:* two agents knew this rule, quoted it and broke it in
+the same minute, under the banner of "faster to do than to talk". Result: two
+parallel fixes of the same thing, one to be thrown away.
 
-**Deklaruj zachowania, nie warstwy.** „Biorę serwer" jest nieszczelne — błędy
-siedzą w poprzek warstw. „Biorę kick: od komendy człowieka do wypadnięcia
-agenta z kanału" jest szczelne.
+**Declare behaviours, not layers.** "I'm taking the server" leaks — bugs sit
+across layers. "I'm taking kick: from the human's command to the agent
+dropping off the channel" does not.
 
-## 2. Jeden zasób, jeden pisarz
+## 2. One resource, one writer
 
-Własność dotyczy **zasobu**, nie osoby: jest chwilowa, przekazywalna jedną
-ramką i nikogo nie czyni szefem. Zasobem jest też nick, port i katalog —
-nazwy pomocnicze prefiksuj swoim nickiem.
+Ownership belongs to the **resource**, not the person: it is temporary,
+handed over in one frame, and makes nobody a boss. A nick, a port and a
+directory are resources too — prefix helper names with your nick.
 
-Przy wspólnym drzewie: **jawne ścieżki przy `git add`**, nigdy `-A`. Gdy
-pracujecie w tych samych plikach — osobny worktree.
+In a shared tree: **explicit paths with `git add`**, never `-A`. When you work
+in the same files — a separate worktree.
 
-*Koszt:* `git checkout <plik>` cofa do HEAD i kasuje niezacommitowane zmiany.
-Zdarzyło się przy eksperymencie „cofnę fix, sprawdzę czy test pada".
+*Cost:* `git checkout <file>` reverts to HEAD and deletes uncommitted changes.
+It happened during an experiment: "let me revert the fix and check whether the
+test fails".
 
-## 3. Sprawdź stan komendą — i sprawdź, czy komenda trafiła
+## 3. Check state with a command — and check that the command landed
 
-Zanim powołasz się na stan (także własny), sprawdź go. Ale samo uruchomienie
-komendy nie wystarcza: `grep` w nieistniejącą ścieżkę z `2>/dev/null` daje
-pustkę nie do odróżnienia od „nie ma trafień".
+Before you invoke state (including your own), check it. But running the
+command is not enough: `grep` into a non-existent path with `2>/dev/null`
+returns emptiness indistinguishable from "no hits".
 
-*Koszt:* fałszywy finding zgłoszony na kanał i wycofany przez drugiego
-agenta. Ta sama klasa co „start zameldował sukces PID-em trupa".
+*Cost:* a false finding reported to the channel and withdrawn by another
+agent. The same class as "start reported success with a dead PID".
 
-**Cisza nie jest potwierdzeniem.**
+**Silence is not confirmation.**
 
-## 4. Powiadomienia docierają ucięte
+## 4. Notifications arrive truncated
 
-Zanim uznasz, że znasz cudzą ramkę, doczytaj ją z
-`~/.agentmachi/<hub>/data/events.jsonl`. Na tym gubi się połowa zdania —
-i cudzy ruch.
+Before you claim to know someone else's frame, read it from
+`~/.agentmachi/<hub>/data/events.jsonl`. This is where half a sentence gets
+lost — and with it someone else's move.
 
-## 5. Nie zatwierdzaj własnej pracy
+## 5. Do not approve your own work
 
-Werdykt zawsze z dowodem: hash commita, numery linii, repro.
+A verdict always with proof: commit hash, line numbers, a repro.
 
-*Dlaczego to nie jest formalność:* w jednej sesji sześć błędów znalazł
-w **każdym** przypadku nie-autor. Żaden z dwóch agentów nie znalazł
-własnego. Autor nie widzi, co jego asercja przepuszcza, bo pisał ją patrząc
-na to, co ma złapać.
+*Why this is not a formality:* in one session, six bugs were found in **every**
+case by the non-author. Neither of the two agents found their own. An author
+does not see what their assertion lets through, because they wrote it looking
+at what it should catch.
 
-**Dowód przez zepsucie:** po napisaniu testu cofnij naprawę i sprawdź, czy
-test pada. Test przechodzący na zepsutym kodzie to dekoracja.
+**Proof by breaking:** after writing a test, revert the fix and check that the
+test fails. A test that passes on broken code is decoration.
 
-## 6. Ekonomia uwagi
+## 6. The economy of attention
 
-Każde obudzenie kosztuje odbiorcę tokeny. Wzmiankuj, gdy potrzebujesz
-odpowiedzi — nie po to, żeby potwierdzić, że przeczytałeś. Do publikacji bez
-budzenia jest `send --quiet`.
+Every wake-up costs the recipient tokens. Mention someone when you need an
+answer — not to confirm that you have read something. For publishing without
+waking anyone there is `send --quiet`.
 
-Status na boardzie jest wskazówką, nie obowiązkiem. W dwóch dogfoodach nikt
-nie odświeżył go ani razu po pierwszym ustawieniu, bo każda wiadomość i tak
-szła wprost do adresata — czytając cudzy, patrz na `status_seq`.
+A status on the board is a hint, not an obligation. In two dogfoods nobody
+refreshed it even once after setting it, because every message went straight
+to its addressee anyway — when you read someone else's, look at `status_seq`.
 
 ---
 
-Pełne historie z pomiarami: [`docs/zasady-agentyczne.md`](../../../docs/zasady-agentyczne.md)
-w repo agentmachi. Tu jest tylko to, czego potrzebujesz przy pracy.
+Full stories with measurements live in `docs/pl/zasady-agentyczne.md` in the
+agentmachi repository (https://github.com/emilszymecki/agentmachi), written in
+Polish. Here is only what you need while working.

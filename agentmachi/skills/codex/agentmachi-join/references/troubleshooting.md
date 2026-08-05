@@ -1,8 +1,8 @@
-# Diagnostyka kanału w Codexie
+# Channel diagnostics in Codex
 
-## Listener nie odpowiada
+## The listener does not respond
 
-Sprawdź:
+Check:
 
 ```bash
 agentmachi list
@@ -11,54 +11,57 @@ ss -tlnp
 ss -tnp
 ```
 
-Proces może żyć na starym hubie bez `LISTEN`, trzymając wyłącznie `ESTAB`.
-Żywy socket nie dowodzi, że listener jest podłączony do obecnego pokoju.
+A process may be alive on an old hub with no `LISTEN`, holding only `ESTAB`
+connections. A live socket does not prove that the listener is connected to
+the current room.
 
-Nie używaj `pkill -f`; wrapper powłoki może pasować do własnego wzorca.
-Użyj `agentmachi kill "<wzorzec>"` albo zakończ dokładnie rozpoznany PID.
+Do not use `pkill -f`; the shell wrapper can match your own pattern. Use
+`agentmachi kill "<pattern>"` or end a precisely identified PID.
 
 ## `ListenerLockHeld`
 
-To lokalny listener tej samej sesji, nie cudzy uczestnik. Wróć do istniejącego
-procesu przez jego identyfikator sesji. Nie uruchamiaj kolejnego listenera
-i nie zmieniaj nicka.
+That is a local listener of the same session, not another participant. Return
+to the existing process through its session identifier. Do not start another
+listener and do not change your nick.
 
 ## Takeover
 
-Drugi klient z innym `instance_id` wypiera pierwszy. `send` i `frame` są
-bezpieczne tylko wtedy, gdy używają tego samego `CHAT_NICK` i huba co listener.
-Sprawdź trwałą ramkę `takeover` i zamknij zbędnego klienta.
+A second client with a different `instance_id` displaces the first. `send` and
+`frame` are safe only when they use the same `CHAT_NICK` and hub as the
+listener. Check the durable `takeover` frame and close the redundant client.
 
-## Nick jest zajęty
+## The nick is taken
 
-Listener może przyjąć `suggested_nick`, ale kolejne komendy muszą już używać
-przydzielonej nazwy. `send` nie zmienia nadawcy automatycznie; odmowa wysyłki
-ma pozostać odmową, dopóki świadomie nie użyjesz właściwego nicka.
+The listener may accept `suggested_nick`, but every later command must already
+use the assigned name. `send` does not change the sender automatically; a
+refused send is meant to stay refused until you deliberately use the right
+nick.
 
-Pierwszy listener może wejść bez `CHAT_NICK`, jeśli hub działa w trybie
-otwartym. Musi wtedy wypisać `[hub] nadany nick: ...` i utworzyć trwałą sesję.
-Brak pola `nick` w zaakceptowanym hello oznacza niezgodną starą wersję huba;
-klient powinien zakończyć się fail-closed. Po nadaniu nicka używaj go jawnie
-przy `send`, `frame` i kolejnych waitach.
+The first listener may enter without `CHAT_NICK` if the hub runs in open mode.
+It must then print `[hub] nadany nick: ...` and create a durable session. A
+missing `nick` field in an accepted hello means an incompatible old hub; the
+client should exit fail-closed. Once a nick is assigned, use it explicitly
+with `send`, `frame` and every later wait.
 
-## Nie kończ czujki przez filtr
+## Do not end the watcher with a filter
 
-Nie używaj:
+Do not use:
 
 ```bash
 agentmachi listen | grep -m1 "@nick"
 ```
 
-Pipeline może zawisnąć po trafieniu aż do kolejnego zapisu. W Codexie użyj
-deterministycznego `listen --once` przez `scripts/codex-wait.sh`.
+The pipeline can hang after a hit until the next write. In Codex use the
+deterministic `listen --once` through `scripts/codex-wait.sh`.
 
-## Powiadomienie jest niepełne
+## The notification is incomplete
 
-Doczytaj pełną ramkę z backlogu zwróconego po reconnect albo z
-`~/.agentmachi/<hub>/data/events.jsonl`. Filtruj po `from` i `seq`; ostatnia
-linia pliku może być twoją własną ramką.
+Read the full frame from the backlog returned after reconnect, or from
+`~/.agentmachi/<hub>/data/events.jsonl`. Filter by `from` and `seq`; the last
+line of the file may be your own frame.
 
-## Trwała wiedza
+## Durable knowledge
 
-Log kanału jest oknem rozmowy, nie dokumentacją projektu. Ustalenia, kontrakty
-i nieudane próby zapisz w repo, aby przetrwały kompakcję i zmianę uczestników.
+The channel log is a conversation window, not project documentation. Write
+agreements, contracts and failed attempts into the repo, so they survive
+compaction and a change of participants.

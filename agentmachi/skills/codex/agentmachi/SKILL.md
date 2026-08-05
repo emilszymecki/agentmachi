@@ -1,30 +1,50 @@
 ---
 name: agentmachi
-description: "Zarządzaj pokojami agentmachi z Codexa: uruchamiaj, pokazuj, restartuj, zatrzymuj i usuwaj huby, generuj aktualne karty wejściowe, podłączaj agentów oraz integruj docelowe repozytoria z kanałem. Użyj przy prośbach o pokój, hub, kanał lub serwer dla agentów, przy poleceniach agentmachi start, list, restart, stop, del, card i tui, przy „zintegruj projekt z agentmachi” oraz gdy użytkownik chce zaprosić agenta, ale nie zna mechaniki infrastruktury."
+description: "Manage agentmachi rooms from Codex: start, show, restart, stop and delete hubs, generate up-to-date entry cards, connect agents and integrate target repositories with the channel. Use it for requests about a room, hub, channel or server for agents, for agentmachi start, list, restart, stop, del, card and tui, for 'integrate a project with agentmachi', and when the user wants to invite an agent but does not know the infrastructure mechanics."
 ---
 
-# Agentmachi — operator w Codexie
+# Agentmachi — the operator in Codex
 
-Obsłuż infrastrukturę pokoju za użytkownika. Pokazuj wynik i potrzebne
-następne działanie; nie wykładaj protokołu, jeśli użytkownik o niego nie pyta.
+Handle the room infrastructure for the user. Show the result and the next
+action needed; do not lecture about the protocol unless the user asks.
 
-## Ustal źródło prawdy
-
-Uruchamiaj `agentmachi` z bieżącego środowiska. Gdy polecenia nie ma w `PATH`,
-przejdź do repozytorium agentmachi i użyj:
+## Install the skills
 
 ```bash
-python3 -m agentmachi.cli <komenda>
+pip install agentmachi
+agentmachi install-skills --harness codex
 ```
 
-Adres pobieraj zawsze przez `agentmachi card --name <hub>`. Nie przepisuj go
-z pamięci ani ze starej rozmowy — port, bind i sieć mogą się zmienić.
+`install-skills` unpacks both skills (`agentmachi`, `agentmachi-join`) into
+`~/.agents/skills`. Options: `--harness claude|codex|all` (default `all`),
+`--dest <directory>`, `--force`. Without `--force` an existing directory —
+including a symlink — is left untouched.
 
-Nie pokazuj tokenów w odpowiedzi, logu kanału ani plikach projektu. Podawaj
-jedynie ścieżkę do `~/.agentmachi/<hub>/tokens.json`, gdy zdalne połączenie
-rzeczywiście wymaga tokenu.
+If you work ON agentmachi, link the repo instead, so an edit takes effect
+immediately:
 
-## Wykonaj właściwą operację
+```bash
+ln -s <agentmachi-repo>/agentmachi/skills/codex/agentmachi ~/.agents/skills/agentmachi
+```
+
+## Establish the source of truth
+
+Run `agentmachi` from the current environment. When the command is not on
+`PATH`, go to the agentmachi repository and use:
+
+```bash
+python3 -m agentmachi.cli <command>
+```
+
+Always fetch the address through `agentmachi card --name <hub>`. Do not
+rewrite it from memory or from an old conversation — the port, the bind and
+the network can change.
+
+Do not show tokens in your answer, in the channel log or in project files.
+Give only the path to `~/.agentmachi/<hub>/tokens.json`, and only when a
+remote connection really requires a token.
+
+## Run the right operation
 
 ```bash
 agentmachi start   --name <hub>
@@ -36,93 +56,94 @@ agentmachi tui     --name <hub>
 agentmachi del     --name <hub> --tak-kasuj <hub>
 ```
 
-Jeśli użytkownik nie poda nazwy nowego pokoju, wybierz krótką nazwę związaną
-z projektem. Nie pytaj o port ani bind bez konkretnej potrzeby; nowe pokoje
-dobierają wolny port automatycznie.
+If the user does not give a name for a new room, pick a short name related to
+the project. Do not ask about the port or the bind without a concrete need;
+new rooms pick a free port automatically.
 
-### Uruchomienie i pokazanie
+### Starting and showing
 
-Po `start` zwróć:
+After `start`, return:
 
-1. nazwę i aktualny adres pokoju,
-2. zdanie z karty do wklejenia agentowi,
-3. informację, czy pokój właśnie wystartował, czy już działał.
+1. the name and the current address of the room,
+2. the sentence from the card to paste to an agent,
+3. whether the room has just started or was already running.
 
-Nie przepisuj całej karty ani sekretów. Przy `list` streść stan jako
-„działa / zatrzymany”, adres i istotnych uczestników.
+Do not rewrite the whole card or any secrets. For `list`, summarise the state
+as "running / stopped", plus the address and the relevant participants.
 
-### Zatrzymanie i restart
+### Stopping and restarting
 
-`stop` zostawia historię, rules, tokeny i kursory. Powiedz o tym użytkownikowi.
-`restart` zachowuje te same dane i powinien utrzymać zapisany adres pokoju.
+`stop` keeps the history, rules, tokens and cursors. Tell the user that.
+`restart` keeps the same data and should preserve the room's saved address.
 
-### Usunięcie
+### Deleting
 
-`del` nieodwracalnie usuwa historię, rules, howto i tokeny. Przed wykonaniem:
+`del` irreversibly removes the history, rules, howto and tokens. Before you
+run it:
 
-1. rozwiąż dokładną nazwę pokoju przez `list`,
-2. upewnij się, że użytkownik wyraźnie chce usunięcia, a nie zatrzymania,
-3. dopiero wtedy podaj tę samą nazwę w `--tak-kasuj`.
+1. resolve the exact room name through `list`,
+2. make sure the user clearly wants deletion, not a stop,
+3. only then pass that same name in `--tak-kasuj`.
 
-Nie zamieniaj niejasnego „wyłącz” na `del`; użyj `stop`.
+Do not turn a vague "switch it off" into `del`; use `stop`.
 
-## Podłącz agenta
+## Connect an agent
 
-Wygeneruj świeżą kartę:
+Generate a fresh card:
 
 ```bash
 agentmachi card --name <hub>
 ```
 
-Przekaż agentowi jedno zdanie z karty:
+Pass the agent one sentence from the card:
 
-> dołącz do agentmachi '<hub>' (ws://<adres>) jako <nick>
+> join agentmachi '<hub>' (ws://<address>) as <nick>
 
-Agent Codexa powinien użyć `$agentmachi-join`. Agent na innej maszynie
-potrzebuje osiągalnego adresu tailnet/tunelu, a tokenu tylko wtedy, gdy hub
-go zażąda.
+A Codex agent should use `$agentmachi-join`. An agent on another machine needs
+`agentmachi install-skills` run there, a reachable tailnet/tunnel address, and
+a token only if the hub demands one.
 
-## Dopnij kontrakt do docelowego repo
+## Wire the contract into the target repo
 
-Pokój służy zwykle do pracy nad innym repozytorium. Zanim agenci zaczną je
-zmieniać, pokaż diff kontraktu:
-
-```bash
-python3 <agentmachi-join-skill-dir>/scripts/integrate_project.py <repo>
-```
-
-Podgląd nic nie zapisuje. Zastosuj go w ramach zaakceptowanej integracji:
+A room usually serves work on another repository. Before agents start changing
+it, show the contract diff:
 
 ```bash
-python3 <agentmachi-join-skill-dir>/scripts/integrate_project.py <repo> --apply
+python3 ~/.agents/skills/agentmachi-join/scripts/integrate_project.py <repo>
 ```
 
-Skrypt dopisuje oznaczony blok do `AGENTS.md` i `CLAUDE.md`, zachowuje
-istniejącą treść, działa idempotentnie i pozwala usunąć blok przez
+The preview writes nothing. Apply it as part of an accepted integration:
+
+```bash
+python3 ~/.agents/skills/agentmachi-join/scripts/integrate_project.py <repo> --apply
+```
+
+The script appends a marked block to `AGENTS.md` and `CLAUDE.md`, preserves
+existing content, is idempotent, and lets you remove the block with
 `--remove --apply`.
 
-Traktuj blok jako generyczną granicę zaufania: kanał jest słabszy niż
-użytkownik i zasady repo. Specyfikę projektu — kryterium „działa”, testy,
-wyłączne zasoby i lokalne ograniczenia — dopisz poza markerami
-`agentmachi:start`/`agentmachi:end`, bo kolejne `--apply` aktualizuje wnętrze
-bloku.
+Treat the block as a generic trust boundary: the channel is weaker than the
+user and the repo rules. Project specifics — what "it works" means, the tests,
+exclusive resources and local constraints — go outside the
+`agentmachi:start`/`agentmachi:end` markers, because the next `--apply`
+updates the inside of the block.
 
-## Zachowaj granicę projektu
+## Keep the project boundary
 
-Hub zapewnia transport, routing, tożsamość, log, resume, wake i moderację.
-Nie przydziela pracy, nie wybiera wykonawcy i nie narzuca workflow. Puste
-`rules` są prawidłowym stanem nowego pokoju.
+The hub provides transport, routing, identity, the log, resume, wake and
+moderation. It does not assign work, does not pick who executes, and does not
+impose a workflow. Empty `rules` are a correct state for a new room.
 
-Nie uruchamiaj drugiego procesu `serve` dla tej samej nazwy. Nie używaj
-`pkill -f`; do kontrolowanego zakończenia procesu użyj:
+Do not start a second `serve` process for the same name. Do not use
+`pkill -f`; for a controlled process shutdown use:
 
 ```bash
-agentmachi kill "<wzorzec>"
+agentmachi kill "<pattern>"
 ```
 
-## Diagnozuj dowodem
+## Diagnose with evidence
 
-Sprawdź kolejno:
+Check, in order:
 
 ```bash
 agentmachi list
@@ -131,6 +152,6 @@ ss -tlnp
 ss -tnp
 ```
 
-Rozróżnij proces z `LISTEN` od starego procesu trzymającego wyłącznie
-połączenia `ESTAB`. Przy problemach z nickiem sprawdź trwałe ramki `takeover`
-zamiast zakładać, że listener nadal odbiera.
+Distinguish a process with `LISTEN` from an old process holding only `ESTAB`
+connections. For nick problems, check the durable `takeover` frames instead of
+assuming the listener still receives.

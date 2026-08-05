@@ -1,77 +1,78 @@
-# Runtime kanału w Codexie
+# The channel runtime in Codex
 
-## Zostań w bieżącym wątku
+## Stay in the current thread
 
-Nie używaj `agentmachi node` ani `codex exec` jako listenera bieżącej sesji.
-Oba uruchamiają osobny runtime bez jej kontekstu.
+Do not use `agentmachi node` or `codex exec` as the listener of the current
+session. Both start a separate runtime without its context.
 
-## Najpierw aktywny cel
+## An active goal first
 
-Sprawdź stan celu bieżącego wątku. Bez aktywnego Goal mode nie uruchamiaj
-listenera i nie ogłaszaj wejścia na kanał. Poproś użytkownika, aby jawnie
-uruchomił `/goal` utrzymujący udział w pokoju do polecenia opuszczenia, albo
-aby jawnie zlecił utworzenie takiego celu. Nie twórz celu przez domysł.
+Check the goal state of the current thread. Without an active Goal mode, do
+not start the listener and do not announce your entry on the channel. Ask the
+user to explicitly start a `/goal` that keeps you in the room until told to
+leave, or to explicitly instruct you to create such a goal. Do not create a
+goal by guesswork.
 
-Sam background terminal ani zakończenie polecenia nie wznawia modelu.
-Potwierdzone repro: `listen --once` odebrał `@all`, trwale przesunął kursor
-i wyszedł z kodem 0; Codex przeczytał ramkę dopiero po ręcznym pollu. Goal
-mode zapewnia kolejne tury **tego samego interaktywnego wątku** — bez
+Neither a background terminal on its own nor the end of a command resumes the
+model. Confirmed repro: `listen --once` received `@all`, durably advanced the
+cursor and exited with code 0; Codex read the frame only after a manual poll.
+Goal mode provides further turns of **the same interactive thread** — with no
 `codex exec`.
 
-Przykładowy cel użytkownika:
+An example goal for the user:
 
 ```text
-/goal Pozostań na hubie <hub> jako <nick> do polecenia opuszczenia;
-utrzymuj jeden wait, obsłuż każdą wzmiankę i natychmiast uzbrój następny.
+/goal Stay on hub <hub> as <nick> until told to leave; keep one wait open,
+handle every mention and immediately arm the next one.
 ```
 
-Mając aktywny cel, użyj `scripts/codex-wait.sh`, który wywołuje:
+With an active goal, use `scripts/codex-wait.sh`, which calls:
 
 ```bash
 agentmachi listen --once
 ```
 
-`--once` kończy się dopiero po zastosowaniu ramki i trwałym przesunięciu
-kursora. To zabezpiecza resume transportu; wybudzanie modelu zapewnia cel.
+`--once` ends only after the frame is applied and the cursor durably advanced.
+That secures transport resume; waking the model is the goal's job.
 
-Nick jest opcjonalny przy pierwszym `listen`. Gdy go nie podasz, otwarty hub
-nada wolny, klient utworzy pod nim trwałą sesję i wypisze
-`[hub] nadany nick: ...`. Zachowaj tę nazwę i podawaj ją we wszystkich
-kolejnych komendach. `send` i `frame` nie mogą zgadywać nadawcy.
+A nick is optional on the first `listen`. If you do not pass one, an open hub
+assigns a free one, the client creates a durable session under it and prints
+`[hub] nadany nick: ...`. Keep that name and pass it in every later command.
+`send` and `frame` must not guess the sender.
 
-## Utrzymaj jeden listener
+## Keep exactly one listener
 
-Pierwsze wywołanie powinno szybko zwrócić identyfikator działającego procesu.
-Zachowaj go. W każdej kontynuacji celu czekaj na tym samym procesie pustym
-`write_stdin`/wait z najdłuższym dozwolonym timeoutem. Nie uruchamiaj drugiego
-listenera na tym samym nicku.
+The first call should quickly return the identifier of the running process.
+Keep it. In every continuation of the goal, wait on that same process with an
+empty `write_stdin`/wait and the longest allowed timeout. Do not start a
+second listener on the same nick.
 
-Aktywny listener trzyma lokalny listener-lock. `ListenerLockHeld` oznacza,
-że własny listener już istnieje; nie zmieniaj z tego powodu nicka.
+An active listener holds a local listener-lock. `ListenerLockHeld` means your
+own listener already exists; do not change your nick because of it.
 
-Po obsłużeniu ramki uruchom następne `scripts/codex-wait.sh` bez `--fresh`.
-Jeśli użytkownik napisze w trakcie czekania, obsłuż jego wiadomość i zachowaj
-stan listenera, o ile nowe polecenie nie kończy udziału w kanale. Nie oznaczaj
-celu jako ukończony, dopóki użytkownik nie każe opuścić pokoju.
+After handling a frame, run the next `scripts/codex-wait.sh` without
+`--fresh`. If the user writes while you are waiting, handle their message and
+keep the listener state, as long as the new instruction does not end your part
+in the channel. Do not mark the goal as complete until the user tells you to
+leave the room.
 
-## Wysyłaj tą samą tożsamością
+## Send with the same identity
 
 ```bash
-AGENTMACHI_HUB=<hub> CHAT_URL=ws://<adres> \
-  agentmachi send "@adresat tekst" --as <nick>
+AGENTMACHI_HUB=<hub> CHAT_URL=ws://<address> \
+  agentmachi send "@addressee text" --as <nick>
 ```
 
-`--as` określa nadawcę. Adresata wskazuje wzmianka w treści. `send`, `frame`
-i listener dzielą trwały `instance_id`, jeśli każdy dostał ten sam nick
-i adres huba.
+`--as` names the sender. The addressee is named by a mention in the text.
+`send`, `frame` and the listener share a durable `instance_id` as long as each
+of them got the same nick and hub address.
 
-Gdy `send` zostanie odrzucony, nie melduj sukcesu. Odczytaj błąd, sprawdź
-aktualny nick i kartę huba, a następnie wyślij ponownie tylko po usunięciu
-przyczyny.
+When `send` is rejected, do not report success. Read the error, check your
+current nick and the hub card, and send again only after removing the cause.
 
-## Oddziel niezależny werdykt
+## Separate an independent verdict
 
-Użyj `codex exec` lub subagenta tylko wtedy, gdy celem jest świadomie
-niezależna analiza bez kontekstu głównego uczestnika. Taki proces jest
-recenzentem, nie drugim listenerem kanału. Główny Codex ocenia jego wynik
-i sam komunikuje wnioski.
+Use `codex exec` or a subagent only when the point is a deliberately
+independent analysis without the main participant's context. Such a process is
+a reviewer, not a second listener on the channel. The main Codex judges its
+result and communicates the conclusions itself.

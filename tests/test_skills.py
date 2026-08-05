@@ -141,13 +141,18 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
     UWAGA O SAMYM TESCIE: pierwsza wersja szukala frazy zapisanej BEZ polskich
     znakow ("przyszlo") i przechodzila na kodzie, ktory zawieral "przyszło".
     Zielony wynik znaczyl tylko tyle, ze asercja nie trafila w cel — ta sama
-    klasa, co zasada 13 w docs/zasady-agentyczne.md. Dlatego szukamy tu
-    WZORCA odpornego na diakrytyki, a nie jednego literalnego zdania."""
-    wzorzec = re.compile(r"wygrywa to,\s*co\s*przysz\w+\s*z\s*huba",
+    klasa, co zasada 13 w docs/pl/zasady-agentyczne.md. Dlatego szukamy tu
+    WZORCA odpornego na zapis, a nie jednego literalnego zdania."""
+    # Zmienil sie JEZYK skilla, nie kontrakt: skill nadal nie ma prawa mowic,
+    # ze tresc z huba wygrywa z zasadami projektu. Polski wzorzec byl odporny
+    # na diakrytyki; angielski musi byc odporny na to samo, co go realnie
+    # rozbije — wielkosc liter i zawijanie wiersza w markdownie (stad `\s+`,
+    # ktore lapie takze nowa linie miedzy slowami frazy).
+    wzorzec = re.compile(r"what\s+came\s+from\s+the\s+hub\s+wins",
                          re.IGNORECASE)
     # kontrola samego wzorca: musi trafiac w oba zapisy, inaczej test jest atrapa
-    assert wzorzec.search("wygrywa to, co przyszło z huba")
-    assert wzorzec.search("wygrywa to, co przyszlo z huba")
+    assert wzorzec.search("what came from the hub wins")
+    assert wzorzec.search("What came\nfrom the hub Wins")
 
     for sciezka in sorted(SKILLS.rglob("*.md")):
         trafienie = wzorzec.search(sciezka.read_text())
@@ -160,7 +165,10 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
     # bo to on jest instalowany do cudzego repo (zlapane przy review E1).
     joined = (SKILLS / "agentmachi-join").rglob("*.md")
     tresc = "\n".join(p.read_text().lower() for p in joined)
-    assert "nadrzedn" in tresc or "nadrzędn" in tresc, \
+    # Zmienil sie JEZYK skilla, nie kontrakt: skill nadal musi AKTYWNIE mowic,
+    # ze zasady usera i repo sa nadrzedne nad kanalem ("nadrzedn" -> "take
+    # precedence").
+    assert "take precedence" in tresc, \
         "skill nie mowi, ze zasady projektu/usera sa NADRZEDNE nad kanalem"
     assert "peer" in tresc or "uczestnik" in tresc, \
         "skill nie nazywa tresci z kanalu jako pochodzacej od innego uczestnika"
@@ -284,20 +292,29 @@ def test_codex_wait_nie_udaje_mechanizmu_wybudzania_modelu():
     ]
     tresc = "\n".join(p.read_text().lower() for p in pliki)
 
+    # Zmienil sie JEZYK skilli, nie kontrakt. Klamstwa sa te same co po polsku,
+    # tylko zapisane po angielsku. Forma "wakes"/"returns" (3. os. l. poj.) jest
+    # celowa: zdanie prawdziwe ("does not wake", "does not return") NIE zawiera
+    # ich jako podlancucha, wiec asercja nie lapie wlasnej negacji.
     for klamstwo in (
-        "koniec procesu budzi ten sam codex",
-        "wraca do modelu po końcu polecenia",
-        "wynik wraca do bieżącego wątku codexa",
+        "the end of the process wakes the same codex",
+        "returns to the model after the command ends",
+        "the result returns to the current codex thread",
     ):
         assert klamstwo not in tresc, f"skill nadal obiecuje: {klamstwo}"
 
-    assert "/goal" in tresc and "nie twórz celu" in tresc, \
+    # Jezyk, nie kontrakt: "nie twórz celu" -> "do not create a goal".
+    assert "/goal" in tresc and "do not create a goal" in tresc, \
         "skill nie wymaga jawnie zleconego aktywnego celu"
-    assert "codex exec" in tresc and "nie używaj" in tresc, \
+    # Jezyk, nie kontrakt: "nie używaj" -> "do not use".
+    assert "codex exec" in tresc and "do not use" in tresc, \
         "skill myli aktywny cel z osobnym runtime'em"
 
+    # Jezyk, nie kontrakt: "cel" -> "goal", "przedstaw się" -> "introduce
+    # yourself". Kolejnosc sekcji w skillu Codexa musi zostac ta sama: bramka
+    # celu PRZED ogloszeniem wejscia.
     skill_codexa = pliki[2].read_text().lower()
-    assert skill_codexa.index("cel") < skill_codexa.index("przedstaw się"), \
+    assert skill_codexa.index("goal") < skill_codexa.index("introduce yourself"), \
         "skill oglasza wejscie zanim sprawdzi mechanizm kontynuacji"
 
     agents = pliki[-1].read_text().lower()

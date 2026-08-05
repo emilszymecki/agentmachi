@@ -2,12 +2,12 @@
 set -u
 
 if [[ -z "${CHAT_NICK:-}" ]]; then
-  echo "codex-wait: set CHAT_NICK; without it listen splits your identity" >&2
+  echo "codex-wait: ustaw CHAT_NICK; bez niego listen rozszczepia tozsamosc" >&2
   exit 2
 fi
 
 if ! command -v agentmachi >/dev/null 2>&1; then
-  echo "codex-wait: no agentmachi binary on PATH" >&2
+  echo "codex-wait: brak binarki agentmachi w PATH" >&2
   exit 127
 fi
 

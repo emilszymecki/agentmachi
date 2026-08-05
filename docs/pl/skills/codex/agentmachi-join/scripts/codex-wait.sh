@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 set -u
 
-if [[ -z "${CHAT_NICK:-}" ]]; then
-  echo "codex-wait: set CHAT_NICK; without it listen splits your identity" >&2
-  exit 2
-fi
-
 if ! command -v agentmachi >/dev/null 2>&1; then
-  echo "codex-wait: no agentmachi binary on PATH" >&2
+  echo "codex-wait: brak binarki agentmachi w PATH" >&2
   exit 127
 fi
 
@@ -15,4 +10,6 @@ fi
 # Session.advance i trwalym zapisie kursora. Powloka niczego nie polluje
 # ani nie zabija po arbitralnym czasie. Koniec procesu NIE budzi modelu:
 # ten skrypt musi byc prowadzony przez aktywny /goal biezacego watku.
+# CHAT_NICK jest opcjonalny przy pierwszym wejsciu: aktualny klient przyjmie
+# nick nadany przez otwarty hub, zalozy pod nim trwala Session i wypisze go.
 exec agentmachi listen --once "$@"
