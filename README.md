@@ -80,6 +80,12 @@ agentmachi frame  --name <room> --nick <nick> '{"type":"status","state":"idle"}'
 `--as` says **who you are**; the `@mention` in the text says **who you are
 talking to**.
 
+`--name` reads the address from `~/.agentmachi/<room>/config.json`, so it only
+works for a room on **this** machine. There is no default port to fall back on:
+a room that is not here makes the command fail instead of quietly joining
+whichever room happens to run on the default port. A room somewhere else is
+joined with `CHAT_URL=ws://host:port` — that needs no local room at all.
+
 **Never hard-code a hub address into prompts or files** — it moves with bind,
 port, network and restart. The source is `agentmachi card`.
 

@@ -300,6 +300,8 @@ def load_tokens(name):
 
 
 def hub_port(name, fallback=DEFAULT_PORT):
+    """Port pokoju albo `fallback`. UWAGA: fallback wolno brac WYLACZNIE
+    komendom TWORZACYM pokoj (serve/start/restart) — patrz join_addr."""
     config = hub_dir(name) / "config.json"
     if config.exists():
         return json.loads(config.read_text(encoding="utf-8")).get("port", fallback)
@@ -307,10 +309,52 @@ def hub_port(name, fallback=DEFAULT_PORT):
 
 
 def hub_bind(name, fallback=DEFAULT_BIND):
+    """Bind pokoju albo `fallback`. Ten sam warunek co przy hub_port."""
     config = hub_dir(name) / "config.json"
     if config.exists():
         return json.loads(config.read_text(encoding="utf-8")).get("bind", fallback)
     return fallback
+
+
+def hub_istnieje_lokalnie(name):
+    """Czy ten pokoj ma tu zapisany adres. Bez adresu nie ma dokad dolaczac."""
+    return (hub_dir(name) / "config.json").exists()
+
+
+def join_addr(name):
+    """(bind, port) pokoju, DO KTOREGO DOLACZAMY. Brak pokoju = CliError.
+
+    Podzial na komendy TWORZACE i DOLACZAJACE jest fizyczny, nie kosmetyczny.
+    `serve`/`start`/`restart` maja prawo do DEFAULT_PORT: pokoj dopiero
+    powstaje, wiec domyslny adres nie nalezy jeszcze do nikogo, a alokator
+    (_wybierz_port) i tak przesunie sie w gore, gdy port jest zajety.
+    `listen`/`send`/`frame`/`node`/`card`/`tui` nie maja czego zgadywac —
+    gdy config.json pokoju nie istnieje, KAZDY domysl trafia w ten pokoj,
+    ktory akurat stoi na tym porcie.
+
+    Zmierzone na zywo 2026-08-05, nie wyczytane z kodu: agent przeszedl
+    README doslownie, zrobil `agentmachi listen --name openrepo` (pokoju nie
+    bylo w lokalnym ~/.agentmachi/) i wszedl do CUDZEGO pokoju 'test' na
+    DEFAULT_PORT. Dostal poprawne session_metadata, board, howto i exit 0 —
+    zero ostrzezenia, pelna pewnosc, ze jest na openrepo. `send` domknal
+    dowod: exit 0, komunikat "unknown nick: orchestrator" (brzmi jak
+    literowka w nicku, nie jak "jestes w zlym pokoju") i ramka w cudzym
+    events.jsonl. Raport przepadl, a nadawca byl przekonany, ze go wyslal.
+
+    Klient meldujacy sukces, gdy wyslal dane obcemu odbiorcy, to zlamana
+    fizyka transportu, nie brak wygody. Wiec: fail-closed z instrukcja."""
+    if not hub_istnieje_lokalnie(name):
+        config = hub_dir(name) / "config.json"
+        raise CliError(
+            f"room {name!r} is not on this machine (no {config}) — refusing "
+            f"to guess its port. A guess would silently join whatever room "
+            f"happens to run on the default one, and you would get a board, "
+            f"a howto and exit 0 from SOMEONE ELSE'S room.\n"
+            f"  rooms you have here:    agentmachi list\n"
+            f"  room on another host:   CHAT_URL=ws://host:port agentmachi "
+            f"listen   (needs no local room at all)\n"
+            f"  create it here:         agentmachi start --name {name}")
+    return hub_bind(name), hub_port(name)
 
 
 # --- cykl zycia huba (F6 UX + F7 split-brain) ---------------------------
@@ -779,8 +823,10 @@ def _agent_env(args):
     # Tryb otwarty huba (loopback/tailnet) wpuszcza bez sekretu, a nick
     # nada sam. Token/nick bierzemy WYLACZNIE, gdy operator poda je w env.
     if not remote:
-        port = hub_port(name)
-        bind = hub_bind(name)
+        # Bez CHAT_URL adres MUSI pochodzic z lokalnego config.json. Brak
+        # pokoju to blad, nie DEFAULT_PORT — inaczej wchodzimy w cudzy pokoj
+        # i meldujemy sukces (patrz join_addr).
+        bind, port = join_addr(name)
         if not token:
             # Hub LOKALNY: jesli stoi w trybie otwartym, tez wejdziemy bez
             # tokenu. Tokens.json czytamy tylko, gdy istnieje i ma nasz nick
@@ -1171,6 +1217,12 @@ def purge_cursors(name):
     przy pierwszym uruchomieniu po sprzataniu.
 
     Wolane z delete_hub PRZED rmtree — po nim nie ma juz skad wziac nickow."""
+    if not hub_istnieje_lokalnie(name):
+        # Pokoj bez config.json nie ma adresu, a zgadniety DEFAULT_PORT
+        # wskazywalby kursory CUDZEGO pokoju stojacego na tym porcie —
+        # skasowalibysmy komus zywy kursor przy sprzataniu po sobie. Lepiej
+        # zostawic wlasne smieci niz ruszyc nie swoje.
+        return 0
     hub = f"{connect_host(hub_bind(name))}:{hub_port(name)}"
     usuniete = 0
     for nick in _nicki_pokoju(name):
@@ -1216,7 +1268,10 @@ def cmd_del(args):
 def cmd_card(args):
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
     tokens, d = load_tokens(name)
-    print_card(name, hub_port(name), tokens, bind=hub_bind(name))
+    # Karta niesie zdanie DO WKLEJENIA agentowi — zgadniety adres rozsialby
+    # blad dalej, na kazdego, kto ta karte dostanie.
+    bind, port = join_addr(name)
+    print_card(name, port, tokens, bind=bind)
     return 0
 
 
@@ -1236,10 +1291,10 @@ def _tui_env(name):
     # nazwany (start/stop/del biora --name), a `~/.agentmachi/<nazwa>/`
     # jest jedynym miejscem z pidfile.
     os.environ["AGENTMACHI_HUB"] = name
-    port = hub_port(name)
+    bind, port = join_addr(name)
     os.environ["CHAT_PORT"] = str(port)
     if not os.environ.get("CHAT_URL"):
-        os.environ["CHAT_URL"] = f"ws://{connect_host(hub_bind(name))}:{port}"
+        os.environ["CHAT_URL"] = f"ws://{connect_host(bind)}:{port}"
     return tokens_path
 
 

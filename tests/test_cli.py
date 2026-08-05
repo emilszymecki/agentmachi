@@ -185,6 +185,99 @@ def test_agent_env_chat_url_from_env_wins_over_config(home, monkeypatch):
     assert os.environ["CHAT_URL"] == "ws://100.64.0.7:8766"
 
 
+# -- pokoj, ktorego tu nie ma: dolaczanie NIE zgaduje portu --------------
+
+@pytest.mark.parametrize("argv", [
+    ["send", "raport gotowy", "--name", "openrepo", "--as", "reviewer"],
+    ["listen", "--name", "openrepo", "--nick", "reviewer"],
+    ["frame", '{"type":"status","state":"idle"}', "--name", "openrepo",
+     "--nick", "reviewer"],
+    ["node", "openrepo", "--nick", "reviewer", "--workspace", "/tmp/ws-brak"],
+])
+def test_dolaczenie_do_nieistniejacego_pokoju_nie_zgaduje_portu(
+        home, monkeypatch, capsys, argv):
+    """Zmierzone na zywo 2026-08-05, nie wyczytane z kodu: agent przeszedl
+    README doslownie, zrobil `agentmachi listen --name openrepo` (pokoju NIE
+    bylo w lokalnym ~/.agentmachi/) i wylandowal w CUDZYM pokoju 'test' —
+    z poprawnym session_metadata, boardem, howto i exit 0. Zero ostrzezenia,
+    pewnosc, ze jest na openrepo.
+
+    `send` domknal dowod: exit 0 i komunikat "unknown nick: orchestrator",
+    ktory brzmi jak literowka w nicku, a nie jak "jestes w zlym pokoju".
+    Ramka wyladowala w ~/.agentmachi/test/data/events.jsonl. Raport przepadl,
+    a nadawca byl pewien, ze go wyslal.
+
+    Przyczyna: hub_port(name, fallback=DEFAULT_PORT) przy braku config.json
+    oddawalo twarde 8766. To fizyka, nie ergonomia — klient MELDUJE SUKCES,
+    wysylajac dane obcemu odbiorcy.
+
+    Test NIE dotyka drutu i tak ma zostac: przy pierwszym uruchomieniu (bez
+    zaslony `_import_send`) wersja z bugiem NIE padala — ona wisiala,
+    probujac sie polaczyc z tym, co akurat stoi na 8766 u operatora. Test,
+    ktory celuje w domyslny port, jest dokladnie ta sama pomylka co
+    naprawiana."""
+    cli.ensure_hub("test", cli.DEFAULT_PORT)     # CUDZY pokoj na domyslnym
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")
+
+    def _bez_drutu():
+        raise AssertionError(
+            "klient ruszyl do sieci mimo braku pokoju — to jest ten bug")
+    monkeypatch.setattr(cli, "_import_send", _bez_drutu)
+
+    rc = cli.main(argv)
+
+    assert rc == 2, "wejscie do nieistniejacego pokoju nie moze konczyc sie 0"
+    err = capsys.readouterr().err
+    assert "openrepo" in err, err
+    assert "agentmachi list" in err, "komunikat ma pokazac, jakie pokoje SA"
+    assert "CHAT_URL" in err, "komunikat ma dac droge do pokoju na innej maszynie"
+    assert os.environ.get("CHAT_URL", "") != f"ws://localhost:{cli.DEFAULT_PORT}", \
+        "klient wycelowal w domyslny port mimo braku pokoju"
+
+
+def test_dolaczenie_bez_lokalnego_pokoju_dziala_z_jawnym_chat_url(
+        home, monkeypatch):
+    """Granica poprzedniego testu. Tak wchodza agenci z INNYCH maszyn: nie ma
+    tam zadnego ~/.agentmachi/<pokoj>, a jawny CHAT_URL musi wystarczyc
+    (C1 — env wygrywa nad configiem lokalnym)."""
+    monkeypatch.setenv("CHAT_URL", "ws://100.64.0.7:8931")
+    monkeypatch.setenv("CHAT_TOKEN", "")
+    monkeypatch.setenv("CHAT_NICK", "")
+
+    class Args:
+        name = "openrepo"       # pokoju NIE MA lokalnie — i nie musi byc
+        nick = "reviewer"
+    cli._agent_env(Args())
+    assert os.environ["CHAT_URL"] == "ws://100.64.0.7:8931"
+
+
+def test_card_nieistniejacego_pokoju_nie_drukuje_zgadnietego_adresu(
+        home, capsys):
+    """Karta to zdanie do WKLEJENIA agentowi. Adres zgadniety z DEFAULT_PORT
+    rozsiewa blad dalej — kazdy, kto dostanie taka karte, wejdzie w cudzy
+    pokoj."""
+    cli.ensure_hub("test", cli.DEFAULT_PORT)
+    assert cli.main(["card", "--name", "openrepo"]) == 2
+    wyjscie = capsys.readouterr()
+    assert f"ws://localhost:{cli.DEFAULT_PORT}" not in wyjscie.out
+
+
+def test_tworzenie_pokoju_nadal_bierze_domyslny_port(home, monkeypatch,
+                                                     capsys):
+    """Rozroznienie, ktorego nie wolno zgubic: komenda TWORZACA pokoj ma
+    prawo do DEFAULT_PORT, bo pokoj dopiero powstaje i domyslny adres nie
+    nalezy jeszcze do nikogo. Odmowa tutaj zablokowalaby pierwsze
+    uruchomienie produktu."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached", lambda argv, log: 4243)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+
+    rc = cli.cmd_start(argparse.Namespace(name="nowy", port=None, bind=None))
+    assert rc == 0, capsys.readouterr().err
+    assert cli.hub_port("nowy") == cli.DEFAULT_PORT
+
+
 def test_tui_env_sets_chat_url_from_hub_bind(home, monkeypatch):
     """I3: cmd_tui musi ustawiac CHAT_URL z bindu huba (nie tylko CHAT_PORT),
     inaczej tui.py fallbackuje do ws://localhost i nie polaczy sie z hubem
@@ -1513,7 +1606,13 @@ def test_nicki_pokoju_pomija_server_i_znosi_zepsuty_log(home, tmp_path):
 def test_send_konczy_sie_czytelnym_bledem_zamiast_tracebackiem(home, monkeypatch,
                                                                capsys):
     """Odbiorca tego komunikatu to AGENT — ma z niego wyciagnac, co zrobic
-    inaczej. Stos wywolan mu w tym nie pomaga, tylko zjada kontekst."""
+    inaczej. Stos wywolan mu w tym nie pomaga, tylko zjada kontekst.
+
+    Pokoj tworzymy JAWNIE: test bada granice bledu klienta PO wejsciu do
+    pokoju, a wczesniej trzymal sie tylko dlatego, ze _agent_env zgadywalo
+    DEFAULT_PORT dla nieistniejacego 'pokoj'. Kontrakt testu sie nie zmienil,
+    zmienil sie jego setup — zgadywanie portu to teraz blad."""
+    cli.ensure_hub("pokoj", 8931)
     class _Send:
         SessionError = cli._import_send().SessionError
 
@@ -1534,7 +1633,10 @@ def test_frame_konczy_sie_czytelnym_bledem_zamiast_tracebackiem(home, monkeypatc
                                                                 capsys):
     """Ta sama granica co w cmd_send. `cli.main` lapie tylko CliError, wiec
     SendTooLarge z oneshot_frame wychodzilo stosem — a `frame` jest komenda
-    AGENTOWA, wiec traceback ladowal prosto w jego kontekscie."""
+    AGENTOWA, wiec traceback ladowal prosto w jego kontekscie.
+
+    Pokoj tworzymy JAWNIE — patrz komentarz w tescie wyzej."""
+    cli.ensure_hub("pokoj", 8931)
     class _Send:
         SessionError = cli._import_send().SessionError
 
