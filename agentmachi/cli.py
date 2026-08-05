@@ -448,9 +448,17 @@ def _podpowiedz_kto_ma_port(port):
 
     `ss` nie istnieje na Windows, a podpowiedz z nieistniejaca komenda jest
     gorsza niz jej brak: zabiera czlowiekowi jedyny trop i wyglada jak
-    kolejna usterka."""
+    kolejna usterka.
+
+    Wariant windowsowy jest DWUKROKOWY i to nie jest przeoczenie. `ss -tlnp`
+    pokazuje pid RAZEM z nazwa procesu, a `netstat -ano` konczy sie na golej
+    liczbie — czlowiek dowiaduje sie, ze port trzyma 33020, i dalej nie wie,
+    CO to jest. `tasklist` domyka odpowiedz. Zmierzone na zywym gniezdzie
+    2026-08-05 przez agenta na Windows: netstat pokazuje wlasciwy pid co do
+    cyfry, brakuje mu wylacznie nazwy."""
     if _windows():
-        return f"netstat -ano | findstr :{port}"
+        return (f"netstat -ano | findstr :{port}"
+                f"   (then: tasklist /fi \"PID eq <pid>\")")
     return f"ss -tlnp | grep {port}"
 
 
