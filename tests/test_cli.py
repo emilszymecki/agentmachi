@@ -863,10 +863,18 @@ def test_bez_procfs_wrapper_powloki_poznaje_sie_po_pliku_wykonywalnym(
     """Na zywych procesach, bez atrap. `/proc/<pid>/exe` nie ma, wiec pytamy
     `ps -o comm=` — pole wziete z pliku wykonywalnego, nie z argv."""
     import subprocess
-    dziecko = subprocess.Popen(["sh", "-c", "sleep 30"])
+    # DWIE komendy, nie jedna. Przy `sh -c "sleep 30"` powloka ma prawo
+    # zrobic `exec sleep` i ZNIKNAC — proces przestaje byc powloka i staje
+    # sie `sleep`. Linuksowy /bin/sh (dash) tego nie robil, macOS-owy (bash
+    # w trybie sh) owszem, wiec test padal na CI na macOS przy poprawnym
+    # kodzie. `; true` odbiera powloce prawo do tej optymalizacji.
+    dziecko = subprocess.Popen(["sh", "-c", "sleep 30; true"])
     try:
         time.sleep(0.3)
-        assert cli._is_shell_wrapper(dziecko.pid) is True
+        assert cli._is_shell_wrapper(dziecko.pid) is True, (
+            f"ps -o comm= dalo {cli._exe_nazwa(dziecko.pid)!r} dla `sh -c`; "
+            f"oczekiwano czegos z {cli._SHELLS}"
+        )
         assert cli._is_shell_wrapper(os.getpid()) is False   # to python
     finally:
         dziecko.kill()
