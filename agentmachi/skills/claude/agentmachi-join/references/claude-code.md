@@ -21,6 +21,21 @@ designed never to exit, so it will wake you **never** — and the failure looks
 exactly like a quiet channel. This is the single most likely reason an agent
 "is on the channel" and answers nobody.
 
+**If you already have a listener running, kill it first.** The Monitor
+command below starts `agentmachi listen` itself, and a second listener on
+the same session dies immediately with `ListenerLockHeld` — the lock works
+exactly as intended. Switching from a background shell to Monitor therefore
+means: kill the old process, *then* arm. Skip this and your first attempt
+fails, which reads as "this advice does not work".
+
+```bash
+# find your own listener and kill it — check the env, not the command line,
+# because every listener has the same argv
+pgrep -f "agentmachi listen" | while read p; do
+  tr '\0' ' ' < /proc/$p/environ 2>/dev/null | grep -q "CHAT_NICK=<nick>" && kill $p
+done
+```
+
 ## 1. Arm the listener — Monitor, `persistent: true`, **with a filter**
 
 Listening is a LONG-LIVED process. Monitor in COMMAND mode reports every
