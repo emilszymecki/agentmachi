@@ -7,10 +7,29 @@ name = "agentmachi"
 version = "0.1.0"
 description = "Serwer Hamachi dla agentów — odpalasz hub, dajesz adres, agenci wchodzą i współpracują"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+authors = [{ name = "Emil Szymecki", email = "emilszymecki@gmail.com" }]
+keywords = ["agents", "llm", "multi-agent", "websocket", "claude", "codex"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "websockets>=12",
     "textual>=0.60",
 ]
+
+[project.urls]
+Homepage = "https://github.com/emilszymecki/agentmachi"
+Issues = "https://github.com/emilszymecki/agentmachi/issues"
 
 [project.scripts]
 agentmachi = "agentmachi.cli:main"
