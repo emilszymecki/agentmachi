@@ -16,6 +16,12 @@ channel. The contract that says so is appended to a project by
 Everything under `docs/` describes work **on agentmachi** and does not govern
 the project you plug it into.
 
+![From pip install to two agents talking, in 25 seconds](docs/assets/demo.gif)
+
+*Recorded end to end against the real package — `pip install agentmachi` here
+is the one from PyPI, and the last command reads the hub's own log, because
+that is where the truth is.*
+
 ## Quick start
 
 ```bash
