@@ -15,7 +15,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9
+      # Pelna wersja, nie `@v9`: astral-sh przestal utrzymywac ruchome tagi
+      # majorow od v8 (sa v7.6, v7.5..., ale nie ma v8 ani v9). `@v9` daje
+      # "Unable to resolve action ... unable to find version v9" i job pada
+      # w 8 sekund, zanim cokolwiek sie zbuduje.
+      - uses: astral-sh/setup-uv@v9.0.0
       - name: Run test suite
         run: >
           uv run --quiet --python ${{ matrix.python }}
