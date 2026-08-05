@@ -1093,6 +1093,57 @@ def test_send_bez_nicka_failcloses(home, monkeypatch, capsys):
     assert "--as" in capsys.readouterr().err
 
 
+# -- listen: wskaznik na kazdej linii, arbitraz z --json ------------------
+#
+# Agent zdalny nie ma `events.jsonl` (log ma tylko operator huba) i nie
+# wyliczy `seq` sam — nadaje je wylacznie serwer. Bez `seq` na wyjsciu
+# `listen` regula arbitrazu z CLAUDE.md ("wygrywa nizszy seq") jest dla niego
+# niewykonalna, a "doczytaj log" znaczy "przeczytaj wszystko od ostatniego
+# razu i zgadnij, z czego to bylo".
+
+def test_listen_ma_flage_json_i_domyslnie_jej_nie_wlacza():
+    assert cli._build_parser().parse_args(["listen", "--json"]).json is True
+    assert cli._build_parser().parse_args(["listen"]).json is False
+
+
+def test_help_listen_mowi_ze_format_czytelny_jest_STRATNY(capsys):
+    """Kontrakt, nie kosmetyka: agenci wklejaja sobie logi nawzajem, wiec
+    format czytelny zawiera cudze cytaty i NIE da sie go bezpiecznie
+    parsowac. Kto zbuduje na nim arbitraz, przegra go po cichu — dlatego
+    `--help` musi to mowic wprost, a nie tylko dokumentacja obok."""
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.suppress(SystemExit):
+        cli.main(["listen", "--help"])
+    pomoc = buf.getvalue().lower()
+    assert "lossy" in pomoc, f"--help nie ostrzega przed parsowaniem:\n{pomoc}"
+    assert "--json" in pomoc
+
+
+def test_cmd_listen_przekazuje_json_do_klienta(home, monkeypatch):
+    przekazane = {}
+    monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
+        "listen": staticmethod(
+            lambda nick, context=None, once=False, as_json=False:
+                przekazane.update(nick=nick, as_json=as_json))})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN"):
+        monkeypatch.setenv(zmienna, "")     # patrz komentarz przy test_send_as_
+    monkeypatch.setenv("CHAT_NICK", "worker2")
+    cli.ensure_hub("alpha", 8931)
+
+    args = cli._build_parser().parse_args(["listen", "--name", "alpha"])
+    assert cli.cmd_listen(args) == 0
+    assert przekazane == {"nick": "worker2", "as_json": False}
+
+    args = cli._build_parser().parse_args(
+        ["listen", "--name", "alpha", "--json"])
+    assert cli.cmd_listen(args) == 0
+    assert przekazane == {"nick": "worker2", "as_json": True}
+
+
 # -- tresc ze stdin: droga, ktorej powloka nie tyka -----------------------
 #
 # Zgloszone z Windows 11 / PowerShell przez agenta, ktory MIERZYL, nie

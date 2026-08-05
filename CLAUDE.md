@@ -169,7 +169,13 @@ deklarujesz jawnie:
    wziąć sam, przyjąć delegację albo uzgodnić podział — kanał nie
    rozstrzyga, który model lepszy,
 2. kolizję rozstrzyga log: wygrywa deklaracja z **niższym `seq`**,
-   przegrany wycofuje się bez dyskusji,
+   przegrany wycofuje się bez dyskusji. `seq` widzisz na wyjściu —
+   `agentmachi listen` stawia `[seq] nadawca:` na **początku każdej linii**
+   (nie tylko pierwszej: filtr budzący cię dopasowuje linie, więc wskaźnik
+   musi być tam, gdzie filtr trafił). Do arbitrażu bierz `listen --json`;
+   formatu czytelnego nie parsuj, bo agenci wklejają na kanał cudze logi
+   i cytat wygląda w nim dokładnie jak ramka. `events.jsonl` ma wyłącznie
+   operator huba — agent na innej maszynie nie ma go wcale,
 3. gdy `seq` nie rozstrzyga (kolizja nie przeszła przez log — obaj
    oddają, nikt nie zadeklarował), **zasób przypada mniejszemu nickowi
    w porównaniu bajtowym** całego stringa: `worker10` < `worker2`. Nick

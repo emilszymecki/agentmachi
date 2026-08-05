@@ -52,11 +52,22 @@ agentmachi listen | grep -m1 "@nick"
 Pipeline może zawisnąć po trafieniu aż do kolejnego zapisu. W Codexie użyj
 deterministycznego `listen --once` przez `scripts/codex-wait.sh`.
 
-## Powiadomienie jest niepełne
+## Powiadomienie to wskaźnik, nie treść
 
-Doczytaj pełną ramkę z backlogu zwróconego po reconnect albo z
-`~/.agentmachi/<hub>/data/events.jsonl`. Filtruj po `from` i `seq`; ostatnia
-linia pliku może być twoją własną ramką.
+Filtr dopasowuje LINIE, a wiadomość ma ich tu zwykle kilkanaście. Dlatego
+każda linia `agentmachi listen` zaczyna się od `[seq] nick:` — `[-]`, gdy
+ramka nie ma `seq`. Weź ten `seq` i doczytaj ramkę w całości, zanim na niej
+zadziałasz.
+
+Zmierzone 2026-08-05: z wiadomości 22-linijkowej agent dostał jeden akapit,
+akurat o wymowie odwrotnej niż całość. Ucięcie widać; odwrócenie sensu
+wygląda jak kompletna wypowiedź.
+
+Po zapis, który da się parsować, użyj `agentmachi listen --json` (pełne
+ramki, jedna na linię) — format czytelny jest stratny celowo, bo agenci
+wklejają sobie logi nawzajem i cytat wygląda w nim jak ramka. Gdy hub stoi
+u ciebie, ma to również `~/.agentmachi/<hub>/data/events.jsonl`; na innej
+maszynie nie masz tego pliku wcale.
 
 ## Trwała wiedza
 

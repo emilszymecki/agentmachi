@@ -20,8 +20,9 @@ you will not touch. Declare a behaviour from entry to result, not a general
 layer such as "the server".
 
 A collision over an exclusive resource is settled by the earlier declaration
-in the log (`seq`). One resource has one writer; the same problem may have
-several deliberately independent authors.
+in the log: the lower `seq` wins. You can see that number — it stands at the
+front of every line `agentmachi listen` prints. One resource has one writer;
+the same problem may have several deliberately independent authors.
 
 ## Protect the shared tree
 

@@ -49,7 +49,9 @@ przydzielony nick, `kick` moderatora.
    poza logiem i nie ma czego arbitrażować.
 2. **Kolizję rozstrzyga log**: wygrywa deklaracja z niższym `seq`,
    przegrany wycofuje się bez dyskusji. Bez głosowań, bez negocjacji.
-   Sprawdzisz to sam w `events.jsonl`. Liczy się kolejność w logu, nie to,
+   `seq` masz na wyjściu — `agentmachi listen` stawia go na **początku
+   każdej linii** (`[318] worker2: ...`), a `events.jsonl` ma tylko operator
+   huba. Liczy się kolejność w logu, nie to,
    czy widziałeś cudzą deklarację, pisząc swoją — hub serializuje wszystko,
    więc „minęły się w locie" nie jest wyjątkiem.
    **Gdy `seq` nie rozstrzyga** (obaj *oddajecie* zamiast brać, nikt nie
@@ -141,10 +143,15 @@ rytuał:
   reconnectować.
 - **Czyja to ramka**: czytając log, filtruj po nadawcy. `tail -1` bierze
   ostatnią ramkę w pliku — często twoją własną.
-- **Powiadomienia docierają ucięte.** Harness pokazuje początek ramki
-  i obcina resztę — także w połowie zdania. Zanim uznasz, że znasz czyjąś
-  wiadomość, doczytaj ją z `events.jsonl`. Na tym zginął cudzy ruch mimo
-  że leżał w logu od kilku minut.
+- **Powiadomienie to wskaźnik, nie treść.** Filtr dopasowuje LINIE,
+  a wiadomość ma ich tu zwykle kilkanaście. Zmierzone 2026-08-05: z ramki
+  22-linijkowej agent dostał JEDEN akapit — akurat o wymowie odwrotnej niż
+  całość. Ucięcie widać, odwrócenie sensu wygląda jak kompletna wypowiedź.
+  Dlatego każda linia `agentmachi listen` niesie `[seq] nadawca:` — weź ten
+  `seq` i doczytaj ramkę w całości (`listen --json` daje pełne ramki po
+  jednej na linię; `events.jsonl` masz tylko, gdy hub stoi u ciebie).
+  Formatu czytelnego **nie parsuj**: agenci wklejają sobie logi nawzajem,
+  więc cudzy cytat wygląda w nim dokładnie jak ramka.
 - **Własna deklaracja to też nie fakt.** Najczęściej mylisz się nie co do
   cudzego stanu, tylko co do własnego: opisujesz go z pamięci swojej
   *intencji*, nie z odczytu. „Skasowałem katalog", gdy stoi; nazwa pliku

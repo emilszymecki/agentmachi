@@ -32,9 +32,14 @@ def test_print_message_malformed_frame_is_visible_and_next_frame_still_prints(
     send._print_message("{to nie jest json")
     send._print_message(json.dumps({"from": "beta", "text": "dalej dziala"}))
 
+    # `[-]` zamiast dawnego `beta: ...`: ta ramka NIE MA seq i teraz to widac.
+    # Ten test broni odpornosci listenera na smiec z drutu, nie ksztaltu
+    # prefiksu — format zmienil sie swiadomie (patrz sekcja "format wyjscia"
+    # nizej), bo `nick: tresc` nie niosl wskaznika, po ktorym da sie doczytac
+    # ramke z logu.
     assert capsys.readouterr().out.splitlines() == [
         "{to nie jest json",
-        "beta: dalej dziala",
+        "[-] beta: dalej dziala",
     ]
 
 
@@ -130,6 +135,143 @@ def test_apply_frame_crash_before_mark_does_not_lose_activation(
     assert session.last_applied_seq == 13
 
 
+# --- format wyjscia: powiadomienie ma byc WSKAZNIKIEM, nie trescia -------
+#
+# Agenci budza sie przez filtr po tresci (`grep '@nick'`). Filtr dopasowuje
+# LINIE, a wiadomosci na tym kanale maja po 20+ linii — wielolinijkowosc jest
+# tu regula, nie wyjatkiem. Zmierzone 2026-08-05 na zywym kanale: z
+# 22-linijkowej wiadomosci agent dostal JEDEN akapit, akurat ten o wymowie
+# ODWROTNEJ do calosci. Ucicie widac; odwrocenie sensu wyglada jak kompletna
+# wypowiedz.
+#
+# Dlatego wskaznik (`seq` + nadawca) musi stac na KAZDEJ linii, nie tylko na
+# pierwszej. Prefiks na pierwszej linii daje `seq` tam, gdzie nikt go nie
+# szuka, i nie daje go tam, gdzie filtr trafil.
+#
+# Drugi powod jest ustrojowy: `CLAUDE.md` rozstrzyga kolizje zakresow po
+# NIZSZYM `seq`, a agent zdalny nie ma `events.jsonl` (log ma tylko operator
+# huba) ani sposobu, by `seq` wyliczyc — nadaje je wylacznie serwer. Bez
+# `seq` na wyjsciu regula arbitrazu jest dla niego niewykonalna.
+
+def test_kazda_linia_wielolinijkowej_wiadomosci_niesie_seq(capsys):
+    send._print_event({"type": "chat", "seq": 42, "from": "alice",
+                       "text": "pierwsza\ndruga\ntrzecia"})
+    assert capsys.readouterr().out.splitlines() == [
+        "[42] alice: pierwsza",
+        "[42] alice: druga",
+        "[42] alice: trzecia",
+    ]
+
+
+def test_wzmianka_w_srodku_wiadomosci_niesie_wlasny_wskaznik(capsys):
+    """Sedno: filtr trafia w linie ze srodka. Ta linia — sama, wyrwana
+    z kontekstu — musi wystarczyc, zeby doczytac ramke z logu."""
+    send._print_event({"type": "chat", "seq": 7, "from": "bob",
+                       "text": "wstep bez wzmianki\n@beta zrob to\npodsumowanie"})
+    trafienia = [l for l in capsys.readouterr().out.splitlines() if "@beta" in l]
+    assert trafienia == ["[7] bob: @beta zrob to"]
+
+
+def test_brak_seq_jest_WIDOCZNY_a_nie_zgadywany(capsys):
+    """`seq` NIEPEWNY jest gorszy niz `seq` widocznie nieobecny: brak
+    sprawia, ze pytam; zly sprawia, ze przegrywam arbitraz i nie dowiaduje
+    sie o tym."""
+    send._print_event({"type": "chat", "from": "alice", "text": "bez seq"})
+    assert capsys.readouterr().out.splitlines() == ["[-] alice: bez seq"]
+
+
+def test_pusta_linia_w_srodku_nie_gubi_wskaznika(capsys):
+    send._print_event({"type": "chat", "seq": 5, "from": "a",
+                       "text": "akapit\n\ndrugi akapit"})
+    assert capsys.readouterr().out.splitlines() == [
+        "[5] a: akapit", "[5] a:", "[5] a: drugi akapit"]
+
+
+def test_json_daje_jedna_parsowalna_ramke_na_linie(capsys):
+    """`--json` jest ZRODLEM DO ARBITRAZU: pelna ramka, jedna na linie,
+    wielolinijkowa tresc zostaje w polu `text`, a nie rozlewa sie po
+    strumieniu."""
+    send._print_json({"type": "chat", "seq": 42, "from": "alice",
+                      "text": "pierwsza\ndruga"})
+    linie = capsys.readouterr().out.splitlines()
+    assert len(linie) == 1
+    ramka = json.loads(linie[0])
+    assert ramka["seq"] == 42
+    assert ramka["text"] == "pierwsza\ndruga"
+
+
+def test_json_nie_escapuje_nie_ascii(capsys):
+    send._print_json({"type": "chat", "seq": 1, "from": "a",
+                      "text": "zażółć gęślą jaźń"})
+    assert "zażółć gęślą jaźń" in capsys.readouterr().out
+
+
+def test_apply_frame_emituje_wybranym_formatem(session, capsys):
+    """Wybor formatu nie moze ruszyc kontraktu kursora: dedup i advance
+    dzialaja tak samo, zmienia sie tylko emiter."""
+    assert send.apply_frame(session, {"from": "a", "text": "x\ny", "seq": 1},
+                            emit=send._print_json)
+    linie = capsys.readouterr().out.splitlines()
+    assert len(linie) == 1 and json.loads(linie[0])["seq"] == 1
+    assert session.last_applied_seq == 1
+
+
+def _fake_wire(monkeypatch, tmp_path, backlog, last_seq):
+    """Drut zastapiony: hello ok z podanym backlogiem, zero ramek live."""
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+
+    class _FakeWs:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise AssertionError("--once mial zakonczyc na backlogu")
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return _FakeWs()
+
+        async def __aexit__(self, *a):
+            return False
+
+    async def _fake_hello(ws, nick, current, token, role=None, context=None):
+        return {"type": "ok", "backlog": backlog, "last_seq": last_seq,
+                "howto": "instrukcja obslugi kanalu"}
+
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _FakeConn())
+    monkeypatch.setattr(send, "do_hello", _fake_hello)
+    monkeypatch.setattr(send, "_session",
+                        lambda nick: Session("localhost:9999", nick,
+                                             base_dir=tmp_path))
+
+
+def test_listen_domyslnie_prefiksuje_kazda_linie(tmp_path, monkeypatch, capsys):
+    _fake_wire(monkeypatch, tmp_path,
+               [{"type": "chat", "from": "a", "seq": 9,
+                 "text": "@beta linia jeden\nlinia dwa"}], 9)
+    asyncio.run(send.listen("beta", once=True))
+    wyjscie = capsys.readouterr().out.splitlines()
+    assert "[9] a: @beta linia jeden" in wyjscie
+    assert "[9] a: linia dwa" in wyjscie
+
+
+def test_listen_json_daje_wylacznie_parsowalne_linie(tmp_path, monkeypatch,
+                                                     capsys):
+    """KAZDA linia stdout w `--json` musi sie parsowac — takze ta
+    z metadanymi sesji. Inaczej odbiorca buduje arbitraz na strumieniu,
+    ktory raz na jakis czas wypluwa proze."""
+    _fake_wire(monkeypatch, tmp_path,
+               [{"type": "chat", "from": "a", "seq": 9,
+                 "text": "@beta linia jeden\nlinia dwa"}], 9)
+    asyncio.run(send.listen("beta", once=True, as_json=True))
+    linie = [l for l in capsys.readouterr().out.splitlines() if l.strip()]
+    ramki = [json.loads(l) for l in linie]        # zero prozy na stdout
+    chaty = [r for r in ramki if r.get("type") == "chat"]
+    assert len(chaty) == 1
+    assert chaty[0]["seq"] == 9
+    assert chaty[0]["text"] == "@beta linia jeden\nlinia dwa"
+
+
 def test_apply_hello_resync_emits_state_before_cursor(session, capsys):
     """Review-changes codexa (2): resync APLIKUJE (emituje) stan, dopiero
     potem przesuwa kursor — advance bez emisji = utrata stanu."""
@@ -165,7 +307,10 @@ def test_hello_ok_emits_session_metadata_before_backlog(session, capsys):
         "backlog": [{"from": "a", "text": "x", "seq": 1}], "last_seq": 1})
     lines = capsys.readouterr().out.splitlines()
     assert "session_metadata" in lines[0] and '"abc"' in lines[0]
-    assert lines[1] == "a: x"
+    # `[1]` przed nadawca: ten test broni KOLEJNOSCI emisji, a nie ksztaltu
+    # linii — format czytelny niesie teraz `seq` na KAZDEJ linii (patrz
+    # sekcja "format wyjscia" wyzej).
+    assert lines[1] == "[1] a: x"
     assert session.last_applied_seq == 1
 
 

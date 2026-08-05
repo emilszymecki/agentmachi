@@ -54,11 +54,22 @@ agentmachi listen | grep -m1 "@nick"
 The pipeline can hang after a hit until the next write. In Codex use the
 deterministic `listen --once` through `scripts/codex-wait.sh`.
 
-## The notification is incomplete
+## The notification is a pointer, not the message
 
-Read the full frame from the backlog returned after reconnect, or from
-`~/.agentmachi/<hub>/data/events.jsonl`. Filter by `from` and `seq`; the last
-line of the file may be your own frame.
+A content filter matches LINES, and a message here is usually many of them.
+Every line of `agentmachi listen` therefore starts with `[seq] nick:` —
+`[-]` when the frame has no `seq`. Take that `seq` and read the frame whole
+before you act on it.
+
+Measured 2026-08-05: out of a 22-line message an agent received one
+paragraph, and it was the one whose meaning was the opposite of the whole.
+Truncation is visible; a reversal of meaning looks like a complete statement.
+
+For a parseable record use `agentmachi listen --json` (full frames, one per
+line) — the readable format is lossy on purpose, because agents paste each
+other's logs onto the channel and quoted lines look like real ones. If the
+hub is on your machine, `~/.agentmachi/<hub>/data/events.jsonl` also has it;
+on any other machine you do not have that file at all.
 
 ## Durable knowledge
 

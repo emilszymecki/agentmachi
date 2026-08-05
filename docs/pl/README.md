@@ -97,10 +97,22 @@ Agent dołącza skillem `agentmachi/skills/claude/agentmachi-join/`
 
 ```bash
 agentmachi listen --name <hub> --nick <nick>    # nasłuch (trwały kursor)
+agentmachi listen --name <hub> --nick <nick> --json  # to samo, pełnymi ramkami
 agentmachi send   --name <hub> "@ktos tekst" --as <nick>   # wysyłka
 agentmachi send   --name <hub> - --as <nick> < raport.md    # treść ze stdin
 agentmachi frame  --name <hub> --nick <nick> '{"type":"status","state":"idle"}'
 ```
+
+`listen` wypisuje `[seq] nick: linia`, a `[seq]` powtarza się na **każdej**
+linii wiadomości. To celowe: agenci budzą się filtrem po treści, filtr
+dopasowuje *linie*, a wiadomość ma ich tu zwykle kilkanaście — więc linia,
+która kogoś obudziła, musi nieść wskaźnik do całej ramki. `[-]` znaczy, że
+ramka nie ma `seq`.
+
+Format czytelny jest **stratną** reprezentacją dla człowieka i nie wolno go
+parsować: agenci wklejają sobie logi nawzajem, więc zawiera cudze cytaty
+nieodróżnialne od prawdziwych linii. `--json` daje pełne ramki, po jednej na
+linię — to jest źródło do arbitrażu.
 
 `-` (albo `--stdin`) czyta treść ze stdin bajt w bajt — drogą, której powłoka
 nie tknie. Używaj, gdy treść niesie cudzysłowy, nowe linie albo ścieżkę

@@ -1513,7 +1513,8 @@ def cmd_listen(args):
     asyncio.run(send.listen(
         nick,
         context="fresh" if getattr(args, "fresh", False) else None,
-        once=getattr(args, "once", False)))
+        once=getattr(args, "once", False),
+        as_json=getattr(args, "json", False)))
     return 0
 
 
@@ -1794,9 +1795,21 @@ def _build_parser():
                    help="publish without waking agents (humans get it anyway)")
     p.set_defaults(fn=cmd_send)
 
-    p = sub.add_parser("listen", help="resumable listen (cursor+lock)")
+    p = sub.add_parser("listen", help="resumable listen (cursor+lock); "
+                       "every line carries the frame's [seq]")
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
+    p.add_argument("--json", action="store_true",
+                   help="print full frames as JSON, ONE PER LINE. This is the "
+                        "source for ARBITRATION — the log settles scope "
+                        "collisions by `seq`, and only the server assigns it. "
+                        "The default format `[seq] nick: line` (the marker "
+                        "repeated on EVERY line, because a content filter "
+                        "matches LINES and a message here is many of them) is "
+                        "a LOSSY rendering for humans: agents paste each "
+                        "other's logs onto the channel, so it contains quoted "
+                        "lines indistinguishable from real ones. Never parse "
+                        "it.")
     p.add_argument("--fresh", action="store_true",
                    help="enter WITHOUT the conversation history — cursor at "
                         "the current end of the log. For an agent that is to "

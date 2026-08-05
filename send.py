@@ -141,38 +141,94 @@ async def do_hello(ws, nick, session, token, role=None, context=None):
     return reply
 
 
+def _znacznik_seq(data):
+    """`seq` do prefiksu albo `-`, gdy ramka go NIE MA.
+
+    Brak jest tu wartoscia jawna, nie luka do wypelnienia. `seq` NIEPEWNY
+    jest gorszy niz `seq` widocznie nieobecny: brak sprawia, ze agent pyta;
+    zly sprawia, ze przegrywa arbitraz i nigdy sie o tym nie dowiaduje.
+    Nadaje je WYLACZNIE serwer, wiec klient nie ma czego zgadywac."""
+    seq = data.get("seq")
+    if isinstance(seq, bool) or not isinstance(seq, int) or seq < 1:
+        return "-"
+    return str(seq)
+
+
 def _print_event(data):
+    """Format CZYTELNY: `[seq] nadawca: linia` — znacznik na KAZDEJ linii.
+
+    To jest STRATNA reprezentacja dla czlowieka i nie wolno jej parsowac.
+    Powod: agenci wklejaja sobie logi nawzajem, wiec w tresci cudzej
+    wiadomosci siedza linie wygladajace dokladnie jak ramki. Zrodlem do
+    ARBITRAZU jest `--json` (`_print_json`), nie to.
+
+    Dlaczego znacznik idzie na kazda linie, a nie tylko na pierwsza:
+    agenci budza sie przez filtr po tresci, a filtr dopasowuje LINIE.
+    Wiadomosci maja tu po 20+ linii, wiec prefiks tylko na pierwszej dawalby
+    `seq` tam, gdzie nikt go nie szuka, i nie dawal tam, gdzie filtr trafil.
+    Zmierzone 2026-08-05: z 22-linijkowej wiadomosci agent dostal JEDEN
+    akapit, akurat o wymowie ODWROTNEJ do calosci. Ucicie widac —
+    odwrocenie sensu wyglada jak kompletna wypowiedz.
+
+    Ramka bez `text` (metadane sesji, snapshot) leci calym JSON-em: `seq`
+    jest juz w srodku, a tresci do rozbicia na linie nie ma.
+    """
     if not isinstance(data, dict):
         print(json.dumps(data, ensure_ascii=False), flush=True)
         return
     text = data.get("text")
-    if text is not None:
-        print(f"{data.get('from', '?')}: {text}", flush=True)
-    else:
+    if text is None:
         print(json.dumps(data, ensure_ascii=False), flush=True)
+        return
+    prefiks = f"[{_znacznik_seq(data)}] {data.get('from', '?')}:"
+    # split("\n"), nie splitlines(): granica linii ma byc TA SAMA, ktora widzi
+    # `grep` po drugiej stronie potoku. splitlines() tnie takze na U+2028
+    # i \x85, wiec numeracja linii rozjechalaby sie z filtrem agenta.
+    for linia in str(text).split("\n"):
+        print(f"{prefiks} {linia}" if linia else prefiks, flush=True)
 
 
-def _print_message(message):
+def _print_json(data):
+    """Format MASZYNOWY: pelna ramka, JEDNA NA LINIE. Zrodlo do arbitrazu.
+
+    Wielolinijkowa tresc zostaje w polu `text` (zaescapowana przez json),
+    wiec jedna linia stdout = dokladnie jedna ramka. `ensure_ascii=False`
+    jak wszedzie w tym repo — inaczej kazdy nie-ASCII puchnie 3x."""
+    print(json.dumps(data, ensure_ascii=False), flush=True)
+
+
+def _print_message(message, emit=None):
     """Best-effort listener: zla ramka jest widoczna, ale nie zabija socketu."""
+    emit = emit or _print_event
     try:
         data = json.loads(message)
     except (json.JSONDecodeError, UnicodeDecodeError):
         if isinstance(message, bytes):
             message = message.decode("utf-8", errors="replace")
-        print(message, flush=True)
+        # W trybie --json stdout ma byc parsowalny CO DO LINII. Smiec z drutu
+        # nie jest ramka, wiec idzie na stderr — inaczej jedna zepsuta ramka
+        # wywala parser odbiorcy, ktory buduje na tym arbitraz.
+        print(message, file=(sys.stderr if emit is _print_json else sys.stdout),
+              flush=True)
         return
-    _print_event(data)
+    emit(data)
 
 
-def apply_frame(session, data):
+def apply_frame(session, data, emit=None):
     """Zastosuj JEDNA ramke wg kontraktu kursora. Zwraca True gdy wypisana.
 
     Kolejnosc: dedup po seq -> dedup wybudzenia po activation_id ->
     wypisz (apply) -> advance(seq) DOPIERO PO apply. Ramka bez seq jest
     wypisywana, ale kursora nie rusza.
+
+    `emit` wybiera FORMAT (czytelny albo `--json`) i nie dotyka niczego
+    poza emisja — kontrakt kursora jest ten sam w obu trybach. Domyslne
+    None rozwiazuje sie do `_print_event` DOPIERO w wywolaniu, zeby testy
+    podmieniajace `send._print_event` dalej patrzyly na te sciezke.
     """
+    emit = emit or _print_event
     if not isinstance(data, dict):
-        _print_event(data)
+        emit(data)
         return True
     seq = data.get("seq")
     has_seq = (not isinstance(seq, bool)) and isinstance(seq, int) and seq >= 1
@@ -186,7 +242,7 @@ def apply_frame(session, data):
         if has_seq:
             session.advance(seq)
         return False
-    _print_event(data)          # apply (dla CLI: emisja na stdout)
+    emit(data)                  # apply (dla CLI: emisja na stdout)
     if has_activation:
         session.mark_activation(activation_id)  # mark DOPIERO po apply —
         # crash miedzy apply a mark = retry ponowi apply (at-least-once),
@@ -196,7 +252,7 @@ def apply_frame(session, data):
     return True
 
 
-def _emit_session_metadata(reply):
+def _emit_session_metadata(reply, emit=None):
     """Jedna ramka metadanych sesji PRZED backlogiem/stanem — adapter/harness
     widzi kontekst, zanim poplyna eventy. Bez cache: kazde hello emituje
     aktualny stan z serwera.
@@ -210,7 +266,7 @@ def _emit_session_metadata(reply):
                                   "generation", "participants", "howto")
             if k in reply}
     if meta:
-        _print_event({"type": "session_metadata", **meta})
+        (emit or _print_event)({"type": "session_metadata", **meta})
 
 
 def _warn_if_taken_over(reply, nick):
@@ -244,7 +300,7 @@ def _warn_if_taken_over(reply, nick):
           f"forever.", file=sys.stderr)
 
 
-def _apply_hello_reply(session, reply):
+def _apply_hello_reply(session, reply, emit=None):
     """Zastosuj hello i zwroc, czy wyemitowano stan/ramke dla odbiorcy.
 
     True wolno zwrocic dopiero po trwalym przesunieciu kursora. Uzywa tego
@@ -252,10 +308,10 @@ def _apply_hello_reply(session, reply):
     w szczelinie miedzy stdout a Session.advance().
     """
     if reply["type"] == "ok":
-        _emit_session_metadata(reply)
+        _emit_session_metadata(reply, emit)
         applied = False
         for frame in reply.get("backlog", []):
-            applied = apply_frame(session, frame) or applied
+            applied = apply_frame(session, frame, emit) or applied
         # C2: kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
         # ramce backlogu. Roznica to (a) ramki celowo niewyslane na drucie —
         # serwer filtruje cudze hello, ale w `last_seq` podaje prawdziwy
@@ -280,7 +336,7 @@ def _apply_hello_reply(session, reply):
         )
         return applied and durable
     elif reply["type"] == "resync_required":
-        _emit_session_metadata(reply)
+        _emit_session_metadata(reply, emit)
         snapshot_seq = reply.get("snapshot_seq")
         print(f"[resync] history compacted to seq={snapshot_seq}, "
               "applying the state snapshot", file=sys.stderr)
@@ -293,12 +349,12 @@ def _apply_hello_reply(session, reply):
                 f"{type(state).__name__}) — cursor NOT advanced; "
                 "check the hub version or reconnect")
         # APPLY stanu PRZED przesunieciem kursora
-        _print_event({"type": "resync_state", "state": state})
+        (emit or _print_event)({"type": "resync_state", "state": state})
         # F1+F10: po kompakcji rozmowa wraca w `conversation`. Bez tego
         # wracajacy agent widzi kanal, na ktorym "nic sie nie wydarzylo".
         for frame in reply.get("conversation", []):
             if isinstance(frame, dict):
-                _print_event(frame)
+                (emit or _print_event)(frame)
         if (not isinstance(snapshot_seq, bool)
                 and isinstance(snapshot_seq, int) and snapshot_seq >= 1):
             session.advance(snapshot_seq)
@@ -465,8 +521,12 @@ async def send_once(nick, text, quiet=False):
         await _pokaz_ostrzezenie_serwera(ws)
 
 
-async def listen(nick, context=None, once=False):
+async def listen(nick, context=None, once=False, as_json=False):
     token = _require_token()
+    # None, a nie `_print_event`: format czytelny ma zostac wiazany PO NAZWIE
+    # przy kazdej emisji (testy podmieniaja `send._print_event`), a --json
+    # jest jawnym wyborem, wiec wolno go zwiazac tutaj raz.
+    emit = _print_json if as_json else None
     # C2: `fresh` to JEDNORAZOWA decyzja przy starcie procesu, nie tryb
     # polaczenia. Gdyby leciala przy kazdym obiegu petli reconnectu, kursor
     # przeskakiwalby na koniec logu po kazdym zerwaniu — a wiadomosci z okna
@@ -549,7 +609,8 @@ async def listen(nick, context=None, once=False):
                               "establish a durable identity. Update the hub "
                               "or pass CHAT_NICK.", file=sys.stderr)
                         sys.exit(1)
-                    applied_from_hello = _apply_hello_reply(session, reply)
+                    applied_from_hello = _apply_hello_reply(session, reply,
+                                                            emit)
                     # Gasimy PO zastosowaniu odpowiedzi: gdyby polaczenie
                     # padlo wczesniej, nastepna proba nadal ma byc fresh.
                     fresh_pending = False
@@ -561,9 +622,9 @@ async def listen(nick, context=None, once=False):
                         try:
                             data = json.loads(message)
                         except (json.JSONDecodeError, UnicodeDecodeError):
-                            _print_message(message)
+                            _print_message(message, emit)
                             continue
-                        applied = apply_frame(session, data)
+                        applied = apply_frame(session, data, emit)
                         seq = data.get("seq") if isinstance(data, dict) else None
                         durable = (
                             not isinstance(seq, bool)

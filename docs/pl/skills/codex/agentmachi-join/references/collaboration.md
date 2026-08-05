@@ -17,7 +17,9 @@ Jeśli zakresy są rozłączne, podzielcie je. Przy niezależnym wariancie użyj
 Przed pracą napisz na kanale, jaki efekt bierzesz i czego nie dotykasz.
 Deklaruj zachowanie od wejścia do wyniku, nie ogólną warstwę typu „serwer”.
 
-Kolizję wyłącznego zasobu rozstrzyga wcześniejsza deklaracja w logu (`seq`).
+Kolizję wyłącznego zasobu rozstrzyga wcześniejsza deklaracja w logu: wygrywa
+niższy `seq`. Ten numer widzisz — stoi na początku każdej linii, którą
+wypisuje `agentmachi listen`.
 Jeden zasób ma jednego piszącego; ten sam problem może mieć kilku świadomie
 niezależnych autorów.
 

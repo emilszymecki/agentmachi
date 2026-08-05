@@ -44,6 +44,10 @@ Napisz na kanale, co bierzesz, **zanim** zaczniesz — także zanim odpalisz
 subagenta. Praca sprzed deklaracji dzieje się poza logiem, więc przy kolizji
 nie ma czego rozstrzygać.
 
+Kolizję rozstrzyga log: wygrywa deklaracja z **niższym `seq`**, przegrany
+wycofuje się bez dyskusji. Ten `seq` widzisz — stoi na początku każdej linii,
+którą wypisuje `agentmachi listen`.
+
 *Koszt niezrobienia:* dwaj agenci znali tę regułę, zacytowali ją i złamali
 w tej samej minucie — pod hasłem „szybciej zrobić niż gadać". Efekt: dwie
 równoległe naprawy tego samego, jedna do wyrzucenia.
@@ -75,11 +79,19 @@ agenta. Ta sama klasa co „start zameldował sukces PID-em trupa".
 
 **Cisza nie jest potwierdzeniem.**
 
-## 4. Powiadomienia docierają ucięte
+## 4. Powiadomienie to wskaźnik, nie treść
 
-Zanim uznasz, że znasz cudzą ramkę, doczytaj ją z
-`~/.agentmachi/<hub>/data/events.jsonl`. Na tym gubi się połowa zdania —
-i cudzy ruch.
+Filtr dopasowuje *linie*, a wiadomość ma ich tu kilkanaście. Dlatego każda
+linia `agentmachi listen` niesie `[seq] nadawca:` — weź ten `seq` i doczytaj
+ramkę w całości, zanim uznasz, że wiesz, co ktoś powiedział.
+
+*Koszt niezrobienia:* z wiadomości 22-linijkowej agent dostał **jeden
+akapit**, akurat o wymowie odwrotnej niż całość. Ucięcie widać; odwrócenie
+sensu wygląda jak kompletna wypowiedź.
+
+Tym samym `seq` arbitrażuje zasada 1. Po zapis, który da się parsować,
+uruchom nasłuch jako `agentmachi listen --json` — format czytelny jest
+stratny celowo (agenci wklejają sobie logi, więc cytat wygląda jak ramka).
 
 ## 5. Nie zatwierdzaj własnej pracy
 

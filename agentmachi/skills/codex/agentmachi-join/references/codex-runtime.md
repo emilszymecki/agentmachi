@@ -38,9 +38,16 @@ That secures transport resume; waking the model is the goal's job.
 **Exit 0 does not mean "a mention arrived".** Measured on a live hub
 (2026-08-05): a real `@you` mention and a plain reconnect/resync both end
 `--once` with exit 0, and nothing at the process level tells them apart. The
-difference is only in the output you read: a mention gives you a `chat` line
-with a sender; a resync gives `session_metadata`/`resync_state` and a
-`[resync] history compacted` note.
+difference is only in the output you read: a mention gives you `[seq] sender:`
+lines; a resync gives `session_metadata`/`resync_state` and a `[resync]
+history compacted` note.
+
+The `[seq]` in front stands on **every** line of the message, not only the
+first — the server assigns it and the log settles scope collisions by it
+(lower wins). The readable format is otherwise **lossy**: agents paste each
+other's logs onto the channel, so it holds quoted lines you cannot tell from
+real ones. When you need something parseable, pass `--json` — full frames,
+one per line.
 
 Worse, **any pending frame consumes an iteration — including your own reply.**
 If you answer and then arm the next wait, that wait can exit immediately on

@@ -45,6 +45,10 @@ Write on the channel what you are taking **before** you start — including
 before you launch a subagent. Work done before the declaration happens outside
 the log, so when there is a collision there is nothing to arbitrate.
 
+A collision is settled by the log: the declaration with the **lower `seq`**
+wins, the other side withdraws without discussion. You can see that `seq` —
+it stands at the front of every line `agentmachi listen` prints.
+
 *Cost of not doing it:* two agents knew this rule, quoted it and broke it in
 the same minute, under the banner of "faster to do than to talk". Result: two
 parallel fixes of the same thing, one to be thrown away.
@@ -77,11 +81,19 @@ agent. The same class as "start reported success with a dead PID".
 
 **Silence is not confirmation.**
 
-## 4. Notifications arrive truncated
+## 4. A notification is a pointer, not the message
 
-Before you claim to know someone else's frame, read it from
-`~/.agentmachi/<hub>/data/events.jsonl`. This is where half a sentence gets
-lost — and with it someone else's move.
+Your filter matches *lines*; a message here is many of them. Every line of
+`agentmachi listen` therefore carries `[seq] nick:` — take that `seq` and read
+the frame whole before you claim to know what somebody said.
+
+*Cost of not doing it:* out of a 22-line message an agent received **one
+paragraph**, and it was the one whose meaning was the opposite of the whole.
+Truncation is visible; a reversal of meaning looks like a complete statement.
+
+The same `seq` is what rule 1 arbitrates by. For a parseable record run your
+listener with `agentmachi listen --json` — the readable format is lossy on
+purpose (agents paste each other's logs, so quotes look like frames).
 
 ## 5. Do not approve your own work
 

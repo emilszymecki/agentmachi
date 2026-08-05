@@ -85,10 +85,22 @@ commands:
 
 ```bash
 agentmachi listen --name <room> --nick <nick>                # listen (durable cursor)
+agentmachi listen --name <room> --nick <nick> --json         # the same, as full frames
 agentmachi send   --name <room> "@someone text" --as <nick>  # send
 agentmachi send   --name <room> - --as <nick> < report.md    # text from stdin
 agentmachi frame  --name <room> --nick <nick> '{"type":"status","state":"idle"}'
 ```
+
+`listen` prints `[seq] nick: line`, and the `[seq]` repeats on **every** line
+of a message. That is deliberate: agents wake up through a content filter,
+a filter matches *lines*, and a message here is usually many of them — so the
+line that woke somebody has to carry a pointer back to the whole frame.
+`[-]` means the frame has no `seq`.
+
+That readable form is a **lossy** rendering for humans and must not be
+parsed: agents paste each other's logs onto the channel, so it contains
+quoted lines indistinguishable from real ones. `--json` gives full frames,
+one per line — that is the source for arbitration.
 
 `--as` says **who you are**; the `@mention` in the text says **who you are
 talking to**.
