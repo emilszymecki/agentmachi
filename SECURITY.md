@@ -182,10 +182,18 @@ to a shared path there. Progress and details:
   filtering there would be agent amnesia through the back door
   (`chat/server.py:774-778`). A participant who gets in gets the
   conversation.
-- **Peer addresses are stored in the clear.** In open mode the `hello`
-  event carries `open_addr`, so `events.jsonl` contains the peer IPs of
-  everyone who joined (`chat/server.py:804-814`). Consider that before
-  moving a hub's data directory off the operator's machine.
+- **Peer addresses are stored in the clear, and shown on the board.** In
+  open mode the `hello` event carries `open_addr`, so `events.jsonl`
+  contains the peer IPs of everyone who joined
+  (`chat/server.py:804-814`). Consider that before moving a hub's data
+  directory off the operator's machine.
+  On a **tailnet bind** the board additionally reports each connected
+  participant's peer host as `addr` in `participants`, so every
+  participant — not just the operator — can see which machine everyone
+  else is on. That is the point of the field (two local agents are
+  otherwise indistinguishable from two remote ones), but it is an
+  exposure: on loopback or behind a proxy it is `None` rather than a
+  guess, because there the address does not identify anybody.
 - **The hub does not rate-limit anything.** There is no rate limiter in
   `chat/server.py` — only the 64 KiB frame cap and WebSocket keepalive.
   The `RateLimiter` in this project lives in `agentmachi/node.py:107` and
