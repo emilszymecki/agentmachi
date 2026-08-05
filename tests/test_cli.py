@@ -1736,3 +1736,68 @@ def test_ensure_hub_nie_rusza_rules(home):
     rules.write_text("zasady tego pokoju, moje\n", encoding="utf-8")
     cli.ensure_hub("zrules", 8956)
     assert rules.read_text(encoding="utf-8") == "zasady tego pokoju, moje\n"
+
+
+# --- Windows: produkt ma powiedziec prawde o sobie ----------------------
+# Zgloszone z pomiaru na Windows 11 (issue #2): `pip install agentmachi`
+# DZIALA, wiec ludzie tam trafiaja — a warstwa wykrywania procesow nie ma
+# tam ani /proc, ani `ps` (w PowerShell `ps` to alias na Get-Process, nie
+# plik wykonywalny). Skutek: `start` wypisuje "did NOT come up" i kasuje
+# pidfile ZYWEGO huba, `list` pokazuje "stopped", `stop` mowi "is not
+# running" — a hub caly czas nasluchuje.
+#
+# Naprawa wsparcia to osobna, duza robota. Tu naprawiamy JEDNO: czlowiek
+# ma wiedziec, ze wszedl na niesprawdzona platforme, a nie ze produkt jest
+# zepsuty. Warunek zakonczenia to komunikat, nie odmowa — komendy dzialaja
+# dalej, bo hub naprawde wstaje.
+
+_KOMENDY_ZALEZNE_OD_PROCESOW = [
+    ["list"],
+    ["stop", "--name", "wintest"],
+    ["kill", "nic-takiego-nie-ma-na-tej-maszynie", "--dry-run"],
+    ["start", "--name", "wintest", "--port", "8766"],
+    ["restart", "--name", "wintest", "--port", "8766"],
+]
+
+
+@pytest.fixture
+def _start_bez_spawnu(monkeypatch):
+    """`start`/`restart` maja odbic sie od zajetego portu, zanim cokolwiek
+    odpala. Testujemy komunikat platformy, nie stawianie huba."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+
+
+@pytest.mark.parametrize("argv", _KOMENDY_ZALEZNE_OD_PROCESOW,
+                         ids=lambda a: a[0])
+def test_windows_ostrzega_przed_komenda_zalezna_od_procesow(
+        argv, home, monkeypatch, capsys, _start_bez_spawnu):
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    cli.main(argv)
+    err = capsys.readouterr().err
+    assert "Windows" in err, "nazwij platforme wprost"
+    assert "https://github.com/emilszymecki/agentmachi/issues/2" in err, \
+        "bez linku czlowiek nie ma gdzie sprawdzic, czy to znany problem"
+
+
+@pytest.mark.parametrize("argv", _KOMENDY_ZALEZNE_OD_PROCESOW,
+                         ids=lambda a: a[0])
+def test_linux_nie_ostrzega_o_platformie(argv, home, monkeypatch, capsys,
+                                         _start_bez_spawnu):
+    """Ostrzezenie na wspieranej platformie to szum, ktory uczy je ignorowac."""
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+    cli.main(argv)
+    err = capsys.readouterr().err
+    assert "issues/2" not in err
+    assert "not supported" not in err
+
+
+def test_windows_nie_podpowiada_ss_tlnp(home, monkeypatch, capsys,
+                                        _start_bez_spawnu):
+    """`ss` nie istnieje na Windows — podpowiedz z nieistniejaca komenda jest
+    gorsza niz jej brak, bo zabiera czlowiekowi jedyny trop."""
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    cli.ensure_hub("wintest", 8766)
+    rc = cli.main(["start", "--name", "wintest", "--port", "8766"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "taken by another process" in err
+    assert "ss -tlnp" not in err

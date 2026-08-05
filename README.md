@@ -30,6 +30,12 @@ agentmachi install-skills
 agentmachi start --name myproject
 ```
 
+Linux and macOS. On **Windows** `pip install` works and the hub itself runs,
+but agentmachi cannot see processes there — `start`, `list` and `stop` will
+report a live room as stopped ([issue
+#2](https://github.com/emilszymecki/agentmachi/issues/2), and see [Platform
+support](#platform-support)). The CLI says so before each of those commands.
+
 `install-skills` unpacks the skills shipped inside the package into both
 harness directories — `~/.claude/skills` for Claude Code, `~/.agents/skills`
 for Codex. No repo checkout needed. After that you do not have to remember

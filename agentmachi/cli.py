@@ -384,8 +384,74 @@ def join_addr(name):
 # na cudzej platformie — kazde nowe czytanie /proc ma isc przez te bramke.
 
 def _procfs_dostepne():
-    """Czy mamy /proc (Linux)? Jedyne miejsce, ktore pyta o platforme."""
+    """Czy mamy /proc (Linux)? Jedyne miejsce, ktore pyta o MOZLIWOSC."""
     return Path("/proc").is_dir()
+
+
+# --- Windows: platforma, na ktorej ta warstwa nie dziala wcale ----------
+#
+# Zmierzone na Windows 11 (issue #2), nie wyczytane z kodu: `pip install
+# agentmachi` DZIALA, wiec ludzie tam trafiaja — a wykrywania procesow nie
+# ma z czego zbudowac. Nie ma /proc i nie ma `ps` jako pliku wykonywalnego
+# (`ps` w PowerShell to alias na Get-Process, wiec `_ps` dostaje OSError
+# i zwraca None, czyli nasze "procesu nie ma"). Skutek jest najgorszy
+# z mozliwych, bo wyglada na awarie produktu, a nie platformy: hub WSTAJE
+# (serve.log konczy sie "chat server on ...", port odpowiada), po czym
+# `start` mowi "did NOT come up" i kasuje pidfile ZYWEGO huba, `list`
+# pokazuje "stopped", `stop` — "is not running", `kill` — "nothing matches".
+#
+# Wsparcie Windows to osobna robota (issue #2). TU naprawiamy wylacznie to,
+# ze produkt klamie o sobie: ostrzegamy, ale NIE odmawiamy — hub naprawde
+# wstaje, wiec odmowa zabralaby czlowiekowi dzialajaca czesc.
+#
+# `_procfs_dostepne` pyta o MOZLIWOSC ("czy da sie czytac /proc") i to
+# zostaje. Tu pytamy o NAZWE systemu, bo komunikat mowi czlowiekowi, gdzie
+# jest — i to pytanie tez ma miec DOKLADNIE JEDNO miejsce.
+
+ISSUE_WINDOWS = "https://github.com/emilszymecki/agentmachi/issues/2"
+
+
+def _windows():
+    """Czy to Windows? Jedyne miejsce, ktore pyta o NAZWE platformy."""
+    return sys.platform == "win32"
+
+
+# Komendy, ktore stoja na wykrywaniu procesow — czyli te, ktore na Windows
+# odpowiadaja pewnie i nieprawdziwie.
+KOMENDY_WYKRYWAJACE_PROCESY = frozenset(
+    {"start", "list", "stop", "restart", "kill"})
+
+
+def _ostrzez_o_platformie(cmd):
+    """Ostrzez PRZED komenda, ktora na Windows odpowie nieprawde.
+
+    Kluczowe jest rozroznienie, ktorego czlowiek sam nie zrobi: "ta
+    platforma jest niesprawdzona" vs "twoj hub jest zepsuty". Hub tam stoi
+    — tylko produkt go nie widzi."""
+    if not _windows() or cmd not in KOMENDY_WYKRYWAJACE_PROCESY:
+        return
+    print(
+        "agentmachi: WARNING — Windows is not a tested platform yet "
+        f"(issue: {ISSUE_WINDOWS}).\n"
+        "  This is not your hub being broken: the hub itself starts and "
+        "serves normally,\n"
+        "  but agentmachi cannot see processes here, so start/list/stop/"
+        "restart/kill\n"
+        "  report a LIVE hub as stopped or missing. Trust the address from "
+        "`agentmachi card`\n"
+        "  and the room's serve.log, not this command's verdict.",
+        file=sys.stderr)
+
+
+def _podpowiedz_kto_ma_port(port):
+    """Jak sprawdzic, czyj to port — komenda, ktora na TEJ platformie jest.
+
+    `ss` nie istnieje na Windows, a podpowiedz z nieistniejaca komenda jest
+    gorsza niz jej brak: zabiera czlowiekowi jedyny trop i wyglada jak
+    kolejna usterka."""
+    if _windows():
+        return f"netstat -ano | findstr :{port}"
+    return f"ss -tlnp | grep {port}"
 
 
 def _ps(*argv):
@@ -1067,7 +1133,8 @@ def cmd_start(args):
         if wybrany is None:
             print(f"agentmachi: port {port} is already taken by another "
                   f"process — room {args.name!r} has nothing to start on.\n"
-                  f"  check whose port it is:  ss -tlnp | grep {port}\n"
+                  f"  check whose port it is:  "
+                  f"{_podpowiedz_kto_ma_port(port)}\n"
                   f"  or pick another one:     agentmachi start --name "
                   f"{args.name} --port <other>", file=sys.stderr)
             return 1
@@ -1676,6 +1743,11 @@ def main(argv=None):
     _force_utf8_output(sys.stdout, sys.stderr)
     parser = _build_parser()
     args = parser.parse_args(argv)
+    # PRZED komenda, nie po: na Windows jej werdykt bedzie nieprawdziwy,
+    # wiec czlowiek ma czytac go juz z ta wiedza. Jedno miejsce zamiast
+    # piatki wywolan w cmd_* — `restart` wola `cmd_start`, wiec ostrzegalby
+    # dwa razy, a `main` zna nazwe komendy i widzi kazde wejscie z terminala.
+    _ostrzez_o_platformie(args.cmd)
     try:
         return args.fn(args)
     except CliError as e:

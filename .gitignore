@@ -49,3 +49,9 @@ hub.toml
 /server.py
 /test.json
 /countdown.py
+
+# ARTEFAKTY BUILDU — nie naleza do repozytorium.
+# Wpadly tu raz przez `git add -A` przy commicie e8911a5 i przezyly do
+# publikacji: publiczne repo z kolem w srodku myli (ktore jest aktualne?)
+# i puchnie z kazdym wydaniem. Zrodlem paczek jest PyPI albo `python -m build`.
+dist/
