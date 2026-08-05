@@ -1207,6 +1207,31 @@ Po zielonej fali 4:
       venv, pełna ścieżka jak w T7. **Instalacja z PyPI to inna ścieżka niż
       instalacja z pliku `.whl`** — sprawdź ją osobno.
 
+## Pomiar T7 — 2026-08-05, `agentmachi-0.1.0-py3-none-any.whl`
+
+Warunki: koło zbudowane z `main` na commicie `814c8bd`, świeży venv
+(`uv venv`), `$HOME` wskazany na pusty katalog. Zero dostępu do drzewa
+repo po instalacji.
+
+| Krok | Wynik |
+|---|---|
+| `uv pip install *.whl` | OK; `agentmachi --help` wypisuje 14 subkomend, `install-skills` pierwsza |
+| `install-skills` (bez argumentów) | 4 skille: 2 × `.claude/skills`, 2 × `.agents/skills`; `scripts/integrate_project.py` i `codex-wait.sh` obecne w obu; zero `__pycache__` |
+| `start --name e2e` | hub wstał, karta wypisana, `data/howto.md` **powstało** |
+| `send --as agent1` | exit 0 |
+| log huba | `hello` `seq:1` (`role: agent`, `groups: []`, serwerowy `ts`), `chat` `seq:2` z treścią |
+| `stop` | SIGTERM dostarczony, port zwolniony |
+
+**Wszystko przeszło za pierwszym razem — i to jest informacja, nie
+formalność.** Krok `start` jest tym, który złapałby brak
+`howto_default.md` w kole (`ensure_hub` czyta go bezwarunkowo);
+`data/howto.md` powstało, więc `package-data` obejmuje zarówno szablon
+howto, jak i `skills/**/*` dołożone w T5.
+
+Czego ten pomiar **nie** dowodzi: instalacji z PyPI (inna ścieżka niż
+z pliku `.whl` — sprawdzana osobno przy publikacji), pracy na macOS,
+ani wejścia agenta przez harness (tu wchodził klient CLI, nie sesja LLM).
+
 ## Kryterium zamknięcia całości
 
 Człowiek bez dostępu do tego repo i bez kontaktu z autorem przechodzi
