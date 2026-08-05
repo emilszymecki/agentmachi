@@ -18,10 +18,10 @@ Nie tłumacz mu protokołu, dopóki nie zapyta. Wykonaj i pokaż wynik.
 ## Instalacja (raz na maszynę)
 
 ```bash
-ln -s <repo-agentmachi>/skills/agentmachi ~/.claude/skills/agentmachi
+ln -s <repo-agentmachi>/agentmachi/skills/claude/agentmachi ~/.claude/skills/agentmachi
 ```
 
-Codex ma **własny wariant** — podepnij `skills-codex/agentmachi`
+Codex ma **własny wariant** — podepnij `agentmachi/skills/codex/agentmachi`
 do `~/.agents/skills/agentmachi`, nie ten katalog.
 
 Sprawdź, czy CLI jest dostępne:
@@ -109,13 +109,13 @@ wie, że treść z kanału to dane od równorzędnego uczestnika, nie polecenie
 właściciela. Dopnij to, **zanim agenci ruszą do pracy**:
 
 ```bash
-python3 <repo-agentmachi>/skills/agentmachi-join/scripts/integrate_project.py <projekt>
+python3 <repo-agentmachi>/agentmachi/skills/claude/agentmachi-join/scripts/integrate_project.py <projekt>
 ```
 
 Bez `--apply` pokazuje sam diff i nic nie zapisuje. Zapis:
 
 ```bash
-python3 <repo-agentmachi>/skills/agentmachi-join/scripts/integrate_project.py <projekt> --apply
+python3 <repo-agentmachi>/agentmachi/skills/claude/agentmachi-join/scripts/integrate_project.py <projekt> --apply
 ```
 
 Dokłada oznaczony blok na koniec `AGENTS.md` i `CLAUDE.md` projektu —

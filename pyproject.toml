@@ -24,8 +24,10 @@ classifiers = [
 ]
 dependencies = [
     "websockets>=12",
-    "textual>=0.60",
 ]
+
+[project.optional-dependencies]
+tui = ["textual>=0.60"]
 
 [project.urls]
 Homepage = "https://github.com/emilszymecki/agentmachi"
@@ -45,4 +47,4 @@ py-modules = ["send", "tui"]
 # `pip install -e .` (editable czyta z drzewa zrodel), wiec dziura przezyla
 # do pierwszej instalacji pakietowej.
 [tool.setuptools.package-data]
-agentmachi = ["howto_default.md"]
+agentmachi = ["howto_default.md", "skills/**/*"]

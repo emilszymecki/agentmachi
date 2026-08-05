@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent
-                     / "skills" / "agentmachi-join" / "scripts"))
+                     / "agentmachi" / "skills" / "claude"
+                     / "agentmachi-join" / "scripts"))
 
 import integrate_project as ip
 

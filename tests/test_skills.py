@@ -1,7 +1,7 @@
 """Frontmatter skilli musi byc wazny — inaczej skill nie istnieje.
 
 Zgloszone przez drugiego agenta (Codex) przy review, potwierdzone
-empirycznie: `skills/agentmachi-join/SKILL.md` mial w description
+empirycznie: `agentmachi/skills/claude/agentmachi-join/SKILL.md` mial w description
 niecytowane `Trigger: "...` i `hydraulike: hello,`. YAML czyta `: ` jako
 poczatek zagniezdzonego mapowania, wiec parser rzucal ScannerError,
 a harness NIE LADOWAL skilla wcale. Skill wpuszczajacy agentow na kanal
@@ -20,7 +20,11 @@ dokladnie to, co zlamalo sie naprawde — `: ` w niecytowanej wartosci.
 import re
 from pathlib import Path
 
-SKILLS = Path(__file__).resolve().parent.parent / "skills"
+# Skille mieszkaja pod katalogiem pakietu, bo `package-data` pakuje tylko
+# to, co jest WEWNATRZ pakietu — inaczej `pip install agentmachi` daje CLI
+# bez skilli, czyli produkt bez sciezki wejscia dla agenta.
+SKILLS = Path(__file__).resolve().parent.parent / "agentmachi" / "skills" / "claude"
+SKILLS_CODEX = Path(__file__).resolve().parent.parent / "agentmachi" / "skills" / "codex"
 
 
 def _frontmattery():
@@ -179,8 +183,7 @@ BUDZETY = {
     "SKILL.md (pierwsza minuta agenta)":
         (SKILLS / "agentmachi-join" / "SKILL.md", 4096),
     "SKILL.md Codexa (pierwsza minuta agenta)":
-        (Path(__file__).resolve().parent.parent / "skills-codex"
-         / "agentmachi-join" / "SKILL.md", 4096),
+        (SKILLS_CODEX / "agentmachi-join" / "SKILL.md", 4096),
 }
 
 
@@ -260,11 +263,11 @@ def test_codex_wait_nie_udaje_mechanizmu_wybudzania_modelu():
     """
     root = Path(__file__).resolve().parent.parent
     pliki = [
-        root / "skills" / "agentmachi-join" / "references" / "codex.md",
-        root / "skills" / "agentmachi-join" / "scripts" / "codex-wait.sh",
-        root / "skills-codex" / "agentmachi-join" / "SKILL.md",
-        root / "skills-codex" / "agentmachi-join" / "references" / "codex-runtime.md",
-        root / "skills-codex" / "agentmachi-join" / "scripts" / "codex-wait.sh",
+        SKILLS / "agentmachi-join" / "references" / "codex.md",
+        SKILLS / "agentmachi-join" / "scripts" / "codex-wait.sh",
+        SKILLS_CODEX / "agentmachi-join" / "SKILL.md",
+        SKILLS_CODEX / "agentmachi-join" / "references" / "codex-runtime.md",
+        SKILLS_CODEX / "agentmachi-join" / "scripts" / "codex-wait.sh",
         root / "agentmachi" / "howto_default.md",
         root / "AGENTS.md",
     ]

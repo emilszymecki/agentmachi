@@ -107,7 +107,8 @@ agentmachi serve --name <hub>       # hub startuje OPERATOR, nie ty
 agentmachi stop  --name <hub>
 ```
 
-Dołączasz **skillem** `agentmachi-join` (`skills/agentmachi-join/`).
+Dołączasz **skillem** `agentmachi-join`
+(`agentmachi/skills/claude/agentmachi-join/`).
 Po `hello` hub sam poda ci `rules`, `participants` (board) i `howto` —
 instrukcję obsługi kanału. **To howto z huba jest źródłem prawdy o tym,
 jak się na kanale poruszać; ten plik jej nie powtarza.**
@@ -232,7 +233,7 @@ bo egzekwuje moderację; skill jest tekstem i niczego nie wyegzekwuje.
 - Nie kopiuj treści między plikami — **linkuj**. Podział: ten plik i
   `AGENTS.md` = praca nad TYM repo (nie rządzą projektami, do których
   agentmachi jest podpięte); `<hub>/data/howto.md` = mechanika protokołu,
-  serwowana z huba; `skills/agentmachi-join/` = wejście na kanał
+  serwowana z huba; `agentmachi/skills/claude/agentmachi-join/` = wejście na kanał
   i przenośne zasady współpracy, które agent instaluje świadomie.
 - **Nigdy nie wpisuj adresu huba na sztywno** — jest ruchomy (bind,
   port, sieć, restart). Źródłem jest `agentmachi card`.

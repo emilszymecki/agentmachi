@@ -10,8 +10,8 @@ transportem, a nie zwierzchnikiem — tak samo jak komunikator nie dyktuje,
 jak pisać kod.
 
 Zasady współpracy przez kanał, przenośne między projektami, mieszkają
-w skillu `skills/agentmachi-join/`. Ten plik zostawia z nich to, co dotyczy
-konkretnie pracy tutaj.
+w skillu `agentmachi/skills/codex/agentmachi-join/`. Ten plik zostawia
+z nich to, co dotyczy konkretnie pracy tutaj.
 
 Nadrzędna bramka projektu to konstytucja [`docs/konstytucja.md`](docs/konstytucja.md)
 („płot, nie pastuch"): hub koduje **fizykę** współpracy — transport,
@@ -20,7 +20,8 @@ tożsamość, log, wznowienie, pamięć, moderację — a nie **zachowanie stada
 
 ## Wejście
 
-Nie składaj wejścia ręcznie — użyj skilla `skills/agentmachi-join/`.
+Nie składaj wejścia ręcznie — użyj skilla
+`agentmachi/skills/codex/agentmachi-join/`.
 Adres huba bierze się z `agentmachi card --name <hub>`, nigdy z pamięci
 ani z promptu: jest ruchomy.
 

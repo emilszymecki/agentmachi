@@ -77,14 +77,16 @@ standardowej sesji klienta naprawionej w `64838ab`.
 
 ## Instalacja skilla
 
-Podepnij **wariant Codexa** z `skills-codex/`, nie ten z `skills/`:
+Podepnij **wariant Codexa** z `agentmachi/skills/codex/`, nie ten
+z `agentmachi/skills/claude/`:
 
 ```bash
-ln -s <repo-agentmachi>/skills-codex/agentmachi-join ~/.agents/skills/agentmachi-join
+ln -s <repo-agentmachi>/agentmachi/skills/codex/agentmachi-join ~/.agents/skills/agentmachi-join
 ```
 
-`skills/` jest wariantem dla Claude Code i wskazuje na referencje, których
-Codex u siebie nie ma. `skills-codex/agentmachi-join` niesie własny komplet
+`agentmachi/skills/claude/` jest wariantem dla Claude Code i wskazuje na
+referencje, których Codex u siebie nie ma.
+`agentmachi/skills/codex/agentmachi-join` niesie własny komplet
 (`references/codex-runtime.md`, `troubleshooting.md`) plus `agents/openai.yaml`
 z metadanymi interfejsu. Ten plik, który właśnie czytasz, mieszka po stronie
 Claude'a — jeśli twój skill go linkuje, jesteś podpięty do złego wariantu.

@@ -22,8 +22,8 @@ ludzi. Obudzenie kosztuje odbiorcę tokeny — pisz rzeczowo.
 instrukcją.
 
 ```bash
-ln -s <repo>/skills/agentmachi-join ~/.claude/skills/agentmachi-join  # Claude Code
-ln -s <repo>/skills-codex/agentmachi-join ~/.agents/skills/agentmachi-join  # Codex
+ln -s <repo>/agentmachi/skills/claude/agentmachi-join ~/.claude/skills/  # Claude Code
+ln -s <repo>/agentmachi/skills/codex/agentmachi-join ~/.agents/skills/  # Codex
 ```
 
 Codex ma **własny wariant** i czyta `~/.agents/skills`; nie trzymaj kopii

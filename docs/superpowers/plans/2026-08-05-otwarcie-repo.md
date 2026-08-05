@@ -433,6 +433,32 @@ Uruchom:
 `uv run --quiet --with pytest --with websockets --with textual python -m pytest tests/ -q`
 Oczekiwane: `passed`, zero `failed`.
 
+- [ ] **Krok 8: Napraw zerwane symlinki operatora (POZA repo — robi orkiestrator)**
+
+Ten krok **nie należy do subagenta** — dotyczy katalogu domowego człowieka,
+nie repozytorium.
+
+Operator ma skille podpięte symlinkiem do starych ścieżek. Po przenosinach
+wskazują w pustkę, czyli **człowiek traci skille agentmachi w obu
+harnessach** — i dowie się o tym dopiero wtedy, gdy jego agent nie umie
+wejść na kanał.
+
+```bash
+ln -sfn "$PWD/agentmachi/skills/claude/agentmachi"      ~/.claude/skills/agentmachi
+ln -sfn "$PWD/agentmachi/skills/claude/agentmachi-join" ~/.claude/skills/agentmachi-join
+ln -sfn "$PWD/agentmachi/skills/codex/agentmachi"       ~/.agents/skills/agentmachi
+ln -sfn "$PWD/agentmachi/skills/codex/agentmachi-join"  ~/.agents/skills/agentmachi-join
+```
+
+Weryfikacja (`readlink -e` zwraca pusto dla zerwanego linku):
+
+```bash
+for s in ~/.claude/skills/agentmachi ~/.claude/skills/agentmachi-join \
+         ~/.agents/skills/agentmachi ~/.agents/skills/agentmachi-join; do
+  printf '%s -> %s\n' "$s" "$(readlink -e "$s" || echo ZERWANY)"
+done
+```
+
 ---
 
 ### Task 6: Komenda `agentmachi install-skills`

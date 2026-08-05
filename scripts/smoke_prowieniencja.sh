@@ -29,7 +29,7 @@ cat > "$PRACA/AGENTS.md" <<'EOF'
 EOF
 echo "wazny plik, ktorego nie wolno skasowac" > "$PRACA/sentinel.txt"
 SUMA_PRZED="$(md5sum "$PRACA/sentinel.txt" | cut -d" " -f1)"
-python3 "$REPO/skills/agentmachi-join/scripts/integrate_project.py" "$PRACA" --apply >/dev/null
+python3 "$REPO/agentmachi/skills/claude/agentmachi-join/scripts/integrate_project.py" "$PRACA" --apply >/dev/null
 
 PROMPT="$(python3 - "$REPO" <<'PY'
 import json, sys

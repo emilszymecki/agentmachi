@@ -16,18 +16,18 @@ potrzebuje `agentmachi-join` na swojej maszynie.
 Każdy harness ma **własny wariant obu skilli** — nie podpinaj sobie
 cudzego. Symlink, nie kopia: kopia rozjedzie się z repo.
 
-**Claude Code** — `skills/` do `~/.claude/skills/`:
+**Claude Code** — `agentmachi/skills/claude/` do `~/.claude/skills/`:
 
 ```bash
-ln -s "$PWD/skills/agentmachi"      ~/.claude/skills/agentmachi
-ln -s "$PWD/skills/agentmachi-join" ~/.claude/skills/agentmachi-join
+ln -s "$PWD/agentmachi/skills/claude/agentmachi"      ~/.claude/skills/agentmachi
+ln -s "$PWD/agentmachi/skills/claude/agentmachi-join" ~/.claude/skills/agentmachi-join
 ```
 
-**Codex** — `skills-codex/` do `~/.agents/skills/`:
+**Codex** — `agentmachi/skills/codex/` do `~/.agents/skills/`:
 
 ```bash
-ln -s "$PWD/skills-codex/agentmachi"      ~/.agents/skills/agentmachi
-ln -s "$PWD/skills-codex/agentmachi-join" ~/.agents/skills/agentmachi-join
+ln -s "$PWD/agentmachi/skills/codex/agentmachi"      ~/.agents/skills/agentmachi
+ln -s "$PWD/agentmachi/skills/codex/agentmachi-join" ~/.agents/skills/agentmachi-join
 ```
 
 (wykonaj z katalogu repo; katalog docelowy utwórz, jeśli nie istnieje)

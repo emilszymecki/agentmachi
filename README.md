@@ -11,7 +11,7 @@ agentów, każesz im wejść na pokój i robicie tam swoją robotę. Hub jest
 transportem, nie zwierzchnikiem: dane pokoju leżą w `~/.agentmachi/<hub>/`,
 nigdy w twoim repo, a zasady twojego projektu są nadrzędne nad wszystkim, co
 padnie na kanale. Kontrakt do cudzego repo dopina
-`skills/agentmachi-join/scripts/integrate_project.py`.
+`agentmachi/skills/claude/agentmachi-join/scripts/integrate_project.py`.
 
 Wszystko w `docs/` — konstytucja, zasady, dogfoody — opisuje pracę **nad
 agentmachi** i nie rządzi projektem, do którego go podepniesz.
@@ -56,9 +56,9 @@ agentmachi del   --name <hub>     # kasuje pokój wraz z historią (nieodwracaln
 agentmachi card  --name <hub>     # adres + gotowe zdanie do wklejenia agentowi
 ```
 
-Nie musisz tego pamiętać: zainstaluj skill `skills/agentmachi` i powiedz
+Nie musisz tego pamiętać: zainstaluj skill `agentmachi/skills/claude/agentmachi` i powiedz
 swojemu Claude Code albo Codexowi *„odpal pokój dla agentów"*. Instrukcja
-instalacji — `skills/README.md`.
+instalacji — `agentmachi/skills/README.md`.
 
 Hub żyje w `~/.agentmachi/<hub>/`: `tokens.json` (0600), `config.json`,
 `data/` (log, snapshot, `rules.md`, `howto.md`). **Nigdy w katalogu
@@ -71,8 +71,9 @@ dostosowany per hub; nie nadpisujemy go po cichu). Migracja istniejącego huba
 to **świadomy krok operatora** (preview → backup → podmiana), udokumentowany
 w `docs/superpowers/plans/2026-07-24-plan-wyciecia-obory.md` (Task C1).
 
-Agent dołącza skillem `skills/agentmachi-join/` (człowiek-operator ma
-własny skill `skills/agentmachi/` — patrz `skills/README.md`):
+Agent dołącza skillem `agentmachi/skills/claude/agentmachi-join/`
+(człowiek-operator ma własny skill `agentmachi/skills/claude/agentmachi/`
+— patrz `agentmachi/skills/README.md`):
 
 ```bash
 agentmachi listen --name <hub> --nick <nick>    # nasłuch (trwały kursor)
@@ -114,7 +115,8 @@ Konwencje:
 Szczegóły dla agentów: `AGENTS.md` i `CLAUDE.md` — oba dotyczą pracy nad
 TYM repozytorium, nie projektów, do których agentmachi podłączysz. Mechanika
 protokołu przychodzi z huba jako `howto` (zawsze świeższa niż pliki w repo).
-Przenośne zasady współpracy są w skillu `skills/agentmachi-join/` — agent
+Przenośne zasady współpracy są w skillu
+`agentmachi/skills/claude/agentmachi-join/` — agent
 instaluje je świadomie, hub ich nie narzuca.
 
 ## Zdalny hub (Tailscale)
@@ -202,11 +204,13 @@ hub (`agentmachi list` pokaże, co żyje).
 ```
 agentmachi/            CLI: cykl życia huba (serve/list/stop/card), node,
                        szablon howto serwowany agentom przy hello
+agentmachi/skills/     skille pakowane z produktem:
+                       claude/ i codex/ × agentmachi (operator)
+                       + agentmachi-join (agent)
 chat/                  hub: protocol, store, identity, server,
                        client_session
 send.py                klient (resumowalny nasłuch + wysyłka)
 tui.py                 TUI człowieka (Textual)
-skills/                agentmachi (operator) + agentmachi-join (agent)
 tests/                 pytest
 docs/superpowers/      spec + plany
 ```
