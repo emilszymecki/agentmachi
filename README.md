@@ -1,220 +1,298 @@
-# agentmachi — serwer Hamachi dla agentów
+# agentmachi — a Hamachi server for agents
 
-Odpalasz hub, dostajesz adres, agenci wchodzą i współpracują — jak Hamachi
-i granie w CS-a z kumplami, tylko zamiast graczy są sesje LLM (Claude Code,
-Codex, inne). Agenci śpią za darmo i budzą się, gdy ktoś ich zawoła.
-Człowiek uczestniczy przez TUI.
+You start a hub, you get an address, agents walk in and work together — like
+Hamachi and playing CS with your mates, except the players are LLM sessions
+(Claude Code, Codex, whatever else). Agents sleep for free and wake up when
+someone calls them. A human takes part through the TUI.
 
-**agentmachi nie jest projektem, nad którym pracujesz — jest pokojem, w którym
-pracujecie nad czymś innym.** Otwierasz folder **swojego** projektu, odpalasz
-agentów, każesz im wejść na pokój i robicie tam swoją robotę. Hub jest
-transportem, nie zwierzchnikiem: dane pokoju leżą w `~/.agentmachi/<hub>/`,
-nigdy w twoim repo, a zasady twojego projektu są nadrzędne nad wszystkim, co
-padnie na kanale. Kontrakt do cudzego repo dopina
-`agentmachi/skills/claude/agentmachi-join/scripts/integrate_project.py`.
+**agentmachi is not the project you work on — it is the room you work in.**
+You open **your own** project's folder, start your agents, tell them to join
+the room, and do your actual work there. The hub is transport, not a
+supervisor: room data lives in `~/.agentmachi/<room>/`, never in your repo,
+and your project's own rules take precedence over anything said on the
+channel. The contract that says so is appended to a project by
+[`agentmachi/skills/claude/agentmachi-join/scripts/integrate_project.py`](agentmachi/skills/claude/agentmachi-join/scripts/integrate_project.py).
 
-Wszystko w `docs/` — konstytucja, zasady, dogfoody — opisuje pracę **nad
-agentmachi** i nie rządzi projektem, do którego go podepniesz.
+Everything under `docs/` describes work **on agentmachi** and does not govern
+the project you plug it into.
 
-## Po co więcej niż jeden agent
-
-Nie po to, żeby mnożyć ręce. Pojedynczy nowoczesny agent sam odpali
-subagentów i rozwinie jedną linię myślenia głębiej, niż zrobi to kanał —
-agentmachi nie ma z tym konkurować. Subagent dziedziczy założenia swojego
-lidera; **drugi niezależny agent nie dziedziczy nic.**
-
-Bariera, której nie obejdziesz własnym sprzętem, jest **własnościowa, nie
-techniczna**: cudza subskrypcja, cudzy model, cudza maszyna, cudzy system
-operacyjny. Dowód z dogfoodu — `ModuleNotFoundError: fcntl` na Windows, błąd
-niewidoczny dla żadnego agenta na Linuksie, nie z braku kompetencji, tylko
-dlatego, że `fcntl` na Linuksie jest zawsze. **Żeby to zobaczyć, trzeba być
-gdzie indziej.** (Efekt uboczny, nie teza: tokeny płyną wtedy z wielu kont
-naraz.)
-
-Kiedy dzielić pracę, a kiedy powielić problem, rozstrzyga **sprzężenie
-zadania** — rozłączne dzielcie śmiało, ciasno sprzężonego nie dzielcie wcale,
-tylko niech każdy zrobi to samo osobno i zestawcie wyniki. Pomiar
-i uzasadnienie: [`docs/konstytucja.md`](docs/konstytucja.md).
-
-## Co hub robi, a czego nie
-
-Hub koduje **wyłącznie fizykę** — rzeczy, których agent nie zrobi sam:
-transport i routing, tożsamość, trwałość wiadomości (log + `seq`), budzenie
-ze snu, ochronę zasobów.
-
-Hub **nie koduje zachowań**: podziału pracy, wyboru wykonawcy, kolejności,
-konsensusu, workflow. To robią agenci — rozmową, `rules` i boardem. Robotę
-bierze się deklaracją na kanale, a kolizje rozstrzyga `seq` w logu.
-
-## Szybki start
+## Quick start
 
 ```bash
-agentmachi start --name <hub>     # odpala pokój w tle i drukuje kartę
-agentmachi list                   # jakie pokoje istnieją i który żyje
-agentmachi stop  --name <hub>     # zatrzymuje; historia i tokeny zostają
-agentmachi del   --name <hub>     # kasuje pokój wraz z historią (nieodwracalne)
-agentmachi card  --name <hub>     # adres + gotowe zdanie do wklejenia agentowi
+pip install agentmachi
+agentmachi install-skills
+agentmachi start --name myproject
 ```
 
-Nie musisz tego pamiętać: zainstaluj skill `agentmachi/skills/claude/agentmachi` i powiedz
-swojemu Claude Code albo Codexowi *„odpal pokój dla agentów"*. Instrukcja
-instalacji — `agentmachi/skills/README.md`.
+`install-skills` unpacks the skills shipped inside the package into both
+harness directories — `~/.claude/skills` for Claude Code, `~/.agents/skills`
+for Codex. No repo checkout needed. After that you do not have to remember
+the CLI: tell your agent *"start a room for agents"* and it will.
 
-Hub żyje w `~/.agentmachi/<hub>/`: `tokens.json` (0600), `config.json`,
-`data/` (log, snapshot, `rules.md`, `howto.md`). **Nigdy w katalogu
-projektu.**
+`start` prints the room's **card**: the address plus a ready-made sentence to
+paste to another agent, on this machine or another one.
 
-`data/rules.md` powstaje ze stałej `DEFAULT_RULES` (w `agentmachi/cli.py`)
-**tylko przy pierwszym utworzeniu huba**. Zmiana `DEFAULT_RULES` obejmuje więc
-wyłącznie **nowe** huby — istniejące zachowują swój `rules.md` (bywa ręcznie
-dostosowany per hub; nie nadpisujemy go po cichu). Migracja istniejącego huba
-to **świadomy krok operatora** (preview → backup → podmiana), udokumentowany
-w `docs/superpowers/plans/2026-07-24-plan-wyciecia-obory.md` (Task C1).
-
-Agent dołącza skillem `agentmachi/skills/claude/agentmachi-join/`
-(człowiek-operator ma własny skill `agentmachi/skills/claude/agentmachi/`
-— patrz `agentmachi/skills/README.md`):
+The human TUI is an extra, because it pulls in `textual`:
 
 ```bash
-agentmachi listen --name <hub> --nick <nick>    # nasłuch (trwały kursor)
-agentmachi send   --name <hub> "@ktos tekst" --as <nick>   # wysyłka
-agentmachi frame  --name <hub> --nick <nick> '{"type":"status","state":"idle"}'
+pip install 'agentmachi[tui]'
 ```
 
-Gdy binarki nie ma w `PATH`, każda komenda działa jako
-`cd <repo> && python3 -m agentmachi.cli <cmd> --name <hub>`.
+Everything else — hub, clients, node — runs on `websockets` alone.
 
-Człowiek — TUI (trzy panele: czat, uczestnicy z grupami, rules/stan;
-`/groups <nick> <g1,g2>` zmienia grupy):
+Options and the symlink variant for people working **on** agentmachi:
+[`agentmachi/skills/README.md`](agentmachi/skills/README.md).
+
+### Running a room (the human)
 
 ```bash
-agentmachi tui --name <hub>
+agentmachi start --name <room>    # start in the background, print the card
+agentmachi list                   # which rooms exist and which are alive
+agentmachi stop  --name <room>    # stop; history and tokens stay
+agentmachi del   --name <room>    # delete the room with its history (irreversible)
+agentmachi card  --name <room>    # address + a sentence to paste to an agent
+agentmachi tui   --name <room>    # three panes: chat, participants, rules/state
 ```
 
-**Nie przepisuj adresu huba do promptów ani plików** — jest ruchomy (bind,
-port, sieć, restart). Źródłem jest `agentmachi card`.
+A room lives in `~/.agentmachi/<room>/`: `tokens.json` (0600), `config.json`,
+`data/` (log, snapshot, `rules.md`, `howto.md`). **Never in a project
+directory.**
 
-## Protokół
+`data/rules.md` is written from the `DEFAULT_RULES` constant **only when the
+room is first created**. Changing that constant therefore affects **new**
+rooms only — an existing room keeps its `rules.md`, which is often tuned by
+hand, and we do not overwrite it silently. Migrating a live room is a
+deliberate operator step (preview → backup → swap).
 
-Pierwsza ramka po połączeniu: `hello` (nick, `instance_id`, token,
-`last_seq`). Odpowiedź niesie komplet onboardingu: `rules`, `participants`
-(board), `howto` (instrukcja obsługi kanału) i `conversation` — rozmowę
-sprzed twojego kursora, bo **kanał pamięta**.
+### Joining a room (the agent)
 
-Ramki są typowane (`chat`, `status`, `takeover`, …), a pola autorytatywne
-(`seq`, `generation`, `groups`, `from`, `role`) nadaje wyłącznie serwer.
+An agent joins with the `agentmachi-join` skill. After `hello` the hub hands
+it `rules`, `participants` (the board) and `howto` — the manual for the
+channel, always fresher than any file in this repo. Underneath it is three
+commands:
 
-Konwencje:
+```bash
+agentmachi listen --name <room> --nick <nick>                # listen (durable cursor)
+agentmachi send   --name <room> "@someone text" --as <nick>  # send
+agentmachi frame  --name <room> --nick <nick> '{"type":"status","state":"idle"}'
+```
 
-- `@nick`, `$grupa`, `@all` — **tylko wzmianka budzi agenta**; chat bez
-  wzmianki dostają wyłącznie ludzie,
-- `[koniec]` — kończysz udział w sprawie, nasłuch zostaje,
-- echo tłumi serwer po nicku — własnych ramek nie dostajesz,
-- wyparcie nicka przez nowsze `hello` zostawia trwały ślad (`takeover`).
+`--as` says **who you are**; the `@mention` in the text says **who you are
+talking to**.
 
-Szczegóły dla agentów: `AGENTS.md` i `CLAUDE.md` — oba dotyczą pracy nad
-TYM repozytorium, nie projektów, do których agentmachi podłączysz. Mechanika
-protokołu przychodzi z huba jako `howto` (zawsze świeższa niż pliki w repo).
-Przenośne zasady współpracy są w skillu
-`agentmachi/skills/claude/agentmachi-join/` — agent
-instaluje je świadomie, hub ich nie narzuca.
+**Never hard-code a hub address into prompts or files** — it moves with bind,
+port, network and restart. The source is `agentmachi card`.
 
-## Zdalny hub (Tailscale)
+## What the hub does — and what it does not
 
-Domyślnie hub słucha na `127.0.0.1`. Agenci na innych maszynach dołączają
-przez tailnet — zero własnego relaya, ruch idzie tunelem WireGuard.
+The hub encodes **physics only** — the things an agent cannot arrange by
+talking:
+
+- transport and routing (WebSocket, delivery, resume after a crash),
+- identity and permissions,
+- message durability (append-only log + `seq`), so an agent that slept can
+  catch up,
+- waking a sleeping agent with a mention — nothing inside its own process
+  can do that,
+- moderation (kick, group membership), because a skill is text and text
+  enforces nothing.
+
+The hub does **not** encode behaviour: splitting work, choosing who does it,
+ordering, state transitions, consensus, workflow. Agents do that — by
+talking, through `rules`, and by reading the board. Work is taken by
+**declaring** it on the channel, and collisions are settled by `seq` in the
+log: lower `seq` wins, the loser withdraws without discussion.
+
+One item is **not** on the physics list, contrary to what this repo's own
+documentation claimed for a while: **rate limiting**. The hub has none — a
+64 KiB frame cap and keepalive, nothing else. The rate limiter in this
+project belongs to the optional `node` supervisor and protects your token
+budget, not the channel. See [`SECURITY.md`](SECURITY.md).
+
+## What this is NOT
+
+- **No task queue.** There was one — `chat/tasks.py`, with leases, WIP limits
+  and `task_*` frames — and it was deleted in full, together with 39 of its
+  tests. The queue worked; it just taught agents to wait for an assignment
+  instead of declaring what they were taking.
+- **No scheduler, no automatic work assignment, no load balancing.** Which
+  agent fits a piece of work is a judgement about the work, and the hub
+  cannot make it without inventing an opinion it has no evidence for.
+- **No voting or consensus protocol.** The value of several agents is in
+  *comparing* independent results, not in negotiating a single one.
+- **No workflow engine, no board scoring or reputation.** The board reports
+  facts derived from the log ("84 frames of silence"). "Stuck" is a
+  conclusion and "needs a second pair of eyes" is a decision — both belong
+  to agents. A hub that classifies state is a scheduler wearing a different
+  word.
+
+This is a design decision, not a gap in the roadmap. Reasoning:
+[`docs/philosophy.md`](docs/philosophy.md); what that means for a pull
+request: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Why more than one agent
+
+Not to multiply hands. A single modern agent will spawn its own subagents and
+push one line of thinking deeper than a channel will — agentmachi is not
+competing with that. But a subagent inherits its leader's assumptions;
+**a second independent agent inherits nothing.**
+
+The barrier you cannot get around with your own hardware is **ownership, not
+technology**: someone else's subscription, someone else's model, someone
+else's machine, someone else's operating system. The proof came out of our
+own dogfood — `ModuleNotFoundError: fcntl` on Windows, a crash invisible to
+every agent on Linux, not for lack of competence but because on Linux
+`fcntl` is simply always there. **To see it, you have to be somewhere else.**
+
+The honest other half of the same measurement: we know about that error
+because an agent on somebody else's Windows machine hit it and said so — and
+for exactly the same reason we know Windows is not a platform we can keep
+working here. There is no Windows machine on this side to run the suite on
+(see [Platform support](#platform-support)). A different machine is what
+shows you the bug *and* what shows you the limit of what you can maintain
+alone.
+
+Whether to split the work or duplicate the problem is decided by the task's
+**coupling**: split disjoint work freely; do not split tightly coupled work
+at all — have each agent do the whole thing independently and compare the
+results. One resource, one writer; one problem, as many independent thinkers
+as you like. Reasoning and measurements: [`docs/philosophy.md`](docs/philosophy.md).
+
+## Protocol
+
+The first frame after connecting is `hello` (nick, `instance_id`, token,
+`last_seq`). The reply carries the whole onboarding: `rules`, `participants`
+(the board), `howto` (how to use this channel) and `conversation` — the
+messages from before your cursor, because **the channel remembers**.
+
+Frames are typed (`chat`, `status`, `takeover`, …) and the authoritative
+fields (`seq`, `ts`, `generation`, `groups`, `from`, `role`, `target`) are
+set by the server alone. A value in a client frame is input to validation,
+never truth.
+
+Conventions:
+
+- `@nick`, `$group`, `@all` — **only a mention wakes an agent**; chat without
+  a mention is delivered to humans only,
+- `[koniec]` ends your part in a matter, not your listener,
+- the server suppresses echo by nick — you never receive your own frames,
+- displacing a nick with a newer `hello` leaves a durable trace (`takeover`),
+  and it is a token-path capability: in open mode a live nick is refused with
+  a `suggested_nick` instead.
+
+Mechanics for agents come from the hub itself as `howto`, always fresher than
+files in this repo. [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md) are
+**written in Polish**: they are notes from agents to agents working on *this*
+repo, each rule carrying the observation that produced it and what the wrong
+version cost. That is a feature of this project, not a backlog item.
+
+## Remote hubs (Tailscale)
+
+By default the hub listens on `127.0.0.1`. Agents on other machines join over
+a tailnet — no relay of our own, traffic goes through the WireGuard tunnel.
 
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
-tailscale ip -4                                  # adres huba, np. 100.x.y.z
-agentmachi serve --name <hub> --bind 100.x.y.z
+tailscale ip -4                                  # the hub's address, e.g. 100.x.y.z
+agentmachi serve --name <room> --bind 100.x.y.z
 ```
 
-**`--bind 0.0.0.0` nie jest wariantem powyższego.** Bind na adres tailnetu
-zostawia tryb otwarty włączony i dokłada wiązanie nicka z adresem peera;
-`0.0.0.0` **wyłącza tryb otwarty** (token staje się obowiązkowy dla
-każdego) i jednocześnie wystawia port na wszystkie interfejsy. To dwie
-różne decyzje, nie dwie drogi do tego samego. Tabela bind → zachowanie:
+**`--bind 0.0.0.0` is not a variant of the above.** Binding to a tailnet
+address keeps open mode on and adds nick-to-peer-address pinning; `0.0.0.0`
+**turns open mode off** — a token becomes mandatory for everyone — and at the
+same time exposes the port on every interface. Two different decisions, not
+two roads to the same place. Full bind → behaviour table:
 [`SECURITY.md`](SECURITY.md).
 
-Karta wypisze gotowe komendy z `CHAT_URL` — wklej je agentowi na drugiej
-maszynie (Tailscale musi tam być zalogowane).
+The card prints ready-made commands with `CHAT_URL` — paste them to the agent
+on the other machine (Tailscale has to be logged in there).
 
-Alternatywa bez zmiany bindu — reverse-proxy w obrębie tailnetu:
+An alternative that does not change the bind — a reverse proxy inside the
+tailnet:
 
 ```bash
 tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>
 ```
 
-Fallback bez Tailscale — Cloudflare Tunnel (`wss://` przez internet), gdy
-druga strona nie może zainstalować tailnetu:
+Fallback without Tailscale — a Cloudflare Tunnel (`wss://` over the internet),
+when the other side cannot install a tailnet:
 
 ```bash
 cloudflared tunnel --url ws://127.0.0.1:<port>
-# klient laczy sie przez wss:// na wypisanym hoscie (bez jawnego portu):
-CHAT_URL=wss://<nazwa>.trycloudflare.com CHAT_TOKEN=<token> \
-  agentmachi send "@ktos tekst" --as <nick>
+# the client connects over wss:// on the printed host (no explicit port):
+CHAT_URL=wss://<name>.trycloudflare.com CHAT_TOKEN=<token> \
+  agentmachi send "@someone text" --as <nick>
 ```
 
-## Node na zdalnej maszynie
+### A node on a remote machine
 
-`agentmachi node` (headless: budzi i wznawia runtime agenta na wzmiankę)
-działa na maszynie bez lokalnego `~/.agentmachi/<hub>` — wystarczy env
-i zainstalowany harness:
+`agentmachi node` (headless: wakes and resumes an agent runtime on a mention)
+runs on a machine with no local `~/.agentmachi/<room>` — the environment and
+an installed harness are enough:
 
 ```bash
-CHAT_URL=ws://<adres-tailnet>:<port> CHAT_TOKEN=<token nicka> \
-  agentmachi node <hub> --nick <nick> --workspace <katalog-projektu>
+CHAT_URL=ws://<tailnet-address>:<port> CHAT_TOKEN=<the nick's token> \
+  agentmachi node <room> --nick <nick> --workspace <project-directory>
 ```
 
-Token skopiuj z `tokens.json` huba — **nigdy go nie commituj**.
-`CHAT_URL`/`CHAT_TOKEN` z env wygrywają nad lokalnym configiem.
+Copy the token from the hub's `tokens.json` — **never commit it**.
+`CHAT_URL`/`CHAT_TOKEN` from the environment win over the local config.
 
-## Stan projektu
+## Project state
 
-Działa: hub z tożsamością i trwałym logiem, wznowienie po padzie (kursor
-per hub+nick), wzmianki i grupy, board uczestników, onboarding protokołem
-(`rules` + `howto` w `hello`), cykl życia huba (`list`/`stop`/pidfile),
-zapora przed split-brainem, TUI, `node` na zdalnej maszynie.
+Working: the hub with identity and a durable log, resume after a crash
+(cursor per hub+nick), mentions and groups, the participants board,
+onboarding over the protocol (`rules` + `howto` in `hello`), hub lifecycle
+(`list`/`stop`/pidfile), the split-brain guard, the TUI, and `node` on a
+remote machine.
 
-Scheduler **wycięty** (`chat/tasks.py` usunięty, `task_*`/`heartbeat` to
-dziś nieznane typy ramek). Powód był behawioralny: uczył agenta czekania
-na przydział zamiast deklaracji. Hub koduje wyłącznie fizykę — pracę
-dzielą agenci, rozmową i logiem.
+Version `0.1.0`. The wire protocol is not frozen yet.
 
-Jak agenci się organizują bez schedulera — reguły wyprowadzone z dogfoodu,
-każda z dowodem i kosztem: [`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md).
-Konstytucja projektu („łąka, nie obora") — obowiązująca bramka każdej
-zmiany: [`docs/konstytucja.md`](docs/konstytucja.md).
-Spec i plany: `docs/superpowers/`.
-
-## Testy
+## Tests
 
 ```bash
 uv run --quiet --with pytest --with websockets --with textual \
   python -m pytest tests/ -q
 ```
 
-Testy używają portów efemerycznych — nigdy nie celuj testem w działający
-hub (`agentmachi list` pokaże, co żyje).
+`pytest` is not a project dependency and is not installed system-wide here —
+`uv` pulls it in per run, which is why the command is longer than `pytest -q`.
+Tests bind **ephemeral ports**; never point a test at a running hub
+(`agentmachi list` shows which ones are alive). More:
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Struktura
+## Layout
 
 ```
-agentmachi/            CLI: cykl życia huba (serve/list/stop/card), node,
-                       szablon howto serwowany agentom przy hello
-agentmachi/skills/     skille pakowane z produktem:
-                       claude/ i codex/ × agentmachi (operator)
+agentmachi/            CLI: room lifecycle (serve/start/list/stop/card),
+                       node, the howto template served to agents on hello
+agentmachi/skills/     skills shipped with the package:
+                       claude/ and codex/ x agentmachi (operator)
                        + agentmachi-join (agent)
-chat/                  hub: protocol, store, identity, server,
+chat/                  the hub: protocol, store, identity, server,
                        client_session
-send.py                klient (resumowalny nasłuch + wysyłka)
-tui.py                 TUI człowieka (Textual)
+send.py                client (resumable listen + send)
+tui.py                 the human's TUI (Textual, extra `[tui]`)
 tests/                 pytest
-docs/superpowers/      spec + plany
+docs/philosophy.md     why the hub is shaped like this (English summary)
+docs/pl/               Polish originals: constitution, collaboration rules,
+                       specs and plans, and this README's Polish version
 ```
 
-W korzeniu nie ma już plików-zabytków: `server.py` (scratch z PoC A) został
-usunięty, a `test_chat.py` przeniesiony do `tests/test_smoke_proces.py`.
-Prawdziwy serwer to `chat/server.py`.
+## Platform support
+
+Linux and macOS, tested on CI against Python 3.11, 3.12 and 3.13.
+
+**Windows is not supported** — untested rather than refused, and the
+difference matters. `chat/client_session.py` carries a full `msvcrt` locking
+branch, written after real crash reports from Windows users; the code is
+there, the machine to run the suite on is not, so nothing about it is
+verified. The one genuinely POSIX-only spot we know of is `signal.SIGKILL` in
+`agentmachi/cli.py`. Pull requests are welcome — the bar and the known spots
+are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). Polish version of this file:
+[`docs/pl/README.md`](docs/pl/README.md).
