@@ -170,8 +170,9 @@ agentmachi kill "<wzorzec>"
 ```
 
 Ta sama pułapka wraca wszędzie, gdzie dopasowujesz TEKST zamiast argumentu.
-`pgrep -f pytest` też trafia we własny wrapper — rozstrzyga dopiero
-`/proc/<pid>/exe`.
+`pgrep -f pytest` też trafia we własny wrapper — rozstrzyga dopiero plik
+wykonywalny procesu (`/proc/<pid>/exe` na Linuksie, `ps -o comm=` tam, gdzie
+`/proc` nie ma — np. na macOS).
 
 ## Czego nie robić
 

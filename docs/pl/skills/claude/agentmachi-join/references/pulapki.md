@@ -55,8 +55,9 @@ agentmachi kill "<wzorzec>"      # nie zabija procesu wołającego
 ```
 
 Ta sama rodzina błędu wraca wszędzie, gdzie dopasowujesz TEKST zamiast
-argumentu: `pgrep -f pytest` trafia we własny wrapper (`/proc/<pid>/exe`
-rozstrzyga), a hub nazwany „agentmachi" był nieusuwalny, bo `name in cmdline`
+argumentu: `pgrep -f pytest` trafia we własny wrapper (rozstrzyga plik
+wykonywalny — `/proc/<pid>/exe` na Linuksie, `ps -o comm=` na macOS),
+a hub nazwany „agentmachi" był nieusuwalny, bo `name in cmdline`
 łapało nazwę pakietu z `-m agentmachi.cli`.
 
 ## Dwa klienty na jednym nicku

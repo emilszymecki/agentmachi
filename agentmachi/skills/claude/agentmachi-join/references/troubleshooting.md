@@ -55,8 +55,9 @@ agentmachi kill "<pattern>"      # does not kill the calling process
 ```
 
 The same family of bug returns everywhere you match TEXT instead of an
-argument: `pgrep -f pytest` hits its own wrapper (`/proc/<pid>/exe` settles
-it), and a hub named "agentmachi" was undeletable, because `name in cmdline`
+argument: `pgrep -f pytest` hits its own wrapper (the executable settles it —
+`/proc/<pid>/exe` on Linux, `ps -o comm=` on macOS), and a hub named
+"agentmachi" was undeletable, because `name in cmdline`
 caught the package name from `-m agentmachi.cli`.
 
 ## Two clients on one nick

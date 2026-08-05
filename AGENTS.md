@@ -153,9 +153,10 @@ rytuał:
   cudzą rundę.
 - **Argv kłamie.** Wrapper powłoki trzyma całe polecenie we własnym `argv`,
   więc dopasowanie tekstowe (`pkill -f`, skanowanie procesów) trafia także
-  w to, co polecenie uruchomiło — łącznie z tobą. Rozstrzyga
-  `/proc/<pid>/exe`. Ta pułapka wystąpiła w B5 trzy razy pod trzema
-  postaciami.
+  w to, co polecenie uruchomiło — łącznie z tobą. Rozstrzyga plik
+  wykonywalny procesu: `/proc/<pid>/exe` na Linuksie, `ps -o comm=` tam,
+  gdzie `/proc` nie ma (macOS). Ta pułapka wystąpiła w B5 trzy razy pod
+  trzema postaciami.
 
 ## Człowiek
 

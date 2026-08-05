@@ -13,9 +13,11 @@ Uklad ~/.agentmachi/<name>/:
 """
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -317,14 +319,77 @@ def hub_bind(name, fallback=DEFAULT_BIND):
 # dziala — zmierzone bolesnie: pkill nie ubil starego huba, `serve` postawil
 # drugi obok, dwa procesy pisaly do jednego katalogu (split-brain).
 
+# --- warstwa wykrywania procesow: /proc na Linuksie, `ps` gdzie indziej ---
+#
+# Zmierzone przez CI, nie przez czytanie kodu: suita padala na macos-latest
+# (8 failed, 509 passed, identycznie na 3.11/3.12/3.13), bo macOS NIE MA
+# /proc w ogole. To nie byla usterka testow, tylko dziura w fizyce produktu:
+# bez /proc nie dzialalo wykrywanie zywego huba bez pidfile, zapora przed
+# split-brainem, `agentmachi kill` (FileNotFoundError na `/proc`) ani `list`
+# pokazujacy cudzy zywy hub.
+#
+# /proc ZOSTAJE sciezka glowna — jest szybkie (bez podprocesow), dokladne
+# (`exe` to prawdziwy plik wykonywalny, nie argv) i przetestowane. `ps` jest
+# FALLBACKIEM: jest na obu platformach, ale kosztuje fork+exec i zna mniej.
+#
+# O platforme pyta DOKLADNIE JEDNO miejsce — `_procfs_dostepne()`. Nie
+# `sys.platform`, bo pytamy o MOZLIWOSC, nie o nazwe systemu: nie mamy macOS
+# pod reka, wiec sciezke bez /proc trzeba dac sie przejsc na Linuksie
+# (fixture `bez_procfs` w tests/test_cli.py odbiera temu modulowi /proc).
+# Rozproszenie tego pytania po szesciu miejscach dalo szesc osobnych awarii
+# na cudzej platformie — kazde nowe czytanie /proc ma isc przez te bramke.
+
+def _procfs_dostepne():
+    """Czy mamy /proc (Linux)? Jedyne miejsce, ktore pyta o platforme."""
+    return Path("/proc").is_dir()
+
+
+def _ps(*argv):
+    """Stdout `ps` albo None, gdy sie nie udalo (brak ps, blad, pusty wynik).
+
+    `ps -p <nieistniejacy>` konczy sie kodem 1 — dla nas to poprawna
+    odpowiedz "procesu nie ma", wiec None znaczy TO SAMO co OSError przy
+    czytaniu /proc. Zawsze `-ww`: macOS bez tego ucina linie polecen do
+    szerokosci terminala i `--name <kanal>` wypada z cmdline."""
+    try:
+        wynik = subprocess.run(("ps",) + argv, capture_output=True,
+                               text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if wynik.returncode != 0:
+        return None
+    return wynik.stdout or None
+
+
+# Zdjecie `ps -A` na czas JEDNEGO przegladu procesow (patrz
+# `_przeglad_procesow`) albo None poza nim. Globalne, bo `_cmdline_of(pid)`
+# ma zostac JEDYNYM miejscem, ktore odpowiada na pytanie "jaka linie polecen
+# ma ten proces" — i dla kodu, i dla testow, ktore je podmieniaja.
+#
+# Zmierzone przy tej zmianie: gdy skan czytal cmdline ze zdjecia, a
+# `_pid_is_our_hub` przez `_cmdline_of`, testy z podmienionym `_cmdline_of`
+# zaczynaly widziec PRAWDZIWE procesy maszyny — `restart` meldowal "pokoj
+# juz dziala (PID 3509)", bo na maszynie chodzil hub. To ta sama awaria, co
+# w `_ten_sam_home`: wynik suity zalezal od tego, co akurat chodzi.
+#
+# Dlaczego nie cache z TTL: "zero zegara w logice" (CLAUDE.md). Dlaczego nie
+# argument: podmieniona w tescie funkcja przyjmuje `(pid)` i tylko `(pid)`.
+_ZDJECIE_PS = None
+
+
 def _cmdline_of(pid):
     """Linia polecen procesu albo None, gdy go nie ma. Wydzielone, zeby
     test mogl podstawic cudzy proces bez zabawy w prawdziwe PID-y."""
-    try:
-        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
-    except OSError:
-        return None
-    return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+    if _procfs_dostepne():
+        try:
+            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        except OSError:
+            return None
+        return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+    if _ZDJECIE_PS is not None:
+        return _ZDJECIE_PS.get(pid)
+    out = _ps("-ww", "-o", "command=", "-p", str(pid))
+    return out.strip() if out else None
 
 
 def _pid_is_our_hub(pid, name):
@@ -376,14 +441,51 @@ def _ancestor_pids():
     cur = os.getpid()
     while cur and cur > 1 and cur not in out:
         out.add(cur)
+        cur = _ppid_of(cur)
+    return out
+
+
+def _ppid_of(pid):
+    """PID rodzica albo 0, gdy nie wiadomo (proces znikl, brak dostepu).
+
+    Wydzielone z `_ancestor_pids`, bo to jedyny kawalek tamtej funkcji,
+    ktory dotykal /proc — reszta (petla po przodkach, ochrona przed cyklem)
+    jest przenosna i nie ma powodu istniec w dwoch wariantach."""
+    if _procfs_dostepne():
         try:
-            status = Path(f"/proc/{cur}/status").read_text(encoding="utf-8")
+            status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
         except OSError:
-            break
+            return 0
         ppid = next((l.split()[1] for l in status.splitlines()
                      if l.startswith("PPid:")), None)
-        cur = int(ppid) if ppid and ppid.isdigit() else 0
-    return out
+        return int(ppid) if ppid and ppid.isdigit() else 0
+    out = _ps("-o", "ppid=", "-p", str(pid))
+    ppid = (out or "").strip()
+    return int(ppid) if ppid.isdigit() else 0
+
+
+def _exe_nazwa(pid):
+    """Nazwa PLIKU WYKONYWALNEGO procesu (basename) albo None.
+
+    Sedno: ma NIE pochodzic z argv, bo argv klamie (patrz
+    `_is_shell_wrapper`). Na Linuksie to `/proc/<pid>/exe`, czyli prawda
+    jadra. Bez /proc pytamy `ps -o comm=` — pole `comm` tez pochodzi
+    z pliku wykonywalnego, a nie z argumentow: na macOS to sciezka
+    binarki, na Linuksie nazwa z jadra (ucieta do 15 znakow, co nam nie
+    przeszkadza — porownujemy z krotkimi nazwami powlok).
+
+    Roznica wobec /proc, ktorej NIE DA SIE zalatac: gdy `comm` pochodzi
+    mimo wszystko z argv[0] powloki logowania, ma wiodacy `-` (`-zsh`).
+    Zdejmujemy go, zeby taki proces nadal rozpoznac jako powloke."""
+    if _procfs_dostepne():
+        try:
+            return os.path.basename(os.readlink(f"/proc/{pid}/exe"))
+        except OSError:
+            return None
+    out = _ps("-o", "comm=", "-p", str(pid))
+    if not out:
+        return None
+    return os.path.basename(out.strip()).lstrip("-") or None
 
 
 def _is_shell_wrapper(pid):
@@ -393,11 +495,43 @@ def _is_shell_wrapper(pid):
     argv, wiec kazdy wzorzec tekstowy trafia w niego tak samo jak w prawdziwy
     serwer. Rozstrzygamy po PLIKU WYKONYWALNYM, nie po tresci argumentow —
     argv klamie, exe nie."""
-    try:
-        exe = os.path.basename(os.readlink(f"/proc/{pid}/exe"))
-    except OSError:
+    exe = _exe_nazwa(pid)
+    if exe is None:
         return False           # brak dostepu: nie zgadujemy, decyduje wzorzec
     return any(exe == s or exe.startswith(s) for s in _SHELLS)
+
+
+@contextlib.contextmanager
+def _przeglad_procesow():
+    """Lista PID-ow wszystkich widocznych procesow — jedno zrodlo dla skanu
+    hubow i dla `kill`. Linie polecen bierze sie z `_cmdline_of`, nie stad.
+
+    Bez /proc kazde `_cmdline_of` byloby forkiem `ps`, a `list` pyta o setki
+    procesow razy liczba pokoi. Dlatego na czas przegladu robimy JEDNO
+    zdjecie `ps -A` i to z niego odpowiada `_cmdline_of`. Zdjecie zyje tylko
+    tutaj i jest przywracane w `finally` — poza przegladem `_cmdline_of`
+    pyta system na biezaco, bo `stop` czeka wtedy na smierc procesu."""
+    global _ZDJECIE_PS
+    if _procfs_dostepne():
+        try:
+            pidy = [int(w.name) for w in Path("/proc").iterdir()
+                    if w.name.isdigit()]
+        except OSError:
+            pidy = []
+        yield pidy
+        return
+    zdjecie = {}
+    out = _ps("-A", "-ww", "-o", "pid=,command=")
+    for linia in (out or "").splitlines():
+        pid_txt, _, cmd = linia.strip().partition(" ")
+        if pid_txt.isdigit():
+            zdjecie[int(pid_txt)] = cmd.strip()
+    poprzednie = _ZDJECIE_PS
+    _ZDJECIE_PS = zdjecie
+    try:
+        yield list(zdjecie)
+    finally:
+        _ZDJECIE_PS = poprzednie
 
 
 def _scan_hub_pid(name):
@@ -410,9 +544,6 @@ def _scan_hub_pid(name):
     postawic drugi hub na tym samym katalogu — czyli split-brain z F7, ktory
     16:05 zzarl nam rozmowe. Dlatego przy braku pidfile pytamy system.
     """
-    proc = Path("/proc")
-    if not proc.is_dir():          # nie-Linux: zostajemy przy pidfile
-        return None
     # REGRESJA z produkcji: startujacy hub pytal "czy juz dzialam?", skaner
     # znajdowal JEGO WLASNY proces (cmdline pasuje idealnie) i serve odmawial
     # startu — hub nie mogl wstac w ogole. Ten sam wzorzec, co pkill -f
@@ -423,17 +554,23 @@ def _scan_hub_pid(name):
     # Bez tego startujacy przez powloke hub znajduje swojego rodzica i znow
     # odmawia startu — ta sama pulapka, tylko o jedno pietro wyzej.
     mine = _ancestor_pids()
-    for entry in proc.iterdir():
-        if not entry.name.isdigit():
-            continue
-        pid = int(entry.name)
-        if pid in mine or _is_shell_wrapper(pid):
-            continue
-        cmd = _cmdline_of(pid)
-        if not cmd or "serve" not in cmd:
-            continue
-        if _pid_is_our_hub(pid, name) and _ten_sam_home(pid):
-            return pid
+    with _przeglad_procesow() as pidy:
+        for pid in pidy:
+            if pid in mine:
+                continue
+            cmd = _cmdline_of(pid)
+            # Kolejnosc warunkow jest teraz istotna, a nie kosmetyczna: filtr
+            # po cmdline jest w przegladzie DARMOWY, a `_is_shell_wrapper` bez
+            # /proc kosztuje forka `ps`. Najpierw odsiewamy setki procesow,
+            # ktore hubem nie sa, potem pytamy o plik wykonywalny tych kilku,
+            # ktore moga nim byc. Oba warunki sa czystymi predykatami — wynik
+            # ten sam, zmienia sie tylko liczba forkow.
+            if not cmd or "serve" not in cmd:
+                continue
+            if _is_shell_wrapper(pid):
+                continue
+            if _pid_is_our_hub(pid, name) and _ten_sam_home(pid):
+                return pid
     return None
 
 
@@ -443,13 +580,58 @@ def _home_procesu(pid):
     Czytamy srodowisko procesu, bo w cmdline huba tej informacji nie ma
     (`serve --name X --port N --bind B`). Nieczytelne environ (cudzy
     uzytkownik, proces znikl) daje None — wolimy nie wiedziec niz zgadnac."""
-    try:
-        raw = Path(f"/proc/{pid}/environ").read_bytes()
-    except OSError:
+    if _procfs_dostepne():
+        try:
+            raw = Path(f"/proc/{pid}/environ").read_bytes()
+        except OSError:
+            return None
+        for wpis in raw.split(b"\0"):
+            if wpis.startswith(b"AGENTMACHI_HOME="):
+                return str(Path(wpis.split(b"=", 1)[1]
+                                .decode("utf-8", "replace")))
+        return str(Path.home() / ".agentmachi")
+    return _home_procesu_ps(pid)
+
+
+# `ps` pokazujace srodowisko ma DWIE skladnie i zadna nie dziala wszedzie:
+# macOS/BSD chce `-E` (procps: "nie obsługiwana opcja SysV"), procps chce
+# stylu BSD `eww` (macOS ma `e` jako modyfikator, ale mieszanie go z `-o`
+# nie jest udokumentowane). Probujemy po kolei zamiast zgadywac platforme —
+# ta sama zasada co `_procfs_dostepne`: pytamy o MOZLIWOSC, nie o nazwe
+# systemu. Efekt uboczny jest celowy: wariant BSD dziala takze na Linuksie,
+# wiec te sciezke da sie przejsc testem bez macOS.
+_PS_ENVIRON = (("-E", "-ww", "-o", "command=", "-p"),
+               ("eww", "-o", "command=", "-p"))
+
+# Environ z `ps` przychodzi jako plaski tekst "cmdline KEY=VAL KEY=VAL...",
+# a nie jako lista rozdzielona \0 — wartosc konczy sie dopiero przed
+# nastepnym kluczem. Stad lookahead: sciezka domowa ze spacja przezyje.
+_RE_HOME = re.compile(r"AGENTMACHI_HOME=(.*?)(?= [A-Za-z_][A-Za-z0-9_]*=|$)")
+
+
+def _home_procesu_ps(pid):
+    """`_home_procesu` bez /proc. Zwraca None takze wtedy, gdy environ jest
+    NIEWIDOCZNE — a to trzeba odroznic od "zmiennej nie ma".
+
+    Znacznikiem widocznosci jest PATH: dziedziczy go praktycznie kazdy
+    proces, wiec wynik `ps` bez `PATH=` znaczy "srodowiska nie pokazano"
+    (na macOS zdarza sie to dla procesow spoza naszego uid i dla binarek
+    z hardened runtime), a nie "hub startowal bez PATH". Bez tego
+    rozroznienia niewidoczne environ udawaloby domyslny `~/.agentmachi`
+    i skan mowilby "to inna instalacja" o hubie z TEJ SAMEJ — czyli
+    falszywe "zatrzymany", a to jest droga do split-brainu. Wolimy None,
+    bo `_ten_sam_home` zostawia wtedy trafienie."""
+    for wariant in _PS_ENVIRON:
+        out = _ps(*wariant, str(pid))
+        if out:
+            break
+    else:
         return None
-    for wpis in raw.split(b"\0"):
-        if wpis.startswith(b"AGENTMACHI_HOME="):
-            return str(Path(wpis.split(b"=", 1)[1].decode("utf-8", "replace")))
+    if not re.search(r"(?:^| )PATH=", out):
+        return None
+    trafienie = _RE_HOME.search(out)
+    if trafienie:
+        return str(Path(trafienie.group(1)))
     return str(Path.home() / ".agentmachi")
 
 
@@ -689,19 +871,16 @@ def cmd_kill(args):
     wzorzec = args.wzorzec
     swoje = _ancestor_pids()
     trafione = []
-    for wpis in Path("/proc").iterdir():
-        if not wpis.name.isdigit():
-            continue
-        pid = int(wpis.name)
-        if pid in swoje:
-            continue
-        try:
-            cmdline = (wpis / "cmdline").read_bytes().replace(b"\0", b" ").decode(
-                "utf-8", "replace").strip()
-        except OSError:
-            continue
-        if wzorzec in cmdline:
-            trafione.append((pid, cmdline))
+    # Kiedys chodzilo po `/proc` wprost i na macOS padalo z FileNotFoundError
+    # na samym `/proc` — komenda nie dzialala tam W OGOLE, a jest to komenda
+    # ratunkowa. Teraz to samo zrodlo procesow, co skan hubow.
+    with _przeglad_procesow() as pidy:
+        for pid in pidy:
+            if pid in swoje:
+                continue
+            cmdline = _cmdline_of(pid)
+            if cmdline and wzorzec in cmdline:
+                trafione.append((pid, cmdline))
 
     if not trafione:
         print(f"agentmachi kill: nothing matches {wzorzec!r}")

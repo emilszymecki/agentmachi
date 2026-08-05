@@ -185,8 +185,9 @@ agentmachi kill "<pattern>"
 ```
 
 The same trap returns everywhere you match TEXT instead of an argument.
-`pgrep -f pytest` also hits its own wrapper — only `/proc/<pid>/exe` settles
-it.
+`pgrep -f pytest` also hits its own wrapper — only the process's executable
+settles it (`/proc/<pid>/exe` on Linux, `ps -o comm=` where there is no
+`/proc`, e.g. macOS).
 
 ## What not to do
 

@@ -3,6 +3,8 @@ import argparse
 import json
 import os
 import stat
+import time
+from pathlib import Path
 
 import pytest
 
@@ -710,6 +712,211 @@ def test_kill_nie_ubija_wlasnego_procesu(capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert str(os.getpid()) not in out       # my sami NIGDY na liscie
+
+
+# -- macOS: te same wlasnosci bez /proc ----------------------------------
+#
+# Znalezione przez CI, nie przez czytanie kodu: 8 failed na macos-latest,
+# identycznie na 3.11/3.12/3.13, wszystkie od `FileNotFoundError: '/proc'`.
+# macOS nie ma /proc w ogole, wiec nie dzialalo tam wykrywanie zywego huba
+# bez pidfile, zapora przed split-brainem, `kill` ani `list`.
+#
+# Nie mamy macOS pod reka, wiec sciezke bez /proc przechodzimy na Linuksie:
+# fixture `bez_procfs` odbiera modulowi `cli` dostep do /proc tak, jak robi
+# to macOS — katalogu po prostu nie ma. Kazdy kod, ktory wciaz siegnie po
+# /proc, dostanie tu FileNotFoundError, czyli dokladnie to, co na CI.
+
+@pytest.fixture
+def bez_procfs(tmp_path, monkeypatch):
+    """Symulacja macOS: dla modulu `cli` /proc nie istnieje.
+
+    Podmieniamy `cli.Path` tak, by kazda sciezka pod /proc wskazywala
+    w nieistniejacy katalog. To mocniejsze niz zaslepienie samego
+    `_procfs_dostepne`: gdyby ktos dolozyl nowe czytanie /proc z pominieciem
+    tej bramki, test padnie tym samym bledem, co macos-latest, zamiast
+    cicho przejsc."""
+    brak = tmp_path / "system-bez-proc"
+
+    def sciezka(*a, **kw):
+        p = Path(*a, **kw)
+        try:
+            return brak / p.relative_to("/proc")
+        except ValueError:
+            return p
+
+    sciezka.home = Path.home          # hub_home() nadal musi dzialac
+    monkeypatch.setattr(cli, "Path", sciezka)
+    assert cli._procfs_dostepne() is False, "fixture ma udawac system bez /proc"
+    return brak
+
+
+def _ps_atrapa(snapshot, comm=None, environ=None):
+    """Atrapa `ps` rozrozniajaca wywolania po argumentach — jak prawdziwe.
+
+    Pytanie o pojedynczy pid odpowiada z tego samego zdjecia, co `-A`:
+    kod pyta o cmdline dwa razy (raz przy skanie, raz przy sprawdzaniu
+    `--name`) i atrapa, ktora znalaby tylko jedno z tych wywolan, kłamalaby
+    inaczej niz system."""
+    linie = {}
+    for linia in snapshot.splitlines():
+        pid_txt, _, cmd = linia.strip().partition(" ")
+        if pid_txt.isdigit():
+            linie[pid_txt] = cmd.strip()
+
+    def ps(*argv):
+        if "-A" in argv:
+            return snapshot
+        pid = argv[-1]
+        if "comm=" in argv:
+            return (comm or {}).get(pid, "/usr/bin/python3.13") + "\n"
+        if "-E" in argv or "eww" in argv:
+            return (environ or {}).get(pid)
+        if "command=" in argv:
+            return (linie.get(pid) or "") + "\n" if pid in linie else None
+        return None
+    return ps
+
+
+_PS_SNAPSHOT = """\
+    1 /sbin/launchd
+  501 /usr/libexec/logd
+ 4242 /opt/homebrew/bin/python3.13 -m agentmachi.cli serve --name warsztat
+ 4243 /bin/zsh -c cd repo && agentmachi serve --name warsztat
+"""
+
+
+def test_bez_procfs_ancestor_pids_nadal_zna_rodzicow(bez_procfs):
+    """Bez tego `kill` na macOS zabijalby wlasny wrapper powloki (exit 144):
+    zbior 'nasze procesy' redukowal sie do samego getpid()."""
+    swoje = cli._ancestor_pids()
+    assert os.getpid() in swoje
+    assert os.getppid() in swoje
+    assert len(swoje) >= 2
+
+
+def test_bez_procfs_skan_znajduje_huba_bez_pidfile(home, bez_procfs,
+                                                   monkeypatch):
+    """F8 na macOS: brak pidfile nadal NIE znaczy 'zatrzymany'."""
+    monkeypatch.setattr(cli, "_ps", _ps_atrapa(_PS_SNAPSHOT))
+    monkeypatch.setattr(cli, "_ancestor_pids", lambda: {os.getpid()})
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: str(cli.hub_home()))
+    assert cli._scan_hub_pid("warsztat") == 4242, \
+        "hub z tego samego home musi byc widziany — inaczej wraca split-brain"
+
+
+def test_bez_procfs_skan_omija_wrapper_powloki(home, bez_procfs, monkeypatch):
+    """Wlasnosc, ktorej `ps` nie dostaje za darmo: PID 4243 pasuje do wzorca
+    rownie dobrze jak hub, bo trzyma cale polecenie we wlasnym argv.
+    Rozstrzyga plik wykonywalny (`ps -o comm=`, nie `command=`)."""
+    monkeypatch.setattr(cli, "_ps", _ps_atrapa(
+        _PS_SNAPSHOT.replace(" 4242 /opt/homebrew/bin/python3.13 -m "
+                             "agentmachi.cli serve --name warsztat\n", ""),
+        comm={"4243": "/bin/zsh"}))
+    monkeypatch.setattr(cli, "_ancestor_pids", lambda: {os.getpid()})
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: str(cli.hub_home()))
+    assert cli._scan_hub_pid("warsztat") is None, \
+        "powloka udajaca huba nie moze blokowac startu"
+
+
+def test_bez_procfs_skan_nie_myli_huba_z_innej_instalacji(home, bez_procfs,
+                                                          monkeypatch):
+    """Izolacja po AGENTMACHI_HOME zostaje takze bez /proc — inaczej suita
+    na macOS zalezalaby od tego, co akurat chodzi na maszynie."""
+    monkeypatch.setattr(cli, "_ps", _ps_atrapa(_PS_SNAPSHOT))
+    monkeypatch.setattr(cli, "_ancestor_pids", lambda: {os.getpid()})
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: "/gdzie/indziej")
+    assert cli._scan_hub_pid("warsztat") is None
+
+
+def test_bez_procfs_skan_nie_raportuje_wlasnego_procesu(home, bez_procfs,
+                                                        monkeypatch):
+    """REGRESJA z produkcji, ta sama na kazdej platformie: startujacy hub
+    pytal 'czy juz dzialam?', skaner znajdowal JEGO WLASNY proces i serve
+    odmawial startu."""
+    snapshot = f"{os.getpid()} python3 -m agentmachi.cli serve --name warsztat\n"
+    monkeypatch.setattr(cli, "_ps", _ps_atrapa(snapshot))
+    monkeypatch.setattr(cli, "_home_procesu", lambda pid: str(cli.hub_home()))
+    assert cli._scan_hub_pid("warsztat") is None
+
+
+def test_bez_procfs_list_widzi_zywy_hub_z_pidfile(home, bez_procfs):
+    """Cala droga na prawdziwym `ps`, bez atrap: pidfile -> _cmdline_of ->
+    `list`. Na macOS `_cmdline_of` zwracalo None dla KAZDEGO pid-u, wiec
+    `list` kasowal zywy pidfile i meldowal 'stopped'."""
+    cli.ensure_hub("h1", 8910)
+    (cli.hub_dir("h1") / "hub.pid").write_text(str(os.getpid()))
+    row = next(r for r in cli.hub_rows() if r["name"] == "h1")
+    assert row["running"] is True and row["pid"] == os.getpid()
+    assert (cli.hub_dir("h1") / "hub.pid").exists(), "zywy pidfile ma zostac"
+
+
+def test_bez_procfs_kill_nie_ubija_wlasnego_procesu(bez_procfs, capsys):
+    """Na macOS ta komenda padala z FileNotFoundError na samym `/proc` —
+    czyli narzedzie ratunkowe nie dzialalo tam w ogole."""
+    args = argparse.Namespace(wzorzec="pytest", force=False, dry_run=True)
+    assert cli.cmd_kill(args) == 0
+    assert str(os.getpid()) not in capsys.readouterr().out
+
+
+def test_bez_procfs_wrapper_powloki_poznaje_sie_po_pliku_wykonywalnym(
+        bez_procfs):
+    """Na zywych procesach, bez atrap. `/proc/<pid>/exe` nie ma, wiec pytamy
+    `ps -o comm=` — pole wziete z pliku wykonywalnego, nie z argv."""
+    import subprocess
+    dziecko = subprocess.Popen(["sh", "-c", "sleep 30"])
+    try:
+        time.sleep(0.3)
+        assert cli._is_shell_wrapper(dziecko.pid) is True
+        assert cli._is_shell_wrapper(os.getpid()) is False   # to python
+    finally:
+        dziecko.kill()
+        dziecko.wait()
+
+
+def test_bez_procfs_home_procesu_czyta_srodowisko(bez_procfs):
+    """Jedyna wlasnosc, ktorej przenosnie odtworzyc SIE NIE DA na pewno:
+    `/proc/<pid>/environ` czyta sie zawsze, a `ps -E`/`ps eww` pokazuje
+    srodowisko tylko procesow, ktore system zechce pokazac (na macOS bywa,
+    ze dla cudzego uid albo binarki z hardened runtime nie pokaze).
+
+    Kontrakt jest wiec dwuczlonowy i oba czlony sa tu sprawdzane: albo
+    znamy home procesu, albo NIE ZGADUJEMY (None) — a None zostawia
+    trafienie skanu, bo falszywe 'dziala' jest tansze niz falszywe
+    'zatrzymany' (split-brain F7 raz zzarl nam rozmowe)."""
+    import subprocess
+    srodowisko = {**os.environ, "AGENTMACHI_HOME": "/tmp/nie ma takiego/machi"}
+    dziecko = subprocess.Popen(["sh", "-c", "sleep 30"], env=srodowisko)
+    try:
+        time.sleep(0.3)
+        home = cli._home_procesu(dziecko.pid)
+        if home is None:
+            # Jawny brak, nie ciche klamstwo: mowimy, ze na tej platformie
+            # tej wlasnosci nie mamy, i pilnujemy tanszej strony bledu.
+            assert cli._ten_sam_home(dziecko.pid) is True
+            pytest.skip("ps nie pokazuje environ na tej platformie — "
+                        "_home_procesu oddaje None i skan zostawia trafienie")
+        assert home == "/tmp/nie ma takiego/machi", \
+            "sciezka ze spacja tez musi przezyc plaski tekst z ps"
+    finally:
+        dziecko.kill()
+        dziecko.wait()
+
+
+def test_bez_procfs_niewidoczne_environ_to_none_a_nie_domyslny_home(
+        bez_procfs, monkeypatch):
+    """Granica poprzedniego: wynik `ps` BEZ `PATH=` znaczy 'srodowiska nie
+    pokazano', a nie 'hub startowal bez AGENTMACHI_HOME'. Gdyby wpadl tu
+    domyslny ~/.agentmachi, skan uznalby hub z TEJ SAMEJ instalacji za obcy
+    i powiedzial 'zatrzymany' — czyli zaprosil do split-brainu."""
+    monkeypatch.setattr(cli, "_ps", _ps_atrapa(
+        "", environ={"4242": "python3 -m agentmachi.cli serve --name w\n"}))
+    assert cli._home_procesu(4242) is None
+    assert cli._ten_sam_home(4242) is True
+
+    monkeypatch.setattr(cli, "_ps", _ps_atrapa("", environ={
+        "4242": "python3 -m agentmachi.cli serve --name w PATH=/usr/bin "
+                "AGENTMACHI_HOME=/opt/machi SHELL=/bin/zsh\n"}))
+    assert cli._home_procesu(4242) == "/opt/machi"
 
 
 # -- C3: `send` nie pozwala pomylic nadawcy z adresatem -------------------
