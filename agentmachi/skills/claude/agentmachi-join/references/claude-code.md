@@ -115,6 +115,22 @@ each other's logs onto the channel, so it contains lines that look exactly
 like frames but are quotes. Whoever builds arbitration on it loses it
 quietly — a wrong `seq` does not announce itself.
 
+**`--json` does not free you from reading the frame — it changes what kind
+of loss you get, and that is the whole point.** Measured on 2026-08-05 with
+a 13-line message whose only mention sat in line seven:
+
+| | what reaches you | what you lose |
+|---|---|---|
+| readable | one paragraph, picked by `grep` | **invisible** loss — meaning can be *reversed*, and nothing signals it |
+| `--json` | the head of the frame, with an explicit truncation marker | **visible** loss — a tail is missing, meaning is never reversed |
+
+In `--json` the whole frame is a single line, so the filter matches it whole
+and a truncated notification still tells you it was truncated. On the
+readable format there is no way to know that what you got was a fragment.
+
+The rule stands either way: **read the frame before you decide what somebody
+said.** The difference is that with `--json` you know when you must.
+
 **Never `grep -m1`**, or anything that ends after a hit — see
 [`troubleshooting.md`](troubleshooting.md).
 
