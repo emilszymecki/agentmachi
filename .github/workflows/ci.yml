@@ -25,3 +25,47 @@ jobs:
           uv run --quiet --python ${{ matrix.python }}
           --with pytest --with websockets --with textual
           python -m pytest tests/ -q
+
+  # Osobny job, nie krok w macierzy: pakowanie nie zalezy od wersji Pythona
+  # ani od systemu, wiec szescio-krotne powtarzanie tego samego to strata.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Build and inspect the artifacts
+        # Historia tego kroku: `howto_default.md` wypadlo kiedys z kola i
+        # dziura przezyla do pierwszej instalacji pakietowej, bo
+        # `pip install -e .` czyta z drzewa zrodel i maskuje wszystko.
+        # Potem `skills/**/*` wciagnelo __pycache__ do paczki. Oba razy
+        # konfiguracja WYGLADALA poprawnie — rozstrzygnela dopiero
+        # zawartosc gotowego artefaktu.
+        run: |
+          uv run --with build python -m build
+          uv run --with twine python -m twine check dist/*
+          uv run python - <<'PY'
+          import tarfile, zipfile, glob, sys
+
+          kolo = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist()
+          sdist = tarfile.open(glob.glob('dist/*.tar.gz')[0]).getnames()
+          bledy = []
+
+          for nazwa, pliki in (('wheel', kolo), ('sdist', sdist)):
+              smieci = [p for p in pliki if '__pycache__' in p or p.endswith('.pyc')]
+              if smieci:
+                  bledy.append(f'{nazwa}: {len(smieci)} plikow __pycache__/.pyc')
+              skille = sum(1 for p in pliki if p.endswith('SKILL.md'))
+              if skille != 4:
+                  bledy.append(f'{nazwa}: {skille} SKILL.md zamiast 4')
+              if not any('howto_default.md' in p for p in pliki):
+                  bledy.append(f'{nazwa}: brak howto_default.md — ensure_hub czyta go bezwarunkowo')
+              if not any(p.endswith('integrate_project.py') for p in pliki):
+                  bledy.append(f'{nazwa}: brak skryptow skilli')
+
+          if bledy:
+              print('ZAWARTOSC PACZKI JEST ZLA:')
+              for b in bledy:
+                  print(' -', b)
+              sys.exit(1)
+          print('OK: obie paczki kompletne i bez smieci')
+          PY

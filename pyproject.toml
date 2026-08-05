@@ -48,3 +48,11 @@ py-modules = ["send", "tui"]
 # do pierwszej instalacji pakietowej.
 [tool.setuptools.package-data]
 agentmachi = ["howto_default.md", "skills/**/*"]
+
+# `skills/**/*` jest zachlanne i lapie takze __pycache__ ze skryptow skilli
+# (powstaje przy uruchomieniu testow). Bez tego wykluczenia KAZDY
+# `pip install agentmachi` niesie .pyc zbudowane na maszynie wydawcy.
+# MANIFEST.in zalatwia to samo dla sdist — sa to dwie rozne sciezki
+# pakowania i trzeba obu.
+[tool.setuptools.exclude-package-data]
+agentmachi = ["skills/**/__pycache__/*", "skills/**/*.py[cod]"]

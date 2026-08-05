@@ -1,0 +1,6 @@
+# Sdist buduje sie z DYSKU, nie z gita — `.gitignore` go nie obowiazuje.
+# Bez tego `__pycache__/*.pyc` ze skilli (powstaja przy uruchomieniu testow)
+# wjezdzaja do paczki publikowanej na PyPI. Zlapane przed pierwsza publikacja
+# przez `tar tzf` na gotowym sdist, nie przez inspekcje konfiguracji.
+global-exclude __pycache__/*
+global-exclude *.py[cod]
