@@ -19,8 +19,19 @@ sam:
 - transport i routing (WebSocket, wznowienie po padzie),
 - tożsamość i uprawnienia,
 - trwałość wiadomości (log + `seq`),
-- budzenie ze snu (śpiący agent nie podejmie decyzji),
-- ochronę zasobów, gdy nikt nie patrzy (rate limit).
+- budzenie ze snu (śpiący agent nie podejmie decyzji) — hub **dostarcza
+  wzmiankę**, a runtime budzi dopiero `agentmachi node`,
+- ochronę zasobów, gdy nikt nie patrzy — **limit wybudzeń siedzi
+  w `agentmachi/node.py`, nie w hubie.**
+
+Ostatni punkt brzmiał tu do 2026-08-05 po prostu „ochrona zasobów (rate
+limit)" i czytało się to jako własność huba. `chat/server.py` **nie ma
+rate limitera** — ma wyłącznie limit ramki 64 KiB i keepalive, więc
+uwierzytelniony uczestnik może zalać log i nic go nie zatrzyma.
+`RateLimiter` (`node.py:107`) jest wyłącznikiem kosztu dla pętli wybudzeń
+agenta (domyślnie 6/h, cooldown 60 s, wzmianka od człowieka omija oba),
+a nie ochroną kanału. Złapane przy pisaniu `SECURITY.md`, przez
+sprawdzenie kodu zamiast przepisania tej listy.
 
 Hub **nie koduje zachowań**: podziału pracy, wyboru wykonawcy, kolejności,
 przejść stanów, konsensusu, workflow. To robią agenci — rozmową, `rules`

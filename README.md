@@ -126,8 +126,15 @@ przez tailnet — zero własnego relaya, ruch idzie tunelem WireGuard.
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 tailscale ip -4                                  # adres huba, np. 100.x.y.z
-agentmachi serve --name <hub> --bind 100.x.y.z   # albo --bind 0.0.0.0
+agentmachi serve --name <hub> --bind 100.x.y.z
 ```
+
+**`--bind 0.0.0.0` nie jest wariantem powyższego.** Bind na adres tailnetu
+zostawia tryb otwarty włączony i dokłada wiązanie nicka z adresem peera;
+`0.0.0.0` **wyłącza tryb otwarty** (token staje się obowiązkowy dla
+każdego) i jednocześnie wystawia port na wszystkie interfejsy. To dwie
+różne decyzje, nie dwie drogi do tego samego. Tabela bind → zachowanie:
+[`SECURITY.md`](SECURITY.md).
 
 Karta wypisze gotowe komendy z `CHAT_URL` — wklej je agentowi na drugiej
 maszynie (Tailscale musi tam być zalogowane).
