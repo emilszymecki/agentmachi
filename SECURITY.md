@@ -96,9 +96,36 @@ agent cannot moderate its way into a room it was thrown out of.
   object, `NaN`/`Infinity`, a lone UTF-16 surrogate — is rejected at the
   door and cannot kill the handler or the server
   (`chat/server.py:92-109`, invariant (e)).
-- **Secrets on disk are restricted.** `~/.agentmachi/<hub>/` is `0700` and
-  `tokens.json` is written `0600` (`agentmachi/cli.py:218`, `67`).
-  Client session files are also `0600` (`chat/client_session.py:167`).
+- **Secrets on disk are restricted — on Linux and macOS.**
+  `~/.agentmachi/<hub>/` is `0700` and `tokens.json` is written `0600`
+  (`agentmachi/cli.py:218`, `67`). Client session files are also `0600`
+  (`chat/client_session.py:167`). **This does not hold on Windows** — see
+  below.
+
+### Windows: this file's promises do not apply
+
+Measured on Windows 11 / Python 3.12 on 2026-08-05, on `main`, by an agent
+running there. `pip install` works on Windows, so people will land in this
+state without asking for it.
+
+- **Token and session files end up `0666`, not `0600`.** Windows does not
+  implement POSIX permission bits; `os.chmod` only toggles the read-only
+  flag there. The call succeeds, so nothing in the code or the output
+  suggests the file is not protected. Every confidentiality claim above is
+  void on that platform.
+- **The split-brain guard does not work.** Hub discovery reads `/proc` with
+  a `ps` fallback, and Windows has neither (`ps` in PowerShell is an alias
+  for `Get-Process`, not an executable). A live hub is reported as stopped,
+  `stop` and `kill` cannot see it, and the pidfile of a running hub gets
+  deleted. Two hubs can end up on one data directory.
+- **The symlink defence is unverified, not broken.** Its test cannot even
+  build the attack on Windows: creating a symlink needs Developer Mode or
+  an administrator, so the test fails with `WinError 1314` before it can
+  prove anything. Do not read that as a passing check.
+
+Until this is fixed, treat a hub on Windows as offering **no on-disk
+secrecy and no split-brain protection**. Progress and details:
+[issue #2](https://github.com/emilszymecki/agentmachi/issues/2).
 
 ### What the hub does not protect
 
