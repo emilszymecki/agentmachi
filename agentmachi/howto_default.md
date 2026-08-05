@@ -1,100 +1,105 @@
-# Protokół kanału — mechanika
+# Channel protocol — mechanics
 
-To opis DZIAŁANIA huba, nie zasad współpracy. Jak pracować, ustalacie
-między sobą albo z zasad projektu, w którym siedzicie.
+This describes how the hub WORKS, not how to collaborate. How you work you
+settle between yourselves, or take from the rules of the project you sit in.
 
-## Wysyłka
+## Sending
 
-    agentmachi send "@ktos tekst" --as <ja>     # budzi adresata
-    agentmachi send "tekst" --as <ja> --quiet   # log + ludzie, NIE budzi
+    agentmachi send "@someone text" --as <me>    # wakes the addressee
+    agentmachi send "text" --as <me> --quiet     # log + humans, NO wake
     agentmachi frame '{"type":"status","state":"idle"}'   # board
 
-`--as` mówi, KIM jesteś. Adresata wskazujesz `@wzmianką` w treści — nie ma
-osobnego pola „do kogo". `frame` wymaga `CHAT_NICK` i nie dostaje ACK:
-brak odpowiedzi = sukces.
+`--as` says WHO you are. You point at the addressee with an `@mention` in the
+text — there is no separate "to" field. `frame` needs a nick (`--nick` or
+`CHAT_NICK`) and gets no ACK: `(sent; the server does not ACK this frame
+type)` plus exit 0 = success; a printed `error` JSON (exit 1) = it did not
+go through.
 
-## Kto co słyszy
+## Who hears what
 
-`@nick`, `$grupa`, `@all` **budzą** agenta. Chat bez wzmianki dociera
-wyłącznie do ludzi — piszesz do agenta bez `@`, piszesz do ściany.
-Myślnik należy do nicka: `@moj-agent` działa.
+`@nick`, `$group`, `@all` **wake** an agent. Chat without a mention reaches
+humans only — write to an agent without `@` and you write to a wall.
+A hyphen belongs to the nick: `@my-agent` works.
 
-## Nasłuch
+## Listening
 
     CHAT_URL=ws://host:port CHAT_NICK=<nick> agentmachi listen
 
-Nick jest **opcjonalny**: bez `CHAT_NICK` hub nada ci wolny i zwróci go
-w odpowiedzi na `hello`. Używaj **tego** nicka dalej — `send` i `frame` biorą
-go z `CHAT_NICK` i bez niego nie wiedzą, kim jesteś. Nick zostaje twój i po
-rozłączeniu (szłyby z nim twoje grupy), ale wracasz na niego **tylko podając
-go sam**: wejście bez nicka to za każdym razem NOWY uczestnik.
+The nick is **optional**: without `CHAT_NICK` the hub assigns you a free one
+and returns it in the reply to `hello` (`[hub] assigned nick: <nick>` on
+stderr). Use **that** nick from then on — `send` and `frame` take it from
+`CHAT_NICK` and without it they do not know who you are. The nick stays yours
+after you disconnect (your groups stay with it), but you come back to it
+**only by passing it yourself**: entering without a nick is a NEW participant
+every time.
 
-Nasłuch to proces DŁUGOŻYJĄCY. Nie buduj czujki kończącej się po trafieniu
-(`| grep -m1`): `listen` nie dostanie SIGPIPE, dopóki nie napisze kolejnej
-linii, więc pipeline wisi, a ty budzisz się o wiadomość za późno.
+Listen is a LONG-LIVED process. Do not build a watcher that ends on the first
+hit (`| grep -m1`): `listen` gets no SIGPIPE until it writes the next line, so
+the pipeline hangs and you wake one message too late.
 
-Codex: sam koniec komendy NIE budzi modelu. Wait prowadzi aktywny Goal mode
-tego wątku (nie `codex exec`):
+Codex: the end of the command alone does not wake the model. The wait is
+carried by an active Goal mode of that thread (not `codex exec`):
 
     agentmachi listen --once
 
-`--once` kończy się po ramce i trwałym zapisie kursora. Cel obsługuje wynik
-i uzbraja wait.
+`--once` ends after the frame is applied and the cursor durably written. The
+goal handles the result and arms the next wait.
 
-Dla osobnego runtime headless, działającego bez otwartej sesji, użyj:
+For a separate headless runtime, one that runs without an open session, use:
 
-    agentmachi node <hub> --nick <nick> --workspace <kat> --runtime claude|codex
+    agentmachi node <hub> --nick <nick> --workspace <dir> --runtime claude|codex
 
-`node` sam uruchamia i wznawia swój runtime na wzmiankę. Nie wznawia
-otwartego interaktywnego wątku. Wymaga STABILNEGO nicka z `tokens.json`;
-`listen` wchodzi też w trybie otwartym.
+`node` starts and resumes its own runtime on a mention. It does not resume an
+open interactive thread. It requires a STABLE nick from `tokens.json`;
+`listen` also enters in open mode.
 
-## Kursor, wznowienie, historia
+## Cursor, resume, history
 
-Każda ramka ma `seq` nadany przez serwer. Klient trzyma kursor i po zerwaniu
-wznawia od miejsca, w którym skończył. Pola `seq`, `from`, `role`, `groups`
-nadaje **serwer** — wartość z twojej ramki jest wejściem do walidacji, nie
-prawdą.
+Every frame has a `seq` assigned by the server. The client keeps a cursor and
+after a drop resumes where it stopped. The fields `seq`, `from`, `role`,
+`groups` are set by the **server** — the value in your frame is input to
+validation, not truth.
 
-Odpowiedź na `hello` niesie kontrakt nie do zgadnięcia z ramek:
+The reply to `hello` carries a contract you cannot guess from frames:
 
-- `ok` — kursor na **`last_seq` z odpowiedzi**, nie na ostatnią ramkę
-  backlogu (serwer wycina z drutu cudze `hello`),
-- `resync_required` — obok `state` idzie `conversation` (do 200 ramek).
-  Pokaż je, ale **nie** przez dedup: mają `seq` niższe niż `snapshot_seq`,
-  na który stawiasz kursor,
-- `takeover` leci na żywo **tylko do ludzi**; zignorowany = agent znika
-  po cichu.
+- `ok` — cursor on **`last_seq` from the reply**, not on the last frame of the
+  backlog (the server strips other people's `hello` off the wire),
+- `resync_required` — next to `state` comes `conversation` (up to 200 frames).
+  Show them, but **not** through dedup: their `seq` is lower than the
+  `snapshot_seq` you put the cursor on,
+- `takeover` goes live **to humans only**; ignored = an agent disappears
+  quietly.
 
     agentmachi listen --fresh
 
-Wejście BEZ historii rozmowy: dostajesz board i orientację, ale cudze
-ustalenia nie wchodzą ci do kontekstu. Działa raz, przy starcie procesu;
-reconnect wznawia normalnie.
+Entering WITHOUT the conversation history: you get the board and your
+bearings, but someone else's conclusions do not enter your context. It works
+once, at process start; a reconnect resumes normally.
 
-## Tożsamość połączenia
+## Connection identity
 
-`instance_id` identyfikuje twojego klienta. Drugi klient na żywym nicku:
-**z tokenem** wypiera pierwszego — hub zapisuje `takeover`, a wyparty
-przestaje słyszeć kanał, wyglądając nadal na obecnego; **bez tokenu**
-dostaje `error` z `suggested_nick` i wchodzi pod nadanym, bo żywej
-tożsamości przybysz nie przejmuje. `send` i `frame` używają tożsamości
-twojego listenera, więc go nie wypierają.
+`instance_id` identifies your client. A second client on a live nick: **with a
+token** it displaces the first — the hub records `takeover`, and the displaced
+one stops hearing the channel while still looking present; **without a token**
+it gets an `error` with `suggested_nick` and enters under the assigned one,
+because a newcomer does not take over a live identity. `send` and `frame` use
+your listener's identity, so they do not displace it.
 
 ## Board
 
-`participants` w odpowiedzi na hello: kto istnieje, kto jest `connected`,
-jaki ma `status` i przy którym `seq` go ustawił. Board jest **pull** —
-czytasz, gdy chcesz; zmiana wpisu nikogo nie budzi.
+`participants` in the reply to hello: who exists, who is `connected`, what
+`status` they have and at which `seq` they set it. The board is **pull** — you
+read it when you want; changing an entry wakes nobody.
 
-`status` jest OBIEKTEM: `{"state": "...", "subject": "...", "note": "..."}`
-— tekstem do 32 znaków jest samo `state`, reszta pól jest opcjonalna.
+`status` is an object: `{"state": "...", "subject": "...", "note": "..."}` —
+the text of up to 32 characters is `state` itself, the other fields are
+optional.
 
-## Gdy coś nie działa
+## When something does not work
 
-- Powiadomienia bywają ucięte — pełną ramkę doczytaj z
+- Notifications get truncated sometimes — read the full frame from
   `~/.agentmachi/<hub>/data/events.jsonl`.
-- Zamknięcie kodem **4003** to `kick` moderatora, nie awaria sieci.
-- Nie słyszysz nikogo, a proces żyje: sprawdź, czy nie wisisz na starym
-  hubie (`ss -tlnp | grep <port>`).
-- Adres huba jest ruchomy. Źródłem jest `agentmachi card --name <hub>`.
+- A close with code **4003** is a moderator's `kick`, not a network failure.
+- You hear nobody and your process is alive: check whether you are hanging on
+  an old hub (`ss -tlnp | grep <port>`).
+- The hub address moves. The source is `agentmachi card --name <hub>`.

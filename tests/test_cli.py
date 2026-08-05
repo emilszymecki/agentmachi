@@ -1033,7 +1033,8 @@ def test_howto_niesie_mechanike_a_nie_kulture_pracy():
         "nasluch": ["agentmachi listen"],
         "wait codexa": ["--once"],
         "wake dla obcych runtime": ["agentmachi node"],
-        "co budzi": ["wzmiank"],
+        # Zmienil sie JEZYK howto, nie kontrakt: "wzmianka" -> "mention".
+        "co budzi": ["mention"],
         "kursor/wznowienie": ["seq"],
         "board": ["participants", "board"],
         "wejscie bez historii": ["--fresh"],
@@ -1071,26 +1072,33 @@ def test_howto_nie_przeczy_kodowi():
     howto = (_P(cli.__file__).with_name("howto_default.md")).read_text()
     niski = howto.lower()
 
-    assert "opcjonalny" in niski, \
+    # Zmienil sie JEZYK howto (poszlo drutem po polsku do agentow, ktorzy
+    # czytaja angielski), nie kontrakt. Kazda asercja pilnuje TEGO SAMEGO
+    # zdania co poprzednio, tylko w angielskim zapisie.
+    assert "optional" in niski, \
         "howto nie mowi, ze mozna wejsc bez nicka (a `listen` na to pozwala)"
-    assert "jest obowiązkowy" not in niski and "jest obowiazkowy" not in niski, \
+    assert "is mandatory" not in niski and "chat_nick is required" not in niski, \
         "howto nadal twierdzi, ze nick jest wymagany"
-    assert "node" in niski and "stabiln" in niski, \
+    assert "node" in niski and "stable" in niski, \
         "howto nie odroznia `listen` (nick opcjonalny) od `node` (wymaga nicka)"
-    assert "--once" in niski and "interaktywn" in niski, \
+    assert "--once" in niski and "interactive" in niski, \
         "howto nie prowadzi Codexa do biezacego interaktywnego watku"
-    assert "goal mode" in niski and "nie" in niski, \
+    # "nie" bylo w polskiej wersji asercja-atrapa (kazdy polski tekst je ma).
+    # Angielski odpowiednik pilnuje realnego zdania: koniec komendy NIE budzi.
+    assert "goal mode" in niski and "does not wake" in niski, \
         "howto obiecuje wake modelu bez aktywnego celu"
     assert "codex exec" in niski, \
         "howto nie odroznia celu biezacego watku od osobnego runtime'u"
-    assert "node" in niski and "nie wznawia" in niski, \
+    assert "node" in niski and "does not resume" in niski, \
         "howto sugeruje, ze node wznawia otwarty interaktywny watek"
 
     assert '"state"' in howto or "`state`" in howto, \
         "howto nie nazywa pola `state`"
-    assert "obiekt" in niski, "howto nie mowi, ze `status` jest strukturą"
-    assert "status` to dowolny\ntekst" not in howto, \
-        "howto nadal opisuje `status` jako plaski tekst"
+    # Dawny negatyw pilnowal JEDNEGO polskiego zdania ze zlamaniem wiersza —
+    # po tlumaczeniu nie ma czego szukac. Zostaje mocniejszy pozytyw: howto
+    # ma nazwac `status` obiektem wprost, a nie tylko uzyc slowa "object".
+    assert "`status` is an object" in niski, \
+        "howto nie mowi, ze `status` jest strukturą (a nie plaskim tekstem)"
 
 
 def test_tui_env_eksportuje_nazwe_huba(home, monkeypatch):
@@ -1233,7 +1241,9 @@ def test_howto_podaje_kontrakt_odpowiedzi_hello():
     assert "conversation" in howto, \
         "howto nie wspomina o `conversation` w resync — klient pokaze pusty " \
         "czat po kompakcji, mimo ze rozmowa przyszla drutem"
-    assert "takeover" in howto and "tylko do ludzi" in howto, \
+    # Zmienil sie JEZYK howto, nie kontrakt: "tylko do ludzi" -> "to humans
+    # only".
+    assert "takeover" in howto and "to humans only" in howto, \
         "howto nie mowi, ze takeover leci na zywo TYLKO do ludzi — " \
         "zignorowany przez jedynego adresata daje agenta-widmo"
 
