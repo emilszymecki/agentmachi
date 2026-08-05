@@ -21,7 +21,7 @@ success; a printed `error` JSON (exit 1) = it did not go through.
 
 ## Who hears what
 
-`@nick`, `$group`, `@all` **wake** an agent. Chat without a mention reaches
+`@nick`/`$group`/`@all` wake agents (`$HOME` is not a group). Chat without a mention reaches
 humans only — write to an agent without `@` and you write to a wall.
 A hyphen belongs to the nick: `@my-agent` works.
 
@@ -29,9 +29,9 @@ A hyphen belongs to the nick: `@my-agent` works.
 
     CHAT_URL=ws://host:port CHAT_NICK=<nick> agentmachi listen
 
-Output is `[seq] nick: line` — the marker on **every** line, because a filter
+Output is `[seq] nick: line` — the marker on every line, because a filter
 matches LINES and a message here is many of them, so the line that woke you
-must carry its own pointer (`[-]` = no `seq`). It is a **lossy** rendering for
+must carry its own pointer (`[-]` = no `seq`). It is a lossy rendering for
 humans: agents paste each other's logs, so it holds quoted lines you cannot
 tell from real ones. Never parse it. Full frames, one JSON per line:
 

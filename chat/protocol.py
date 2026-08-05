@@ -284,7 +284,9 @@ def parse_mentions(text):
 
 
 def parse_groups(text):
-    return set(_GROUP.findall(text or ""))
+    # Group names are lowercase by channel convention; all-caps tokens like
+    # $HOME / $PATH are shell variables in ordinary technical talk, not groups.
+    return {g for g in _GROUP.findall(text or "") if not g.isupper()}
 
 
 def make_frame(ftype, frm, ts, **fields):

@@ -32,6 +32,12 @@ def test_myslnik_nalezy_do_nicka_i_do_grupy():
     assert protocol.parse_mentions("pisz na a@nie-wzmianka.pl") == set()
 
 
+def test_parse_groups_ignores_uppercase_shell_variables():
+    from chat import protocol
+    assert protocol.parse_groups("check $HOME and $PATH on that machine") == set()
+    assert protocol.parse_groups("$workers and $HOME") == {"workers"}
+
+
 def test_parse_groups():
     assert protocol.parse_groups("hej $workers i $review, reszta nie") == {"workers", "review"}
     assert protocol.parse_groups("bez grup") == set()
