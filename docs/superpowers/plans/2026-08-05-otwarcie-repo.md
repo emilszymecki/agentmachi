@@ -23,10 +23,14 @@ Actions.
 
 Obowiązują w **każdym** zadaniu, nie trzeba ich powtarzać w treści zadania:
 
-- **Platformy: Linux i macOS.** Windows nieobsługiwany świadomie (brak
-  maszyny do testów). Nie dodawaj klasyfikatorów ani ścieżek kodu pod
-  Windows; nie usuwaj też istniejących — `import fcntl` w
-  `chat/client_session.py:70` zostaje lokalny w funkcji.
+- **Platformy: Linux i macOS.** Windows **nieprzetestowany**, nie
+  „nieobsługiwany" — i ta różnica jest istotna, bo wyszła przy T4 jako
+  błąd tego planu. `chat/client_session.py:36-68` ma pełną gałąź
+  `msvcrt` (locking + no-op `_fsync_dir`), obie warstwy dopisane po
+  realnych zgłoszeniach z Windows. Kodu nie brakuje — brakuje maszyny,
+  na której ktoś uruchomi suitę. Nie dodawaj klasyfikatorów Windows i nie
+  usuwaj istniejących gałęzi platformowych.
+  Realnie POSIX-only jest `agentmachi/cli.py:715` (`signal.SIGKILL`).
 - **Licencja: MIT**, właściciel praw: `Emil Szymecki`.
 - **Nazwa pakietu na PyPI: `agentmachi`** (zweryfikowana jako wolna
   2026-08-05).
@@ -1137,9 +1141,16 @@ gh issue create --title "Windows support" --label "help wanted,good first issue"
 
 Treść musi zawierać:
 - powód braku obsługi: **nie ma maszyny do testów**, nie brak chęci,
-- listę znanych miejsc POSIX-only: `chat/client_session.py:70`
-  (`import fcntl`, lokalny w funkcji — potrzebny odpowiednik `msvcrt`),
-  `agentmachi/cli.py:715` (`signal.SIGKILL` nie istnieje na Windows),
+- stan faktyczny, opisany bez ściemy: klient **ma już** gałąź Windows —
+  `chat/client_session.py:36-68` (`msvcrt.locking` zamiast `flock`,
+  `_fsync_dir` jako no-op), dopisaną po dwóch realnych zgłoszeniach
+  z Windows. Ten kod nigdy nie był uruchomiony pod Windows, więc jest
+  **nieprzetestowany, a nie brakujący**. Nie obiecuj, że działa, i nie
+  udawaj, że go nie ma,
+- jedyne znane miejsce realnie POSIX-only: `agentmachi/cli.py:715`
+  (`signal.SIGKILL` nie istnieje na Windows),
+- prośbę o zaczęcie od uruchomienia suity i wklejenia wyniku — pierwszą
+  wartością jest **pomiar**, nie łatka,
 - kryterium przyjęcia PR-a: zielona suita na `windows-latest` dodana do
   macierzy CI + przejście ścieżki z T7 na Windows,
 - prośbę o zgłoszenie się w komentarzu przed pracą — żeby dwie osoby nie

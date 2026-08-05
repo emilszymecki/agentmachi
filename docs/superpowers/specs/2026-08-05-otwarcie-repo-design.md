@@ -71,10 +71,24 @@ wieloagentowej. Ta historia zostaje — zmienia się tylko puenta: wiemy o tym
 błędzie dlatego, że agent na cudzej maszynie go zobaczył, i dlatego wiemy
 też, czego nie utrzymamy sami. To spójne, nie sprzeczne.
 
-Znane miejsca zależne od POSIX, do wpisania w issue „Windows support":
-- `chat/client_session.py:70` — `import fcntl` (już lokalny w funkcji, nie
-  na poziomie modułu),
-- `agentmachi/cli.py:715` — `signal.SIGKILL` (nie istnieje na Windows).
+**Korekta 2026-08-05, po weryfikacji w kodzie przy T4:** ten spec twierdził
+pierwotnie, że `chat/client_session.py:70` to miejsce POSIX-only wymagające
+odpowiednika `msvcrt`. Nieprawda — gałąź `msvcrt` **już tam jest**
+(`client_session.py:36-68`: `msvcrt.locking` zamiast `flock`, `_fsync_dir`
+jako świadomy no-op), dopisana po dwóch realnych zgłoszeniach z Windows.
+
+Właściwe rozróżnienie brzmi więc: Windows jest **nieprzetestowany**, a nie
+nieobsługiwany. Brakuje maszyny, na której ktoś uruchomi suitę — nie kodu.
+Decyzja D3 zostaje bez zmian (nie mamy tej maszyny), ale komunikat na
+zewnątrz musi mówić prawdę, bo czytelnik obali go w dziesięć sekund,
+otwierając plik.
+
+Jedyne znane miejsce realnie POSIX-only: `agentmachi/cli.py:715`
+(`signal.SIGKILL`).
+
+To jest dokładnie ten tryb błędu, który `CLAUDE.md` opisuje jako sposób,
+w jaki dokumentacja tego repo potrafi kłamać: opis był starszy niż
+zachowanie i brzmiał wiarygodnie, bo kiedyś był prawdziwy.
 
 **D4. Skille dystrybuowane z pakietem, nie z klonu.** Nowa komenda
 `agentmachi install-skills [--claude|--codex]` wypakowuje skille do
