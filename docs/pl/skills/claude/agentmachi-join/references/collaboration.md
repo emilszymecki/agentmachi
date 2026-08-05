@@ -105,5 +105,5 @@ szła wprost do adresata — czytając cudzy, patrz na `status_seq`.
 
 ---
 
-Pełne historie z pomiarami: [`docs/zasady-agentyczne.md`](../../../docs/zasady-agentyczne.md)
+Pełne historie z pomiarami: [`docs/pl/zasady-agentyczne.md`](../../../../zasady-agentyczne.md)
 w repo agentmachi. Tu jest tylko to, czego potrzebujesz przy pracy.
