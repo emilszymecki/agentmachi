@@ -74,7 +74,7 @@ class Participant:
 def _normalized_groups(value, *, owner):
     if not isinstance(value, list) or not all(
             isinstance(group, str) and group for group in value):
-        raise TuiError(f"zle groups dla {owner!r} w hub.tokens.json")
+        raise TuiError(f"bad groups for {owner!r} in hub.tokens.json")
     return list(dict.fromkeys(value))
 
 
@@ -85,19 +85,20 @@ def load_human_identity(path=TOKENS_PATH):
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise TuiError(
-            f"brak czytelnego {path}; TUI nie wysle pustego tokenu") from exc
+            f"cannot read {path}; the TUI will not send an empty token"
+        ) from exc
     try:
         tokens = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise TuiError(f"{path} ma uszkodzony JSON; fail-closed") from exc
+        raise TuiError(f"{path} has corrupted JSON; fail-closed") from exc
     if not isinstance(tokens, dict) or not tokens:
-        raise TuiError(f"{path} musi zawierac niepusta mape tokenow")
+        raise TuiError(f"{path} must contain a non-empty token map")
 
     humans = []
     roster = {}
     for nick, entry in tokens.items():
         if not isinstance(nick, str) or not nick:
-            raise TuiError(f"zly nick w {path}")
+            raise TuiError(f"bad nick in {path}")
         if isinstance(entry, str):
             token, role, groups = entry, "agent", []
         elif isinstance(entry, dict):
@@ -105,18 +106,18 @@ def load_human_identity(path=TOKENS_PATH):
             role = entry.get("role", "agent")
             groups = _normalized_groups(entry.get("groups", []), owner=nick)
         else:
-            raise TuiError(f"zly wpis tokenu dla {nick!r}")
+            raise TuiError(f"bad token entry for {nick!r}")
         if not isinstance(token, str) or not token:
-            raise TuiError(f"brak niepustego tokenu dla {nick!r}")
+            raise TuiError(f"no non-empty token for {nick!r}")
         if role not in {"agent", "human"}:
-            raise TuiError(f"zla rola dla {nick!r}: {role!r}")
+            raise TuiError(f"bad role for {nick!r}: {role!r}")
         roster[nick] = Participant(nick, role, list(groups))
         if role == "human":
             humans.append(HumanIdentity(nick, token, role, tuple(groups)))
 
     if len(humans) != 1:
         raise TuiError(
-            f"{path} musi zawierac dokladnie jednego humana; jest {len(humans)}")
+            f"{path} must contain exactly one human; there are {len(humans)}")
     return humans[0], roster
 
 
@@ -149,46 +150,47 @@ def parse_user_input(value):
     """
     text = value.strip()
     if not text:
-        raise TuiError("pusta wiadomosc")
+        raise TuiError("empty message")
     if not text.startswith("/"):
         return {"type": "chat", "text": text}
     if text.split()[0] == "/stop":
         if text.split() != ["/stop"]:
-            raise TuiError("uzycie: /stop (bez argumentow)")
+            raise TuiError("usage: /stop (no arguments)")
         return {"type": "local", "action": "stop"}
     if text.split()[0] == "/kill":
         czesci = text.split()
         if len(czesci) != 2 or not czesci[1]:
             raise TuiError(
-                "uzycie: /kill <nazwa-pokoju>. Potwierdzeniem jest NAZWA "
-                "(nie /force ani /tak), bo to kasuje cala historie NA ZAWSZE")
+                "usage: /kill <room-name>. The confirmation is the NAME "
+                "(not /force, not /yes), because this deletes the whole "
+                "history FOREVER")
         return {"type": "local", "action": "kill", "target": czesci[1]}
-    if text.split()[0] == "/reset-kursor":
-        if text.split() != ["/reset-kursor"]:
-            raise TuiError("uzycie: /reset-kursor (bez argumentow)")
-        return {"type": "local", "action": "reset-kursor"}
+    if text.split()[0] == "/reset-cursor":
+        if text.split() != ["/reset-cursor"]:
+            raise TuiError("usage: /reset-cursor (no arguments)")
+        return {"type": "local", "action": "reset-cursor"}
     if text.startswith("/kick"):
         # B6: wyrzucenie uczestnika. Uprawnienie WYLACZNIE humana — serwer
         # i tak to egzekwuje, ale nie udajemy tu, ze to zwykla komenda.
         parts = text.split()
         if len(parts) != 2 or not parts[1]:
-            raise TuiError("uzycie: /kick <nick>")
+            raise TuiError("usage: /kick <nick>")
         return {"type": "kick", "target": parts[1]}
     if not text.startswith("/groups"):
-        raise TuiError("nieznana komenda; dostepne: /groups <nick> <g1,g2>, "
-                       "/kick <nick>, /stop, /kill <pokoj>, /reset-kursor")
+        raise TuiError("unknown command; available: /groups <nick> <g1,g2>, "
+                       "/kick <nick>, /stop, /kill <room>, /reset-cursor")
     parts = text.split(maxsplit=2)
     if len(parts) != 3 or parts[0] != "/groups":
-        raise TuiError("uzycie: /groups <nick> <g1,g2>; '-' usuwa wszystkie")
+        raise TuiError("usage: /groups <nick> <g1,g2>; '-' removes all")
     target, raw_groups = parts[1], parts[2]
     if not target:
-        raise TuiError("groups: nick nie moze byc pusty")
+        raise TuiError("groups: nick must not be empty")
     if raw_groups == "-":
         groups = []
     else:
         split = [group.strip() for group in raw_groups.split(",")]
         if not split or any(not group for group in split):
-            raise TuiError("groups: podaj niepuste nazwy oddzielone przecinkami")
+            raise TuiError("groups: pass non-empty names separated by commas")
         groups = list(dict.fromkeys(split))
     return {"type": "membership_set", "target": target, "groups": groups}
 
@@ -256,21 +258,22 @@ class HubAdapter:
             raw = await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT)
             reply = json.loads(raw)
         except asyncio.TimeoutError as exc:
-            raise FatalHubError("hello: hub nie odpowiedzial w terminie") from exc
+            raise FatalHubError("hello: the hub did not reply in time") from exc
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise FatalHubError("hello: hub zwrocil niepoprawny JSON") from exc
+            raise FatalHubError("hello: the hub returned invalid JSON") from exc
         if not isinstance(reply, dict):
-            raise FatalHubError("hello: odpowiedz huba nie jest obiektem")
+            raise FatalHubError("hello: the hub reply is not an object")
         if reply.get("type") == "error":
             # Sciezke pliku sesji zna WYLACZNIE klient — serwer moze co
             # najwyzej podac wzorzec. Doklejamy ja do kazdej odmowy hello,
             # bo najczestsza przyczyna (kursor z poprzedniego huba na tym
             # samym porcie) naprawia sie kasowaniem dokladnie tego pliku.
             raise FatalHubError(
-                f"hello odrzucone: {reply.get('text', 'nieznany blad')} "
-                f"[twoj plik sesji: {self.session.path}]")
+                f"hello rejected: {reply.get('text', 'unknown error')} "
+                f"[your session file: {self.session.path}]")
         if reply.get("type") not in {"ok", "resync_required"}:
-            raise FatalHubError(f"hello: nieoczekiwany typ {reply.get('type')!r}")
+            raise FatalHubError(
+                f"hello: unexpected type {reply.get('type')!r}")
         return reply
 
     @staticmethod
@@ -291,7 +294,7 @@ class HubAdapter:
         if reply["type"] == "ok":
             backlog = reply.get("backlog", [])
             if not isinstance(backlog, list):
-                raise FatalHubError("hello ok: backlog nie jest lista")
+                raise FatalHubError("hello ok: backlog is not a list")
             for frame in backlog:
                 await apply_resumable_frame(self.session, frame, on_frame)
             # Kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
@@ -305,8 +308,8 @@ class HubAdapter:
                     or not isinstance(wire_last_seq, int)
                     or wire_last_seq < 0):
                 raise FatalHubError(
-                    f"hello ok bez poprawnego last_seq (dostalem: "
-                    f"{wire_last_seq!r}) — kursor NIE przesuniety")
+                    f"hello ok without a valid last_seq (got: "
+                    f"{wire_last_seq!r}) — cursor NOT advanced")
             if wire_last_seq > 0:      # 0 = pusty log, nie ma czego przesuwac
                 self.session.advance(wire_last_seq)
             return
@@ -314,10 +317,10 @@ class HubAdapter:
         snapshot_seq = reply.get("snapshot_seq")
         if not isinstance(state, dict):
             raise FatalHubError(
-                "resync_required bez poprawnego state; kursor nieprzesuniety")
+                "resync_required without a valid state; cursor not advanced")
         if (isinstance(snapshot_seq, bool)
                 or not isinstance(snapshot_seq, int) or snapshot_seq < 1):
-            raise FatalHubError("resync_required ma zly snapshot_seq")
+            raise FatalHubError("resync_required has a bad snapshot_seq")
         await _maybe_await(on_frame({"type": "resync_state", "state": state}))
         # PAMIEC KANALU. Serwer dokleja do resync do 200 ramek rozmowy, bo
         # `state` odtwarza rejestr i board, ale rozmowy nie odtworzy nic.
@@ -342,7 +345,7 @@ class HubAdapter:
                 break
             except ListenerLockHeld as exc:
                 await _maybe_await(on_status(
-                    f"{exc} — ponawiam za {backoff:.0f}s", False))
+                    f"{exc} — retrying in {backoff:.0f}s", False))
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)
         if self._closing:
@@ -352,13 +355,13 @@ class HubAdapter:
             while not self._closing:
                 try:
                     await _maybe_await(on_status(
-                        f"laczenie z hubem {self.uri}...", False))
+                        f"connecting to hub {self.uri}...", False))
                     async with self._connector(self.uri) as ws:
                         self._ws = ws
                         reply = await self._hello(ws)
                         await self._apply_hello(reply, on_frame, on_metadata)
                         await _maybe_await(on_status(
-                            f"polaczono jako {self.identity.nick}", True))
+                            f"connected as {self.identity.nick}", True))
                         backoff = BACKOFF_START
                         async for raw in ws:
                             try:
@@ -366,7 +369,7 @@ class HubAdapter:
                             except (json.JSONDecodeError, UnicodeDecodeError):
                                 await _maybe_await(on_frame({
                                     "type": "error", "from": "client",
-                                    "text": "hub wyslal niepoprawny JSON"}))
+                                    "text": "the hub sent invalid JSON"}))
                                 continue
                             await apply_resumable_frame(
                                 self.session, frame, on_frame)
@@ -387,7 +390,7 @@ class HubAdapter:
                     if self._closing:
                         break
                     await _maybe_await(on_status(
-                        f"rozlaczono ({type(exc).__name__}); retry za "
+                        f"disconnected ({type(exc).__name__}); retry in "
                         f"{backoff:.0f}s", False))
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, BACKOFF_MAX)
@@ -398,7 +401,7 @@ class HubAdapter:
 
     async def send(self, frame):
         if self._ws is None:
-            raise TuiError("brak polaczenia z hubem")
+            raise TuiError("no connection to the hub")
         wire = {"from": self.identity.nick, "ts": 0.0, **frame}
         # Sufit sprawdzamy TUTAJ, bo `chat` nie ma ACK: hub zamknie
         # polaczenie kodem 1009, a operator zobaczylby tylko "hub
@@ -406,14 +409,14 @@ class HubAdapter:
         rozmiar = protocol.frame_bytes(wire)
         if rozmiar > protocol.MAX_FRAME_BYTES:
             raise TuiError(
-                f"wiadomosc ma {rozmiar // 1024} KiB, sufit huba to "
-                f"{protocol.MAX_FRAME_BYTES // 1024} KiB — hub odrzuci ja bez "
-                f"wyjasnienia. Podziel ja albo podaj sciezke do pliku.")
+                f"the message is {rozmiar // 1024} KiB, the hub limit is "
+                f"{protocol.MAX_FRAME_BYTES // 1024} KiB — the hub will drop "
+                f"it without explaining. Split it or pass a file path.")
         async with self._send_lock:
             try:
                 await self._ws.send(protocol.dumps(wire))
             except (OSError, websockets.exceptions.ConnectionClosed) as exc:
-                raise TuiError("wysylka nieudana: hub rozlaczony") from exc
+                raise TuiError("send failed: hub disconnected") from exc
 
     async def close(self):
         self._closing = True
@@ -462,12 +465,12 @@ class MessageInput(TextArea):
     # trzech linii i poprawka w drugiej przestaje byc mozliwe, a to jest
     # powod, dla ktorego ten input w ogole jest TextArea.
     BINDINGS = [
-        Binding("enter", "submit", "wyslij", show=False, priority=True),
-        Binding("ctrl+j", "newline", "nowa linia", show=False),
-        Binding("shift+enter", "newline", "nowa linia", show=False),
-        Binding("ctrl+o", "newline", "nowa linia", show=False),
-        Binding("up", "history_prev", "poprzednia", show=False),
-        Binding("down", "history_next", "nastepna", show=False),
+        Binding("enter", "submit", "send", show=False, priority=True),
+        Binding("ctrl+j", "newline", "new line", show=False),
+        Binding("shift+enter", "newline", "new line", show=False),
+        Binding("ctrl+o", "newline", "new line", show=False),
+        Binding("up", "history_prev", "previous", show=False),
+        Binding("down", "history_next", "next", show=False),
     ]
 
     def __init__(self, *args, **kwargs):
@@ -541,7 +544,7 @@ class AgentmachiApp(App):
         # fokus siedzi w TextArea przez wieksza czesc sesji, a widget ma
         # pierwszenstwo przed App — bez tego skrot dzialalby tylko wtedy,
         # gdy akurat nie piszesz.
-        Binding("ctrl+q", "quit", "wyjscie", show=False, priority=True),
+        Binding("ctrl+q", "quit", "quit", show=False, priority=True),
     ]
     CSS = """
     Screen {
@@ -601,21 +604,21 @@ class AgentmachiApp(App):
     def compose(self) -> ComposeResult:
         with Horizontal(id="workspace"):
             with Vertical(id="chat-panel", classes="panel"):
-                yield Label("Czat", classes="panel-title")
+                yield Label("Chat", classes="panel-title")
                 yield RichLog(id="chat-log", wrap=True, max_lines=500,
                               auto_scroll=True)
                 yield MessageInput(
                     id="message-input",
-                    placeholder="wiadomosc lub /stop /kick /groups — "
-                                "Enter wysyla, Shift+Enter = nowa linia, "
-                                "strzalki = historia, Ctrl+Q wyjscie")
+                    placeholder="message or /stop /kick /groups — "
+                                "Enter sends, Shift+Enter = new line, "
+                                "arrows = history, Ctrl+Q quits")
             with VerticalScroll(id="participants-panel", classes="panel"):
-                yield Label("Uczestnicy / grupy", classes="panel-title")
+                yield Label("Participants / groups", classes="panel-title")
                 yield Static("", id="participants")
             with VerticalScroll(id="rules-panel", classes="panel"):
-                yield Label("Rules / stan  (Ctrl+R chowa)",
+                yield Label("Rules / state  (Ctrl+R hides)",
                             classes="panel-title")
-                yield Static("laczenie...", id="connection-status")
+                yield Static("connecting...", id="connection-status")
                 yield Static("", id="rules-hash")
                 yield Static("", id="rules")
 
@@ -644,7 +647,7 @@ class AgentmachiApp(App):
         online = [n for n in sorted(self.roster, key=str.casefold)
                   if self.roster[n].presence == "connected"]
         if not online:
-            lines.append("(nikt nie jest online)", style="dim")
+            lines.append("(nobody is online)", style="dim")
         for index, nick in enumerate(online):
             participant = self.roster[nick]
             if index:
@@ -660,7 +663,7 @@ class AgentmachiApp(App):
                           default=0)
             zaleglosc = max(0, biezacy - participant.last_seq)
             if participant.last_seq and zaleglosc >= 20:
-                lines.append(f"  cicho od {zaleglosc}", style="dim yellow")
+                lines.append(f"  silent for {zaleglosc}", style="dim yellow")
             if participant.status:
                 style = {"idle": "green", "working": "yellow",
                          "blocked": "bold red", "review": "cyan"}.get(
@@ -676,7 +679,7 @@ class AgentmachiApp(App):
                 # na tyle swiezy, ze liczba tylko zaszumia widok.
                 wiek = max(0, biezacy - participant.status_seq)
                 if participant.status_seq and wiek >= 20:
-                    lines.append(f"  (deklaracja sprzed {wiek} ramek)",
+                    lines.append(f"  (declared {wiek} frames ago)",
                                  style="dim yellow")
         self.query_one("#participants", Static).update(lines)
 
@@ -699,10 +702,10 @@ class AgentmachiApp(App):
         if isinstance(groups, list):
             own.groups = list(groups)
         rules = metadata.get("rules")
-        self.rules_text = rules if isinstance(rules, str) else "brak rules.md"
+        self.rules_text = rules if isinstance(rules, str) else "no rules.md"
         self.query_one("#rules", Static).update(Text(self.rules_text))
         rules_hash = metadata.get("rules_hash")
-        label = f"rules_hash: {rules_hash}" if rules_hash else "rules_hash: brak"
+        label = f"rules_hash: {rules_hash}" if rules_hash else "rules_hash: none"
         self.query_one("#rules-hash", Static).update(Text(label))
         self._render_participants()
 
@@ -722,7 +725,7 @@ class AgentmachiApp(App):
 
     async def apply_hub_frame(self, frame):
         if not isinstance(frame, dict):
-            self._log("client", "hub wyslal ramke niebedaca obiektem",
+            self._log("client", "the hub sent a frame that is not an object",
                       style="bold red")
             return
         kind = frame.get("type")
@@ -781,12 +784,12 @@ class AgentmachiApp(App):
             if isinstance(target, str) and target:
                 self.roster.pop(target, None)
                 self._render_participants()
-                self._log("server", f"{target} wyrzucony przez {by or '?'}",
+                self._log("server", f"{target} kicked by {by or '?'}",
                           style="bold red")
         elif kind == "membership_set":
             self._apply_groups(frame.get("target"), frame.get("groups"))
         elif kind == "ok" and "target" in frame and "groups" not in frame:
-            self._log("server", f"wyrzucam {frame.get('target')}...",
+            self._log("server", f"kicking {frame.get('target')}...",
                       style="yellow")
         elif kind == "ok" and "target" in frame and "groups" in frame:
             self._apply_groups(frame.get("target"), frame.get("groups"))
@@ -804,16 +807,16 @@ class AgentmachiApp(App):
             # reaguja na widmo (restart, ubicie klienta). Jedyny adresat, do
             # ktorego celuje, zjadal ja bez sladu (zlapane 2026-07-31).
             self._log("server", frame.get(
-                "text", f"{frame.get('nick')}: wyparte przez nowsze hello"),
+                "text", f"{frame.get('nick')}: taken over by a newer hello"),
                 style="bold red")
         elif kind == "error":
-            self._log("server", frame.get("text", "blad"),
+            self._log("server", frame.get("text", "error"),
                       style="bold red")
         else:
             # Bez tego `else` KAZDY nowy typ OUTBOUND znika po cichu — tak
             # wlasnie zgubil sie `takeover`. Lepiej pokazac czlowiekowi ramke,
             # ktorej nie rozumiemy, niz udawac, ze nie przyszla.
-            self._log("server", f"nieobslugiwana ramka {kind!r}: {frame}",
+            self._log("server", f"unhandled frame {kind!r}: {frame}",
                       style="dim yellow")
 
     def _apply_participants_snapshot(self, participants):
@@ -871,8 +874,8 @@ class AgentmachiApp(App):
         name = os.environ.get("AGENTMACHI_HUB")
         if not name:
             self._log("client",
-                      "nie wiem, ktorym pokojem jestem (brak AGENTMACHI_HUB) "
-                      "— uruchom TUI przez `agentmachi tui --name <pokoj>`",
+                      "I do not know which room I am (no AGENTMACHI_HUB) "
+                      "— start the TUI with `agentmachi tui --name <room>`",
                       style="bold red")
             return
         # Lazy: agentmachi.cli importuje tui w cmd_tui, wiec import na
@@ -883,10 +886,10 @@ class AgentmachiApp(App):
                   style="bold yellow" if ok else "bold red")
         if ok:
             self._log("client",
-                      "agenci rozlaczaja sie sami i wchodza w backoff. "
-                      "Historia i tokeny ZOSTAJA — `agentmachi start --name "
-                      f"{name}` wraca do tego samego logu i tych samych "
-                      "kursorow (zaden nie wymaga resetu).", style="dim")
+                      "agents disconnect on their own and go into backoff. "
+                      "History and tokens STAY — `agentmachi start --name "
+                      f"{name}` returns to the same log and the same "
+                      "cursors (none of them needs a reset).", style="dim")
 
     def _reset_cursor(self):
         """Ostatnia deska: kursor z poprzedniego huba na tym samym porcie.
@@ -894,12 +897,12 @@ class AgentmachiApp(App):
         try:
             self.adapter.session.reset_cursor()
         except (SessionError, OSError) as exc:
-            self._log("client", f"reset kursora nieudany: {exc}",
+            self._log("client", f"cursor reset failed: {exc}",
                       style="bold red")
             return
         self._log("client",
-                  "kursor wyzerowany. Przy nastepnym wejsciu dostaniesz "
-                  "historie od poczatku — zrestartuj TUI.",
+                  "cursor zeroed. On the next entry you get the history from "
+                  "the beginning — restart the TUI.",
                   style="bold yellow")
 
     async def _kill_hub(self, potwierdzenie):
@@ -908,13 +911,13 @@ class AgentmachiApp(App):
         name = os.environ.get("AGENTMACHI_HUB")
         if not name:
             self._log("client",
-                      "nie wiem, ktorym pokojem jestem (brak AGENTMACHI_HUB) "
-                      "— uruchom TUI przez `agentmachi tui --name <pokoj>`",
+                      "I do not know which room I am (no AGENTMACHI_HUB) "
+                      "— start the TUI with `agentmachi tui --name <room>`",
                       style="bold red")
             return
         if potwierdzenie != name:
             self._log("client",
-                      f"/kill wymaga NAZWY tego pokoju jako potwierdzenia: "
+                      f"/kill needs the NAME of this room as confirmation: "
                       f"/kill {name}", style="bold red")
             return
         from agentmachi.cli import (delete_hub, hub_pid, stop_hub,
@@ -928,9 +931,10 @@ class AgentmachiApp(App):
             # zamrozilby cale TUI na te dziesiec sekund.
             if ok and not await asyncio.to_thread(wait_until_down, pid):
                 self._log("client",
-                          f"pokoj {name!r} nie zszedl (PID {pid}) — NIE kasuje "
-                          f"katalogu pod zywym procesem, bo zostalby hub bez "
-                          f"danych. Dobij recznie: kill -9 {pid}",
+                          f"room {name!r} did not go down (PID {pid}) — NOT "
+                          f"deleting the directory under a live process, "
+                          f"that would leave a hub without data. Finish it "
+                          f"off by hand: kill -9 {pid}",
                           style="bold red")
                 return
         ok, komunikat = delete_hub(name, name)
@@ -949,7 +953,7 @@ class AgentmachiApp(App):
             await self._stop_hub()
         elif action == "kill":
             await self._kill_hub(frame["target"])
-        elif action == "reset-kursor":
+        elif action == "reset-cursor":
             self._reset_cursor()
 
     @on(MessageInput.Submitted)
@@ -985,11 +989,11 @@ class AgentmachiApp(App):
             if not (protocol.parse_mentions(frame["text"])
                     or protocol.parse_groups(frame["text"])):
                 self._log("client",
-                          "(bez wzmianki — agenci tego nie dostana; "
-                          "uzyj @nick, $grupa albo @all)", style="dim")
+                          "(no mention — agents will not get this; "
+                          "use @nick, $group or @all)", style="dim")
         elif frame["type"] == "membership_set":
             groups = ",".join(frame["groups"]) or "—"
-            self._log("client", f"wyslano groups {frame['target']} = {groups}",
+            self._log("client", f"sent groups {frame['target']} = {groups}",
                       style="bold yellow")
         else:
             # `/kick` wpadal tu do galezi membership_set i wywalal handler na
@@ -1007,7 +1011,7 @@ class AgentmachiApp(App):
             # zostawic linijke, nie zabic aplikacji czlowieka. Potwierdzenie
             # i tak przychodzi z serwera osobna ramka `ok`.
             cel = frame.get("target", "")
-            self._log("client", f"wyslano {frame['type']} {cel}".rstrip(),
+            self._log("client", f"sent {frame['type']} {cel}".rstrip(),
                       style="bold yellow")
 
 

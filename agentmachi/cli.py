@@ -60,7 +60,7 @@ def hub_home():
 
 def hub_dir(name):
     if not name or "/" in name or name.startswith("."):
-        raise CliError(f"zla nazwa huba: {name!r}")
+        raise CliError(f"bad hub name: {name!r}")
     return hub_home() / name
 
 
@@ -113,8 +113,8 @@ def _wybierz_port(preferowany, wlasna_nazwa, bind="127.0.0.1", prob=200):
             return kandydat
         kandydat += 1
     raise CliError(
-        f"nie znalazlem wolnego portu w zakresie "
-        f"{preferowany}..{preferowany + prob - 1}; podaj --port jawnie")
+        f"no free port in range "
+        f"{preferowany}..{preferowany + prob - 1}; pass --port explicitly")
 
 
 def _wybierz_port_zywy(preferowany, wlasna_nazwa, bind, prob=200):
@@ -268,8 +268,9 @@ def ensure_hub(name, port, bind="127.0.0.1"):
     # Reczna zmiana NIE ginie po cichu — patrz odswiez_howto.
     stan, kopia = odswiez_howto(d)
     if kopia is not None:
-        print(f"agentmachi: howto pokoju '{name}' rozjechalo sie z wydanym "
-              f"tekstem — zastapione aktualnym, poprzednie zachowane w:\n"
+        print(f"agentmachi: howto of room '{name}' had drifted from the "
+              f"shipped text — replaced with the current one, the previous "
+              f"one is kept in:\n"
               f"  {kopia}", file=sys.stderr)
     config_path = d / "config.json"
     if config_path.exists():
@@ -280,8 +281,8 @@ def ensure_hub(name, port, bind="127.0.0.1"):
         # C5: NOWY hub nie moze zabrac portu innemu (ani niczemu w systemie).
         wybrany = _wybierz_port(port, name, bind)
         if wybrany != port:
-            print(f"agentmachi: port {port} jest zajety — hub '{name}' "
-                  f"dostaje {wybrany}", file=sys.stderr)
+            print(f"agentmachi: port {port} is taken — hub '{name}' "
+                  f"gets {wybrany}", file=sys.stderr)
         port = wybrany
         config_path.write_text(json.dumps({"port": port, "bind": bind}), encoding="utf-8")
     return d, port
@@ -291,8 +292,8 @@ def load_tokens(name):
     d = hub_dir(name)
     tokens_path = d / "tokens.json"
     if not tokens_path.exists():
-        raise CliError(f"hub {name!r} nie istnieje (brak {tokens_path}); "
-                       f"najpierw: agentmachi start --name {name}")
+        raise CliError(f"hub {name!r} does not exist (no {tokens_path}); "
+                       f"first run: agentmachi start --name {name}")
     return json.loads(tokens_path.read_text(encoding="utf-8")), d
 
 
@@ -547,33 +548,33 @@ def print_card(name, port, tokens, bind=DEFAULT_BIND):
     addr = f"ws://{connect_host(bind)}:{port}"
     print(f"""
 === agentmachi: hub '{name}' ===
-adres:   {addr}
-tokeny:  {d / 'tokens.json'}  (0600 — nie commituj!)
+address: {addr}
+tokens:  {d / 'tokens.json'}  (0600 — do not commit!)
 rules:   {d / 'data' / 'rules.md'}
-dane:    {d / 'data'}
+data:    {d / 'data'}
 """)
     if bind == "0.0.0.0":
-        print("uwaga: bind na wszystkie interfejsy — z innego hosta uzyj "
-              "adresu maszyny w tailnecie (patrz README: Zdalny hub)\n")
-    print("uczestnicy (config):")
+        print("warning: bound to every interface — from another host use the "
+              "machine's tailnet address (see README: Remote hubs)\n")
+    print("identities (config):")
     for nick, entry in tokens.items():
         role = entry.get("role", "agent")
         groups = ",".join(entry.get("groups", [])) or "-"
         line = f"  {nick}  {role}  [{groups}]"
         print(line)
     print(f"""
-czlowiek (TUI):
+human (TUI):
   agentmachi tui --name {name}
 
-agent dolacza (nasluch + wysylka; wklej agentowi jedno z ponizszych):
+agent joins (listen + send; paste one of these to an agent):
   AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=agent1 agentmachi listen
-  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send "@agent1 czesc" --as agent2
-  na loopbacku i w tailnecie token NIE jest potrzebny — hub nada wolny nick
-  sam. Dla bindu publicznego (0.0.0.0) albo maszyny spoza tailnetu dopisz
-  najpierw wpis do tokens.json i podaj CHAT_TOKEN=<ten token>
+  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send "@agent1 hi" --as agent2
+  on loopback and inside a tailnet no token is needed — the hub hands out a
+  free nick itself. For a public bind (0.0.0.0) or a machine outside the
+  tailnet add an entry to tokens.json first and pass CHAT_TOKEN=<that token>
 
-zdanie dla agenta (skill join):
-  "dolacz do agentmachi '{name}' ({addr}) jako agent1"
+sentence for an agent (join skill):
+  "join agentmachi '{name}' ({addr}) as agent1"
 """)
 
 
@@ -633,8 +634,8 @@ def cmd_serve(args):
     if running == os.getpid():
         running = None
     if running is not None and _pid_is_our_hub(running, args.name):
-        print(f"agentmachi: hub {args.name!r} juz dziala (PID {running}). "
-              f"Zatrzymaj go: agentmachi stop --name {args.name}",
+        print(f"agentmachi: hub {args.name!r} is already running (PID "
+              f"{running}). Stop it: agentmachi stop --name {args.name}",
               file=sys.stderr)
         return 1
     d, port = ensure_hub(args.name, args.port, bind=args.bind)
@@ -655,8 +656,8 @@ def cmd_list(args):
     """Co u mnie dziala? Jeden komputer = wiele kanalow na wielu portach."""
     rows = hub_rows()
     if not rows:
-        print(f"brak kanalow w {hub_home()} — zaloz pierwszy: "
-              f"agentmachi start --name <nazwa>")
+        print(f"no rooms in {hub_home()} — create the first one: "
+              f"agentmachi start --name <name>")
         return 0
     # NIE "UCZESTNICY": ta kolumna czyta tokens.json, wiec pokazuje
     # TOZSAMOSCI, ktore pokoj zna — nie ludzi i agentow, ktorzy sa w srodku.
@@ -664,21 +665,21 @@ def cmd_list(args):
     # zanim ktokolwiek wszedl (zgloszone przez operatora). `list` czyta sam
     # dysk i celowo nie rusza sieci, wiec obecnosci nie zna i nie ma udawac,
     # ze zna. Kto JEST na kanale, pokazuje TUI ("(nikt nie jest online)").
-    print(f"{'KANAL':<16} {'ADRES':<28} {'STAN':<24} TOZSAMOSCI (config)")
+    print(f"{'ROOM':<16} {'ADDRESS':<28} {'STATE':<24} IDENTITIES (config)")
     for r in rows:
         addr = f"ws://{connect_host(r['bind'])}:{r['port']}"
         if not r["running"]:
-            stan = "zatrzymany"
+            stan = "stopped"
         elif r["pidfile"]:
-            stan = f"dziala (PID {r['pid']})"
+            stan = f"running (PID {r['pid']})"
         else:
-            stan = f"dziala (PID {r['pid']}, bez pidfile)"
+            stan = f"running (PID {r['pid']}, no pidfile)"
         print(f"{r['name']:<16} {addr:<28} {stan:<24} {', '.join(r['nicks'])}")
     zatrzymane = [r["name"] for r in rows if not r["running"]]
     if zatrzymane:
         # `start`, nie `serve`: serve blokuje terminal, czyli dokladnie to,
         # od czego uciekamy w komendach dla czlowieka.
-        print(f"\nzatrzymane mozesz odpalic: agentmachi start --name "
+        print(f"\nstopped ones you can launch: agentmachi start --name "
               f"{zatrzymane[0]}")
     return 0
 
@@ -703,13 +704,13 @@ def cmd_kill(args):
             trafione.append((pid, cmdline))
 
     if not trafione:
-        print(f"agentmachi kill: nic nie pasuje do {wzorzec!r}")
+        print(f"agentmachi kill: nothing matches {wzorzec!r}")
         return 0
 
     for pid, cmdline in trafione:
         print(f"  {pid}  {cmdline[:100]}")
     if args.dry_run:
-        print(f"(--dry-run: nic nie ubito; {len(trafione)} pasuje)")
+        print(f"(--dry-run: nothing killed; {len(trafione)} match)")
         return 0
 
     sig = signal.SIGKILL if args.force else signal.SIGTERM
@@ -721,10 +722,10 @@ def cmd_kill(args):
         except ProcessLookupError:
             pass          # zdazyl sam sie skonczyc — nie jest bledem
         except PermissionError:
-            print(f"agentmachi kill: brak uprawnien do {pid}", file=sys.stderr)
-    print(f"agentmachi kill: wyslano {sig.name} do {ubite} "
-          f"proces{'u' if ubite == 1 else 'ow'} "
-          f"(pominieto wlasne: {len(swoje)})")
+            print(f"agentmachi kill: no permission for {pid}", file=sys.stderr)
+    print(f"agentmachi kill: sent {sig.name} to {ubite} "
+          f"process{'' if ubite == 1 else 'es'} "
+          f"(own skipped: {len(swoje)})")
     return 0
 
 
@@ -737,15 +738,16 @@ def stop_hub(name):
     procesu po recyklowanym PID-zie."""
     pid = hub_pid(name)
     if pid is None:
-        return False, f"hub {name!r} nie dziala"
+        return False, f"hub {name!r} is not running"
     if not _pid_is_our_hub(pid, name):
         # Pidfile moze byc nieaktualny, a PID-y sa recyklowane przez system.
         # Lepiej odmowic i zostawic decyzje czlowiekowi niz ubic cudzy proces.
-        return False, (f"PID {pid} z hub.pid NIE wyglada na hub {name!r} "
-                       f"(cmdline: {_cmdline_of(pid)!r}) — nie ubijam. "
-                       f"Sprawdz sam i usun {hub_dir(name) / 'hub.pid'}")
+        return False, (f"PID {pid} from hub.pid does NOT look like hub "
+                       f"{name!r} (cmdline: {_cmdline_of(pid)!r}) — not "
+                       f"killing it. Check it yourself and remove "
+                       f"{hub_dir(name) / 'hub.pid'}")
     os.kill(pid, signal.SIGTERM)
-    return True, f"wyslano SIGTERM do huba {name!r} (PID {pid})"
+    return True, f"sent SIGTERM to hub {name!r} (PID {pid})"
 
 
 def cmd_stop(args):
@@ -813,9 +815,10 @@ def _wait_until_listening(timeout=10.0, pid=None,
 def cmd_start(args):
     running = hub_pid(args.name)
     if running is not None and _pid_is_our_hub(running, args.name):
-        print(f"agentmachi: pokoj {args.name!r} juz dziala (PID {running}).\n"
-              f"  zatrzymac:  agentmachi stop --name {args.name}\n"
-              f"  zobaczyc:   agentmachi card --name {args.name}",
+        print(f"agentmachi: room {args.name!r} is already running "
+              f"(PID {running}).\n"
+              f"  stop it:  agentmachi stop --name {args.name}\n"
+              f"  see it:   agentmachi card --name {args.name}",
               file=sys.stderr)
         return 1
     # Port sprawdzamy PRZED ensure_hub: nieudany start nie moze zostawic
@@ -837,14 +840,14 @@ def cmd_start(args):
         if not istnieje and args.port is None:
             wybrany = _wybierz_port_zywy(port, args.name, bind)
         if wybrany is None:
-            print(f"agentmachi: port {port} jest juz zajety przez inny proces "
-                  f"— pokoj {args.name!r} nie ma na czym wstac.\n"
-                  f"  sprawdz czyj to port:  ss -tlnp | grep {port}\n"
-                  f"  albo wybierz inny:     agentmachi start --name "
-                  f"{args.name} --port <inny>", file=sys.stderr)
+            print(f"agentmachi: port {port} is already taken by another "
+                  f"process — room {args.name!r} has nothing to start on.\n"
+                  f"  check whose port it is:  ss -tlnp | grep {port}\n"
+                  f"  or pick another one:     agentmachi start --name "
+                  f"{args.name} --port <other>", file=sys.stderr)
             return 1
-        print(f"agentmachi: port {port} jest zajety — pokoj {args.name!r} "
-              f"dostaje {wybrany}", file=sys.stderr)
+        print(f"agentmachi: port {port} is taken — room {args.name!r} "
+              f"gets {wybrany}", file=sys.stderr)
         port = wybrany
     d, port = ensure_hub(args.name, port, bind=bind)
     if istnieje and args.port is not None and hub_port(args.name) != args.port:
@@ -874,20 +877,20 @@ def cmd_start(args):
                 f.seek(log_before)
                 ogon = f.read().strip().splitlines()
             if ogon:
-                powod = "\n  powod: " + "\n         ".join(ogon[-3:])
-        print(f"agentmachi: pokoj {args.name!r} NIE wstal.{powod}\n"
-              f"  pelny log: {log_path}\n"
-              f"  czy port {port} jest wolny:  agentmachi list", file=sys.stderr)
+                powod = "\n  reason: " + "\n          ".join(ogon[-3:])
+        print(f"agentmachi: room {args.name!r} did NOT come up.{powod}\n"
+              f"  full log: {log_path}\n"
+              f"  is port {port} free:  agentmachi list", file=sys.stderr)
         return 1
     (d / "hub.pid").write_text(str(pid), encoding="utf-8")
     tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))
     print_card(args.name, port, tokens, bind=bind)
     # NIE "kto jest w srodku: list". `list` czyta sam dysk i zna wylacznie
     # tozsamosci z configu — obecnosc widzi tylko TUI, ktore trzyma polaczenie.
-    print(f"pokoj dziala w tle (PID {pid}), log: {log_path}\n"
-          f"  kto JEST na kanale:  agentmachi tui --name {args.name}\n"
-          f"  jakie pokoje sa:     agentmachi list\n"
-          f"  zatrzymac:           agentmachi stop --name {args.name}")
+    print(f"room runs in the background (PID {pid}), log: {log_path}\n"
+          f"  who IS on the channel:  agentmachi tui --name {args.name}\n"
+          f"  which rooms exist:      agentmachi list\n"
+          f"  stop it:                agentmachi stop --name {args.name}")
     return 0
 
 
@@ -900,23 +903,23 @@ def cmd_restart(args):
     pid = hub_pid(args.name)
     if pid is not None and _pid_is_our_hub(pid, args.name):
         os.kill(pid, signal.SIGTERM)
-        print(f"agentmachi: zatrzymuje pokoj {args.name!r} (PID {pid})...")
+        print(f"agentmachi: stopping room {args.name!r} (PID {pid})...")
         deadline = time.monotonic() + STOP_WAIT
         while time.monotonic() < deadline:
             if _cmdline_of(pid) is None:
                 break
             time.sleep(0.2)
         else:
-            print(f"agentmachi: pokoj {args.name!r} nie zszedl w "
-                  f"{STOP_WAIT:.0f}s (PID {pid}) — nie stawiam nowego, zeby "
-                  f"nie zrobic dwoch hubow na jednym katalogu.\n"
-                  f"  dobij recznie:  kill -9 {pid}\n"
-                  f"  potem:          agentmachi start --name {args.name}",
-                  file=sys.stderr)
+            print(f"agentmachi: room {args.name!r} did not go down within "
+                  f"{STOP_WAIT:.0f}s (PID {pid}) — not starting a new one, so "
+                  f"there are never two hubs on one directory.\n"
+                  f"  finish it off by hand:  kill -9 {pid}\n"
+                  f"  then:                   agentmachi start --name "
+                  f"{args.name}", file=sys.stderr)
             return 1
         (hub_dir(args.name) / "hub.pid").unlink(missing_ok=True)
     else:
-        print(f"agentmachi: pokoj {args.name!r} nie dzialal — odpalam")
+        print(f"agentmachi: room {args.name!r} was not running — starting it")
     return cmd_start(args)
 
 
@@ -1005,21 +1008,22 @@ def delete_hub(name, confirm):
     zalezy, ktory blad czlowiek zobaczy najpierw."""
     d = hub_dir(name)
     if not d.exists():
-        return False, f"pokoj {name!r} nie istnieje"
+        return False, f"room {name!r} does not exist"
     running = hub_pid(name)
     if running is not None and _pid_is_our_hub(running, name):
-        return False, (f"pokoj {name!r} DZIALA (PID {running}) — "
-                       f"najpierw: agentmachi stop --name {name}")
+        return False, (f"room {name!r} is RUNNING (PID {running}) — "
+                       f"first: agentmachi stop --name {name}")
     if confirm != name:
-        return False, (f"to skasuje pokoj {name!r} NA ZAWSZE "
-                       f"(tokeny, rules, howto, cala historia rozmowy).\n"
-                       f"  jesli na pewno:  agentmachi del --name {name} "
-                       f"--tak-kasuj {name}")
+        return False, (f"this deletes room {name!r} FOREVER "
+                       f"(tokens, rules, howto, the whole conversation "
+                       f"history).\n"
+                       f"  if you are sure:  agentmachi del --name {name} "
+                       f"--yes-delete {name}")
     # Kursory PRZED rmtree — potem nie ma juz skad wziac nickow pokoju.
     kursory = purge_cursors(name)
     shutil.rmtree(d)
-    ogon = f" (+ {kursory} plikow kursora)" if kursory else ""
-    return True, f"pokoj {name!r} skasowany{ogon}"
+    ogon = f" (+ {kursory} cursor files)" if kursory else ""
+    return True, f"room {name!r} deleted{ogon}"
 
 
 def cmd_del(args):
@@ -1045,7 +1049,7 @@ def _tui_env(name):
     WYGRYWA nad configiem lokalnym (symetrycznie do C1 w _agent_env)."""
     tokens_path = hub_dir(name) / "tokens.json"
     if not tokens_path.exists():
-        raise CliError(f"hub {name!r} nie istnieje; najpierw: "
+        raise CliError(f"hub {name!r} does not exist; first run: "
                        f"agentmachi start --name {name}")
     os.environ["AGENTMACHI_TOKENS"] = str(tokens_path)
     # TUI musi wiedziec, KTORYM pokojem jest — inaczej nie ma czego
@@ -1072,23 +1076,24 @@ def cmd_send(args):
     # w ktorej <nick> byl NADAWCA, choc czytal sie jak adresat. Fail-closed
     # z instrukcja zamiast wyslania w cudzym imieniu.
     if getattr(args, "legacy_text", None) is not None:
-        print(f"agentmachi send: podales DWA argumenty "
+        print(f"agentmachi send: you passed TWO arguments "
               f"({args.text!r}, {args.legacy_text!r}).\n"
-              f"Dawna skladnia `send <nick> \"tekst\"` zostala usunieta: "
-              f"<nick> byl NADAWCA, a wygladal jak adresat — realnie "
-              f"kosztowalo to ramke wyslana w cudzym imieniu.\n"
-              f"Teraz:\n"
-              f"  agentmachi send --as {args.text} \"@ktos {args.legacy_text}\""
-              f"   # kim jestes -> --as, do kogo mowisz -> @wzmianka\n"
-              f"  CHAT_NICK={args.text} agentmachi send \"@ktos "
+              f"The old syntax `send <nick> \"text\"` was removed: <nick> was "
+              f"the SENDER while it read like the addressee — in practice it "
+              f"cost a frame sent under someone else's name.\n"
+              f"Now:\n"
+              f"  agentmachi send --as {args.text} \"@someone "
+              f"{args.legacy_text}\""
+              f"   # who you are -> --as, who you talk to -> @mention\n"
+              f"  CHAT_NICK={args.text} agentmachi send \"@someone "
               f"{args.legacy_text}\"", file=sys.stderr)
         return 2
     args.nick = args.as_nick          # _agent_env czyta args.nick
     nick = _agent_env(args)
     if not nick:
-        print("agentmachi send: nie wiem, KIM jestes — podaj --as <nick> "
-              "albo ustaw CHAT_NICK. Adresata wskazujesz @wzmianka w tresci.",
-              file=sys.stderr)
+        print("agentmachi send: I do not know WHO you are — pass --as <nick> "
+              "or set CHAT_NICK. You point at the addressee with an @mention "
+              "in the text.", file=sys.stderr)
         return 2
     send = _import_send()
     try:
@@ -1120,13 +1125,13 @@ def cmd_listen(args):
 def cmd_frame(args):
     nick = _agent_env(args)
     if not nick:
-        raise CliError("frame wymaga nicka (--nick albo CHAT_NICK)")
+        raise CliError("frame requires a nick (--nick or CHAT_NICK)")
     try:
         frame = json.loads(args.json)
     except json.JSONDecodeError as e:
-        raise CliError(f"zly JSON ramki: {e}")
+        raise CliError(f"bad frame JSON: {e}")
     if not isinstance(frame, dict) or not frame.get("type"):
-        raise CliError("ramka musi byc obiektem z polem type")
+        raise CliError("frame must be an object with a type field")
     send = _import_send()
     try:
         reply = asyncio.run(send.oneshot_frame(nick, frame))
@@ -1136,7 +1141,7 @@ def cmd_frame(args):
         print(f"agentmachi frame: {e}", file=sys.stderr)
         return 1
     if reply is None:
-        print("(wyslane; serwer nie odsyla ACK dla tego typu)")
+        print("(sent; the server does not ACK this frame type)")
         return 0
     print(json.dumps(reply, ensure_ascii=False))
     return 1 if reply.get("type") == "error" else 0
@@ -1156,8 +1161,9 @@ def cmd_node(args):
     # byc anonimowe (hub nada nick), node NIE. Walidujemy wprost, bo
     # _agent_env w trybie otwartym juz tego nie wymusza.
     if not nick:
-        print("agentmachi node: wymaga --nick albo CHAT_NICK "
-              "(node wznawia sesje konkretnego agenta)", file=sys.stderr)
+        print("agentmachi node: requires --nick or CHAT_NICK "
+              "(node resumes the session of one specific agent)",
+              file=sys.stderr)
         return 2
     # Blokada ZOSTAJE: bez niej literowka w nicku wpada w nieskonczona petle
     # reconnect zamiast dac blad (patrz test_cli.py, komentarz przy
@@ -1169,18 +1175,19 @@ def cmd_node(args):
         tokens, _ = load_tokens(args.hub)
         if not os.environ.get("CHAT_TOKEN") and nick not in tokens:
             znane = ", ".join(sorted(n for n, v in tokens.items()
-                                     if v.get("role") != "human")) or "(brak)"
-            print(f"agentmachi node: nick {nick!r} nieznany w "
+                                     if v.get("role") != "human")) or "(none)"
+            print(f"agentmachi node: nick {nick!r} is unknown in "
                   f"{hub_dir(args.hub) / 'tokens.json'}.\n"
-                  f"  node wznawia sesje KONKRETNEGO agenta, wiec wymaga "
-                  f"nicka z wpisem — inaczej nie wiadomo, czyj stan wznawiac.\n"
-                  f"  nicki agentow na tym hubie: {znane}\n"
-                  f"  Wejdz pod jednym z nich (--nick <nick>), albo — gdy "
-                  f"chcesz wlasnej nazwy — popros czlowieka o wpis w "
+                  f"  node resumes the session of ONE specific agent, so it "
+                  f"needs a nick with an entry — otherwise there is no way to "
+                  f"tell whose state to resume.\n"
+                  f"  agent nicks on this hub: {znane}\n"
+                  f"  Enter as one of them (--nick <nick>), or — if you want "
+                  f"your own name — ask the human for an entry in "
                   f"tokens.json.\n"
-                  f"  Do samego NASLUCHU wpis nie jest potrzebny: "
-                  f"`agentmachi listen` wchodzi w trybie otwartym, a gdy nick "
-                  f"jest zajety, klient sam podnosi sie pod wolnym.",
+                  f"  Plain LISTENING needs no entry: `agentmachi listen` "
+                  f"enters in open mode, and when the nick is taken the "
+                  f"client comes up under a free one by itself.",
                   file=sys.stderr)
             return 2
     except CliError:
@@ -1193,8 +1200,8 @@ def cmd_node(args):
     from agentmachi.node import RUNTIMES, RateLimiter, node_loop
     runtime_cls = RUNTIMES.get(args.runtime)
     if runtime_cls is None:
-        print(f"agentmachi node: nieznany runtime {args.runtime!r}; "
-              f"dostepne: {', '.join(sorted(RUNTIMES))}", file=sys.stderr)
+        print(f"agentmachi node: unknown runtime {args.runtime!r}; "
+              f"available: {', '.join(sorted(RUNTIMES))}", file=sys.stderr)
         return 2
     # Node jest listenerem tej samej logicznej sesji co send/frame. Wczesniej
     # wchodzil na swiezym `node-<uuid>`, wiec budzony runtime nie mogl
@@ -1206,7 +1213,7 @@ def cmd_node(args):
         session = send._session(nick)
         session.acquire_listener_lock()
     except (send.ListenerLockHeld, send.SessionError) as e:
-        raise CliError(f"node nie moze przejac nasluchu dla {nick!r}: {e}")
+        raise CliError(f"node cannot take over listening for {nick!r}: {e}")
     runtime = runtime_cls(args.workspace, max_duration=args.max_wake_duration)
     limiter = RateLimiter(max_wakes_per_hour=args.max_wakes_per_hour,
                           cooldown_after_agent_wake=args.cooldown)
@@ -1246,92 +1253,102 @@ def cmd_install_skills(args) -> int:
             lacznie += len(zainstalowane)
         else:
             print(
-                f"{harness}: nic nowego w {cel_pokazany} "
-                f"(uzyj --force, zeby nadpisac)"
+                f"{harness}: nothing new in {cel_pokazany} "
+                f"(use --force to overwrite)"
             )
     if lacznie:
-        print("gotowe — powiedz swojemu agentowi: 'pokaz moje pokoje agentmachi'")
+        print("done — tell your agent: 'show my agentmachi rooms'")
     return 0
 
 
 def _build_parser():
     parser = argparse.ArgumentParser(
         prog="agentmachi",
-        description="serwer Hamachi dla agentow — wspolna przestrzen rozmowy")
+        description="a Hamachi server for agents — a shared space to talk in")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # Pierwsza komenda po `pip install agentmachi`, wiec stoi pierwsza
     # w --help: bez skilli CLI dziala, ale agent nie ma jak wejsc na kanal.
     p = sub.add_parser(
         "install-skills",
-        help="wypakuj skille agentmachi do katalogu harnessu",
+        help="unpack the agentmachi skills into a harness directory",
     )
     p.add_argument(
         "--harness",
         choices=["claude", "codex", "all"],
         default="all",
-        help="dla kogo instalowac (domyslnie: oba)",
+        help="who to install for (default: both)",
     )
     p.add_argument(
         "--dest",
-        help="katalog docelowy (domyslnie zalezny od harnessu)",
+        help="target directory (defaults to one per harness)",
     )
     p.add_argument(
         "--force",
         action="store_true",
-        help="nadpisz istniejace skille",
+        help="overwrite existing skills",
     )
     p.set_defaults(fn=cmd_install_skills)
 
-    p = sub.add_parser("serve", help="odpal hub (tworzy ~/.agentmachi/<name>)")
+    p = sub.add_parser("serve",
+                       help="run a hub (creates ~/.agentmachi/<name>)")
     p.add_argument("--name", default=DEFAULT_HUB)
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--bind", default=DEFAULT_BIND,
-                  help="interfejs do bindowania (0.0.0.0 = wszystkie; "
-                       "domyslnie 127.0.0.1 — tylko lokalnie)")
+                  help="interface to bind to (0.0.0.0 = all; "
+                       "default 127.0.0.1 — local only)")
     p.set_defaults(fn=cmd_serve)
 
-    p = sub.add_parser("start", help="odpal pokoj W TLE i pokaz adres")
+    p = sub.add_parser("start",
+                       help="run a room IN THE BACKGROUND and print its "
+                            "address")
     p.add_argument("--name", default=DEFAULT_HUB)
     # default=None, zeby odroznic "user podal --port" od "wziete z configu":
     # jawny --port musi wygrac z zapisanym, inaczej pokoj przypiety do
     # zajetego portu nie ma jak wstac.
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--bind", default=None,
-                   help="0.0.0.0 = widoczny w sieci; domyslnie tylko lokalnie")
+                   help="0.0.0.0 = visible on the network; local only by "
+                        "default")
     p.set_defaults(fn=cmd_start)
 
-    p = sub.add_parser("restart", help="zatrzymaj i odpal pokoj jedna komenda")
+    p = sub.add_parser("restart",
+                       help="stop and start a room with one command")
     p.add_argument("--name", default=DEFAULT_HUB)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--bind", default=None)
     p.set_defaults(fn=cmd_restart)
 
-    p = sub.add_parser("del", help="skasuj pokoj (nieodwracalne)")
+    p = sub.add_parser("del", help="delete a room (irreversible)")
     p.add_argument("--name", default=DEFAULT_HUB)
-    p.add_argument("--tak-kasuj", dest="confirm", default=None,
-                   help="wpisz nazwe pokoju, zeby potwierdzic")
+    p.add_argument("--yes-delete", dest="confirm", default=None,
+                   help="type the room name to confirm")
     p.set_defaults(fn=cmd_del)
 
-    p = sub.add_parser("list", help="jakie kanaly istnieja i ktore dzialaja")
+    p = sub.add_parser("list", help="which rooms exist and which are running")
     p.set_defaults(fn=cmd_list)
 
-    p = sub.add_parser("kill", help="ubij procesy po wzorcu — BEZ zabijania "
-                                    "samego siebie (pkill -f tego nie umie)")
-    p.add_argument("wzorzec", help="fragment linii polecen, np. 'agentmachi listen'")
-    p.add_argument("--force", action="store_true", help="SIGKILL zamiast SIGTERM")
-    p.add_argument("--dry-run", action="store_true", help="tylko pokaz, nie ubijaj")
+    p = sub.add_parser("kill", help="kill processes matching a pattern — "
+                                    "WITHOUT killing yourself (pkill -f "
+                                    "cannot do that)")
+    p.add_argument("wzorzec",
+                   help="fragment of a command line, e.g. 'agentmachi listen'")
+    p.add_argument("--force", action="store_true",
+                   help="SIGKILL instead of SIGTERM")
+    p.add_argument("--dry-run", action="store_true",
+                   help="only show, do not kill")
     p.set_defaults(fn=cmd_kill)
 
-    p = sub.add_parser("stop", help="zatrzymaj hub (SIGTERM po PID z hub.pid)")
+    p = sub.add_parser("stop",
+                       help="stop a hub (SIGTERM to the PID from hub.pid)")
     p.add_argument("--name", default=DEFAULT_HUB)
     p.set_defaults(fn=cmd_stop)
 
-    p = sub.add_parser("card", help="pokaz karte wejsciowa huba")
+    p = sub.add_parser("card", help="show the hub entry card")
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_card)
 
-    p = sub.add_parser("tui", help="TUI human-operatora")
+    p = sub.add_parser("tui", help="TUI for the human operator")
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_tui)
 
@@ -1342,8 +1359,9 @@ def _build_parser():
     # kompatybilnosci": dopoki istnieje, pulapka istnieje razem z nim.
     #   --as <nick>        = KIM jestem
     #   @nick w tresci     = DO KOGO mowie
-    p = sub.add_parser("send", help="wyslij wiadomosc (adresujesz @wzmianka "
-                                    "w tresci, --as mowi kim jestes)")
+    p = sub.add_parser("send", help="send a message (you address it with an "
+                                    "@mention in the text, --as says who "
+                                    "you are)")
     p.add_argument("text")
     # Wylapuje DAWNE uzycie `send <nick> "tekst"`: bez tego argparse mowi
     # tylko "unrecognized arguments", a agent nie dowiaduje sie, ze wlasnie
@@ -1351,44 +1369,47 @@ def _build_parser():
     p.add_argument("legacy_text", nargs="?", default=None,
                    help=argparse.SUPPRESS)
     p.add_argument("--as", dest="as_nick", default=None,
-                   help="nick NADAWCY (domyslnie CHAT_NICK). Adresata "
-                        "wskazujesz @wzmianka w samej tresci.")
+                   help="the SENDER's nick (defaults to CHAT_NICK). You point "
+                        "at the addressee with an @mention in the text.")
     p.add_argument("--name", default=None)
     p.add_argument("--quiet", action="store_true",
-                   help="opublikuj bez budzenia agentow (ludzie dostaja i tak)")
+                   help="publish without waking agents (humans get it anyway)")
     p.set_defaults(fn=cmd_send)
 
-    p = sub.add_parser("listen", help="resumowalny nasluch (kursor+lock)")
+    p = sub.add_parser("listen", help="resumable listen (cursor+lock)")
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.add_argument("--fresh", action="store_true",
-                   help="wejdz BEZ historii rozmowy — kursor na biezacy "
-                        "koniec logu. Dla agenta, ktory ma dac NIEZALEZNA "
-                        "perspektywe: cudze diagnozy w kontekscie sa "
-                        "kotwica, ktorej zadna instrukcja juz nie cofnie. "
-                        "Dziala RAZ, przy starcie — reconnect wznawia "
-                        "normalnie, wiec nic nie gubisz po zerwaniu.")
+                   help="enter WITHOUT the conversation history — cursor at "
+                        "the current end of the log. For an agent that is to "
+                        "give an INDEPENDENT perspective: someone else's "
+                        "diagnosis in your context is an anchor no "
+                        "instruction can undo. Applies ONCE, at start — a "
+                        "reconnect resumes normally, so nothing is lost when "
+                        "the connection drops.")
     p.add_argument("--once", action="store_true",
-                   help="zakoncz po pierwszej zastosowanej ramce, dopiero "
-                        "po trwalym zapisie kursora; dla harnessu, ktory "
-                        "wraca do modelu po zakonczeniu polecenia")
+                   help="exit after the first applied frame, and only once "
+                        "the cursor is durably written; for a harness that "
+                        "returns to the model when a command finishes")
     p.set_defaults(fn=cmd_listen)
 
-    p = sub.add_parser("frame", help="jednorazowa ramka status "
-                       "(tozsamosc sesji — zero takeoveru)")
-    p.add_argument("json", help='np. \'{"type":"status","state":"idle"}\'')
+    p = sub.add_parser("frame", help="one-shot status frame "
+                       "(session identity — zero takeover)")
+    p.add_argument("json", help='e.g. \'{"type":"status","state":"idle"}\'')
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_frame)
 
-    p = sub.add_parser("node", help="headless node: budzi agenta na wzmianke")
+    p = sub.add_parser("node",
+                       help="headless node: wakes an agent on a mention")
     p.add_argument("hub")
     p.add_argument("--nick", required=True)
     p.add_argument("--workspace", required=True)
     p.add_argument("--humans", default="human",
-                   help="nicki ludzi (przecinki) — cooldown nie dotyczy ich wzmianek")
+                   help="human nicks (comma-separated) — the cooldown does "
+                        "not apply to their mentions")
     p.add_argument("--runtime", default=os.environ.get("AGENTMACHI_RUNTIME", "claude"),
-                   help="ktory runtime budzic: claude | codex")
+                   help="which runtime to wake: claude | codex")
     p.add_argument("--max-wakes-per-hour", type=int,
                    default=int(os.environ.get("MAX_AGENT_WAKES_PER_HOUR", "6")))
     p.add_argument("--cooldown", type=float,

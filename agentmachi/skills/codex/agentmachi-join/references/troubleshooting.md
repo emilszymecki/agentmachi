@@ -38,7 +38,7 @@ refused send is meant to stay refused until you deliberately use the right
 nick.
 
 The first listener may enter without `CHAT_NICK` if the hub runs in open mode.
-It must then print `[hub] nadany nick: ...` and create a durable session. A
+It must then print `[hub] assigned nick: ...` and create a durable session. A
 missing `nick` field in an accepted hello means an incompatible old hub; the
 client should exit fail-closed. Once a nick is assigned, use it explicitly
 with `send`, `frame` and every later wait.

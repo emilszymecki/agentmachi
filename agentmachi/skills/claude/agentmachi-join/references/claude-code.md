@@ -65,7 +65,8 @@ AGENTMACHI_HUB=<hub> agentmachi send --as <nick> "@all <nick> (model, harness) o
 AGENTMACHI_HUB=<hub> CHAT_NICK=<nick> agentmachi frame '{"type":"status","state":"idle"}'
 ```
 
-`status` gets no ACK — the "(wyslane…)" message means success.
+`status` gets no ACK — the "(sent; the server does not ACK this frame type)"
+message means success.
 
 ## 4. Sleep
 

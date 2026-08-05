@@ -51,8 +51,8 @@ STORAGE_UNAVAILABLE = "storage unavailable; retry"
 # Ten sam komunikat wysylaja DWIE sciezki: natychmiastowe odciecie starego
 # socketu przy takeoverze (_close_stale_sockets) i per-ramkowy check generacji
 # w _on_frame. Musza mowic klientowi doslownie to samo, wiec jest stala.
-STALE_GENERATION = ("stale generation: ten socket zostal wyparty przez "
-                    "nowsze hello")
+STALE_GENERATION = ("stale generation: this socket was taken over by a "
+                    "newer hello")
 STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ def _strict_json_loads(raw):
     # 1011 kazdemu wznawiajacemu sie, a zabic go mogl dowolny uczestnik
     # jednym stringiem (osme review Codexa).
     if not protocol.utf8_safe(frame):
-        raise ValueError("ramka zawiera osamotniony surogat — nie jest UTF-8")
+        raise ValueError("frame contains a lone surrogate — it is not UTF-8")
     return frame
 
 
@@ -263,9 +263,10 @@ class ChatServer:
                                    timeout=STOP_CLOSE_TIMEOUT)
         except asyncio.TimeoutError:
             LOGGER.warning(
-                "stop(): zamykanie serwera nie skonczylo sie w %.0fs — "
-                "porzucam czekanie i domykam trwalosc (snapshot). Port jest "
-                "juz zwolniony; wiszace polaczenia zamknie wyjscie procesu.",
+                "stop(): closing the server did not finish within %.0fs — "
+                "giving up on waiting and closing durability (snapshot). The "
+                "port is already free; process exit will close the hanging "
+                "connections.",
                 STOP_CLOSE_TIMEOUT)
         self.snapshot()  # clean shutdown -> snapshot zawsze (polityka c)
 
@@ -279,8 +280,8 @@ class ChatServer:
                                  "status": dict(self.status)})
         except ForeignWriterError:
             LOGGER.error(
-                "SPLIT-BRAIN: do %s pisze inny proces huba — kompakcja "
-                "przerwana, dane nietkniete. Zatrzymaj nadmiarowy hub "
+                "SPLIT-BRAIN: another hub process writes to %s — compaction "
+                "aborted, data untouched. Stop the extra hub "
                 "(agentmachi list / agentmachi stop).", self.log.dir)
             return
         self._events_since_snapshot = 0
@@ -550,7 +551,7 @@ class ChatServer:
         if unknown_groups:
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
-                text=f"nieznana grupa: {', '.join(unknown_groups)}"))
+                text=f"unknown group: {', '.join(unknown_groups)}"))
         # To samo dla NICKA. Asymetria kosztowala nas realna wymiane na zywym
         # kanale 2026-07-31: agent1 napisal `@agent3 czesc` do pokoju, w ktorym
         # bylem `agent2`. Wzmianka nie obudzila nikogo, hub nie pisnal slowa,
@@ -570,10 +571,11 @@ class ChatServer:
             # moj wlasny test nie mial — bo sprawdzalem tylko nadawce.
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
-                text=f"nieznany nick: {', '.join(nieznane_nicki)} — nie ma "
-                     f"takiego uczestnika, wiec ZADEN AGENT sie nie obudzil. "
-                     f"Ramka poszla normalnie do logu i do podlaczonych ludzi. "
-                     f"Kto jest na kanale: participants w odpowiedzi na hello."))
+                text=f"unknown nick: {', '.join(nieznane_nicki)} — there is no "
+                     f"such participant, so NO AGENT woke up. The frame went "
+                     f"to the log and to connected humans as usual. "
+                     f"Who is on the channel: participants in the hello "
+                     f"reply."))
         seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
         frame["seq"] = seq
         await self._publish_chat(frame, mentions, groups_mentioned, set(unknown_groups))
@@ -619,11 +621,11 @@ class ChatServer:
             if not isinstance(frame, dict):
                 # niezmiennik E: skalar/lista jako JSON nie moze zabic
                 # handlera przez .get() na nie-dict — error + jawne zamkniecie
-                await self._error(ws, "ramka musi byc obiektem JSON")
-                await ws.close(code=1008, reason="ramka musi byc obiektem JSON")
+                await self._error(ws, "frame must be a JSON object")
+                await ws.close(code=1008, reason="frame must be a JSON object")
                 return
             if frame.get("type") != "hello":
-                await self._error(ws, "pierwsza ramka musi byc hello")
+                await self._error(ws, "the first frame must be hello")
                 return
             # (Runda 5 C3) pierwsze hello przez WSPOLNY schemat (type/from/ts)
             # PRZED auth — dotad hello NIGDY nie przechodzilo przez
@@ -659,12 +661,12 @@ class ChatServer:
                 # client_session jest fail-closed i nie resetuje po cichu.
                 if last_seq > self.log.last_seq:
                     raise AuthError(
-                        f"last_seq {last_seq} > serwerowy last_seq "
-                        f"{self.log.last_seq}: twoj kursor pochodzi z INNEGO "
-                        f"logu — zwykle z poprzedniego huba na tym samym "
-                        f"porcie. Naprawa: skasuj swoj plik sesji "
-                        f"(~/.chat-sessions/<nick>-<hash>.json) = swiadomy "
-                        f"pelny resync od zera")
+                        f"last_seq {last_seq} > server last_seq "
+                        f"{self.log.last_seq}: your cursor comes from a "
+                        f"DIFFERENT log — usually from a previous hub on the "
+                        f"same port. Fix: delete your session file "
+                        f"(~/.chat-sessions/<nick>-<hash>.json) = a "
+                        f"deliberate full resync from zero")
                 # niezmiennik H: groups/role w hello sa TYLKO walidowane —
                 # przypisanie faktyczne pochodzi WYLACZNIE z configu serwera
                 # (registry.role_of/groups_of), nigdy z deklaracji klienta.
@@ -716,8 +718,9 @@ class ChatServer:
                             # falszywa ochrone. Nie ufamy: open bez tokenu
                             # odrzucone, tozsamosc wraca do tokenu.
                             await self._error(
-                                ws, "hub za proxy/tunelem — wejscie bez tokenu "
-                                    "niedostepne; podaj CHAT_TOKEN")
+                                ws, "hub behind a proxy/tunnel — entry "
+                                    "without a token is unavailable; pass "
+                                    "CHAT_TOKEN")
                             return
                         addr = host
                     # Odmowa TYLKO gdy zywy nick nalezy do INNEGO instance_id.
@@ -739,8 +742,8 @@ class ChatServer:
                         # na kilkanascie minut, majac propozycje przed oczami.
                         await self._error(
                             ws,
-                            f"nick {zadany} jest zajety przez polaczonego "
-                            f"uczestnika; wolny nick: {wolny}",
+                            f"nick {zadany} is taken by a connected "
+                            f"participant; free nick: {wolny}",
                             suggested_nick=wolny)
                         return
                     # B7 host-check + zapis wiazania — w open_hello, na trial
@@ -999,9 +1002,9 @@ class ChatServer:
         takeover = protocol.make_frame(
             "takeover", "server", time.time(), nick=nick,
             generation=generation, previous_generation=old_gen,
-            text=(f"{nick}: nowe polaczenie wyparlo poprzednie "
-                  f"(generacja {old_gen} -> {generation}); "
-                  f"stare sockety zamkniete"))
+            text=(f"{nick}: a new connection took over the previous one "
+                  f"(generation {old_gen} -> {generation}); "
+                  f"old sockets closed"))
         seq = self._append_durable(takeover)   # trwalosc PRZED publikacja
         event = {**takeover, "seq": seq}
         # Push NA ZYWO tylko do ludzi — tak samo jak presence: to oni reaguja
@@ -1033,7 +1036,7 @@ class ChatServer:
                 continue
             if not isinstance(frame, dict):
                 # niezmiennik E: w petli — error bez rozlaczania
-                await self._error(ws, "ramka musi byc obiektem JSON")
+                await self._error(ws, "frame must be a JSON object")
                 continue
             try:
                 stop = await self._on_frame(frame, nick, generation, ws)
@@ -1115,7 +1118,8 @@ class ChatServer:
                     self.registry.role_of(nick) == "human"
                     or "admin" in self.registry.groups_of(nick)):
                 await self._error(
-                    ws, "forbidden: cudzy status wymaga human albo grupy admin")
+                    ws, "forbidden: setting someone else's status requires "
+                        "human or the admin group")
                 return False
             frame["target"] = target  # pole autorytatywne: server-side default
             # DURABLE -> MUTACJA -> dopiero potem ewentualny snapshot. Reguly
@@ -1166,7 +1170,7 @@ class ChatServer:
             await self._on_membership_set(frame, requested_groups, nick, ws)
         else:
             await self._error(
-                ws, f"nieoczekiwany typ ramki od klienta: {ftype}")
+                ws, f"unexpected frame type from a client: {ftype}")
         return False
 
     async def _on_kick(self, frame, nick, ws):
@@ -1188,7 +1192,8 @@ class ChatServer:
         if (self.registry.role_of(nick) != "human"
                 and "admin" not in self.registry.groups_of(nick)):
             await self._error(
-                ws, "forbidden: kick wymaga roli human albo grupy admin")
+                ws, "forbidden: kick requires the human role or the admin "
+                    "group")
             return
         # Kick dziala na TOZSAMOSCI, nie na sockecie. Wczesniej wymagal
         # zywego polaczenia — i to zamykalo jedyna droge wyjscia z zaslepki
@@ -1202,8 +1207,8 @@ class ChatServer:
         # uczestnikach tego pokoju, nie na dowolnym stringu.
         if not self.conns.get(target) and target not in self.registry.roles:
             await self._error(
-                ws, f"kick: {target} nie jest ani polaczony, ani znany "
-                    f"temu pokojowi")
+                ws, f"kick: {target} is neither connected nor known to this "
+                    f"room")
             return
         event = protocol.make_frame("kick", "server", now,
                                     target=target, by=nick)
@@ -1260,7 +1265,7 @@ class ChatServer:
                 await self._send(other, event)
         await self._send(target, protocol.make_frame(
             "error", "server", now,
-            text=f"wyrzucony z kanalu przez {nick}"))
+            text=f"kicked off the channel by {nick}"))
         for sock in list(self.conns.get(target, ())):
             try:
                 await sock.close(code=4003, reason="kicked")
@@ -1273,7 +1278,8 @@ class ChatServer:
         if (self.registry.role_of(nick) != "human"
                 and "admin" not in self.registry.groups_of(nick)):
             await self._error(
-                ws, "forbidden: membership_set wymaga human albo grupy admin")
+                ws, "forbidden: membership_set requires human or the admin "
+                    "group")
             return
         trial = copy.deepcopy(self.registry)
         try:

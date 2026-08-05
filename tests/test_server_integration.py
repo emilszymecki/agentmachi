@@ -302,7 +302,8 @@ def test_takeover_leaves_trace_for_human_and_survives_compaction(srv):
         assert mark["type"] == "takeover"
         assert mark["nick"] == "alfa"
         assert mark["previous_generation"] == 1 and mark["generation"] == 2
-        assert "wyparlo" in mark["text"]
+        # Zmienil sie JEZYK komunikatu, nie kontrakt.
+        assert "took over" in mark["text"]
 
         # slad przezywa kompakcje i wraca agentowi w 'conversation'
         server.snapshot()
@@ -730,7 +731,8 @@ def test_hello_last_seq_beyond_server_errors(srv):
         # na porcie po poprzednim zamurowuje kazdego, kto tam byl — bez tego
         # zdania czlowiek widzi tylko dwie liczby i pusty pokoj (2026-07-26).
         assert "chat-sessions" in err["text"], err["text"]
-        assert "skasuj" in err["text"], err["text"]
+        # Zmienil sie JEZYK komunikatu, nie kontrakt.
+        assert "delete" in err["text"], err["text"]
         await a.close(); await bad.close()
     asyncio.run(srv(scenario))
 
@@ -1670,7 +1672,8 @@ def test_human_kicks_agent_and_channel_learns_about_it(srv):
 
         # wyrzucony dostaje powod i rozlaczenie
         powod = await recv(beta)
-        assert powod["type"] == "error" and "wyrzucony" in powod["text"]
+        # Zmienil sie JEZYK komunikatu, nie kontrakt.
+        assert powod["type"] == "error" and "kicked off" in powod["text"]
         with pytest.raises(websockets.exceptions.ConnectionClosed):
             await asyncio.wait_for(beta.recv(), 2.0)
 
@@ -1803,7 +1806,8 @@ def test_open_mode_same_instance_self_send_allowed(tmp_path):
                                          "ts": 0.0, "instance_id": "INNY",
                                          "last_seq": 0, "role": "agent"}))
             r = json.loads(await other.recv())
-            assert r["type"] == "error" and "zajety" in r["text"]
+            # Zmienil sie JEZYK komunikatu, nie kontrakt.
+            assert r["type"] == "error" and "is taken" in r["text"]
             # C4: propozycja wolnego nicka MUSI byc polem, nie tylko tekstem.
             # Zmierzone na zywym kanale rube: Codex dostal "wolny nick:
             # worker3" w tresci bledu i utknal na kilkanascie minut, bo
@@ -2890,7 +2894,8 @@ def test_nadawca_dowiaduje_sie_o_nieznanym_nicku(srv):
                                   "text": "@nikt-taki czesc"}))
         odp = json.loads(await asyncio.wait_for(ws.recv(), 5))
         assert odp["type"] == "error"
-        assert "nieznany nick" in odp["text"] and "nikt-taki" in odp["text"]
+        # Zmienil sie JEZYK komunikatu, nie kontrakt.
+        assert "unknown nick" in odp["text"] and "nikt-taki" in odp["text"]
         # ramka i tak idzie do logu — ostrzezenie to informacja, nie odmowa
         assert [e for e in server.log.replay()
                 if e.get("type") == "chat" and "nikt-taki" in e.get("text", "")]
@@ -2979,7 +2984,8 @@ def test_hello_z_resyncem_nie_wywala_handlera_na_dogonieniu(tmp_path):
                                          "ts": 0.0, "text": "@nikt zyje?"}))
                 dalej = json.loads(await asyncio.wait_for(w.recv(), 5))
                 assert dalej["type"] == "error"
-                assert "nieznany nick" in dalej["text"]
+                # Zmienil sie JEZYK komunikatu, nie kontrakt.
+                assert "unknown nick" in dalej["text"]
             # sprawdzamy PRZED stop(): stop robi snapshot i KOMPAKTUJE log,
             # wiec replay po nim jest pusty i test przechodzilby na zepsutym
             # kodzie. Ta sama pulapka juz dzis dwa razy — mierz stan pokoju
@@ -3019,10 +3025,12 @@ def test_ostrzezenie_o_nicku_nie_klamie_gdy_czlowiek_slucha(srv):
                 ostrzezenie = d
                 break
         assert ostrzezenie, "nadawca nie dostal ostrzezenia"
-        assert "nieznany nick" in ostrzezenie["text"]
-        assert "nikogo nie obudzila" not in ostrzezenie["text"], \
+        # Zmienil sie JEZYK komunikatu, nie kontrakt.
+        assert "unknown nick" in ostrzezenie["text"]
+        # Zmienil sie JEZYK komunikatu, nie kontrakt.
+        assert "nobody woke up" not in ostrzezenie["text"], \
             "hub nadal twierdzi 'nikogo', a czlowiek te ramke dostaje"
-        assert "ZADEN AGENT" in ostrzezenie["text"]
+        assert "NO AGENT" in ostrzezenie["text"]
 
         # i drugi koniec drutu: czlowiek NAPRAWDE ja dostal
         dostal = None

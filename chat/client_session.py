@@ -213,7 +213,7 @@ class Session:
         except BlockingIOError:
             os.close(fd)
             raise ListenerLockHeld(
-                f"inny listener dla tej sesji juz dziala "
+                f"another listener for this session is already running "
                 f"(lock: {self._listener_lock_path})")
         self._listener_lock_fh = fd
         return self
@@ -232,10 +232,10 @@ class Session:
                 state = json.loads(raw)
             except json.JSONDecodeError as e:
                 raise SessionError(
-                    f"plik sesji {self.path} jest uszkodzony ({e}). "
-                    f"Fail-closed: NIE resetuje kursora automatycznie. "
-                    f"Naprawa: skasuj {self.path} = swiadomy pelny resync "
-                    f"od zera (utracisz kursor, nie tozsamosc huba)."
+                    f"session file {self.path} is corrupted ({e}). "
+                    f"Fail-closed: the cursor is NOT reset automatically. "
+                    f"Fix: delete {self.path} = a deliberate full resync from "
+                    f"zero (you lose the cursor, not the hub identity)."
                 ) from e
             if (not isinstance(state, dict)
                     or state.get("schema") != SCHEMA
@@ -246,9 +246,9 @@ class Session:
                     or state["last_applied_seq"] < 0
                     or not isinstance(state.get("applied_activations"), list)):
                 raise SessionError(
-                    f"plik sesji {self.path} ma zly schemat (oczekiwany "
-                    f"schema={SCHEMA}). Fail-closed. Naprawa: skasuj "
-                    f"{self.path} = swiadomy pelny resync.")
+                    f"session file {self.path} has a bad schema (expected "
+                    f"schema={SCHEMA}). Fail-closed. Fix: delete "
+                    f"{self.path} = a deliberate full resync.")
             return state
         instance = (self._przejmij_legacy_instance()
                     if self._legacy_instance_file is not None else None)

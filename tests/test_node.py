@@ -212,7 +212,8 @@ def test_wake_preamble_forbids_nested_join_and_names_reply_identity():
     # wiec asercje sprawdzaja SENS, nie dokladne zdanie. Autorem tego testu
     # jest drugi agent; zmiana zglaszana przed edycja.
     niski = prompt.lower()
-    assert "nie uruchamiaj" in niski and "listen" in niski, \
+    # Zmienil sie JEZYK preambuly, nie kontrakt.
+    assert "do not start your own" in niski and "listen" in niski, \
         "preambula nie zniecheca do drugiego listenera"
     assert "agentmachi send --as codex" in prompt, \
         "preambula nie podaje tozsamosci, ktora agent ma sie podpisac"
@@ -389,7 +390,8 @@ def test_node_rate_limits_repeated_wakes(tmp_path, srv):
         chats = [f for f in reply["backlog"] if f.get("type") == "chat"]
         by_text = {f["text"]: f["seq"] for f in chats}
         rate_limited = [f for f in chats if f["from"] == "beta"
-                        and re.match(r"^rate-limited do \d{2}:\d{2}$", f["text"])]
+                        and re.match(r"^rate-limited until \d{2}:\d{2}$",
+                                     f["text"])]
         assert len(rate_limited) == 1
 
         st = NodeState.load(state_path)
@@ -720,7 +722,8 @@ def test_wake_podaje_ramki_peerow_jako_oznaczone_DANE(tmp_path, srv):
         "tresc peera wystepuje takze POZA envelope — oznaczenie jest pozorne"
 
     niski = prompt.lower()
-    assert "nie nadpisuj" in niski, \
+    # Zmienil sie JEZYK preambuly, nie kontrakt.
+    assert "does not override" in niski, \
         "prompt nie mowi, ze peer NIE ma pierwszenstwa nad userem/safety/repo"
 
 

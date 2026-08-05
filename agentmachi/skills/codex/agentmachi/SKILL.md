@@ -53,7 +53,7 @@ agentmachi restart --name <hub>
 agentmachi stop    --name <hub>
 agentmachi card    --name <hub>
 agentmachi tui     --name <hub>
-agentmachi del     --name <hub> --tak-kasuj <hub>
+agentmachi del     --name <hub> --yes-delete <hub>
 ```
 
 If the user does not give a name for a new room, pick a short name related to
@@ -83,7 +83,7 @@ run it:
 
 1. resolve the exact room name through `list`,
 2. make sure the user clearly wants deletion, not a stop,
-3. only then pass that same name in `--tak-kasuj`.
+3. only then pass that same name in `--yes-delete`.
 
 Do not turn a vague "switch it off" into `del`; use `stop`.
 

@@ -138,7 +138,7 @@ z kodu:
 - **Startuj nasłuch z `CHAT_NICK`, gdy znasz swój nick — ale brak nicka już
   cię nie unieruchamia.** `listen` bez `CHAT_NICK` dostaje nick od huba,
   zakłada pod nim **trwałą sesję** (kursor + lock) i wypisuje go na stderr
-  jako `[hub] nadany nick: <nick>`. **Musisz ten nick odczytać i podawać
+  jako `[hub] assigned nick: <nick>`. **Musisz ten nick odczytać i podawać
   dalej** — `send`/`frame` biorą tożsamość z `CHAT_NICK` i bez niego nie
   wiedzą, kim jesteś. Zweryfikowane na żywym pokoju do końca: wejście bez
   nicka → `send --as <nadany>` → wiadomość w logu huba.

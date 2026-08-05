@@ -82,7 +82,9 @@ def test_card_lists_participants_and_join_commands(home, capsys):
     # niesie ustroj (jest wykonawca czyjegos polecenia), a hub ma byc
     # mechanika. Karta musi nadal DZIALAC: nick + komenda + zdanie do wklejenia.
     assert "agent1" in out and "agentmachi listen" in out
-    assert "dolacz do agentmachi" in out
+    # Zmienil sie JEZYK karty, nie kontrakt: karta nadal musi niesc
+    # gotowe zdanie do wklejenia agentowi.
+    assert "join agentmachi" in out
 
 
 # --- Task 1: CHAT_BIND / CHAT_URL ------------------------------------------
@@ -109,8 +111,10 @@ def test_card_shows_chat_url_and_remote_hint_for_0000(home, capsys):
     out = capsys.readouterr().out
     assert "ws://localhost:8931" in out
     assert "CHAT_URL=ws://localhost:8931" in out
-    assert "0.0.0.0" not in out.split("uwaga:")[0]  # adres sam nie niesie 0.0.0.0
-    assert "tailnecie" in out  # wiersz podpowiedzi dla 0.0.0.0
+    # Zmienil sie JEZYK karty, nie kontrakt: naglowek ostrzezenia to teraz
+    # "warning:", a podpowiedz mowi o "tailnet".
+    assert "0.0.0.0" not in out.split("warning:")[0]  # adres sam nie niesie 0.0.0.0
+    assert "tailnet" in out  # wiersz podpowiedzi dla 0.0.0.0
 
 
 def test_connect_host_maps_loopback_and_wildcard_to_localhost():
@@ -497,14 +501,17 @@ def test_start_refuses_when_already_running(home, monkeypatch, capsys):
     rc = cli.cmd_start(argparse.Namespace(name="pokoj", port=8952,
                                           bind="127.0.0.1"))
     assert rc == 1
-    assert "juz dziala" in capsys.readouterr().err
+    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+    assert "already running" in capsys.readouterr().err
 
 
 def test_del_requires_typing_the_room_name(home, capsys):
     cli.ensure_hub("pokoj", 8953)
     rc = cli.cmd_del(argparse.Namespace(name="pokoj", confirm=None))
     assert rc == 1 and cli.hub_dir("pokoj").exists()
-    assert "--tak-kasuj pokoj" in capsys.readouterr().err
+    # Zmienila sie NAZWA flagi (--tak-kasuj -> --yes-delete), nie kontrakt:
+    # potwierdzeniem nadal jest powtorzona nazwa pokoju.
+    assert "--yes-delete pokoj" in capsys.readouterr().err
 
     rc = cli.cmd_del(argparse.Namespace(name="pokoj", confirm="zla-nazwa"))
     assert rc == 1 and cli.hub_dir("pokoj").exists()
@@ -577,7 +584,8 @@ def test_start_fails_loudly_when_child_dies_even_if_port_is_taken(
                                           bind="127.0.0.1"))
     err = capsys.readouterr().err
     assert rc == 1, "start nie moze meldowac sukcesu, gdy port trzyma ktos inny"
-    assert "zajety przez inny proces" in err, "powiedz czlowiekowi, co jest nie tak"
+    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+    assert "taken by another process" in err, "powiedz czlowiekowi, co jest nie tak"
     assert "ss -tlnp" in err, "pokaz, jak sprawdzic czyj to port"
     assert not (cli.hub_dir("pokoj") / "hub.pid").exists(), \
         "martwy pidfile wprowadza w blad `list` i `stop`"
@@ -726,7 +734,8 @@ def test_send_stara_skladnia_pozycyjna_to_blad_uzycia(home, capsys, monkeypatch)
     assert cli.cmd_send(args) == 2
     assert wyslane == []                      # NIC nie poszlo w drut
     err = capsys.readouterr().err
-    assert "--as opus_c" in err and "@ktos" in err
+    # Zmienil sie JEZYK komunikatu, nie kontrakt: pokazuje NOWA forme.
+    assert "--as opus_c" in err and "@someone" in err
 
 
 def test_send_as_ustawia_nadawce(home, monkeypatch):
@@ -861,7 +870,8 @@ def test_start_nowego_pokoju_omija_port_zajety_przez_obcy_proces(
                                           bind=None))
     assert rc == 0, capsys.readouterr().err
     assert cli.hub_port("warsztat") == 8767, "pokoj mial przeskoczyc o jeden"
-    assert "dostaje 8767" in capsys.readouterr().err, \
+    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+    assert "gets 8767" in capsys.readouterr().err, \
         "czlowiek musi zobaczyc, ze adres jest inny niz domyslny"
 
 
@@ -877,7 +887,8 @@ def test_start_istniejacego_pokoju_nigdy_nie_przesuwa_portu(
     rc = cli.cmd_start(argparse.Namespace(name="stary", port=None, bind=None))
     assert rc == 1, "istniejacy pokoj nie moze zmienic adresu za plecami ludzi"
     assert cli.hub_port("stary") == 8766
-    assert "zajety przez inny proces" in capsys.readouterr().err
+    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+    assert "taken by another process" in capsys.readouterr().err
 
 
 # -- C6: nazwa huba dopasowywana jako ARGUMENT, nie podciag ---------------
@@ -987,7 +998,8 @@ def test_karta_nie_hardkoduje_rol_wykonawczych(home, capsys):
     # review E1).
     assert "agent1" in out, "karta nie podaje zadnego uczestnika"
     assert "agentmachi listen" in out, "karta nie mowi, jak wejsc"
-    assert "dolacz do agentmachi" in out, "brak zdania do wklejenia agentowi"
+    # Zmienil sie JEZYK karty, nie kontrakt.
+    assert "join agentmachi" in out, "brak zdania do wklejenia agentowi"
 
 
 def test_howto_niesie_mechanike_a_nie_kulture_pracy():
@@ -1098,7 +1110,8 @@ def test_stop_hub_zwraca_powod_zamiast_drukowac(home):
     cli.ensure_hub("alpha", 8931)
     ok, komunikat = cli.stop_hub("alpha")
     assert ok is False
-    assert "nie dziala" in komunikat
+    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+    assert "is not running" in komunikat
 
 
 def test_cmd_stop_uzywa_stop_hub(home, monkeypatch, capsys):
@@ -1119,7 +1132,8 @@ def test_delete_hub_wymaga_nazwy_jako_potwierdzenia(home):
     odruchowo, a nazwe trzeba przeczytac. Operacja jest nieodwracalna."""
     cli.ensure_hub("pokoj", 8931)
     ok, kom = cli.delete_hub("pokoj", None)
-    assert ok is False and "--tak-kasuj pokoj" in kom
+    # Zmienila sie NAZWA flagi (--tak-kasuj -> --yes-delete), nie kontrakt.
+    assert ok is False and "--yes-delete pokoj" in kom
     ok, _ = cli.delete_hub("pokoj", "zla-nazwa")
     assert ok is False
     assert cli.hub_dir("pokoj").exists(), "odmowa skasowala katalog"
@@ -1173,7 +1187,9 @@ def test_del_zabiera_ze_soba_kursory_klientow(home, monkeypatch, tmp_path):
                for n in ("human", "agent7"))
 
     ok, kom = cli.delete_hub("pokoj", "pokoj")
-    assert ok is True and "kursora" in kom, kom
+    # Zmienil sie JEZYK komunikatu, nie kontrakt: `del` nadal ma powiedziec,
+    # ile plikow kursora zabral ze soba.
+    assert ok is True and "cursor files" in kom, kom
     for nick in ("human", "agent7"):
         assert not session_files(hub_id, nick, sesje)[0].exists(), \
             f"kursor {nick} przezyl skasowanie pokoju"

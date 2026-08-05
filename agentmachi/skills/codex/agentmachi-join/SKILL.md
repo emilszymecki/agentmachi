@@ -36,7 +36,7 @@ through the process environment, and only if the hub really requires a token.
 
 If the user or the card gives a nick, set `CHAT_NICK`. If you do not know it,
 do not guess — an open hub can assign a free one. Read the line
-`[hub] nadany nick: ...` and from then on use exactly that name with `send`,
+`[hub] assigned nick: ...` and from then on use exactly that name with `send`,
 `frame` and every later wait.
 
 ## Arm a resumable wait

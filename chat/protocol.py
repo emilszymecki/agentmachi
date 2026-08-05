@@ -62,7 +62,7 @@ def frame_bytes(obj):
     return len(dumps(obj).encode("utf-8"))
 
 
-TRUNCATION_MARK = " […ramka przycieta — calosc w events.jsonl]"
+TRUNCATION_MARK = " […frame truncated — full text in events.jsonl]"
 
 
 _RDZEN = ("type", "from", "ts", "seq")
@@ -302,12 +302,12 @@ def validate(frame):
     # (membership po secie) rzucalo TypeError, wywalajac cala walidacje zanim
     # zdazyla zwrocic czytelny blad.
     if not isinstance(ftype, str) or not ftype:
-        return "type wymagany (niepusty string)"
+        return "type required (non-empty string)"
     if ftype not in FRAME_TYPES:
         return f"unknown type: {ftype}"
     if ftype not in INBOUND_FRAME_TYPES:
         # znany typ, ale wylacznie wyjsciowy/trwaly — klient nie moze go przyslac
-        return f"{ftype}: typ wylacznie wyjsciowy/trwaly, nie moze przyjsc od klienta"
+        return f"{ftype}: outbound/persisted-only type, a client cannot send it"
     # C2: kontrola `context` MUSI stac PRZED galezia nickless hello ponizej —
     # tamta konczy walidacje returnem, wiec kontrola w _validate_body nigdy
     # by sie nie wykonala dla wejscia bez nicka. A to wlasnie ta sciezka jest
@@ -328,7 +328,7 @@ def validate(frame):
             return None
         return "missing from"
     if not isinstance(frame["from"], str) or not frame["from"]:
-        return "from wymagany (niepusty string)"
+        return "from required (non-empty string)"
     if "ts" not in frame:
         return "missing ts"
     ts = frame["ts"]
@@ -340,12 +340,12 @@ def validate(frame):
     # jest w Pythonie dokladne, nie przepelnia): int poza zakresem float to
     # bezsensowny timestamp — odrzucony komunikatem, nie wyjatkiem.
     if isinstance(ts, bool) or not isinstance(ts, (int, float)):
-        return "ts wymagany (liczba skonczona)"
+        return "ts required (finite number)"
     if isinstance(ts, float):
         if not math.isfinite(ts):
-            return "ts wymagany (liczba skonczona)"
+            return "ts required (finite number)"
     elif abs(ts) > sys.float_info.max:
-        return "ts wymagany (liczba skonczona)"
+        return "ts required (finite number)"
     return _validate_body(frame, ftype)
 
 
@@ -354,26 +354,26 @@ def _validate_body(frame, ftype):
         # ani chat, ani fyi bez sensownego text nie moga trafic do logu/humana
         text = frame.get("text")
         if not isinstance(text, str) or not text:
-            return f"{ftype}: text wymagany (niepusty string)"
+            return f"{ftype}: text required (non-empty string)"
         return None
     if ftype == "status":
         state = frame.get("state")
         if not isinstance(state, str) or not state or len(state) > 32:
-            return ("status: state wymagany (niepusty string, "
-                    "maks 32 znaki)")
+            return ("status: state required (non-empty string, "
+                    "max 32 characters)")
         # B1 retire: task_id wycofane — subject je zastapil. Odrzucamy JAWNIE
         # (nie jako ciche unknown pole), bo handler _append(frame) utrwalilby
         # cala ramke do logu i broadcastu do ludzi zanim board-projekcja by je
         # odsiala; sam drop na boardzie nie wystarcza, zeby task_id nie wyciekl.
         if "task_id" in frame:
-            return "status: task_id wycofane; uzyj subject"
+            return "status: task_id is retired; use subject"
         for opt in ("note", "subject"):
             if opt in frame and (not isinstance(frame[opt], str)
                                  or not frame[opt]):
-                return f"status: {opt} jesli podany musi byc niepustym stringiem"
+                return f"status: {opt} if given must be a non-empty string"
         if "target" in frame and (not isinstance(frame["target"], str)
                                   or not frame["target"]):
-            return "status: target jesli podany musi byc niepustym stringiem"
+            return "status: target if given must be a non-empty string"
         return None
     if ftype == "kick":
         # B6: moderacja czlowieka. Zadnych pol poza target — powod, ban,
@@ -381,16 +381,16 @@ def _validate_body(frame, ftype):
         # banem: wyrzucony moze wrocic, a moderator moze go wyrzucic znowu).
         target = frame.get("target")
         if not isinstance(target, str) or not target:
-            return "kick: target wymagany (niepusty string)"
+            return "kick: target required (non-empty string)"
         return None
     if ftype == "membership_set":
         target = frame.get("target")
         groups = frame.get("groups")
         if not isinstance(target, str) or not target:
-            return "membership_set: target wymagany (niepusty string)"
+            return "membership_set: target required (non-empty string)"
         if not isinstance(groups, list) or not all(
                 isinstance(group, str) and group for group in groups):
-            return "membership_set: groups wymagane (lista niepustych stringow)"
+            return "membership_set: groups required (list of non-empty strings)"
         return None
     # hello: token/instance_id/last_seq/groups/role waliduje serwer (identity)
     return None

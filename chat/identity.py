@@ -123,7 +123,7 @@ class Registry:
             raise AuthError(f"bad instance_id for {nick}")
         if self.roles.get(nick) == "human":
             raise AuthError(
-                f"{nick} to konto moderatora — wejscie wymaga tokenu")
+                f"{nick} is a moderator account — entry requires a token")
         # B7: wiazanie nick->adres. `addr` przekazuje serwer TYLKO wtedy, gdy
         # IP-binding jest aktywny (bind na interfejsie tailnetu — patrz
         # server _bind_is_tailnet); None znaczy "nie wiaz" (bind loopback:
@@ -137,8 +137,8 @@ class Registry:
             bound = self._open_addr.get(nick)
             if bound is not None and bound != addr:
                 raise AuthError(
-                    f"nick {nick} przypiety do innego adresu; wybierz inny nick "
-                    f"albo popros moderatora o zwolnienie (kick)")
+                    f"nick {nick} is pinned to a different address; pick "
+                    f"another nick or ask a moderator to release it (kick)")
         if nick not in self.roles:
             # PAKIET 1: BEZ domyslnej grupy. Grupa to adres, ktory ktos
             # swiadomie nadal — nie klasa, do ktorej hub zapisuje kazdego

@@ -305,7 +305,9 @@ def test_corrupt_session_fail_closed_exit_code(tmp_path):
                        env=env, cwd=REPO, capture_output=True, text=True,
                        timeout=10)
     assert p.returncode == 4
-    assert "skasuj" in p.stderr
+    # Zmienil sie JEZYK komunikatu, nie kontrakt: odmowa nadal ma niesc
+    # NAPRAWE (skasowanie pliku sesji).
+    assert "delete" in p.stderr
 
 
 def test_oneshot_frame_uses_session_identity(tmp_path, monkeypatch):
@@ -457,7 +459,9 @@ def test_nickless_listen_enters_open_hub_and_gets_assigned_nick(
         [f.name for f in sess_files]
     err = capsys.readouterr().err
     assert "invalid nick" not in err, err
-    assert "[hub] nadany nick:" in err, err
+    # Zmienil sie JEZYK komunikatu, nie kontrakt: klient nadal ma wypisac
+    # nadany nick na stderr, zeby agent mogl go odczytac i podawac dalej.
+    assert "[hub] assigned nick:" in err, err
 
 
 def test_nickless_listen_failcloses_when_hub_assigns_no_nick(monkeypatch):
@@ -783,7 +787,8 @@ def test_wysylka_po_odmowie_hello_pada_glosno_i_nie_wysyla_ramki(
         f"ramka poszla na socket zamykany przez huba: {wyslane}"
 
     err = capsys.readouterr().err
-    assert "NIE zostala wyslana" in err, "czlowiek musi wiedziec, ze nie poszlo"
+    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+    assert "was NOT sent" in err, "czlowiek musi wiedziec, ze nie poszlo"
     assert "worker3" in err, "podaj wolny nick — agent ma czym wejsc"
 
 
@@ -967,7 +972,8 @@ def test_send_odmawia_zamiast_gubic_po_cichu(tmp_path, monkeypatch):
         try:
             with pytest.raises(send.SessionError) as e:
                 await send.send_once("agent1", za_duzy)
-            assert "sufit" in str(e.value)
+            # Zmienil sie JEZYK komunikatu, nie kontrakt.
+            assert "hub limit" in str(e.value)
             return [f.get("type") for f in srv.log.replay()]
         finally:
             await srv.stop()
@@ -1019,7 +1025,8 @@ def test_send_odmawia_surogatu_zamiast_gubic_po_cichu(tmp_path, monkeypatch):
         try:
             with pytest.raises(send.SessionError) as e:
                 await send.send_once("agent1", "\ud800 nazwa pliku spoza utf-8")
-            assert "surogat" in str(e.value)
+            # Zmienil sie JEZYK komunikatu, nie kontrakt.
+            assert "surrogate" in str(e.value)
             return [f.get("type") for f in srv.log.replay()]
         finally:
             await srv.stop()
@@ -1054,7 +1061,8 @@ def test_send_pokazuje_ostrzezenie_serwera_bez_nasluchu(tmp_path, monkeypatch, c
 
     typy = asyncio.run(scenario())
     err = capsys.readouterr().err
-    assert "hub:" in err and "nieznany nick" in err, err
+    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+    assert "hub:" in err and "unknown nick" in err, err
     # ramka MIMO TO doszla — to ostrzezenie, nie odmowa
     assert "chat" in typy
 

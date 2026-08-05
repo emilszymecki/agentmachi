@@ -249,7 +249,8 @@ def test_e2e_kick_z_ekranu_wyrzuca_agenta_kodem_4003(tmp_path):
 
                 await _until(pilot, lambda: "beta" not in _panel(app),
                              opis="wyrzucony zniknal z panelu czlowieka")
-                assert any("wyrzucony" in t for _, t in app.history)
+                # Zmienil sie JEZYK komunikatu, nie kontrakt.
+                assert any("kicked" in t for _, t in app.history)
         finally:
             await server.stop()
     asyncio.run(scenariusz())
@@ -337,15 +338,17 @@ def test_e2e_takeover_dociera_na_ekran_czlowieka(tmp_path):
                 ws2, _ = await _agent_hello(port, instance="i2")
                 await _until(
                     pilot,
-                    lambda: any("wypar" in t and "beta" in t
+                    # Zmienil sie JEZYK komunikatu, nie kontrakt.
+                    lambda: any("took over" in t and "beta" in t
                                 for _, t in app.history),
                     opis="czlowiek zobaczyl takeover na ekranie")
                 # tresc jest SERWEROWA, nie fallbackiem TUI — gdyby TUI
                 # zjadlo ramke i zalogowalo wlasny domysl, brakloby numerow
                 # generacji, a to one mowia czlowiekowi, ktore polaczenie
                 # wygralo
-                slad = [t for _, t in app.history if "wypar" in t][-1]
-                assert "generacja" in slad and "1 -> 2" in slad, slad
+                # Zmienil sie JEZYK komunikatu, nie kontrakt.
+                slad = [t for _, t in app.history if "took over" in t][-1]
+                assert "generation" in slad and "1 -> 2" in slad, slad
                 await ws1.close()
                 await ws2.close()
         finally:

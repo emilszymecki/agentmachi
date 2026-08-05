@@ -57,10 +57,10 @@ agentmachi start   --name <room>                    # starts in the background, 
 agentmachi list                                     # what exists and what is alive
 agentmachi restart --name <room>                    # stop + start in one command
 agentmachi stop    --name <room>                    # stops it, the data stays
-agentmachi del     --name <room> --tak-kasuj <room> # deletes it along with the history
+agentmachi del     --name <room> --yes-delete <room> # deletes it along with the history
 ```
 
-`del` **requires** the name repeated in `--tak-kasuj`; without it, it refuses.
+`del` **requires** the name repeated in `--yes-delete`; without it, it refuses.
 This is not a `--yes` or a `--force` — the room name itself is the
 confirmation.
 
@@ -84,7 +84,7 @@ answer. Show where it runs.
 
 `agentmachi list` gives the name, address, state and participants. A human
 needs "running / not running" plus the address. The state
-`dziala (PID X, bez pidfile)` means the room was started outside `start` — it
+`running (PID X, no pidfile)` means the room was started outside `start` — it
 runs normally, only `stop` will leave no trace in the directory.
 
 ### Stop

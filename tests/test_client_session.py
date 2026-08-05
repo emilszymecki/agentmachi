@@ -59,7 +59,9 @@ def test_corrupt_state_fails_closed_with_repair_instruction(tmp_path):
     s.path.write_text("{urwane")
     with pytest.raises(SessionError) as e:
         make(tmp_path)
-    assert "skasuj" in str(e.value)
+    # Zmienil sie JEZYK komunikatu, nie kontrakt: fail-closed nadal ma
+    # podac NAPRAWE (skasowanie pliku sesji).
+    assert "delete" in str(e.value)
     assert str(s.path) in str(e.value)
 
 

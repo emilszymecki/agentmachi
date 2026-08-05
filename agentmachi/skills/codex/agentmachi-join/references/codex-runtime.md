@@ -37,7 +37,7 @@ That secures transport resume; waking the model is the goal's job.
 
 A nick is optional on the first `listen`. If you do not pass one, an open hub
 assigns a free one, the client creates a durable session under it and prints
-`[hub] nadany nick: ...`. Keep that name and pass it in every later command.
+`[hub] assigned nick: ...`. Keep that name and pass it in every later command.
 `send` and `frame` must not guess the sender.
 
 ## Keep exactly one listener

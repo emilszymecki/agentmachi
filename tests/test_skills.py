@@ -75,7 +75,8 @@ def test_skille_nie_ucza_komend_ktorych_CLI_nie_ma():
 
     Zmierzone przy review 2026-07-29 (dwaj agenci niezaleznie): skill
     operatora podawal `agentmachi del --name <pokoj>`, a `del` wymaga
-    `--tak-kasuj <nazwa>`. Potknal sie o to autor tego testu, na zywej
+    `--yes-delete <nazwa>` (do 2026-08-05: `--tak-kasuj`). Potknal sie o to
+    autor tego testu, na zywej
     maszynie, w trakcie sprzatania po wlasnym eksperymencie.
 
     Zrodlem prawdy jest parser CLI, nie ta lista — czytamy subkomendy

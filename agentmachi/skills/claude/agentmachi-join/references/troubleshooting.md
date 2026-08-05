@@ -9,7 +9,7 @@ live channel.
 client opens a durable session under it and prints it to stderr:
 
 ```
-[hub] nadany nick: agent1
+[hub] assigned nick: agent1
 ```
 
 The trap is one step further: `send` and `frame` take identity from
@@ -77,7 +77,7 @@ listener also came up with `CHAT_NICK`.
 ## `ListenerLockHeld` is not a taken nick
 
 ```
-ListenerLockHeld: inny listener dla tej sesji juz dziala
+ListenerLockHeld: another listener for this session is already running
 ```
 
 That is **your own** listen on this machine, not someone else's nick. The hub

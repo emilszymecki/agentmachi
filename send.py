@@ -44,11 +44,11 @@ def hub_id_from_url(url):
     kursory — at-least-once absorbuje ponowna dostawe: swiadomy koszt."""
     p = urlparse(url)
     if p.scheme not in ("ws", "wss") or not p.hostname:
-        raise ValueError(f"CHAT_URL musi byc ws://host[:port] lub wss://: {url!r}")
+        raise ValueError(f"CHAT_URL must be ws://host[:port] or wss://: {url!r}")
     try:
         port = p.port
     except ValueError:
-        raise ValueError(f"CHAT_URL ma niepoprawny port: {url!r}")
+        raise ValueError(f"CHAT_URL has an invalid port: {url!r}")
     port = port or (443 if p.scheme == "wss" else 80)
     return f"{p.hostname}:{port}"
 
@@ -118,8 +118,9 @@ async def do_hello(ws, nick, session, token, role=None, context=None):
     try:
         reply = json.loads(await asyncio.wait_for(ws.recv(), HELLO_TIMEOUT))
     except asyncio.TimeoutError:
-        print(f"hello: brak odpowiedzi huba w {HELLO_TIMEOUT}s — hub "
-              "przyjal polaczenie ale milczy (zawieszony?)", file=sys.stderr)
+        print(f"hello: no reply from the hub within {HELLO_TIMEOUT}s — the "
+              "hub accepted the connection but stays silent (hung?)",
+              file=sys.stderr)
         sys.exit(1)
     if not isinstance(reply, dict) or reply.get("type") == "error":
         # C4: odmowa "nick zajety" niesie POLE `suggested_nick`. Dla NASLUCHU
@@ -133,9 +134,9 @@ async def do_hello(ws, nick, session, token, role=None, context=None):
         # Sciezke pliku sesji zna tylko klient — serwer podaje wzorzec.
         # Najczestsza odmowa (kursor z poprzedniego huba na tym samym
         # porcie) naprawia sie kasowaniem dokladnie tego pliku.
-        print(f"hello odrzucone: {reply.get('text', reply) if isinstance(reply, dict) else reply}",
+        print(f"hello rejected: {reply.get('text', reply) if isinstance(reply, dict) else reply}",
               file=sys.stderr)
-        print(f"twoj plik sesji: {session.path}", file=sys.stderr)
+        print(f"your session file: {session.path}", file=sys.stderr)
         sys.exit(1)
     return reply
 
@@ -236,11 +237,11 @@ def _warn_if_taken_over(reply, nick):
     if not mine:
         return
     ostatni = mine[-1]
-    print(f"[uwaga] na twoim nicku ({nick}) doszlo do {len(mine)} wyparc; "
-          f"ostatnie: generacja {ostatni.get('previous_generation')} -> "
-          f"{ostatni.get('generation')}. Sprawdz, czy nie masz drugiego "
-          f"klienta na tym nicku — dwa zywe klienty wypieraja sie w kolko.",
-          file=sys.stderr)
+    print(f"[warning] your nick ({nick}) was taken over {len(mine)} time(s); "
+          f"last one: generation {ostatni.get('previous_generation')} -> "
+          f"{ostatni.get('generation')}. Check whether you have a second "
+          f"client on this nick — two live clients take over from each other "
+          f"forever.", file=sys.stderr)
 
 
 def _apply_hello_reply(session, reply):
@@ -267,8 +268,8 @@ def _apply_hello_reply(session, reply):
                 or not isinstance(wire_last_seq, int)
                 or wire_last_seq < 0):
             raise SessionError(
-                f"hello ok bez poprawnego last_seq (dostalem: "
-                f"{wire_last_seq!r}) — kursor NIE przesuniety")
+                f"hello ok without a valid last_seq (got: "
+                f"{wire_last_seq!r}) — cursor NOT advanced")
         # 0 = pusty log: legalne, tylko nie ma czego przesuwac. advance()
         # wymaga seq >= 1 i rzucilby SessionError na swiezym kanale.
         if wire_last_seq > 0:
@@ -281,16 +282,16 @@ def _apply_hello_reply(session, reply):
     elif reply["type"] == "resync_required":
         _emit_session_metadata(reply)
         snapshot_seq = reply.get("snapshot_seq")
-        print(f"[resync] historia skompaktowana do seq={snapshot_seq}, "
-              "stosuje snapshot stanu", file=sys.stderr)
+        print(f"[resync] history compacted to seq={snapshot_seq}, "
+              "applying the state snapshot", file=sys.stderr)
         state = reply.get("state")
         if not isinstance(state, dict):
             # advance bez zastosowanego stanu = deklaracja "mam" przy
             # realnej utracie — fail-closed zamiast cichego przeskoku
             raise SessionError(
-                f"resync_required bez poprawnego state (dostalem: "
-                f"{type(state).__name__}) — kursor NIE przesuniety; "
-                "sprawdz wersje huba albo ponow polaczenie")
+                f"resync_required without a valid state (got: "
+                f"{type(state).__name__}) — cursor NOT advanced; "
+                "check the hub version or reconnect")
         # APPLY stanu PRZED przesunieciem kursora
         _print_event({"type": "resync_state", "state": state})
         # F1+F10: po kompakcji rozmowa wraca w `conversation`. Bez tego
@@ -334,18 +335,19 @@ def _wysylka_albo_padnij(reply, nick, session):
     if not (isinstance(reply, dict) and reply.get("type") == "error"):
         return
     powod = reply.get("text", reply)
-    print(f"agentmachi: hub ODRZUCIL hello dla {nick!r} — ramka NIE zostala "
-          f"wyslana.\n  powod: {powod}", file=sys.stderr)
+    print(f"agentmachi: the hub REJECTED hello for {nick!r} — the frame was "
+          f"NOT sent.\n  reason: {powod}", file=sys.stderr)
     proponowany = reply.get("suggested_nick")
     if isinstance(proponowany, str) and proponowany:
-        print(f"  nick {nick!r} trzyma teraz ktos inny — czesto TWOJ WLASNY "
+        print(f"  nick {nick!r} is now held by someone else — often YOUR OWN "
               f"`agentmachi node`,\n"
-              f"  ktory laczy sie z osobna tozsamoscia niz plik sesji.\n"
-              f"  wolny nick: {proponowany} — uzyj go JAWNIE, jesli to "
-              f"naprawde ty:\n"
+              f"  which connects with a different identity than the session "
+              f"file.\n"
+              f"  free nick: {proponowany} — use it EXPLICITLY if that is "
+              f"really you:\n"
               f"      agentmachi send --as {proponowany} \"...\"",
               file=sys.stderr)
-    print(f"  twoj plik sesji: {session.path}", file=sys.stderr)
+    print(f"  your session file: {session.path}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -372,18 +374,19 @@ def _sprawdz_rozmiar(wire):
     # agent nie musi tego robic celowo (dziewiate review Codexa).
     if not protocol.utf8_safe(wire):
         raise SendTooLarge(
-            "ramka zawiera osamotniony surogat (\\udXXX) — nie da sie jej "
-            "zapisac jako UTF-8 i hub ja odrzuci. Zwykle zrodlo: tekst "
-            "wziety z nazwy pliku albo argv spoza UTF-8. Przekoduj tresc "
-            "albo przekaz sciezke zamiast wklejac zawartosc.")
+            "the frame contains a lone surrogate (\\udXXX) — it cannot be "
+            "written as UTF-8 and the hub will reject it. Usual source: text "
+            "taken from a file name or from argv that is not UTF-8. Re-encode "
+            "the content or pass a path instead of pasting the contents.")
     rozmiar = protocol.frame_bytes(wire)
     if rozmiar > protocol.MAX_FRAME_BYTES:
         raise SendTooLarge(
-            f"ramka ma {rozmiar} B, sufit huba to {protocol.MAX_FRAME_BYTES} B "
-            f"({protocol.MAX_FRAME_BYTES // 1024} KiB). Hub odrzuca takie ramki "
-            f"i NIE odsyla bledu dla chat — dlatego mowie to tutaj. "
-            f"Podziel wiadomosc albo przekaz sciezke do pliku zamiast wklejac "
-            f"tresc na kanal.")
+            f"the frame is {rozmiar} B, the hub limit is "
+            f"{protocol.MAX_FRAME_BYTES} B "
+            f"({protocol.MAX_FRAME_BYTES // 1024} KiB). The hub drops such "
+            f"frames and does NOT send back an error for chat — which is why "
+            f"you hear it here. Split the message or pass a file path instead "
+            f"of pasting the content onto the channel.")
     return wire
 
 
@@ -440,7 +443,7 @@ async def _pokaz_ostrzezenie_serwera(ws):
         except ValueError:
             continue
         if isinstance(ramka, dict) and ramka.get("type") == "error":
-            print(f"hub: {ramka.get('text', '(bez tresci)')}", file=sys.stderr)
+            print(f"hub: {ramka.get('text', '(no text)')}", file=sys.stderr)
             return ramka
         # cokolwiek innego to cudzy ruch na wspolnym nicku — nie nasza sprawa
 
@@ -498,8 +501,8 @@ async def listen(nick, context=None, once=False):
                             and reply.get("type") == "error"
                             and reply.get("suggested_nick")):
                         proponowany = reply["suggested_nick"]
-                        print(f"[nick] '{nick}' zajety przez kogos innego — "
-                              f"podnosze sie jako '{proponowany}'",
+                        print(f"[nick] '{nick}' is taken by someone else — "
+                              f"coming up as '{proponowany}'",
                               file=sys.stderr)
                         if session is not None:
                             session.release_listener_lock()
@@ -530,7 +533,7 @@ async def listen(nick, context=None, once=False):
                         # `send --as <nick>` odbija sie o "nick zajety przez
                         # polaczonego <nick>". Patrz adopt_boot_identity.
                         session.adopt_boot_identity(boot.instance_id)
-                        print(f"[hub] nadany nick: {nick}", file=sys.stderr)
+                        print(f"[hub] assigned nick: {nick}", file=sys.stderr)
                     elif session is None:
                         # Weszlismy bez nicka, ale hub przyjal hello i NIE
                         # odeslal nadanego nicka. _BootIdentity zyje tylko
@@ -541,10 +544,10 @@ async def listen(nick, context=None, once=False):
                         # przyjmuje nickless hello, ale nicka nie nadaje
                         # (review worker2). Tozsamosci nie zgadujemy —
                         # nick jest autorytatywnie od huba.
-                        print("hello: hub przyjal wejscie bez nicka, ale nie "
-                              "nadal nicka w odpowiedzi — nie moge ustalic "
-                              "trwalej tozsamosci. Zaktualizuj hub albo podaj "
-                              "CHAT_NICK.", file=sys.stderr)
+                        print("hello: the hub accepted entry without a nick "
+                              "but did not assign one in the reply — I cannot "
+                              "establish a durable identity. Update the hub "
+                              "or pass CHAT_NICK.", file=sys.stderr)
                         sys.exit(1)
                     applied_from_hello = _apply_hello_reply(session, reply)
                     # Gasimy PO zastosowaniu odpowiedzi: gdyby polaczenie
@@ -578,12 +581,12 @@ async def listen(nick, context=None, once=False):
                 # Pozostale kody (1006 zerwana siec itd.) reconnectuja jak
                 # dotad; wyrzucenie to DECYZJA, a nie awaria transportu.
                 if getattr(e, "rcvd", None) is not None and e.rcvd.code == KICKED_CODE:
-                    print("[kick] wyrzucony z kanalu przez moderatora — "
-                          "koncze nasluch. Zeby wrocic, uruchom go ponownie.",
+                    print("[kick] kicked off the channel by a moderator — "
+                          "ending the listen. To come back, start it again.",
                           file=sys.stderr)
                     return
-                print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
-                      f"{backoff:.0f}s od kursora "
+                print(f"[reconnect] connection dropped ({e}); retrying in "
+                      f"{backoff:.0f}s from cursor "
                       f"{session.last_applied_seq if session else 0}", file=sys.stderr)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)
@@ -591,8 +594,8 @@ async def listen(nick, context=None, once=False):
                 # session moze byc None, gdy nickless hello padlo, zanim hub
                 # nadal nick (np. hub chwilowo niedostepny) — kursor jeszcze
                 # nie istnieje, wiec meldujemy 0 zamiast siegac po None.
-                print(f"[reconnect] polaczenie padlo ({e}); ponawiam za "
-                      f"{backoff:.0f}s od kursora "
+                print(f"[reconnect] connection dropped ({e}); retrying in "
+                      f"{backoff:.0f}s from cursor "
                       f"{session.last_applied_seq if session else 0}", file=sys.stderr)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)
@@ -637,15 +640,15 @@ def main():
         if args == ["--listen"]:
             asyncio.run(listen(os.environ.get("CHAT_NICK", "listener")))
         elif len(args) == 2 and args[0] == "--as":
-            print('send.py --as <nick>: brakuje tresci', file=sys.stderr)
+            print('send.py --as <nick>: missing text', file=sys.stderr)
             sys.exit(1)
         elif len(args) == 3 and args[0] == "--as":
             asyncio.run(send_once(args[1], args[2]))
         elif len(args) == 1:
             nick = os.environ.get("CHAT_NICK", "")
             if not nick:
-                print('send.py: nie wiem, KIM jestes — podaj --as <nick> '
-                      'albo ustaw CHAT_NICK', file=sys.stderr)
+                print('send.py: I do not know WHO you are — pass --as <nick> '
+                      'or set CHAT_NICK', file=sys.stderr)
                 sys.exit(1)
             asyncio.run(send_once(nick, args[0]))
         else:
@@ -653,11 +656,11 @@ def main():
             # NADAWCA, a czytal sie jak adresat — na zywym kanale kosztowalo
             # to ramke wyslana w cudzym imieniu. Wariant nie zostaje
             # "dla kompatybilnosci": dopoki dziala, pulapka dziala z nim.
-            print('usage: send.py --as <nick> "@ktos tekst"  |  '
-                  'CHAT_NICK=<nick> send.py "@ktos tekst"  |  '
+            print('usage: send.py --as <nick> "@someone text"  |  '
+                  'CHAT_NICK=<nick> send.py "@someone text"  |  '
                   'send.py --listen\n'
-                  '  --as = KIM jestes; adresata wskazujesz @wzmianka '
-                  'w tresci', file=sys.stderr)
+                  '  --as = WHO you are; you point at the addressee with an '
+                  '@mention in the text', file=sys.stderr)
             sys.exit(1)
     except KeyboardInterrupt:
         pass
@@ -668,7 +671,7 @@ def main():
         print(str(e), file=sys.stderr)
         sys.exit(4)
     except OSError as e:
-        print(f"blad polaczenia z {URI}: {e}", file=sys.stderr)
+        print(f"connection error to {URI}: {e}", file=sys.stderr)
         sys.exit(1)
 
 

@@ -444,11 +444,12 @@ def test_run_retries_until_listener_lock_released(session, tmp_path, monkeypatch
     async def scenario():
         task = asyncio.ensure_future(adapter.run(_noop, _noop, on_status))
         await asyncio.sleep(0.15)
-        assert any("ponawiam" in s for s in statuses), statuses
-        assert not any(s.startswith("laczenie") for s in statuses)
+        # Zmienil sie JEZYK statusow, nie kontrakt.
+        assert any("retrying" in s for s in statuses), statuses
+        assert not any(s.startswith("connecting") for s in statuses)
         other.release_listener_lock()
         await asyncio.sleep(0.3)
-        assert any(s.startswith("laczenie z hubem") for s in statuses), statuses
+        assert any(s.startswith("connecting to hub") for s in statuses), statuses
         adapter._closing = True
         await asyncio.wait_for(task, timeout=5)
     asyncio.run(scenario())
@@ -523,11 +524,13 @@ def test_parse_stop_i_reset_sa_lokalne():
     """Zatrzymanie huba NIE jest ramka protokolu — to domena czlowieka przy
     maszynie. Gdyby szlo drutem, kazdy uczestnik moglby ubic pokoj."""
     assert parse_user_input("/stop") == {"type": "local", "action": "stop"}
-    assert parse_user_input("/reset-kursor") == {"type": "local",
-                                                 "action": "reset-kursor"}
+    # Zmienila sie NAZWA komendy (/reset-kursor -> /reset-cursor), nie
+    # kontrakt: reset kursora nadal jest akcja LOKALNA, nie ramka.
+    assert parse_user_input("/reset-cursor") == {"type": "local",
+                                                 "action": "reset-cursor"}
 
 
-@pytest.mark.parametrize("bad", ["/stop teraz", "/reset-kursor x"])
+@pytest.mark.parametrize("bad", ["/stop teraz", "/reset-cursor x"])
 def test_parse_lokalne_odrzucaja_argumenty(bad):
     with pytest.raises(TuiError):
         parse_user_input(bad)
@@ -605,7 +608,7 @@ def test_ctrl_q_wychodzi_takze_gdy_fokus_jest_w_inpucie():
 
 def test_parse_kill_wymaga_nazwy_pokoju():
     """`/kill` kasuje historie NA ZAWSZE, wiec potwierdzeniem jest NAZWA —
-    ta sama zasada co `--tak-kasuj` w CLI, z tego samego powodu: flage
+    ta sama zasada co `--yes-delete` w CLI, z tego samego powodu: flage
     dopisuje sie odruchowo, a nazwe trzeba przeczytac."""
     assert parse_user_input("/kill sklep") == {
         "type": "local", "action": "kill", "target": "sklep"}

@@ -106,10 +106,11 @@ class EventLog:
                             # (ponizej pentli) i jedziemy dalej.
                             break
                         raise ValueError(
-                            f"events.jsonl uszkodzony w linii zaczynajacej sie "
-                            f"na offsecie {pos} bajtow — linia zakonczona "
-                            "znakiem nowej linii (albo nie jest ostatnia w "
-                            "pliku), to korupcja, nie urwany ogon po crashu"
+                            f"events.jsonl is corrupted at the line starting "
+                            f"at byte offset {pos} — the line ends with a "
+                            "newline (or is not the last one in the file), so "
+                            "this is corruption, not a tail torn off by a "
+                            "crash"
                         ) from exc
                     else:
                         if e["seq"] > self.snapshot_seq:
@@ -173,9 +174,9 @@ class EventLog:
         22 ms dla 10k ramek). limit=None oddaje calosc; domyslnie tniemy
         NAJSTARSZE, bo agent potrzebuje swiezego kontekstu."""
         if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
-            raise ValueError(f"conversation_after: zly seq: {seq!r}")
+            raise ValueError(f"conversation_after: bad seq: {seq!r}")
         if limit is not None and (not isinstance(limit, int) or limit <= 0):
-            raise ValueError(f"conversation_after: zly limit: {limit!r}")
+            raise ValueError(f"conversation_after: bad limit: {limit!r}")
         out = []
         if not self.events_path.exists():
             return out
@@ -218,10 +219,10 @@ class EventLog:
         disk_top = self._max_seq_on_disk()
         if disk_top > self.last_seq:
             raise ForeignWriterError(
-                f"events.jsonl ma seq {disk_top} > naszego {self.last_seq}: "
-                f"do katalogu {self.dir} pisze inny proces huba. Kompakcja "
-                f"przerwana, zeby nie skasowac cudzych ramek. Zatrzymaj "
-                f"nadmiarowy hub (agentmachi list / agentmachi stop).")
+                f"events.jsonl has seq {disk_top} > ours {self.last_seq}: "
+                f"another hub process writes to {self.dir}. Compaction "
+                f"aborted so it does not delete someone else's frames. Stop "
+                f"the extra hub (agentmachi list / agentmachi stop).")
         seq = self.last_seq
         tmp = self.dir / "snapshot.json.tmp"
         # Najpierw zwaliduj/serializuj calosc. Blad (np. NaN w stanie) zostawia
