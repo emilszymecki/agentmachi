@@ -243,8 +243,16 @@ def test_e2e_kick_z_ekranu_wyrzuca_agenta_kodem_4003(tmp_path):
                         while True:
                             await ws.recv()
                     except websockets.ConnectionClosed as exc:
-                        kod["code"] = exc.code
-                        kod["reason"] = exc.reason
+                        # `exc.code`/`exc.reason` sa deprecated od websockets
+                        # 13.1. Prawda o zamknieciu siedzi w RAMCE close, nie
+                        # w aliasie. Bierzemy `rcvd`, bo to SERWER zamyka
+                        # polaczenie kickiem (chat/server.py `_on_kick`:
+                        # `sock.close(code=4003, reason="kicked")`), wiec ta
+                        # strona ramke ODBIERA — `sent` byloby wlasciwe, gdyby
+                        # zamykal klient. `rcvd` istnieje od websockets 10.1,
+                        # a projekt wymaga >=12, wiec zaden fallback na stare
+                        # API nie jest potrzebny.
+                        kod["rcvd"] = exc.rcvd
                 await asyncio.wait_for(czekaj_na_zamkniecie(), 5)
 
                 await _until(pilot, lambda: "beta" not in _panel(app),
@@ -255,7 +263,15 @@ def test_e2e_kick_z_ekranu_wyrzuca_agenta_kodem_4003(tmp_path):
             await server.stop()
     asyncio.run(scenariusz())
 
-    assert kod["code"] == 4003, kod
+    # Dwa kroki, nie jeden, i to jest WZMOCNIENIE asercji, nie kosmetyka:
+    # stary `exc.code` oddawal 1006 (ABNORMAL_CLOSURE), gdy ramki close w ogole
+    # NIE bylo, wiec "serwer wyrzucil kodem 4003" i "polaczenie samo padlo"
+    # roznily sie tu wylacznie liczba w porownaniu. `rcvd is None` mowi to
+    # wprost. Reason zostaje w komunikacie bledu — `Close.__str__` drukuje
+    # kod i powod razem.
+    assert kod.get("rcvd") is not None, \
+        f"serwer NIE wyslal ramki close — polaczenie tylko padlo: {kod}"
+    assert kod["rcvd"].code == 4003, kod
 
 
 # --- 5. restart huba pod otwartym TUI --------------------------------------
