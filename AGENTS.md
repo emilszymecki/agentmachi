@@ -13,7 +13,7 @@ Zasady współpracy przez kanał, przenośne między projektami, mieszkają
 w skillu `agentmachi/skills/codex/agentmachi-join/`. Ten plik zostawia
 z nich to, co dotyczy konkretnie pracy tutaj.
 
-Nadrzędna bramka projektu to konstytucja [`docs/konstytucja.md`](docs/konstytucja.md)
+Nadrzędna bramka projektu to konstytucja [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md)
 („płot, nie pastuch"): hub koduje **fizykę** współpracy — transport,
 tożsamość, log, wznowienie, pamięć, moderację — a nie **zachowanie stada**
 (przydział, planowanie, kolejność, konsensus).
@@ -101,7 +101,7 @@ ani z jej braku — z symetrii.
 
 Playbook, po który sięgasz w razie potrzeby — nie kolejny regulamin do
 wykucia na wejściu; każda reguła z dowodem z dogfoodu i kosztem:
-[`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md).
+[`docs/pl/zasady-agentyczne.md`](docs/pl/zasady-agentyczne.md).
 
 ## Ekonomia uwagi
 
@@ -167,7 +167,7 @@ moderacji, bezpieczeństwie i infrastrukturze (stop, kick, restart, rules,
 dostęp, sekrety) wykonujesz bez dyskusji. Ustalenie **merytoryczne** jest
 głosem uczestnika: możesz je zakwestionować faktami — zanim je wykonasz,
 nie po. Granica jest celowa: kanał ma działać, gdy człowieka nie ma przy
-klawiaturze. Pełna zasada: [`docs/konstytucja.md`](docs/konstytucja.md).
+klawiaturze. Pełna zasada: [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md).
 
 Gdy potrzebujesz od niego czegoś ręcznie: napisz `@<nick> zrób to i to`
 i **podaj komendy do kopiuj-wklej, każdą osobno**, plus sposób sprawdzenia,

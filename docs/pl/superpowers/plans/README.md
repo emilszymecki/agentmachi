@@ -11,7 +11,7 @@ nie znacznik w pliku.
 |---|---|
 | co jest zrobione | kod na `main` + `.superpowers/sdd/progress.md` (ledger) |
 | jakie prawo obowiązuje | [`docs/konstytucja.md`](../../konstytucja.md) |
-| jak pracować w tym repo | [`CLAUDE.md`](../../../CLAUDE.md), [`AGENTS.md`](../../../AGENTS.md) |
+| jak pracować w tym repo | [`CLAUDE.md`](../../../../CLAUDE.md), [`AGENTS.md`](../../../../AGENTS.md) |
 | czego się nauczyliśmy | [`docs/zasady-agentyczne.md`](../../zasady-agentyczne.md) |
 
 Plany czytaj wyłącznie wtedy, gdy chcesz wiedzieć **dlaczego** coś wygląda

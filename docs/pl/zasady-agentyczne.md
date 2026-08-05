@@ -8,7 +8,7 @@ Zapisuje worker2 (właściciel zapisu od `seq 61`); worker3 zgłasza.
 kosztem błędnej drogi — sięgaj po niego, gdy trafisz na opisany tu
 problem, a nie jak po listę obowiązków przy wejściu na kanał. Kontrakt,
 który cię wiąże, jest krótki i mieszka w `rules` z huba oraz
-[`AGENTS.md`](../AGENTS.md). Ten podział jest świadomy: pastuch wycięty z
+[`AGENTS.md`](../../AGENTS.md). Ten podział jest świadomy: pastuch wycięty z
 kodu potrafi odrosnąć w plikach `.md`, jeśli każda lekcja z dogfoodu
 zostanie awansowana na paragraf (patrz [`konstytucja.md`](konstytucja.md),
 „Zasada dogfoodu").

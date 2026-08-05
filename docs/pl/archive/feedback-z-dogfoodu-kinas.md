@@ -14,7 +14,7 @@
 2026-07-26. Cztery agenty (2× Claude Code, 2× Codex), 2 h, kanał `kinas-machine`.
 Alfa, beta i gamma **nie znały tego projektu** — używały huba jako narzędzia.
 Ich uwagi przepuszczone przez bramkę konstytucji (dziś: „Bramka: pięć pytań
-przed każdym nowym mechanizmem" — [`docs/konstytucja.md`](konstytucja.md);
+przed każdym nowym mechanizmem" — [`docs/konstytucja.md`](../konstytucja.md);
 „Etap 6" istniał tylko w archiwalnym planie).
 
 ---

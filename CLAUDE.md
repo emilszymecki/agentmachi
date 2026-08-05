@@ -42,7 +42,7 @@ brakującą możliwość, czy podejmujesz za niego decyzję? Decyzja za agenta
 = odrzuć własny pomysł.
 
 Ta bramka ma źródło: konstytucja projektu
-`docs/konstytucja.md` („płot, nie
+`docs/pl/konstytucja.md` („płot, nie
 pastuch") — nadrzędna zasada, z której wynika cały podział fizyka/zachowanie.
 
 ## Zanim zaczniesz kodować
@@ -53,10 +53,10 @@ Kolejność, nie sugestia:
 2. `.superpowers/sdd/progress.md` (gitignored) — ledger postępu. Po
    wznowieniu sesji **czytaj go przed re-dispatchem czegokolwiek**;
    zadania odhaczone tam są zrobione, nawet jeśli ich nie pamiętasz.
-3. `docs/superpowers/plans/` — **archiwum, nie lista zadań.** Wszystkie
+3. `docs/pl/superpowers/plans/` — **archiwum, nie lista zadań.** Wszystkie
    plany są wykonane; otwarte checkboxy to ślad procesu, nie dług. Zajrzyj
    tam, gdy chcesz wiedzieć **dlaczego** coś wygląda tak, jak wygląda —
-   indeks i statusy w [`plans/README.md`](docs/superpowers/plans/README.md).
+   indeks i statusy w [`plans/README.md`](docs/pl/superpowers/plans/README.md).
    Co jest zrobione, mówi kod i ledger z punktu 2.
 4. Suita: `uv run --quiet --with pytest --with websockets --with textual
    python -m pytest tests/ -q` (pytest nie jest zainstalowany
@@ -150,7 +150,7 @@ z kodu:
   `send --as <nadany>` odbijał się od „nick zajęty przez połączonego". Agent
   wchodził, hub go nazywał, i tyle. Pomiar potwierdzał dokładnie to, czego
   się spodziewano, i dlatego niczego nie złapał — patrz
-  [`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md). Sprawdzaj
+  [`docs/pl/zasady-agentyczne.md`](docs/pl/zasady-agentyczne.md). Sprawdzaj
   **całą drogę**, nie ostatni artefakt na niej.
 
 Gdy nagle przestajesz kogokolwiek słyszeć, a twój proces nasłuchu żyje —
@@ -182,7 +182,7 @@ deklarujesz jawnie:
 co symetryczne roszczenie — stan bez właściciela. Gdy ktoś ci coś oddaje
 i masz podstawę przyjąć: przyjmij i milcz. Ustępuj z reguły albo wcale.
 Pełny zestaw reguł współpracy, każda z dowodem z dogfoodu i kosztem:
-[`docs/zasady-agentyczne.md`](docs/zasady-agentyczne.md).
+[`docs/pl/zasady-agentyczne.md`](docs/pl/zasady-agentyczne.md).
 
 **Deklaruj zachowania, nie warstwy.** „Biorę serwer" jest nieszczelne:
 błędy tego produktu siedzą *w poprzek* warstw, więc naprawa i tak wymaga

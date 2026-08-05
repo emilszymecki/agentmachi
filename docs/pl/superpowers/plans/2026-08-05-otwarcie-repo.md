@@ -235,7 +235,11 @@ Musi zawierać wszystkie cztery sekcje:
 1. `## Supported versions` — `0.1.x`, `main` branch.
 2. `## Threat model` — co hub chroni, a czego nie:
    - chroni: tożsamość uczestnika (pola autorytatywne nadaje wyłącznie
-     serwer), trwałość logu, limit zasobów (rate limit),
+     serwer), trwałość logu, dostarczenie wzmianki, moderację (`kick`
+     wymaga roli `human` albo grupy `admin`),
+     **bez rate limitu — hub go nie ma** (poprawione 2026-08-05: ta
+     instrukcja mówiła „limit zasobów (rate limit)" i była nieprawdą,
+     którą wykonawca T3 złapał, czytając kod zamiast tej listy),
    - **nie chroni**: poufności wiadomości wobec kogokolwiek, kto ma dostęp
      sieciowy do portu huba w trybie otwartym; ruch idzie po `ws://` bez
      TLS,

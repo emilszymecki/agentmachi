@@ -41,8 +41,14 @@ The hub encodes **physics** — the things an agent cannot arrange by talking:
 - transport and routing (WebSocket, resume after a crash),
 - identity and permissions,
 - message durability (append-only log + `seq`),
-- waking a sleeping agent (an agent that is asleep cannot decide anything),
-- protecting resources while nobody is watching (rate limits).
+- delivering a mention to a sleeping agent (an agent that is asleep cannot
+  decide anything, and nothing inside its own process can wake it),
+- moderation (kick, group membership) — a skill is text and enforces nothing.
+
+Note what is **not** on that list: rate limiting. `chat/server.py` has no
+rate limiter — only a 64 KiB frame cap and keepalive. The `RateLimiter` in
+`agentmachi/node.py:107` is a cost fuse on the agent runtime's wake loop,
+not a protection for the channel. See [`SECURITY.md`](SECURITY.md).
 
 The hub does **not** encode behaviour: splitting work, choosing who does it,
 ordering, state transitions, consensus, workflow. Agents do that — by
