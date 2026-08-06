@@ -1577,6 +1577,45 @@ def test_restart_tez_nie_kradnie_zarezerwowanego_portu(home, monkeypatch,
     assert cli.hub_port("stary") == 8795
 
 
+def test_restart_odmawia_ZANIM_ubije_dzialajacy_pokoj(home, monkeypatch,
+                                                      capsys):
+    """Kolejnosc, nie sam werdykt: odmowa ma paść PRZED `os.kill`.
+
+    Test poprzedni sprawdza, ze restart nie kradnie portu. Nie sprawdza
+    KIEDY sie o tym dowiaduje — a `cmd_restart` ubijal pokoj, po czym
+    oddawal robote `cmd_start`, ktory dopiero tam odmawial. Skutek dla
+    operatora: komenda, ktora niczego nie zmienila, zostawia go
+    z ZATRZYMANYM hubem. Nic nie zostalo skradzione i wlasnie dlatego latwo
+    to uznac za poprawne — a to jest szkoda wyrzadzona przy okazji odmowy.
+
+    Zglosil to subagent jako znane ograniczenie WLASNEJ naprawy; bez tego
+    testu wystarczy przeniesc kontrole z powrotem nizej, zeby wrocila
+    niezauwazenie."""
+    cli.ensure_hub("owner", 8790)
+    cli.ensure_hub("zywy", 8795)
+
+    ubite = []
+    # KOLEJNOSC PATCHY JEST CZESCIA TESTU i pierwsza wersja ja przegrala:
+    # `_bez_startu_huba` ustawia `_pid_is_our_hub` na False, wiec wolane PO
+    # naszym patchu kasowalo go i `cmd_restart` w ogole nie wchodzil w galaz
+    # `os.kill`. Asercja `ubite == []` przechodzila wtedy ZAWSZE — takze na
+    # zepsutym kodzie. Test na kolejnosc operacji byl dekoracja przez wlasna
+    # kolejnosc patchy; zlapane dowodem przez zepsucie, nie przegladem.
+    _bez_startu_huba(monkeypatch, "restart stawial huba mimo kradziezy portu")
+    monkeypatch.setattr(cli, "hub_pid", lambda n: 999 if n == "zywy" else None)
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, n: True)
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: ubite.append(pid))
+    monkeypatch.setattr(cli, "_cmdline_of", lambda pid: None)
+
+    rc = cli.main(["restart", "--name", "zywy", "--port", "8790"])
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "owner" in err, err
+    # SEDNO: zaden SIGTERM nie poszedl. Pokoj, ktorego nie przepieto, dziala.
+    assert ubite == [], f"restart ubil pokoj mimo odmowy (PID-y: {ubite})"
+    assert cli.hub_port("zywy") == 8795
+
+
 def test_start_bez_portu_przezywa_wlasne_jawne_port_w_spawnowanym_serve(
         home, monkeypatch, capsys):
     """4. SCIEZKA start -> serve, czyli jedyne miejsce, gdzie ta naprawa

@@ -1381,6 +1381,21 @@ def cmd_restart(args):
     dzis wymagal sekwencji stop -> start -> list, dyktowanej przez czat.
     Czekamy, az stary proces NAPRAWDE zejdzie — inaczej `start` zobaczy
     wlasny, jeszcze zajety port i odmowi."""
+    # Kolizje portu rozstrzygamy PRZED `os.kill`, nie po. Kolejnosc jest tu
+    # calym sensem: `cmd_start` ponizej i tak odmowi, gdy zadany port trzyma
+    # inny pokoj — ale wtedy ten pokoj jest juz UBITY, wiec komenda, ktora
+    # niczego nie zmienila, zostawia operatora z zatrzymanym hubem. "Chcialem
+    # przepiac, dostalem martwy pokoj" to nie jest odmowa, tylko szkoda
+    # wyrzadzona przy okazji.
+    #
+    # Zgloszone przez subagenta jako znane ograniczenie wlasnej naprawy
+    # (2026-08-06) — czyli dokladnie ten przypadek, w ktorym latwo powiedziec
+    # "poprawne, bo nic nie kradnie" i zostawic. Nie kradnie. Po prostu placi
+    # za odmowe cudzym dzialajacym pokojem.
+    if getattr(args, "port", None) is not None:
+        _odmow_zajetego_portu(
+            args.name, args.port,
+            f"room {args.name!r} was NOT restarted and keeps running")
     pid = hub_pid(args.name)
     if pid is not None and _pid_is_our_hub(pid, args.name):
         os.kill(pid, signal.SIGTERM)
