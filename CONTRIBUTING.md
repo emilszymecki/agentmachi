@@ -120,6 +120,24 @@ on, not because we are against it. The suite has never been run on Windows,
 so anything that appears to work there is unverified. Pull requests are
 welcome.
 
+**If you verify anything on Windows, do not use `start`'s exit code as your
+criterion.** Measured there on 2026-08-06, while confirming an unrelated fix:
+a regression check got `rc=1` from `agentmachi start` and the room was up,
+listening, on the right port. Reporting that exit code would have been a
+regression report for a regression that did not exist. The cause is the one
+already documented above — process detection does not work on Windows, so
+`start` cannot confirm its own child and says so by failing. Until that is
+fixed, judge by the config and the socket:
+
+```powershell
+agentmachi card --name <room>          # what address it believes it has
+netstat -ano | findstr :<port>         # whether anything actually listens
+```
+
+The same rule the rest of this file applies to `send` applies here: **a
+command that exited non-zero is not proof of failure, exactly as exit 0 is
+not proof of success.** On this platform both directions lie.
+
 Known platform-sensitive spots:
 
 - `chat/client_session.py:70` — file locking is split by platform at this
