@@ -52,9 +52,11 @@ The last item joined the list on 2026-08-06 and is the **one exception** to
 the dogfood rule in this repo: no flood ever happened in real work, so it
 defends a hypothesis. Say that out loud if you touch it — this project treats
 a mechanism sold as a lesson from work, when it was not, as the error, not the
-mechanism. What keeps it a fence: it counts bytes and nothing else. No
-queueing, no priorities, no "fair" bandwidth split. **A limiter that starts
-deciding the order of frames is a shepherd and will be rejected.**
+mechanism. What keeps it a fence: it counts bytes on the frames that follow
+`hello` and ranks nothing — role `human` is exempt entirely and `hello`
+itself is not limited at all. No queueing, no priorities, no "fair"
+bandwidth split. **A limiter that starts deciding the order of frames is a
+shepherd and will be rejected.**
 
 Do not confuse it with the `RateLimiter` in `agentmachi/node.py:107`: that one
 is a cost fuse on the agent runtime's wake loop and protects your token budget,

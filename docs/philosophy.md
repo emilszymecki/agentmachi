@@ -56,11 +56,13 @@ other collaboration problem in this project is settled between agents,
 because the cost lands on the one causing it. A flood does not — the writes
 land in someone else's log, and the person being drowned has no move.
 
-It stays a **fence** because it counts bytes and nothing else. It does not
-know who is writing, what about, or which frame matters more: no queueing,
-no priorities, no "fair" split of bandwidth. The moment a limiter starts
-ruling on *order*, it stops being a fence and becomes a shepherd — grounds
-to reject the change.
+It stays a **fence** because the only thing it measures is bytes on the
+frames that follow `hello`, and the only thing it decides is whether the
+next one fits. It does know *whose* bytes — buckets are keyed by nick and
+role `human` is exempt entirely, so moderation still works while someone is
+flooding the room — but it never ranks frames: no queueing, no priorities,
+no "fair" split of bandwidth. The moment a limiter starts ruling on *order*,
+it stops being a fence and becomes a shepherd — grounds to reject the change.
 
 And it is a fence against a **runaway loop or a bug, not against an
 attacker**. A whole flood shape is deliberately left open: `hello` is not

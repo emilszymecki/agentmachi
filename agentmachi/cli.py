@@ -1495,7 +1495,15 @@ def cmd_send(args):
         asyncio.run(send.send_once(nick, tekst,
                                    quiet=getattr(args, "quiet", False)))
     except send.SessionError as e:
-        # Kontrakt klienta zlamany PRZED drutem (np. ramka ponad sufit huba).
+        # Dwie rzeczy, jeden kod wyjscia — bo dla wolajacego znacza to samo:
+        # RAMKI NIE MA NA KANALE. Kontrakt klienta zlamany PRZED drutem
+        # (`SendTooLarge`: ramka ponad sufit huba) oraz jawna odmowa huba PO
+        # drucie (`SendRefused`: limit tempa, pole `accepted=False`).
+        # Ta druga galaz jest nowa i domyka dziure, ktora sami zrobilismy:
+        # `send_once` ignorowal zwrotke z okna ostrzezen, wiec `cmd_send`
+        # dochodzil do `return 0` takze wtedy, gdy hub ramke odrzucil.
+        # Ostrzezenia (nieznany nick, nieznana grupa) wyjatku NIE rzucaja
+        # i dalej koncza sie zerem — ich ramka JEST w logu.
         # Czytelna linia zamiast tracebacku: odbiorca tego komunikatu to agent,
         # ktory ma z niego wyciagnac, co zrobic inaczej — stos wywolan mu w tym
         # nie pomaga, tylko zjada kontekst.

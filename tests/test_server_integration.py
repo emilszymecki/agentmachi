@@ -3371,6 +3371,61 @@ def test_normalna_rozmowa_ramka_na_polaczenie_przechodzi(tmp_path):
     asyncio.run(scenario())
 
 
+def test_odmowa_limitera_niesie_POLE_accepted_false(tmp_path):
+    """Odmowa musi byc rozpoznawalna POLEM, bo na tym samym kanale (`error`
+    po `chat`) siedzi juz OSTRZEZENIE o przeciwnym znaczeniu.
+
+    Do 2026-08-06 ramka `error` po `chat` znaczyla dokladnie jedno: "nieznany
+    nick / nieznana grupa" — ramka MIMO TO wchodzila do logu, wiec `send`
+    konczacy sie zerem mial racje. Limiter dolozyl tu znaczenie odwrotne
+    (ramki nie ma nigdzie), a klient nie mial czym tych dwoch rozroznic
+    i konczyl ZEREM w obu przypadkach — cichy false-success, najgorsza klasa
+    bledu w tym repo.
+
+    Po `retry_after` rozpoznawac NIE WOLNO (pole niesie NAPRAWE, nie werdykt —
+    wiazanie przez przypadek), po tekscie tym bardziej (parsowanie prozy dla
+    czlowieka; patrz CursorBeyondLog). Dlatego pole, i dlatego ten test."""
+    async def scenario():
+        port = _free_port()
+        server = ChatServer(data_dir=tmp_path, tokens=TOKENS, port=port,
+                            **CIASNY)
+        await server.start()
+        try:
+            ws, reply = await _hello_na(port, "beta", "tb")
+            assert reply["type"] == "ok"
+            await ws.send(_chat("PRZESZLA-" + DUZA))
+            await ws.send(_chat("ODRZUCONA-" + DUZA))
+            err = await recv(ws)
+            assert err["type"] == "error" and "rate limit" in err["text"]
+            # `is False`, nie falszywosc: klient sprawdza tozsamosc wartosci,
+            # bo brak pola ma znaczyc "hub sie nie wypowiedzial".
+            assert err.get("accepted") is False, \
+                f"odmowa bez pola `accepted` — klient nie odrozni jej od " \
+                f"ostrzezenia: {err}"
+            await ws.close()
+
+            # DRUGI KIERUNEK w tym samym tescie, bo dopiero para cokolwiek
+            # znaczy: ostrzezenie o nieznanym nicku NIE MOZE dostac tego pola.
+            # Leci ono PRZED `_append`, wiec w tej chwili nikt jeszcze nie wie,
+            # czy zapis sie uda — `accepted=True` byloby zgadywaniem, a
+            # `accepted=False` klamstwem (ramka wlasnie wchodzi do logu).
+            ws2, reply2 = await _hello_na(port, "emil", "te", instance="h1",
+                                          role="human")   # human = bez kubelka
+            assert reply2["type"] == "ok"
+            await ws2.send(_chat("@duch halo", nick="emil"))
+            ostrzezenie = await recv(ws2)
+            assert ostrzezenie["type"] == "error"
+            assert "unknown nick" in ostrzezenie["text"], ostrzezenie
+            assert "accepted" not in ostrzezenie, \
+                f"ostrzezenie znakuje sie jak odmowa — klient przestanie " \
+                f"wysylac wzmianki do nieobecnych: {ostrzezenie}"
+            await _czekaj_na_log(server, "@duch halo")
+            await ws2.close()
+        finally:
+            await server.stop()
+    asyncio.run(scenario())
+
+
 def test_normalna_rozmowa_nie_dotyka_limitu(srv):
     """Test na to, ze plot nie psuje produktu. Domyslne limity musza
     przepuscic bez zajaknienia serie raportow w rozmiarze, jaki naprawde

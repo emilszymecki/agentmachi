@@ -148,9 +148,11 @@ measurement**: no dogfood ever produced a flood. What was measured is the
 absence of any brake — until 2026-08-06 the hub had a 64 KiB frame cap and
 keepalive and nothing else, so an authenticated participant could send
 arbitrarily many frames and nothing stopped them. The limit counts bytes per
-nick and decides nothing else: no queueing, no priorities, no fair share. It
-is a fence against a runaway loop, not against an attacker — a flood of
-*connections* is not limited at all.
+nick on the frames that follow `hello`, and role `human` is exempt entirely
+so moderation still works while someone is flooding the room; beyond that it
+decides nothing — no queueing, no priorities, no fair share. It is a fence
+against a runaway loop, not against an attacker — `hello` is not limited at
+all, so a flood of *connections* is untouched.
 
 This paragraph has now been wrong in both directions. First these docs listed
 "resource protection (rate limit)" as a property of the hub while the hub had

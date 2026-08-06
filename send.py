@@ -470,6 +470,57 @@ def _sprawdz_rozmiar(wire):
 OKNO_OSTRZEZENIA = 0.25
 
 
+class SendRefused(SessionError):
+    """Hub ODRZUCIL ramke — nie ma jej w logu i nikt jej nie dostal.
+
+    Dziedziczy po `SessionError`, dokladnie jak `SendTooLarge` i `ReadRefused`,
+    bo `cmd_send` juz lapie te rodzine i konczy kodem 1 (a `send.py main()` —
+    kodem 4). Trzecia galaz w cli.py bylaby trzecim miejscem, w ktorym trzeba
+    pamietac o tym samym; rodzina jest juz kontraktem tego repo.
+
+    ODRZUCENIE OD OSTRZEZENIA odroznia POLE `accepted`, nie tresc zdania.
+    Do 2026-08-06 ramka `error` po `chat` znaczyla wylacznie "nieznany nick /
+    nieznana grupa" — ramka MIMO TO trafiala do logu i do ludzi, wiec zero
+    bylo POPRAWNYM kodem wyjscia. Limiter dolozyl na tym samym kanale
+    znaczenie przeciwne i klient nie mial czym ich rozroznic: `send` konczyl
+    zerem takze wtedy, gdy ramki nigdzie nie bylo. Repro (Codex): kubelek
+    1 B/s, burst 64 KiB, pierwsza ramka 60 KB wchodzi, druga 10 KB odrzucona —
+    w logu jedna ramka `chat`, `agentmachi send` zwraca 0.
+    """
+
+
+def _wyslane_albo_padnij(ramka):
+    """Zamien serwerowa ODMOWE po `chat`/`fyi` na wyjatek. Zwraca None.
+
+    Pole `accepted` jest TROJSTANOWE i asymetria jest cala jego trescia:
+    - `accepted is False` (JAWNE) -> pewna odmowa PRZED przyjeciem ramki:
+      nie ma jej w logu -> `SendRefused` -> kod wyjscia niezerowy,
+    - `accepted is True` -> hub przyjal i zapisal,
+    - BRAK POLA -> hub sie nie wypowiedzial: starszy serwer, zwykle
+      ostrzezenie albo wynik nieokreslony -> kod wyjscia BEZ ZMIAN, czyli 0.
+
+    Niezerowo konczymy WYLACZNIE przy jawnym `False`. Fail-safe idzie w strone
+    zgodnosci, bo klient bywa NOWSZY od huba, do ktorego wchodzi (ta sama
+    zasada co przy `server_last_seq` w `_koniec_logu_z_odmowy`). Odwrotna
+    domyslka zamienilaby jeden falszywy sygnal na drugi: skrypt czytajacy
+    niezerowy kod jako "nie wyslano" dostawalby go dla ramki, ktora doszla —
+    a ostrzezenie o nieznanym nicku jest wlasnie taka ramka.
+
+    Sprawdzamy `is False`, a nie falszywosc: `None`, `0` i `""` to NIE jest
+    deklaracja huba, tylko jej brak. Nazwa mowi `accepted`, nie `delivered`,
+    bo kontraktem sukcesu jest PRZYJECIE I ZAPIS, nie doreczenie zywemu
+    adresatowi — ramka ze wzmianka w nieznany nick nie budzi nikogo i mimo to
+    jest wyslana poprawnie."""
+    if not (isinstance(ramka, dict) and ramka.get("type") == "error"):
+        return
+    if ramka.get("accepted") is not False:
+        return
+    powod = ramka.get("text", "(no text)")
+    raise SendRefused(
+        f"the hub did NOT accept the frame — it is not in the log and nobody "
+        f"got it.\n  reason: {powod}")
+
+
 async def _pokaz_ostrzezenie_serwera(ws):
     """Po wyslaniu chat/fyi poczekaj CHWILE na ewentualne `error` i wypisz je.
 
@@ -490,9 +541,15 @@ async def _pokaz_ostrzezenie_serwera(ws):
     na ostroznosci: serwer wysyla ostrzezenie PRZED zapisem ramki
     (_handle_chat), wiec jesli ma cokolwiek do powiedzenia, mowi od razu.
 
-    Kod wyjscia zostaje ZERO. Ramka doszla do logu i do ludzi — to
-    ostrzezenie, nie odmowa, a skrypt traktujacy niezerowy kod jako
-    "nie wyslano" dostalby falszywy sygnal.
+    Kod wyjscia zostaje ZERO — DLA OSTRZEZENIA. Ramka doszla do logu i do
+    ludzi, wiec skrypt traktujacy niezerowy kod jako "nie wyslano" dostalby
+    falszywy sygnal.
+
+    Ale ta sama ramka `error` nosi od 2026-08-06 takze ODMOWE limitera, po
+    ktorej ramki nie ma nigdzie. Ta funkcja ich NIE ROZSTRZYGA — zwraca ramke
+    wolajacemu, a werdykt zapada w `_wyslane_albo_padnij` (po polu `accepted`).
+    Tu zostaje samo pokazanie tekstu, bo tekst warto zobaczyc w obu
+    przypadkach: przy odmowie niesie NAPRAWE (ile czekac).
 
     Cudze ramki moga tu wpasc, bo `send_once` dzieli instance_id z nasluchem
     i serwer pcha do WSZYSTKICH socketow nicka — pomijamy je i nic nie ginie:
@@ -519,7 +576,12 @@ async def _pokaz_ostrzezenie_serwera(ws):
 
 async def send_once(nick, text, quiet=False):
     """quiet=True: ramka trafia do logu i do ludzi, ale NIE budzi agentow.
-    Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
+    Publikacja zamiast zawolania — patrz chat/server.py._publish_chat.
+
+    Rzuca `SendRefused`, gdy hub JAWNIE odmowil przyjecia ramki (`accepted`
+    == False; dzis: limit tempa). Cisza i ostrzezenia konczy sie jak dotad,
+    czyli bez wyjatku — patrz `_wyslane_albo_padnij`. Dotyczy obu typow:
+    `chat` i `fyi` (--quiet) ida ta sama sciezka."""
     token = _require_token()
     session = _session(nick)  # kursor tylko do odczytu — nie ruszamy go
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
@@ -531,7 +593,10 @@ async def send_once(nick, text, quiet=False):
         await ws.send(protocol.dumps(_sprawdz_rozmiar({
             "type": "fyi" if quiet else "chat",
             "from": nick, "ts": 0.0, "text": text})))
-        await _pokaz_ostrzezenie_serwera(ws)
+        # Zwrotka NIE jest ozdoba: do 2026-08-06 stalo tu gole wywolanie bez
+        # przypisania, wiec odmowa limitera konczyla sie kodem 0 i wiadomosc
+        # ginela bez sladu (repro Codexa — patrz SendRefused).
+        _wyslane_albo_padnij(await _pokaz_ostrzezenie_serwera(ws))
 
 
 async def listen(nick, context=None, once=False, as_json=False):

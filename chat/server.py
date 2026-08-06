@@ -1248,14 +1248,51 @@ class ChatServer:
                     # klienta ("polacz sie jeszcze raz") od 2026-08-06 NIE
                     # dziala i musi to byc powiedziane wprost, inaczej agent
                     # bedzie ja probowal w kolko.
+                    #
+                    # `accepted=False` to POLE, ktore odroznia ODMOWE od
+                    # OSTRZEZENIA — bez niego cala ta odmowa byla teatrem po
+                    # stronie klienta. Do 2026-08-06 ramka `error` po `chat`
+                    # znaczyla dokladnie jedno: "nieznany nick / nieznana
+                    # grupa", czyli ramka JEST w logu i dotarla do ludzi
+                    # (_handle_chat). Limiter dolozyl na tym samym kanale
+                    # znaczenie PRZECIWNE — ramki nie ma nigdzie — a klient nie
+                    # mial czym tych dwoch rozroznic i konczyl ZEREM w obu
+                    # przypadkach. Zmierzone (Codex + repro): kubelek 1 B/s,
+                    # burst 64 KiB, ramka 60 KB przechodzi, druga 10 KB
+                    # odrzucona; w logu jedna ramka `chat`, `agentmachi send`
+                    # zwraca 0. Cichy false-success, ktory sami wprowadzilismy.
+                    #
+                    # `accepted`, NIE `delivered`: kontraktem sukcesu wysylki
+                    # jest PRZYJECIE I TRWALY ZAPIS, a nie doreczenie zywemu
+                    # adresatowi. Ramka ze wzmianka w nieznany nick nie budzi
+                    # NIKOGO, a mimo to poprawnie wchodzi do logu — `delivered`
+                    # klamaloby o niej juz dzis.
+                    #
+                    # Polem, a nie po `retry_after` i nie po tresci zdania:
+                    # rozpoznawanie po obecnosci `retry_after` wiazaloby
+                    # kontrakt przez przypadek (pole niesie NAPRAWE, nie
+                    # werdykt), a po tekscie byloby parsowaniem prozy pisanej
+                    # dla czlowieka — czego to repo zakazuje wprost (patrz
+                    # CursorBeyondLog wyzej w tym pliku).
+                    #
+                    # POLE JEST JEDNOSTRONNE i takie ma zostac. Nie dopisujemy
+                    # `accepted=True` nigdzie, bo nie mamy jak go uczciwie
+                    # postawic: ostrzezenie o nieznanym nicku leci PRZED
+                    # `_append` (nie wiadomo jeszcze, czy zapis sie uda),
+                    # a `internal error`/`storage error` moga wpasc TAKZE PO
+                    # udanym appendzie, w trakcie publikacji — tam pole
+                    # klamaloby w druga strone. Tutaj faza jest jednoznaczna:
+                    # odrzucenie nastepuje przed parsowaniem, wiec i przed
+                    # zapisem. Brak pola znaczy "jak dotad" — dzieki temu nowy
+                    # klient przy STARSZYM hubie nie czyta ostrzezen jak odmow.
                     await self._error(
                         ws,
                         f"rate limit: {nick} is sending too fast. The limit "
                         f"is per nick and shared by all your connections, so "
                         f"reconnecting does not reset it. The frame was NOT "
-                        f"delivered and is NOT in the log. "
+                        f"accepted and is NOT in the log. "
                         f"Wait {czekaj:.1f}s, then send it again.",
-                        retry_after=round(czekaj, 2))
+                        retry_after=round(czekaj, 2), accepted=False)
                     if odrzucone_z_rzedu >= RATE_MAX_CONSECUTIVE_REJECTS:
                         await ws.close(
                             code=1008,

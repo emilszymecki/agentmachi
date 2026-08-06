@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import stat
+import sys
 import time
 from pathlib import Path
 
@@ -1080,6 +1081,73 @@ def test_send_bierze_nadawce_z_chat_nick(home, monkeypatch):
     args = _parse_send(["send", "@opus_c czesc", "--name", "alpha"])
     assert cli.cmd_send(args) == 0
     assert wyslane == [("worker2", "@opus_c czesc")]
+
+
+def test_send_odmowa_huba_konczy_sie_niezerowo(home, monkeypatch, capsys):
+    """To `return 0` w `cmd_send` domykalo dziure, wiec test musi celowac
+    wprost w niego, nie tylko w `send_once`.
+
+    Hub odmowil przyjecia ramki (limit tempa, pole `accepted=False`) —
+    ramki nie ma w logu i nikt jej nie dostal. Kod 0 znaczylby dla skryptu
+    "wyslano", czyli cichy false-success: ta sama klasa bledu, ktora dala
+    "start zameldowal sukces PID-em trupa"."""
+    cli.ensure_hub("alpha", 8931)
+    prawdziwy = cli._import_send()
+
+    class _Send:
+        SessionError = prawdziwy.SessionError
+        SendRefused = prawdziwy.SendRefused
+
+        @staticmethod
+        async def send_once(nick, text, quiet=False):
+            raise _Send.SendRefused(
+                "the hub did NOT accept the frame — it is not in the log and "
+                "nobody got it.\n  reason: rate limit: worker2 is sending too "
+                "fast. Wait 3.4s, then send it again.")
+
+    monkeypatch.setattr(cli, "_import_send", lambda: _Send)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")
+    args = _parse_send(["send", "@opus_c czesc", "--as", "worker2",
+                        "--name", "alpha"])
+    assert cli.cmd_send(args) == 1
+    err = capsys.readouterr().err
+    assert "agentmachi send:" in err
+    # Naprawa (ile czekac) ma dojechac do agenta, nie zginac po drodze.
+    assert "Wait 3.4s" in err, err
+    assert "Traceback" not in err
+
+
+def test_send_ostrzezenie_huba_zostaje_ZEREM(home, monkeypatch, capsys):
+    """WARUNEK GRANICZNY: ostrzezenie (nieznany nick, nieznana grupa) NIE jest
+    odmowa — ramka wchodzi do logu i dociera do ludzi, wiec kod wyjscia ma
+    zostac 0.
+
+    Test stoi tu, bo naprawa cichego false-successu ma jeden oczywisty,
+    bledny ksztalt: "kazde `error` z huba = blad". Wtedy skrypt czytajacy
+    niezerowy kod jako "nie wyslano" wyrzucalby wiadomosc, ktora doszla —
+    jeden falszywy sygnal zamieniony na drugi.
+
+    `send_once` w tej sciezce NIE rzuca; wypisuje ostrzezenie na stderr
+    (kontrakt `_pokaz_ostrzezenie_serwera`) i wraca normalnie."""
+    cli.ensure_hub("alpha", 8931)
+
+    class _Send:
+        SessionError = cli._import_send().SessionError
+
+        @staticmethod
+        async def send_once(nick, text, quiet=False):
+            print("hub: unknown nick: duch — there is no such participant, "
+                  "so NO AGENT woke up. The frame went to the log and to "
+                  "connected humans as usual.", file=sys.stderr)
+
+    monkeypatch.setattr(cli, "_import_send", lambda: _Send)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")
+    args = _parse_send(["send", "@duch czesc", "--as", "worker2",
+                        "--name", "alpha"])
+    assert cli.cmd_send(args) == 0
+    assert "unknown nick" in capsys.readouterr().err
 
 
 def test_send_bez_nicka_failcloses(home, monkeypatch, capsys):
