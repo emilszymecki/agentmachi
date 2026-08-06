@@ -1350,3 +1350,419 @@ def test_cli_send_bez_stdin_i_bez_tresci_nie_wysyla_pustki(tmp_path):
     assert kod == 2, f"exit {kod}; stderr:\n{err}"
     assert teksty == [], f"pusta wiadomosc wyladowala w logu huba: {teksty!r}"
     assert "--stdin" in err
+
+
+# --- read: odczyt logu przez drut ----------------------------------------
+#
+# Zmierzone 2026-08-06 na zywym pokoju: agent na ZDALNYM hubie nie ma zadnej
+# drogi do WLASNEJ wypowiedzi. Serwer tlumi echo po nicku (`_publish_chat`:
+# `- {sender}`), wiec nasluch nigdy nie widzi swoich ramek; kursor nasluchu
+# przeskakuje ZA wlasna ramke przy pierwszej cudzej o wyzszym seq, wiec
+# backlog jej juz nie odda; `events.jsonl` ma WYLACZNIE operator huba.
+# Agent musial prosic czlowieka o zajrzenie w TUI, zeby zweryfikowac wlasny
+# dowod. Log te ramki MA — brakowalo komendy, ktora o nie poprosi.
+#
+# Kazdy test ponizej stoi przy PRAWDZIWYM ChatServerze, bo caly ten blad
+# siedzi w POPRZEK drutu: mock po ktorejkolwiek stronie zgodzilby sie ze mna.
+
+
+def _klient_na_hub(tmp_path, monkeypatch, port):
+    """Wskaz klienta na hub testowy w trybie otwartym (bez tokenu)."""
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+
+async def _czekaj_na_seq(srv, ile, limit=5.0):
+    """Poczekaj, az hub utrwali `ile` ramek — test nie ma sie scigac z dyskiem."""
+    koniec = time.monotonic() + limit
+    while srv.log.last_seq < ile and time.monotonic() < koniec:
+        await asyncio.sleep(0.02)
+    return srv.log.last_seq
+
+
+async def _wejdz(ws, nick, instance_id, last_seq=0):
+    await ws.send(json.dumps({"type": "hello", "from": nick, "ts": 0.0,
+                              "instance_id": instance_id,
+                              "last_seq": last_seq}))
+    return json.loads(await ws.recv())
+
+
+def test_read_oddaje_WLASNA_ramke_nadawcy(tmp_path, monkeypatch):
+    """SEDNO: `read --seq N` oddaje ramke, ktora nadawca sam wyslal.
+
+    Dowod jest dwuczesciowy, bo samo "przyszla ramka" nic by nie znaczylo:
+    najpierw pokazujemy, ze zywy socket nadawcy NIE dostaje jej na zywo
+    (echo tlumione po nicku — asercja na timeout), a dopiero potem, ze
+    `read` ja oddaje. Bez pierwszej polowy test przechodzilby takze wtedy,
+    gdyby problem nigdy nie istnial."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                          "ts": 0.0,
+                                          "text": "moj wlasny dowod"}))
+                await _czekaj_na_seq(srv, 2)
+                wlasny_seq = srv.log.last_seq
+                # POLOWA PIERWSZA: zywy socket nadawcy nie dostaje echa.
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(ws.recv(), 0.4)
+                # POLOWA DRUGA: ta sama ramka wraca przez `read`.
+                zebrane = []
+                ile = await send.read_frames("beta", wlasny_seq,
+                                             only_seq=wlasny_seq,
+                                             emit=zebrane.append)
+            return ile, zebrane, wlasny_seq
+        finally:
+            await srv.stop()
+
+    ile, zebrane, wlasny_seq = asyncio.run(scenario())
+    assert ile == 1, f"read nie oddal wlasnej ramki: {zebrane!r}"
+    assert zebrane[0]["from"] == "beta"
+    assert zebrane[0]["text"] == "moj wlasny dowod"
+    assert zebrane[0]["seq"] == wlasny_seq
+
+
+def test_read_nie_rusza_kursora_sesji(tmp_path, monkeypatch):
+    """Kursor nasluchu jest JEGO wlasnoscia. Gdyby `read` go przesunal,
+    zabralby nasluchowi ramki, ktorych ten nigdy nie zobaczyl — i nikt by
+    sie o tym nie dowiedzial, bo strata wyglada jak cisza na kanale.
+    Czytamy stan z DYSKU przed i po, nie z obiektu w pamieci."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+    sess_dir = tmp_path / "sess"
+
+    def kursor_z_dysku():
+        return Session(f"localhost:{port}", "beta",
+                       base_dir=sess_dir).last_applied_seq
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                for i in range(3):
+                    await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                              "ts": 0.0, "text": f"ramka {i}"}))
+                await _czekaj_na_seq(srv, 4)
+                # nasluch, ktory zdazyl zastosowac dokladnie jedna ramke
+                session.advance(2)
+                przed = kursor_z_dysku()
+                zebrane = []
+                await send.read_frames("beta", 1, emit=zebrane.append)
+                return przed, kursor_z_dysku(), zebrane
+        finally:
+            await srv.stop()
+
+    przed, po, zebrane = asyncio.run(scenario())
+    assert przed == 2, f"test nie ustawil kursora: {przed}"
+    assert po == przed, f"read przesunal kursor nasluchu: {przed} -> {po}"
+    # Druga polowa tego samego kontraktu: kursor sesji nie jest tez WEJSCIEM.
+    # `--from-seq 1` ma oddac ramke seq=2, ktora nasluch juz zastosowal —
+    # gdyby hello nioslo kursor sesji zamiast `from_seq - 1`, wlasnie tej
+    # brakowaloby w wyniku i nikt by tego nie zauwazyl.
+    assert [r["text"] for r in zebrane] == ["ramka 0", "ramka 1", "ramka 2"]
+
+
+def test_read_dziala_obok_zywego_nasluchu_trzymajacego_lock(tmp_path,
+                                                            monkeypatch):
+    """`read` ma dzialac OBOK `listen`, nie zamiast niego — agent czytajacy
+    wlasny dowod ma w tej chwili podniesiony nasluch. Gdyby `read` siegal po
+    listener-lock, dostawalby ListenerLockHeld dokladnie wtedy, kiedy jest
+    potrzebny."""
+    from chat.client_session import ListenerLockHeld
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+    sess_dir = tmp_path / "sess"
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                          "ts": 0.0, "text": "obok nasluchu"}))
+                await _czekaj_na_seq(srv, 2)
+                # osobny uchwyt = osobny open file description, wiec flock
+                # koliduje tak samo jak z drugiego procesu
+                trzymajacy = Session(f"localhost:{port}", "beta",
+                                     base_dir=sess_dir)
+                trzymajacy.acquire_listener_lock()
+                try:
+                    zebrane = []
+                    await send.read_frames("beta", 1, emit=zebrane.append)
+                    return zebrane
+                except ListenerLockHeld as e:
+                    pytest.fail(f"read siegnal po listener-lock: {e}")
+                finally:
+                    trzymajacy.release_listener_lock()
+        finally:
+            await srv.stop()
+
+    zebrane = asyncio.run(scenario())
+    assert [r.get("text") for r in zebrane] == ["obok nasluchu"]
+
+
+def test_read_seq_ktorego_nie_ma_w_zwrocie_konczy_sie_bledem(tmp_path,
+                                                             monkeypatch):
+    """CISZA NIE JEST POTWIERDZENIEM (zasady-agentyczne rozdz. 13).
+
+    Bierzemy seq ISTNIEJACY w logu, ale niewidoczny na drucie — ramke
+    `hello`, ktora serwer wycina z backlogu. Pusty stdout z kodem 0 znaczylby
+    tu naraz "ramka jest pusta", "wypadla z okna" i "pytasz o zly zakres";
+    komunikat ma powiedziec, w CZYM jej nie bylo."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                seq_hello = (await _wejdz(ws, "beta",
+                                          session.instance_id))["last_seq"]
+                await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                          "ts": 0.0, "text": "cokolwiek"}))
+                await _czekaj_na_seq(srv, 2)
+                zebrane = []
+                with pytest.raises(send.ReadRefused) as blad:
+                    await send.read_frames("beta", 1, only_seq=seq_hello,
+                                           emit=zebrane.append)
+                return str(blad.value), zebrane
+        finally:
+            await srv.stop()
+
+    komunikat, zebrane = asyncio.run(scenario())
+    assert zebrane == [], "read wypisal cokolwiek mimo nietrafienia"
+    assert "NOT among" in komunikat
+    assert "hello" in komunikat          # powod, dla ktorego akurat tej nie ma
+    assert "--from-seq" in komunikat     # odmowa niesie NAPRAWE
+
+
+def test_read_seq_spoza_logu_nie_odsyla_do_kasowania_pliku_sesji(tmp_path,
+                                                                 monkeypatch):
+    """Sufit `from_seq`: hub odmawia hello z kursorem > swojego last_seq.
+    Surowy tekst tej odmowy niesie NAPRAWE NIEPRAWDZIWA — kaze skasowac plik
+    sesji, choc kursor przyszedl z argumentu `--seq`, a nie z pliku. Agent,
+    ktory posluchalby dosłownie, straciłby kursor WLASNEGO nasluchu."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                          "ts": 0.0, "text": "jedyna ramka"}))
+                await _czekaj_na_seq(srv, 2)
+            with pytest.raises(send.ReadRefused) as blad:
+                await send.read_frames("beta", 999, only_seq=999,
+                                       emit=lambda _: None)
+            return str(blad.value), srv.log.last_seq
+        finally:
+            await srv.stop()
+
+    komunikat, koniec = asyncio.run(scenario())
+    assert "BEYOND" in komunikat
+    assert str(koniec) in komunikat, f"brak prawdziwego konca logu: {komunikat}"
+    assert "delete" not in komunikat.lower(), \
+        f"odmowa odsyla do kasowania pliku sesji:\n{komunikat}"
+
+
+def test_read_po_kompakcji_mowi_ze_zakres_jest_PRZYCIETY(tmp_path, monkeypatch,
+                                                         capsys):
+    """`resync_required` to legalna sciezka, nie blad — ale wynik jest WEZSZY
+    niz pytanie. Bez ostrzezenia agent uzna niepelna odpowiedz za pelna, co
+    jest gorsze niz brak odpowiedzi: nie ma sladu, ze czegos brakuje."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                for i in range(3):
+                    await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                              "ts": 0.0,
+                                              "text": f"przed snapshotem {i}"}))
+                await _czekaj_na_seq(srv, 4)
+            srv.snapshot()          # kompakcja: kursor sprzed niej -> resync
+            assert srv.log.snapshot_seq >= 4
+            zebrane = []
+            await send.read_frames("beta", 1, emit=zebrane.append)
+            return zebrane
+        finally:
+            await srv.stop()
+
+    zebrane = asyncio.run(scenario())
+    err = capsys.readouterr().err
+    assert "[resync]" in err, f"kompakcja przemilczana; stderr:\n{err}"
+    assert "CONVERSATION WINDOW" in err
+    assert [r["text"] for r in zebrane] == [f"przed snapshotem {i}"
+                                            for i in range(3)]
+
+
+def test_cli_read_nieistniejacy_seq_konczy_sie_NIEZEROWO(tmp_path):
+    """CALA DROGA, nie ostatni artefakt na niej: prawdziwy proces
+    `python -m agentmachi.cli read`, prawdziwy hub, prawdziwy kod wyjscia.
+    Cichy exit 0 z pustym stdout to dokladnie ta klasa bledu, ktora dala
+    'start zameldowal sukces PID-em trupa'."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    env = {**os.environ,
+           "CHAT_URL": f"ws://localhost:{port}",
+           "CHAT_TOKEN": "", "CHAT_NICK": "beta",
+           "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "AGENTMACHI_HOME": str(tmp_path / "home"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("AGENTMACHI_HUB", None)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "agentmachi.cli", "read", "--seq", "999",
+                cwd=str(REPO), env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE)
+            out, err = await proc.communicate()
+            return (proc.returncode, out.decode("utf-8", "replace"),
+                    err.decode("utf-8", "replace"))
+        finally:
+            await srv.stop()
+
+    kod, out, err = asyncio.run(scenario())
+    assert kod != 0, f"pusty odczyt zameldowal sukces; stdout:{out!r}"
+    assert out == "", f"nic nie mialo wyjsc na stdout: {out!r}"
+    assert "BEYOND" in err, err
+
+
+def test_cli_read_oddaje_pelne_ramki_JSON_po_jednej_na_linie(tmp_path):
+    """Format wyjscia jest KONTRAKTEM: pelne ramki JSON, jedna na linie —
+    ten sam maszynowy format co `listen --json`. Format czytelny jest
+    stratny (agenci wklejaja sobie logi, wiec cytat wyglada jak ramka)
+    i tutaj nie wolno go uzyc: `read` istnieje po to, zeby dalo sie na nim
+    oprzec arbitraz po `seq`."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    env = {**os.environ,
+           "CHAT_URL": f"ws://localhost:{port}",
+           "CHAT_TOKEN": "", "CHAT_NICK": "beta",
+           "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "AGENTMACHI_HOME": str(tmp_path / "home"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("AGENTMACHI_HUB", None)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            # TA SAMA tozsamosc, ktorej uzyje podproces CLI (plik sesji) —
+            # inaczej test scigalby sie ze sprzataniem `conns` po stronie huba
+            tozsamosc = Session(f"localhost:{port}", "beta",
+                                base_dir=tmp_path / "sess").instance_id
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", tozsamosc)
+                # tresc WIELOLINIJKOWA: jedna ramka ma zostac jedna linia
+                await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                          "ts": 0.0,
+                                          "text": "linia 1\nlinia 2"}))
+                await _czekaj_na_seq(srv, 2)
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "agentmachi.cli", "read",
+                "--from-seq", "1", cwd=str(REPO), env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE)
+            out, err = await proc.communicate()
+            return (proc.returncode, out.decode("utf-8", "replace"),
+                    err.decode("utf-8", "replace"))
+        finally:
+            await srv.stop()
+
+    kod, out, err = asyncio.run(scenario())
+    assert kod == 0, f"exit {kod}; stderr:\n{err}"
+    linie = [l for l in out.splitlines() if l]
+    ramki = [json.loads(l) for l in linie]      # KAZDA linia parsowalna
+    assert [r["text"] for r in ramki] == ["linia 1\nlinia 2"]
+
+
+def test_read_nie_bumpuje_generacji_i_nie_wypiera_nasluchu(tmp_path,
+                                                           monkeypatch):
+    """Ta sama regresja, ktora `oneshot_frame` juz ma zamknieta, tylko od
+    strony odczytu: hello ze SWIEZYM instance_id bumpuje generacje, a serwer
+    po bumpie zamyka stare sockety nicka. Agent czytajacy wlasny dowod
+    zabijalby wtedy WLASNY nasluch — i to na sciezce TOKENOWEJ, gdzie hub nie
+    odmawia, tylko po cichu wypiera (w trybie otwartym odmowa jest widoczna
+    od razu)."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    tokens = {"beta": {"token": "tok-b", "role": "agent", "groups": []}}
+    monkeypatch.setenv("CHAT_TOKEN", "tok-b")
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens=tokens,
+                         port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await ws.send(json.dumps({
+                    "type": "hello", "from": "beta", "ts": 0.0,
+                    "instance_id": session.instance_id,
+                    "token": "tok-b", "last_seq": 0}))
+                await ws.recv()
+                await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                          "ts": 0.0, "text": "wlasny dowod"}))
+                await _czekaj_na_seq(srv, 2)
+                gen_przed = srv.registry.generation_of("beta")
+                await send.read_frames("beta", 2, only_seq=2,
+                                       emit=lambda _: None)
+                gen_po = srv.registry.generation_of("beta")
+                # socket nasluchu ma ZYC dalej: po wyparciu serwer zamknalby
+                # go natychmiast (_close_stale_sockets), wiec ping padnie
+                await asyncio.wait_for(ws.ping(), 2.0)
+                return gen_przed, gen_po
+        finally:
+            await srv.stop()
+
+    gen_przed, gen_po = asyncio.run(scenario())
+    assert gen_po == gen_przed, \
+        f"read bumpnal generacje: {gen_przed} -> {gen_po} (wypiera nasluch)"

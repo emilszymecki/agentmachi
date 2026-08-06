@@ -1518,6 +1518,55 @@ def cmd_listen(args):
     return 0
 
 
+def cmd_read(args):
+    """Odczyt logu kanalu przez drut — patrz send.read_frames.
+
+    Istnieje, bo agent na ZDALNYM hubie nie mial zadnej drogi do wlasnej
+    ramki: serwer tlumi echo po nicku, kursor nasluchu przeskakuje za nia,
+    a `events.jsonl` ma wylacznie operator huba. Zmierzone 2026-08-06 —
+    agent musial prosic czlowieka o zajrzenie w TUI, zeby zweryfikowac
+    WLASNY dowod."""
+    # Zakres ma DOKLADNIE jedno zrodlo i wybiera je argv (wzorzec z cmd_send).
+    # Cichy wybor jednego z dwoch bylby ta sama klasa bledu, ktora ta komenda
+    # naprawia: wolajacy dostaje wynik i nie wie, o co zapytal.
+    if args.seq is not None and args.from_seq is not None:
+        print(f"agentmachi read: --seq ({args.seq}) and --from-seq "
+              f"({args.from_seq}) were given TOGETHER. Pick ONE — --seq asks "
+              f"for a single frame, --from-seq for everything from there up. "
+              f"Nothing was read.", file=sys.stderr)
+        return 2
+    if args.seq is None and args.from_seq is None:
+        print("agentmachi read: I do not know WHAT to read.\n"
+              "  agentmachi read --seq 731        # exactly that one frame\n"
+              "  agentmachi read --from-seq 700   # everything from seq 700 "
+              "up\n"
+              "`seq` is assigned by the server and you see it at the start of "
+              "every `agentmachi listen` line.", file=sys.stderr)
+        return 2
+    nick = _agent_env(args)
+    if not nick:
+        print("agentmachi read: I do not know WHO you are — pass --nick "
+              "<nick> or set CHAT_NICK. read enters with the identity from "
+              "your session file, exactly so that it does NOT take over your "
+              "own `agentmachi listen`.", file=sys.stderr)
+        return 2
+    send = _import_send()
+    from_seq = args.seq if args.seq is not None else args.from_seq
+    try:
+        asyncio.run(send.read_frames(nick, from_seq, only_seq=args.seq))
+    except send.SessionError as e:
+        # Ta sama granica co w cmd_send/cmd_frame: jedna czytelna linia dla
+        # agenta zamiast stosu wywolan, ktory zjada mu kontekst i niczego nie
+        # mowi o tym, co zrobic inaczej.
+        print(f"agentmachi read: {e}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"agentmachi read: cannot reach the hub at "
+              f"{os.environ.get('CHAT_URL', '?')}: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_frame(args):
     # Ten sam kontrakt co w cmd_send, a powod jeszcze mocniejszy: JSON JEST
     # z cudzyslowow, wiec cytowanie powloki boli tu podwojnie (w apostrofach
@@ -1823,6 +1872,29 @@ def _build_parser():
                         "the cursor is durably written; for a harness that "
                         "returns to the model when a command finishes")
     p.set_defaults(fn=cmd_listen)
+
+    p = sub.add_parser(
+        "read",
+        help="read frames from the channel log THROUGH THE WIRE — including "
+             "YOUR OWN, which listen never shows you",
+        description="Read frames from the channel log through the wire. Output "
+                    "is FULL JSON frames, ONE PER LINE — the same machine "
+                    "format as `listen --json`, never the lossy human one. "
+                    "This is the only way an agent on a REMOTE hub can see "
+                    "what it said itself: the hub suppresses echo back to the "
+                    "sender, the listen cursor moves past your own frame, and "
+                    "events.jsonl exists only on the hub operator's machine. "
+                    "read takes no listener lock and never moves your cursor, "
+                    "so it runs next to a live `agentmachi listen`.")
+    p.add_argument("--seq", type=int, default=None,
+                   help="one frame with exactly this seq. Not found = exit 1 "
+                        "with the range that DID come back — silence is never "
+                        "a confirmation here.")
+    p.add_argument("--from-seq", dest="from_seq", type=int, default=None,
+                   help="everything from this seq up")
+    p.add_argument("--nick", default=None)
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_read)
 
     p = sub.add_parser("frame", help="one-shot status frame "
                        "(session identity — zero takeover)")

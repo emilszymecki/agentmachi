@@ -2099,3 +2099,121 @@ def test_windows_nie_podpowiada_ss_tlnp(home, monkeypatch, capsys,
     err = capsys.readouterr().err
     assert rc == 1 and "taken by another process" in err
     assert "ss -tlnp" not in err
+
+
+# -- read: odczyt logu przez drut ----------------------------------------
+#
+# Kontrakt argumentow i mapowanie odmowy na kod wyjscia. Sama droga przez
+# drut (wlasna ramka, kursor, listener-lock, kompakcja) stoi przy prawdziwym
+# ChatServerze w tests/test_send.py — tu pilnujemy tego, co CLI decyduje
+# ZANIM cokolwiek poleci w siec.
+
+def test_read_ma_oba_zakresy_i_zadnego_domyslnie():
+    args = cli._build_parser().parse_args(["read", "--seq", "731"])
+    assert args.seq == 731 and args.from_seq is None
+    args = cli._build_parser().parse_args(["read", "--from-seq", "700"])
+    assert args.from_seq == 700 and args.seq is None
+
+
+def test_read_bez_zakresu_mowi_CO_podac_i_nie_lezie_w_drut(home, monkeypatch,
+                                                           capsys):
+    """Wzorzec z cmd_send: brak wejscia to nie 'usage', tylko zdanie z gotowa
+    komenda. Odbiorca odmowy jest agent, ktory ma z niej wyciagnac, co zrobic
+    inaczej."""
+    monkeypatch.setattr(cli, "_import_send",
+                        lambda: pytest.fail("read poszedl w drut bez zakresu"))
+    args = cli._build_parser().parse_args(["read"])
+    assert cli.cmd_read(args) == 2
+    err = capsys.readouterr().err
+    assert "--seq" in err and "--from-seq" in err
+
+
+def test_read_z_oboma_zakresami_naraz_to_blad(home, monkeypatch, capsys):
+    """Cichy wybor jednego z dwoch zrodel to ta sama klasa bledu, ktora ta
+    komenda naprawia: wolajacy dostaje wynik i nie wie, o co zapytal."""
+    monkeypatch.setattr(cli, "_import_send",
+                        lambda: pytest.fail("read poszedl w drut mimo kolizji"))
+    args = cli._build_parser().parse_args(
+        ["read", "--seq", "5", "--from-seq", "1"])
+    assert cli.cmd_read(args) == 2
+    assert "TOGETHER" in capsys.readouterr().err
+
+
+def test_read_bez_nicka_failcloses(home, monkeypatch, capsys):
+    """Tozsamosc `read` pochodzi z PLIKU SESJI — bez nicka nie ma z czego jej
+    wziac, a wejscie 'na cokolwiek' zalozyloby na hubie nowa tozsamosc obok
+    wlasnego nasluchu."""
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")     # patrz komentarz przy test_send_as_
+    cli.ensure_hub("alpha", 8931)
+    args = cli._build_parser().parse_args(
+        ["read", "--seq", "5", "--name", "alpha"])
+    assert cli.cmd_read(args) == 2
+    assert "--nick" in capsys.readouterr().err
+
+
+def test_read_przekazuje_zakres_do_klienta(home, monkeypatch):
+    przekazane = {}
+    monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
+        "SessionError": Exception,
+        "read_frames": staticmethod(
+            lambda nick, from_seq, only_seq=None:
+                przekazane.update(nick=nick, from_seq=from_seq,
+                                  only_seq=only_seq))})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN"):
+        monkeypatch.setenv(zmienna, "")
+    monkeypatch.setenv("CHAT_NICK", "worker2")
+    cli.ensure_hub("alpha", 8931)
+
+    # --seq N pyta o JEDNA ramke, ale wejsciem do huba jest ten sam kursor
+    assert cli.cmd_read(cli._build_parser().parse_args(
+        ["read", "--seq", "731", "--name", "alpha"])) == 0
+    assert przekazane == {"nick": "worker2", "from_seq": 731, "only_seq": 731}
+
+    assert cli.cmd_read(cli._build_parser().parse_args(
+        ["read", "--from-seq", "700", "--name", "alpha"])) == 0
+    assert przekazane == {"nick": "worker2", "from_seq": 700, "only_seq": None}
+
+
+def test_read_odmowa_klienta_to_niezerowy_kod_i_jedna_linia(home, monkeypatch,
+                                                            capsys):
+    """Odmowa `read_frames` (np. 'seq nie ma w zwrocie') MUSI wyjsc kodem
+    niezerowym. Exit 0 z pustym stdout jest tu nie do odroznienia od udanego
+    odczytu — a to najgorsza klasa bledu w tym projekcie."""
+    class _Odmowa(Exception):
+        pass
+
+    def _padnij(nick, from_seq, only_seq=None):
+        raise _Odmowa("seq 731 is NOT among the 3 frame(s)")
+
+    monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
+        "SessionError": _Odmowa,
+        "read_frames": staticmethod(_padnij)})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN"):
+        monkeypatch.setenv(zmienna, "")
+    monkeypatch.setenv("CHAT_NICK", "worker2")
+    cli.ensure_hub("alpha", 8931)
+
+    args = cli._build_parser().parse_args(
+        ["read", "--seq", "731", "--name", "alpha"])
+    assert cli.cmd_read(args) == 1
+    err = capsys.readouterr().err
+    assert "agentmachi read:" in err and "NOT among" in err
+    assert "Traceback" not in err
+
+
+def test_help_read_mowi_ze_wyjscie_to_JSON_po_jednej_ramce_na_linie(capsys):
+    """Format wyjscia jest kontraktem, nie kosmetyka: `read` istnieje po to,
+    zeby dalo sie na nim oprzec arbitraz po `seq`, a format czytelny jest
+    stratny (agenci wklejaja sobie logi, wiec cytat wyglada jak ramka)."""
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.suppress(SystemExit):
+        cli.main(["read", "--help"])
+    pomoc = buf.getvalue().lower()
+    assert "one per line" in pomoc, f"--help nie podaje formatu:\n{pomoc}"
+    assert "json" in pomoc

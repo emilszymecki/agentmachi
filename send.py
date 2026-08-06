@@ -23,6 +23,7 @@ Semantyka resumowalnosci (wsad b2 + review-guard):
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -102,7 +103,17 @@ class _BootIdentity:
         self.last_applied_seq = 0
 
 
-async def do_hello(ws, nick, session, token, role=None, context=None):
+async def do_hello(ws, nick, session, token, role=None, context=None,
+                   return_errors=False):
+    """`return_errors=True`: odmowa WRACA ramka zamiast konczyc proces.
+
+    Domyslne zachowanie (print + sys.exit(1)) jest dobre dla wysylki
+    i nasluchu — tam odmowa jest koncem drogi i nie ma co z nia zrobic
+    poza pokazaniem. Dla ODCZYTU (`read_frames`) jest zle: surowy tekst
+    serwera przy kursorze spoza logu niesie NAPRAWE NIEPRAWDZIWA (kaze
+    skasowac plik sesji, choc kursor przyszedl z argumentu `--seq`), wiec
+    wolajacy musi ja podmienic na wlasna. Wartosc domyslna zostaje stara —
+    zaden istniejacy wolajacy nie zmienia zachowania."""
     hello = {
         "type": "hello", "ts": 0.0,
         "instance_id": session.instance_id,
@@ -123,6 +134,8 @@ async def do_hello(ws, nick, session, token, role=None, context=None):
               file=sys.stderr)
         sys.exit(1)
     if not isinstance(reply, dict) or reply.get("type") == "error":
+        if return_errors:
+            return reply
         # C4: odmowa "nick zajety" niesie POLE `suggested_nick`. Dla NASLUCHU
         # to nie jest blad koncowy — wolajacy (listen) podnosi sie pod tym
         # nickiem. Zwracamy wiec ramke zamiast umierac; decyzje podejmuje
@@ -693,6 +706,216 @@ async def oneshot_frame(nick, frame):
                     return reply
         except asyncio.TimeoutError:
             return None  # np. status — serwer nie odsyla ACK i to jest OK
+
+
+# --- odczyt logu przez drut: jedyna droga agenta do WLASNEJ ramki ---------
+#
+# Zmierzone 2026-08-06: agent na ZDALNYM hubie nie ma jak przeczytac tego, co
+# sam powiedzial, ani doczytac cudzej ramki w calosci. Zlozylo sie na to kilka
+# poprawnych z osobna decyzji: serwer tlumi echo po nicku (server.py
+# `_publish_chat`: `- {sender}`), wiec nasluch nigdy nie widzi wlasnych ramek;
+# kursor nasluchu przeskakuje ZA wlasna ramke przy pierwszej cudzej o wyzszym
+# seq, wiec backlog jej juz nie odda; `events.jsonl` ma WYLACZNIE operator
+# huba, wiec agent na innej maszynie nie ma go wcale. Skutek: agent nie moze
+# zweryfikowac wlasnego dowodu i prosi czlowieka o zajrzenie w TUI.
+#
+# LOG TE RAMKI MA — `events_after` nie filtruje nadawcy, a `wire_backlog`
+# wycina tylko `hello`. Brakowalo wylacznie komendy, ktora o nie poprosi, nie
+# psujac przy tym stanu sesji.
+
+
+class ReadRefused(SessionError):
+    """`read` NIE oddal tego, o co poproszono. Dziedziczy po SessionError,
+    wiec kod wyjscia jest niezerowy.
+
+    Cisza z kodem 0 byla by tu najgorszym mozliwym wynikiem: wyglada
+    identycznie jak "ramka jest pusta", jak "zapytalem o zly seq" i jak
+    "hub mnie nie wpuscil". To ta sama klasa bledu, ktora dala "start
+    zameldowal sukces PID-em trupa"."""
+
+
+class _ReadIdentity:
+    """Tozsamosc na hello `read`: instance_id Z PLIKU SESJI, kursor Z ARGUMENTU.
+
+    Rozdzielenie tych dwoch rzeczy jest calym sensem tej klasy:
+    - instance_id MUSI byc ten sam, ktorym legitymuje sie nasluch — inaczej
+      hello bumpuje generacje i wypiera zywy `listen` (dokladnie ta pulapka,
+      dla ktorej `oneshot_frame` bierze tozsamosc z sesji),
+    - kursor MUSI byc inny niz sesyjny, bo pytamy o miejsce w logu, ktore
+      nasluch dawno minal.
+
+    Pliku sesji NIE DOTYKAMY: kursor nasluchu jest jego wlasnoscia. `path`
+    niesiemy tylko po to, zeby komunikaty bledu mialy co pokazac."""
+
+    def __init__(self, session, last_applied_seq):
+        self.instance_id = session.instance_id
+        self.last_applied_seq = last_applied_seq
+        self.path = session.path
+
+
+def _koniec_logu_z_odmowy(reply):
+    """Serwerowy `last_seq` z odmowy "kursor spoza logu" albo None.
+
+    Ta odmowa jest dla `read` sytuacja ZWYKLA, nie awaria: agent pyta o seq,
+    ktorego jeszcze nie ma, i musi dostac koniec logu, zeby wiedziec, o co
+    zapytac. Trzeba ja tez odroznic od kazdej innej odmowy, bo surowy tekst
+    serwera kaze SKASOWAC PLIK SESJI — a tutaj plik sesji jest niewinny
+    (kursor przyszedl z argumentu `--seq`). Odeslanie agenta do kasowania
+    kursora WLASNEGO nasluchu byloby szkoda wyrzadzona przez komunikat bledu.
+
+    ZRODLEM JEST POLE `server_last_seq`, nie zdanie. Pierwsza wersja
+    wylapywala liczbe regexem z tekstu pisanego dla czlowieka — czyli robila
+    to, czego to repo zakazuje wprost przy formacie czytelnym `listen`.
+    Przeredagowanie tamtego zdania w server.py cicho degradowaloby `read` do
+    odmowy ogolnej i zaden test po stronie serwera by nie spuchl. Pole jest
+    kontraktem (chat/server.py, CursorBeyondLog); zdanie nie jest.
+
+    Regex zostaje WYLACZNIE jako most do starszego huba, ktory pola jeszcze
+    nie wysyla — klient bywa nowszy od serwera, do ktorego wchodzi."""
+    if not isinstance(reply, dict):
+        return None
+    pole = reply.get("server_last_seq")
+    if isinstance(pole, int) and not isinstance(pole, bool) and pole >= 0:
+        return pole
+    tekst = reply.get("text")
+    dopasowanie = re.search(r"> server last_seq (\d+)",
+                            tekst if isinstance(tekst, str) else "")
+    return int(dopasowanie.group(1)) if dopasowanie else None
+
+
+def _odczyt_albo_padnij(reply, nick, session, from_seq):
+    """Fail-closed dla ODCZYTU, gdy hub odmowil hello. Zwraca None albo rzuca.
+
+    Rownowaznik `_wysylka_albo_padnij` dla drugiej strony: tam chodzilo o to,
+    zeby wysylka nie udawala, ze poszla; tu o to, zeby odczyt nie udawal, ze
+    czegos nie ma. Odmowy nie da sie tu przemilczec — pusty stdout i kod 0
+    znacza dla wolajacego dokladnie to samo, co udany odczyt pustego zakresu.
+    """
+    if isinstance(reply, dict) and reply.get("type") in ("ok",
+                                                         "resync_required"):
+        return
+    if not isinstance(reply, dict):
+        raise ReadRefused(
+            f"the hub replied to hello with something that is not a frame "
+            f"({reply!r}) — nothing was read. Check that {URI} is really an "
+            f"agentmachi hub.")
+    powod = reply.get("text", reply)
+    koniec = _koniec_logu_z_odmowy(reply)
+    if koniec is not None:
+        raise ReadRefused(
+            f"seq {from_seq} is BEYOND the end of the log — the hub's last "
+            f"seq is {koniec}. Nothing was read.\n"
+            f"  your session file is NOT involved here — the cursor came from "
+            f"the argument, not from the file, so leave the file alone.\n"
+            f"  the tail of the log: agentmachi read --from-seq "
+            f"{max(koniec - 9, 1)}")
+    proponowany = reply.get("suggested_nick")
+    if isinstance(proponowany, str) and proponowany:
+        raise ReadRefused(
+            f"the hub REJECTED hello for {nick!r} — nothing was read.\n"
+            f"  reason: {powod}\n"
+            f"  the nick is held by a client with a DIFFERENT identity than "
+            f"your session file — often your own `agentmachi node`.\n"
+            f"  read as the nick you really are on this hub:\n"
+            f"      agentmachi read --nick {proponowany} --from-seq {from_seq}")
+    raise ReadRefused(
+        f"the hub REJECTED hello for {nick!r} — nothing was read.\n"
+        f"  reason: {powod}\n"
+        f"  your session file: {session.path}")
+
+
+def _zakres_seq(ramki):
+    """Zakres `seq` w tym, co hub ODDAL — do komunikatu o nietrafieniu.
+
+    Agent, ktory nie dostal swojej ramki, musi wiedziec, w czym jej nie bylo.
+    Bez zakresu "nie ma" znaczy naraz "log jej nie ma", "wypadla z okna po
+    kompakcji" i "zapytales o zly przedzial" — trzy rozne naprawy."""
+    seqs = [f.get("seq") for f in ramki
+            if isinstance(f.get("seq"), int)
+            and not isinstance(f.get("seq"), bool)]
+    return f"{min(seqs)}..{max(seqs)}" if seqs else "(nothing came back)"
+
+
+async def read_frames(nick, from_seq, only_seq=None, emit=None):
+    """Doczytaj log kanalu PRZEZ DRUT. Zwraca liczbe wypisanych ramek.
+
+    Trzy rzeczy, ktorych ta droga NIE robi — i ktore sa jej kontraktem, nie
+    optymalizacja:
+    - NIE bierze listener-locka: agent ma zwykle dzialajacy `listen`, a
+      `read` ma dzialac OBOK niego, nie zamiast niego,
+    - NIE rusza kursora sesji (zero `advance`, zero `reset_cursor`): kursor
+      nasluchu jest jego wlasnoscia i przesuniecie go tutaj zabraloby
+      nasluchowi ramki, ktorych nigdy nie zobaczyl,
+    - NIE bumpuje generacji: tozsamosc idzie z pliku sesji (`_ReadIdentity`),
+      dokladnie jak w `oneshot_frame`.
+
+    Kursor w hello jest PODSTAWIONY (`from_seq - 1`), nie sesyjny — to caly
+    mechanizm: hub liczy backlog od tego, co dostal w hello, a plik sesji
+    zostaje nietkniety.
+    """
+    # Kontrakt wejscia publicznej metody. `from_seq` idzie od agenta (argv),
+    # a serwer odrzuca ujemne dopiero po polaczeniu — lepiej powiedziec to
+    # przed otwarciem socketu i z numeracja, ktora obowiazuje.
+    if (isinstance(from_seq, bool) or not isinstance(from_seq, int)
+            or from_seq < 1):
+        raise ReadRefused(
+            f"invalid from_seq: {from_seq!r} — seq numbering starts at 1 "
+            f"(the server assigns it; you see it on every `agentmachi listen` "
+            f"line)")
+    if only_seq is not None and (isinstance(only_seq, bool)
+                                 or not isinstance(only_seq, int)
+                                 or only_seq < 1):
+        raise ReadRefused(
+            f"invalid seq: {only_seq!r} — seq numbering starts at 1")
+    emit = emit or _print_json
+    token = _require_token()
+    session = _session(nick)          # tylko zrodlo tozsamosci — zero zapisu
+    async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
+        reply = await do_hello(ws, nick,
+                               _ReadIdentity(session, from_seq - 1), token,
+                               return_errors=True)
+        _odczyt_albo_padnij(reply, nick, session, from_seq)
+        if reply["type"] == "resync_required":
+            # Legalna sciezka, nie awaria — ale wynik jest WEZSZY niz
+            # pytanie i agent musi to uslyszec, inaczej uzna niepelna
+            # odpowiedz za pelna. Po kompakcji przezywa wylacznie okno
+            # rozmowy (chat/fyi/takeover/kick); ramek sluzbowych sprzed
+            # snapshotu nie ma juz nigdzie poza `events.jsonl` operatora.
+            print(f"[resync] the hub compacted its log at "
+                  f"seq={reply.get('snapshot_seq')} — what follows is the "
+                  f"CONVERSATION WINDOW, not the full range from "
+                  f"{from_seq}. Frames outside that window are gone from the "
+                  f"hub; only its operator still has events.jsonl.",
+                  file=sys.stderr)
+            ramki = [f for f in (reply.get("conversation") or [])
+                     if isinstance(f, dict)]
+            koniec_logu = reply.get("snapshot_seq")
+        else:
+            ramki = [f for f in (reply.get("backlog") or [])
+                     if isinstance(f, dict)]
+            koniec_logu = reply.get("last_seq")
+    wybrane = ([f for f in ramki if f.get("seq") == only_seq]
+               if only_seq is not None else ramki)
+    for ramka in wybrane:
+        emit(ramka)
+    if only_seq is not None and not wybrane:
+        raise ReadRefused(
+            f"seq {only_seq} is NOT among the {len(ramki)} frame(s) the hub "
+            f"returned (seq range: {_zakres_seq(ramki)}). NOTHING was "
+            f"printed — this silence is not a confirmation that the frame is "
+            f"empty.\n"
+            f"  the hub never puts `hello` frames on the wire, so a seq "
+            f"belonging to somebody's entry is invisible this way;\n"
+            f"  after compaction only the conversation window survives;\n"
+            f"  see what IS there: agentmachi read --from-seq {from_seq}")
+    if not wybrane:
+        # `--from-seq` na pustym zakresie to LEGALNA odpowiedz ("nic nowego"),
+        # inaczej niz pytanie o jedna ramke — dlatego kod wyjscia zostaje 0.
+        # Ale milczec i tak nie wolno: pusty stdout czyta sie tak samo jak
+        # komenda, ktora nie doszla tam, gdzie mysli wolajacy.
+        print(f"[read] no frames at or after seq {from_seq} — the hub's log "
+              f"ends at seq {koniec_logu}. Nothing printed.", file=sys.stderr)
+    return len(wybrane)
 
 
 def main():
