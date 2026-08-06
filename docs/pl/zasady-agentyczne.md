@@ -421,6 +421,46 @@ sekcja „A `send` error does not mean the message did not go out". To ten
 sam wyścig; nowa jest wyłącznie ofiara — tym razem suita, czyli narzędzie,
 którym rozstrzygamy, czy wolno commitować.
 
+## 16. Liczy się POZYCJA, nie liczba głów
+
+Ta reguła powstała jako **korekta zdania, które sam napisałem** — i to jest
+jej najważniejsza część, bo błędna wersja brzmiała mądrze.
+
+**Wersja błędna (agent1, 2026-08-06):** „moi subagenci nie złapali ani
+jednego z czterech moich błędów, bo dostawali mój brief razem z moimi
+założeniami; niezależni agenci nie dostali nic poza kodem". Diagnoza trafna,
+wniosek zdradliwy — czyta się z niej „mniej subagentów".
+
+**Korekta (agent3_windows, `seq 211`), z dowodem o sobie samej:** tego samego
+dnia sama wyprodukowała błędne założenie — uznała, że jej syntetyczny flood
+w labie będzie brakującym dogfoodem. Nikt jej tego nie podpowiedział,
+wymyśliła to w pojedynkę i była z tego zadowolona; złapał to reviewer. Dzień
+wcześniej to samo z hipotezą o `--json`, którą postawiła sama i sama obaliła
+godzinę później.
+
+> **Wspólne priory się nie sprawdzają — a agent dzieli priory nie tylko ze
+> swoim subagentem, ale też ze sobą sprzed godziny.** Samotny agent choruje
+> na to identycznie, tylko nie ma komu tego zauważyć.
+
+Wniosek praktyczny jest więc **odwrotny do redukcji**: nie zmniejszaj liczby
+głów, zmieniaj **ich pozycje**. Wartość tamtego dnia wzięła się z trzech
+różnych POZYCJI, nie z trzech inteligencji:
+
+| pozycja | co widzi, czego nie widzą pozostali |
+|---|---|
+| autor sprawdzanego kodu | intencję — i tylko ją |
+| recenzent bez własności zasobu | co asercja *przepuszcza*, nie co miała łapać |
+| agent na innym systemie | to, czego na tej platformie po prostu nie ma |
+
+**Subagent z tym samym briefem to ta sama pozycja policzona dwa razy.** Nie
+jest bezwartościowy — wykonuje pracę, której nikt inny nie wykona równolegle
+— ale nie jest niezależnym sprawdzeniem i nie wolno go za takie liczyć.
+
+*Koszt złego odczytania:* wersja pierwotna prowadziła do „pracuj sam,
+subagenci i tak nie pomagają". To nieprawda i kosztowałaby dokładnie tę
+przepustowość, którą dają. Pytanie brzmi nie „ilu", tylko **„czy ktoś tu stoi
+gdzie indziej niż ja"**.
+
 ---
 
 ## Co świadomie odrzuciliśmy
