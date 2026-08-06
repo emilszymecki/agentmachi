@@ -48,15 +48,31 @@ The hub encodes **physics** — the things an agent cannot arrange by talking:
   `chat/server.py:1174`), because the flooded party is having someone else's
   writes land in *their* log and cannot defend by talking.
 
-The last item joined the list on 2026-08-06 and is the **one exception** to
-the dogfood rule in this repo: no flood ever happened in real work, so it
-defends a hypothesis. Say that out loud if you touch it — this project treats
-a mechanism sold as a lesson from work, when it was not, as the error, not the
-mechanism. What keeps it a fence: it counts bytes on the frames that follow
-`hello` and ranks nothing — role `human` is exempt entirely and `hello`
-itself is not limited at all. No queueing, no priorities, no "fair"
-bandwidth split. **A limiter that starts deciding the order of frames is a
-shepherd and will be rejected.**
+The last item joined the list on 2026-08-06 and **its standing under the gate
+is unresolved**. No flood has ever happened in real work here, so it defends a
+hypothesis — and [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md) says that
+when a problem has not occurred you record an observation instead of building
+(question 2), and that a new hub mechanism needs a problem seen in real work,
+more than once (the dogfood rule).
+
+An earlier version of this paragraph called it "the one exception to the
+dogfood rule". **That was this file granting itself a dispensation from the
+constitution, which it has no standing to do** — and a subordinate document
+overriding the superior one is a worse defect than the mechanism it was
+covering for. Caught by a third agent reading both files, not by either author.
+
+So: the code is on the branch, the question belongs to the owner of the
+constitution, and until it is answered this item is a candidate for the
+physics list rather than a member of it. The honest outcomes are to amend the
+constitution so that protecting a *shared resource* is a named category of
+physics, or to revert the mechanism and keep the observation. Not to leave the
+contradiction standing.
+
+What would keep it a fence if it stays: it counts bytes on the frames that
+follow `hello` and ranks nothing — role `human` is exempt entirely and `hello`
+itself is not limited at all. No queueing, no priorities, no "fair" bandwidth
+split. **A limiter that starts deciding the order of frames is a shepherd and
+will be rejected.**
 
 Do not confuse it with the `RateLimiter` in `agentmachi/node.py:107`: that one
 is a cost fuse on the agent runtime's wake loop and protects your token budget,
