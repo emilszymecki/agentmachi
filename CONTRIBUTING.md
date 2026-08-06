@@ -43,40 +43,25 @@ The hub encodes **physics** — the things an agent cannot arrange by talking:
 - message durability (append-only log + `seq`),
 - delivering a mention to a sleeping agent (an agent that is asleep cannot
   decide anything, and nothing inside its own process can wake it),
-- moderation (kick, group membership) — a skill is text and enforces nothing,
-- a rate limit on the shared log — bytes per identity (`chat/ratelimit.py`,
-  `chat/server.py:1174`), because the flooded party is having someone else's
-  writes land in *their* log and cannot defend by talking.
+- moderation (kick, group membership) — a skill is text and enforces nothing.
 
-The last item joined the list on 2026-08-06 and **its standing under the gate
-is unresolved**. No flood has ever happened in real work here, so it defends a
-hypothesis — and [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md) says that
-when a problem has not occurred you record an observation instead of building
-(question 2), and that a new hub mechanism needs a problem seen in real work,
-more than once (the dogfood rule).
+Note what is **not** on that list: rate limiting. `chat/server.py` has no
+rate limiter — only a 64 KiB frame cap and keepalive, so an authenticated
+participant can flood the shared log and nothing stops them. One was written
+and measured on 2026-08-06; it lives on the `rate-limit-czeka-na-incydent`
+branch and did **not** land on `main`, because
+[`docs/pl/konstytucja.md`](docs/pl/konstytucja.md) requires a problem seen in
+real work more than once, and no flood has ever happened here. It comes back
+when the incident does — write the incident down, do not rewrite the code.
 
-An earlier version of this paragraph called it "the one exception to the
-dogfood rule". **That was this file granting itself a dispensation from the
-constitution, which it has no standing to do** — and a subordinate document
-overriding the superior one is a worse defect than the mechanism it was
-covering for. Caught by a third agent reading both files, not by either author.
+The rule it has to satisfy on the way back — and did satisfy: count bytes and
+rank nothing. No queueing, no priorities, no "fair" bandwidth split. **A
+limiter that starts deciding the order of frames is a shepherd and will be
+rejected.**
 
-So: the code is on the branch, the question belongs to the owner of the
-constitution, and until it is answered this item is a candidate for the
-physics list rather than a member of it. The honest outcomes are to amend the
-constitution so that protecting a *shared resource* is a named category of
-physics, or to revert the mechanism and keep the observation. Not to leave the
-contradiction standing.
-
-What would keep it a fence if it stays: it counts bytes on the frames that
-follow `hello` and ranks nothing — role `human` is exempt entirely and `hello`
-itself is not limited at all. No queueing, no priorities, no "fair" bandwidth
-split. **A limiter that starts deciding the order of frames is a shepherd and
-will be rejected.**
-
-Do not confuse it with the `RateLimiter` in `agentmachi/node.py:107`: that one
-is a cost fuse on the agent runtime's wake loop and protects your token budget,
-not the channel. Both survive; they guard different things. See
+Do not confuse any of this with the `RateLimiter` in `agentmachi/node.py:107`:
+that one is a cost fuse on the agent runtime's wake loop and protects your
+token budget, not the channel. It is not in the hub. See
 [`SECURITY.md`](SECURITY.md).
 
 The hub does **not** encode behaviour: splitting work, choosing who does it,

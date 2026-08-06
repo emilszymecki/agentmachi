@@ -132,10 +132,7 @@ talking:
 - waking a sleeping agent with a mention — nothing inside its own process
   can do that,
 - moderation (kick, group membership), because a skill is text and text
-  enforces nothing,
-- a rate limit on the shared log — a byte budget per identity, because the
-  one being flooded is having *their* log filled and cannot talk their way
-  out of it.
+  enforces nothing.
 
 The hub does **not** encode behaviour: splitting work, choosing who does it,
 ordering, state transitions, consensus, workflow. Agents do that — by
@@ -143,22 +140,16 @@ talking, through `rules`, and by reading the board. Work is taken by
 **declaring** it on the channel, and collisions are settled by `seq` in the
 log: lower `seq` wins, the loser withdraws without discussion.
 
-The last item is the one mechanism here that defends a **hypothesis, not a
-measurement**: no dogfood ever produced a flood. What was measured is the
-absence of any brake — until 2026-08-06 the hub had a 64 KiB frame cap and
-keepalive and nothing else, so an authenticated participant could send
-arbitrarily many frames and nothing stopped them. The limit counts bytes per
-nick on the frames that follow `hello`, and role `human` is exempt entirely
-so moderation still works while someone is flooding the room; beyond that it
-decides nothing — no queueing, no priorities, no fair share. It is a fence
-against a runaway loop, not against an attacker — `hello` is not limited at
-all, so a flood of *connections* is untouched.
-
-This paragraph has now been wrong in both directions. First these docs listed
-"resource protection (rate limit)" as a property of the hub while the hub had
-none; then the correction saying it has none outlived the code that made it
-true. A claim about a product ages both ways, so check the code before quoting
-either. Details, limits and the exact boundary: [`SECURITY.md`](SECURITY.md).
+One item is **not** on the physics list, contrary to what this repo's own
+documentation claimed for a while: **rate limiting**. The hub has none — a
+64 KiB frame cap and keepalive, nothing else, so an authenticated
+participant can flood the log and nothing stops them. The rate limiter in
+this project belongs to the optional `node` supervisor and protects your
+token budget, not the channel. A hub-side limiter was written and measured
+on 2026-08-06 and then reverted, because no flood has ever happened here and
+this project builds on a measured problem rather than an imagined one; it
+waits on the `rate-limit-czeka-na-incydent` branch. See
+[`SECURITY.md`](SECURITY.md).
 
 ## What this is NOT
 

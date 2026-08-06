@@ -44,30 +44,9 @@ import websockets
 
 from . import protocol
 from .identity import AuthError, Registry, UNRESOLVED_ADDR
-from .ratelimit import FrameRateLimit
 from .store import EventLog, ForeignWriterError
 
 SNAPSHOT_EVERY = 100  # polityka snapshotow: co N eventow (+ zawsze przy stop())
-# Limit tempa na kanale — arytmetyka doboru, nie okragle liczby z sufitu:
-#   - zmierzona rozmowa na tym kanale to raporty 5-7 KB. 256 KiB burstu =
-#     ~37 takich raportow jeden po drugim, ZANIM kubelek w ogole pisnie;
-#   - 64 KiB/s podtrzymuje ~9 raportow po 7 KB na sekunde w nieskonczonosc.
-#     Zaden dogfood nie zblizyl sie do tego tempa: agent pisze raport raz na
-#     kilka sekund, czyli grubo ponizej 2 KB/s;
-#   - sufit JEDNEJ ramki to 64 KiB (protocol.MAX_FRAME_BYTES), wiec burst
-#     miesci cztery ramki maksymalnego rozmiaru z rzedu, a uzupelnienie
-#     calej takiej ramki trwa sekunde.
-# Petla zalewajaca nie negocjuje z tymi liczbami: wyczerpuje burst w
-# milisekundy i wpada na licznik odrzucen ponizej, ktory zamyka jej socket.
-# Tempo podtrzymane dotyczy wiec klienta, ktory sam sie miarkuje — zalew
-# konczy sie rozlaczeniem, nie dlawieniem.
-RATE_BYTES_PER_SEC = 64 * 1024
-RATE_BURST_BYTES = 256 * 1024
-# Po tylu ODRZUCONYCH Z RZEDU ramkach socket leci. Bez tego zalewajacy
-# trzyma petle serwera w nieskonczonosc: kazda jego ramka kosztuje hub
-# odczyt, walidacje rozmiaru i ramke `error` w druga strone. Licznik zeruje
-# PIERWSZA przepuszczona ramka — kto zwolnil, zostaje.
-RATE_MAX_CONSECUTIVE_REJECTS = 20
 STORAGE_UNAVAILABLE = "storage unavailable; retry"
 # Ten sam komunikat wysylaja DWIE sciezki: natychmiastowe odciecie starego
 # socketu przy takeoverze (_close_stale_sockets) i per-ramkowy check generacji
@@ -130,37 +109,6 @@ def _strict_json_loads(raw):
     return frame
 
 
-def _rozmiar_bajtow(raw):
-    """Ile bajtow ta ramka WAZYLA NA DRUCIE.
-
-    websockets oddaje ramke tekstowa jako `str`, a `len(str)` liczy znaki —
-    jeden znak spoza ASCII to 2-4 bajty, wiec licznik znakow zanizalby zalew
-    pisany po polsku albo emoji. `max_size` biblioteki liczy bajty, wiec
-    zakodowana dlugosc jest z definicji <= MAX_FRAME_BYTES; kodowanie nie
-    moze tu wiec wyprodukowac niczego wiekszego niz to, co juz przeszlo.
-    """
-    if isinstance(raw, (bytes, bytearray, memoryview)):
-        return len(raw)
-    return len(raw.encode("utf-8", "surrogatepass"))
-
-
-def _sprawdz_limity(bytes_per_sec, burst_bytes):
-    """Kontrakt limitow tempa w JEDNYM miejscu — wolany przy konstrukcji huba
-    i przez `main()` na wartosciach z env (tam dodatkowo ubrany w komunikat
-    operatora). Rozjazd dwoch kopii tej reguly byl tu pytaniem czasu."""
-    # Typ i dodatnosc zna sam kubelek — nie powtarzamy jego kontraktu.
-    FrameRateLimit(bytes_per_sec, burst_bytes)
-    # Burst MUSI zmiescic najwieksza dopuszczalna ramke. Kubelek nie rosnie
-    # ponad burst, wiec przy mniejszym progu legalna ramka 64 KiB nie
-    # przeszlaby NIGDY, a klient dostawalby w kolko dodatni czas oczekiwania —
-    # hub wygladalby na dzialajacy i milczalby na zawsze.
-    if burst_bytes < protocol.MAX_FRAME_BYTES:
-        raise ValueError(
-            f"rate_burst_bytes={burst_bytes} is smaller than one maximum "
-            f"frame ({protocol.MAX_FRAME_BYTES} B) — a legal frame could "
-            f"then never pass")
-
-
 class CursorBeyondLog(AuthError):
     """Kursor klienta wskazuje ZA koniec logu — i odmowa niesie tu LICZBE.
 
@@ -184,22 +132,9 @@ class CursorBeyondLog(AuthError):
 
 
 class ChatServer:
-    def __init__(self, data_dir, tokens, port, bind="127.0.0.1", open_mode=None,
-                 rate_bytes_per_sec=RATE_BYTES_PER_SEC,
-                 rate_burst_bytes=RATE_BURST_BYTES):
+    def __init__(self, data_dir, tokens, port, bind="127.0.0.1", open_mode=None):
         self.port = port
         self.bind = bind
-        # Fail-fast na limitach: zle wartosci maja wywrocic START huba, a nie
-        # kazde polaczenie z osobna.
-        _sprawdz_limity(rate_bytes_per_sec, rate_burst_bytes)
-        self.rate_bytes_per_sec = rate_bytes_per_sec
-        self.rate_burst_bytes = rate_burst_bytes
-        # Kubelki tempa: nick -> FrameRateLimit. JEDEN kubelek na TOZSAMOSC,
-        # wspolny dla wszystkich polaczen tego nicka — patrz _kubelek_tempa
-        # (tam takze decyzja o zyciu kubelka po rozlaczeniu). Stan wylacznie
-        # runtime'owy: nie idzie do snapshotu ani do logu, bo nie opisuje
-        # rozmowy, tylko chwilowa zajetosc drutu.
-        self._kubelki = {}
         # B6: tryb otwarty (agent bez tokenu) wlacza sie SAM przy bindzie,
         # ktory juz jest bramka: loopback albo adres tailnetowy. Przy 0.0.0.0
         # hub stoi takze na LAN i publicznie — tam siec nie chroni niczego,
@@ -1079,45 +1014,7 @@ class ChatServer:
             # ewentualny snapshot #100 zlapal juz NOWA generacje. resync-branch
             # zrobil pelny snapshot() wyzej (licznik=0), wiec to wtedy no-op.
             self._maybe_snapshot()
-            # Kubelek per TOZSAMOSC (nick), wspolny dla wszystkich polaczen
-            # tego nicka. Do 2026-08-06 stal tu kubelek per POLACZENIE —
-            # mechanizm wewnetrznie poprawny, tylko liczacy w niewlasciwym
-            # miejscu. Pomiar na zywym hubie (1,8 MB, ramki po 60 KB, trzy
-            # drogi):
-            #   - zalew jednym trzymanym polaczeniem, agent:  4/30 w logu
-            #     (20 odmow, socket zamkniety po 20 z rzedu),
-            #   - to samo jako `human`:                      30/30 (wyjatek
-            #     dla moderacji — poprawnie),
-            #   - KAZDA RAMKA NOWYM POLACZENIEM:             30/30 i ZERO
-            #     odmow.
-            # Trzeci wiersz to nie egzotyka, tylko normalna praca klienta:
-            # `agentmachi send` otwiera nowy socket przy KAZDYM wywolaniu,
-            # wiec kazda ramka dostawala swiezy, pelny kubelek. Limit per
-            # polaczenie bronil wylacznie przed ksztaltem zalewu, ktorego ten
-            # produkt nie ma.
-            #
-            # Wiele socketow na jednym nicku to MECHANIZM, nie naduzycie:
-            # hello na zywy nick odbijamy tylko z INNYM `instance_id`, a
-            # send/frame/read/node celowo wspoldziela `instance_id` listenera,
-            # zeby go nie wypierac. Zmierzone: trzy sockety na `agent1`,
-            # wszystkie `ok`, `conns[agent1] == 3`. Tozsamosc jest tu wiec
-            # jedyna granica, ktora klient realnie utrzymuje — i dlatego to
-            # ona liczy bajty.
-            #
-            # GRANICA (plot, nie pastuch) NIETKNIETA: zmienia sie licznik, nie
-            # decyzja. Kubelek nadal mowi wylacznie, ile bajtow miesci sie
-            # w drucie — nie kto pisze, nie o czym, nie w jakiej kolejnosci.
-            # Zero kolejkowania, zero priorytetow, zero podzialu pasma miedzy
-            # uczestnikow. Tozsamosc nie jest tu nowym bytem: `Registry` zna
-            # ja od poczatku.
-            #
-            # Zalew SAMYMI POLACZENIAMI (bez ramek) zostaje poza zakresem: to
-            # warstwa accept, nie ramki.
-            #
-            # `hello` nie jest limitowane z zalozenia — jest raz na
-            # polaczenie i przechodzi PRZED ta petla.
-            limit = self._kubelek_tempa(nick, role)
-            await self._frame_loop(ws, nick, generation, limit)
+            await self._frame_loop(ws, nick, generation)
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
@@ -1171,135 +1068,16 @@ class ChatServer:
             if rola == "human" and other != nick and self.conns.get(other):
                 await self._send(other, event)
 
-    def _kubelek_tempa(self, nick, role):
-        """Kubelek tempa TEJ TOZSAMOSCI (albo None, gdy nick jest poza limitem).
-
-        Tworzony leniwie, przy pierwszym polaczeniu nicka, ktore w ogole
-        podlega limitowi — nie z gory dla calego rejestru. Wszystkie
-        polaczenia jednego nicka dostaja TEN SAM obiekt i to jest caly sens
-        zmiany: nowy socket nie jest juz swiezym kubelkiem (patrz pomiar
-        w _handler).
-
-        Rola human POZA limitem — zachowane co do joty. Lekcja kupiona juz
-        w node.py (RateLimiter): moderacja dusila sie na wlasnym bezpieczniku.
-        Czlowiek ma odzyskac kanal takze wtedy, gdy ktos go zalewa, a jego
-        uprawnienie jest wymuszone tokenem, nie umowa. Human nie dostaje
-        nawet WPISU w mapie — nie ma czego pomylic z "kubelkiem tak duzym, ze
-        nie boli".
-
-        ZYCIE KUBELKA PO ROZLACZENIU: zostaje. Kasowanie go przy rozlaczeniu
-        odtwarzaloby DOKLADNIE te dziure, ktora ta zmiana zamyka — rozlacz
-        sie i wroc po pelny burst — a rozlaczenie jest tu czynnoscia
-        codzienna, nie awaria (`agentmachi send` robi je po kazdej ramce).
-        Kubelek uzupelnia sie w czasie sam, wiec "zostaje" nie znaczy "pamieta
-        urazy": po burst_bytes/bytes_per_sec sekundach ciszy jest pelny.
-        Koszt pamieciowy: dwa floaty na nick. Mapa nie rosnie szybciej niz
-        rejestr — kubelek powstaje dopiero PO udanym hello, a udane hello
-        wpisuje nick do `registry.roles` na stale (kick zwalnia wiazanie
-        adresu, nie tozsamosc). Nie ma tu wiec wektora "zapchaj pamiec huba
-        nowymi nickami", ktorego nie mialby juz sam rejestr. Restartu procesu
-        kubelek nie przezywa i to jest w porzadku: restart zrywa wszystkie
-        polaczenia, a pelny kubelek po starcie to ta sama zaleglosc, ktora
-        agent i tak wypycha po reconnekcie.
-        """
-        if role == "human":
-            return None
-        kubelek = self._kubelki.get(nick)
-        if kubelek is None:
-            kubelek = FrameRateLimit(self.rate_bytes_per_sec,
-                                     self.rate_burst_bytes)
-            self._kubelki[nick] = kubelek
-        return kubelek
-
-    async def _frame_loop(self, ws, nick, generation, limit=None):
+    async def _frame_loop(self, ws, nick, generation):
         """Petla ramek po udanym hello. `generation` PRZYCHODZI ARGUMENTEM —
         niezmiennik a) mowi, ze jest przypieta do SOCKETU, wiec nie wolno jej
-        tu odczytywac z self.registry. `limit` jest jej przeciwienstwem:
-        kubelek nalezy do TOZSAMOSCI i ten sam obiekt dostaje kazde
-        polaczenie tego nicka (patrz _kubelek_tempa); `None` znaczy "ten nick
-        jest poza limitem" (human). Licznik odrzucen z rzedu ponizej zostaje
-        za to per POLACZENIE: zamkniecie socketu jest wlasnoscia socketu, nie
-        tozsamosci — inaczej jedna zalewajaca petla zabijalaby rownolegly,
-        grzeczny nasluch tego samego agenta.
+        tu odczytywac z self.registry.
 
         Drabina wyjatkow jest per-RAMKA i musi taka zostac: niezmiennik e)
         brzmi "zaden pojedynczy zly frame nie moze zabic handlera". Gdyby
         `except Exception` opasywal cala petle zamiast pojedynczy obieg,
         pierwsza zla ramka konczylaby polaczenie."""
-        odrzucone_z_rzedu = 0
         async for raw in ws:
-            if limit is not None:
-                # Mierzymy SUROWA ramke i mierzymy ja PRZED parsowaniem:
-                # bajty kosztowaly huba juz w chwili, gdy przyszly, a smiec
-                # bez poprawnego JSON-a kosztuje tyle samo co tresc. `now`
-                # z monotonic, NIE z time.time — skok zegara sciennego (NTP,
-                # zmiana czasu) nie moze ani odblokowac kanalu, ani go zaciac.
-                czekaj = limit.check(time.monotonic(), _rozmiar_bajtow(raw))
-                if czekaj is not None:
-                    odrzucone_z_rzedu += 1
-                    # NIGDY cichy drop. `chat` nie ma ACK, wiec milczace
-                    # skasowanie ramki jest dokladnie tym cichym
-                    # false-successem, ktory w tym repo jest najgorsza klasa
-                    # bledu: nadawca konczy z kodem 0 i wierzy, ze napisal.
-                    # Komunikat niesie NAPRAWE (ile czekac), a `retry_after`
-                    # daje ja POLEM — klient nie ma wydlubywac liczby ze
-                    # stringa (ten sam wzorzec co `suggested_nick`).
-                    # Zdanie o reconnekcie nie jest ozdoba: naturalna naprawa
-                    # klienta ("polacz sie jeszcze raz") od 2026-08-06 NIE
-                    # dziala i musi to byc powiedziane wprost, inaczej agent
-                    # bedzie ja probowal w kolko.
-                    #
-                    # `accepted=False` to POLE, ktore odroznia ODMOWE od
-                    # OSTRZEZENIA — bez niego cala ta odmowa byla teatrem po
-                    # stronie klienta. Do 2026-08-06 ramka `error` po `chat`
-                    # znaczyla dokladnie jedno: "nieznany nick / nieznana
-                    # grupa", czyli ramka JEST w logu i dotarla do ludzi
-                    # (_handle_chat). Limiter dolozyl na tym samym kanale
-                    # znaczenie PRZECIWNE — ramki nie ma nigdzie — a klient nie
-                    # mial czym tych dwoch rozroznic i konczyl ZEREM w obu
-                    # przypadkach. Zmierzone (Codex + repro): kubelek 1 B/s,
-                    # burst 64 KiB, ramka 60 KB przechodzi, druga 10 KB
-                    # odrzucona; w logu jedna ramka `chat`, `agentmachi send`
-                    # zwraca 0. Cichy false-success, ktory sami wprowadzilismy.
-                    #
-                    # `accepted`, NIE `delivered`: kontraktem sukcesu wysylki
-                    # jest PRZYJECIE I TRWALY ZAPIS, a nie doreczenie zywemu
-                    # adresatowi. Ramka ze wzmianka w nieznany nick nie budzi
-                    # NIKOGO, a mimo to poprawnie wchodzi do logu — `delivered`
-                    # klamaloby o niej juz dzis.
-                    #
-                    # Polem, a nie po `retry_after` i nie po tresci zdania:
-                    # rozpoznawanie po obecnosci `retry_after` wiazaloby
-                    # kontrakt przez przypadek (pole niesie NAPRAWE, nie
-                    # werdykt), a po tekscie byloby parsowaniem prozy pisanej
-                    # dla czlowieka — czego to repo zakazuje wprost (patrz
-                    # CursorBeyondLog wyzej w tym pliku).
-                    #
-                    # POLE JEST JEDNOSTRONNE i takie ma zostac. Nie dopisujemy
-                    # `accepted=True` nigdzie, bo nie mamy jak go uczciwie
-                    # postawic: ostrzezenie o nieznanym nicku leci PRZED
-                    # `_append` (nie wiadomo jeszcze, czy zapis sie uda),
-                    # a `internal error`/`storage error` moga wpasc TAKZE PO
-                    # udanym appendzie, w trakcie publikacji — tam pole
-                    # klamaloby w druga strone. Tutaj faza jest jednoznaczna:
-                    # odrzucenie nastepuje przed parsowaniem, wiec i przed
-                    # zapisem. Brak pola znaczy "jak dotad" — dzieki temu nowy
-                    # klient przy STARSZYM hubie nie czyta ostrzezen jak odmow.
-                    await self._error(
-                        ws,
-                        f"rate limit: {nick} is sending too fast. The limit "
-                        f"is per nick and shared by all your connections, so "
-                        f"reconnecting does not reset it. The frame was NOT "
-                        f"accepted and is NOT in the log. "
-                        f"Wait {czekaj:.1f}s, then send it again.",
-                        retry_after=round(czekaj, 2), accepted=False)
-                    if odrzucone_z_rzedu >= RATE_MAX_CONSECUTIVE_REJECTS:
-                        await ws.close(
-                            code=1008,
-                            reason="rate limit: too many rejected frames")
-                        break
-                    continue
-                odrzucone_z_rzedu = 0
             try:
                 frame = _strict_json_loads(raw)
             except ValueError:
@@ -1573,62 +1351,14 @@ class ChatServer:
                 await self._send(observer, event)
 
 
-def _limit_z_env(nazwa, domyslny):
-    """Limit tempa z env — z fail-fastem, nie z cichym zignorowaniem.
-
-    Env czytamy TUTAJ, a nie w `ChatServer.__init__`, bo tak dziala tu
-    kazdy inny parametr huba (data_dir, tokens, port, bind): konstruktor
-    bierze argumenty, `main()` jest jedynym miejscem, ktore zna powloke.
-    Skutek jest praktyczny — test albo cudzy kod konstruujacy `ChatServer`
-    wprost nie da sie po cichu wysterowac srodowiskiem operatora, a
-    `agentmachi serve` i tak przechodzi przez `main()` (cli.py ustawia
-    CHAT_* i wola `server_main()`), wiec produkcja jest pokryta.
-
-    Literowka w env musi ZABIC start, a nie po cichu wrocic do domyslnej:
-    operator, ktory podnosi limit, bo agenci sie o niego obijaja, inaczej
-    zobaczylby dzialajacego huba ze starym limitem i szukal winy gdzie
-    indziej."""
-    surowa = os.environ.get(nazwa)
-    if surowa is None or surowa == "":
-        return domyslny
-    try:
-        wartosc = int(surowa)
-    except ValueError:
-        raise SystemExit(
-            f"{nazwa}={surowa!r} is not an integer number of bytes")
-    if wartosc <= 0:
-        # Zero/ujemne NIE znaczy "wylaczone" — patrz chat/ratelimit.py.
-        # Wylacznik wygladalby jak konfiguracja, a kasowalby plot po cichu.
-        raise SystemExit(
-            f"{nazwa}={wartosc} must be > 0. There is no 'off' switch: for a "
-            f"practically unlimited hub set an absurdly large number, so that "
-            f"it is visible in the start command.")
-    return wartosc
-
-
 def main():
     tokens_path = os.environ.get("CHAT_TOKENS", "tokens.json")
     tokens = json.loads(Path(tokens_path).read_text(encoding="utf-8"))
-    port = int(os.environ.get("CHAT_PORT", 8765))
-    tempo = _limit_z_env("CHAT_RATE_BYTES_PER_SEC", RATE_BYTES_PER_SEC)
-    burst = _limit_z_env("CHAT_RATE_BURST_BYTES", RATE_BURST_BYTES)
-    try:
-        _sprawdz_limity(tempo, burst)
-    except (TypeError, ValueError) as e:
-        # Sprawdzamy PRZED konstrukcja huba i wylacznie limity: opasanie
-        # calego `ChatServer(...)` tym exceptem opisywaloby dowolna cudza
-        # awarie (tokeny, snapshot) jako "zla konfiguracja limitu" — czyli
-        # falszywy trop dla operatora. Traceback za literowke w env to detal
-        # implementacji wysypany czlowiekowi na terminal; tresc wyjatku jest
-        # juz czytelna i wystarcza.
-        raise SystemExit(f"chat server: invalid rate limit configuration: {e}")
     server = ChatServer(
         data_dir=os.environ.get("CHAT_DATA", "./chat-data"),
         tokens=tokens,
-        port=port,
-        bind=os.environ.get("CHAT_BIND", "127.0.0.1"),
-        rate_bytes_per_sec=tempo,
-        rate_burst_bytes=burst)
+        port=int(os.environ.get("CHAT_PORT", 8765)),
+        bind=os.environ.get("CHAT_BIND", "127.0.0.1"))
 
     async def run():
         stop_event = asyncio.Event()

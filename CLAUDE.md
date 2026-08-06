@@ -21,84 +21,25 @@ sam:
 - trwałość wiadomości (log + `seq`),
 - budzenie ze snu (śpiący agent nie podejmie decyzji) — hub **dostarcza
   wzmiankę**, a runtime budzi dopiero `agentmachi node`,
-- ochronę **wspólnego logu** przed zalewem — od 2026-08-06 hub ma limit
-  tempa (`chat/ratelimit.py` wpięty w `chat/server.py`), liczony **per
-  tożsamość**. Ochrona **własnego portfela agenta** to co innego i huba
-  nie dotyczy: **limit wybudzeń siedzi w `agentmachi/node.py`.**
+- ochronę zasobów, gdy nikt nie patrzy — **limit wybudzeń siedzi
+  w `agentmachi/node.py`, nie w hubie.**
 
-Ostatni punkt ma historię i przeczytaj ją, zanim go zaufasz — pokazuje
-**dwa sposoby, w jakie ten plik potrafi kłamać**, i drugi jest gorszy.
+Ostatni punkt brzmiał tu do 2026-08-05 po prostu „ochrona zasobów (rate
+limit)" i czytało się to jako własność huba. `chat/server.py` **nie ma
+rate limitera** — ma wyłącznie limit ramki 64 KiB i keepalive, więc
+uwierzytelniony uczestnik może zalać log i nic go nie zatrzyma.
+`RateLimiter` (`node.py:107`) jest wyłącznikiem kosztu dla pętli wybudzeń
+agenta (domyślnie 6/h, cooldown 60 s, wzmianka od człowieka omija oba),
+a nie ochroną kanału. Złapane przy pisaniu `SECURITY.md`, przez
+sprawdzenie kodu zamiast przepisania tej listy.
 
-**Kłamstwo pierwsze: obietnica bez kodu.** Do 2026-08-05 punkt brzmiał po
-prostu „ochrona zasobów (rate limit)" i czytało się to jako własność huba.
-`chat/server.py` **nie miał wtedy żadnego limitera** — miał sufit jednej
-ramki (64 KiB) i keepalive, więc uwierzytelniony uczestnik mógł wysłać
-dowolnie **wiele** ramek i nic go nie zatrzymywało. Złapane przy pisaniu
-`SECURITY.md`, przez sprawdzenie kodu zamiast przepisania tej listy;
-naprawą było wtedy skreślenie obietnicy, nie dopisanie kodu.
-
-**Kłamstwo drugie: kod, który liczy nie to, co trzeba.** 2026-08-06 hub
-limit dostał, a pierwsza wersja kubełka była **per połączenie** —
-wyglądała na obronę do pierwszego pomiaru. Wysyłka „socket na ramkę",
-czyli dokładnie to, co robi `agentmachi send`, przeszła **30/30 ramek,
-zero odmów** (1,8 MB, ramki po 60 KB, domyślne limity), bo każde `hello`
-dostawało świeży, pełny kubełek. Limit istniał, był zielony w testach
-i **nie bronił jedynej drogi, jaką klient realnie ma**. Dlatego kubełek
-siedzi dziś przy tożsamości, nie przy sockecie.
-
-Stan faktyczny — jeśli cokolwiek poniżej rozjedzie się z kodem, wygrywa
-kod (`chat/ratelimit.py`; `chat/server.py`: stałe `:64`, wpięcie `:1119`,
-`_kubelek_tempa` `:1174`, pętla ramek `:1214`):
-
-- **token bucket na BAJTACH** surowej ramki, mierzonych **przed
-  parsowaniem** (śmieć bez poprawnego JSON-a kosztuje hub tyle samo co
-  treść). Domyślnie 64 KiB/s uzupełnienia i 256 KiB burstu; `now` z
-  `time.monotonic`, więc skok zegara ściennego ani nie odblokuje kanału,
-  ani go nie zatnie,
-- **jeden kubełek na TOŻSAMOŚĆ (nick)**, wspólny dla wszystkich jej
-  połączeń, i **reconnect go nie resetuje** — kubełek przeżywa
-  rozłączenie (restartu procesu huba nie przeżywa i to jest świadome:
-  restart i tak zrywa wszystkie połączenia),
-- **`role == "human"` jest poza limitem** — human nie dostaje nawet wpisu
-  w mapie kubełków, więc nie ma czego pomylić z „kubełkiem tak dużym, że
-  nie boli". Moderacja ma działać dokładnie wtedy, gdy ktoś zalewa kanał,
-- **ramka odrzucona nie trafia do logu ani do nikogo** i nie zabiera
-  tokenów z kubełka. Nadawca dostaje `error` z `retry_after` (sekundy
-  **polem**, nie liczbą do wydłubania ze stringa) i zdaniem wprost, że
-  reconnect nic nie da. **20 odrzuceń z rzędu zamyka socket** (kod 1008);
-  ten licznik jest per POŁĄCZENIE, żeby zalewająca pętla nie zabijała
-  równoległego, grzecznego nasłuchu tego samego agenta — zeruje go
-  pierwsza przepuszczona ramka,
-- limity z env: `CHAT_RATE_BYTES_PER_SEC`, `CHAT_RATE_BURST_BYTES`.
-  **Wyłącznika nie ma**: zero i wartości ujemne zabijają start, tak samo
-  jak burst mniejszy niż jedna maksymalna ramka (64 KiB) — przy takim
-  progu legalna ramka nie przeszłaby nigdy, a hub wyglądałby na
-  działającego i milczał. Kto naprawdę chce huba bez limitu, wpisuje
-  liczbę absurdalnie dużą i widzi ją w komendzie startu,
-- **jawne dziury, nie przeoczenia**: `hello` nie jest limitowane (idzie
-  raz na połączenie, przed pętlą ramek), a zalew samymi połączeniami to
-  warstwa accept — limiter go nie widzi.
-
-Pomiar po poprawce, ten sam żywy hub: agent jednym socketem 629 KB/s przy
-suficie ~751, agent socketem na ramkę 135 KB/s przy suficie ~148, human
-1986 KB/s (poza limitem).
-
-**Uczciwość dowodowa, bo bez niej ten akapit jest reklamą:** zalanie
-kanału **nie wystąpiło w żadnym dogfoodzie**. Zmierzony jest wyłącznie
-brak zapory i dziurawa pierwsza wersja — nie atak. To obrona przed
-**hipotezą**, czyli świadomy wyjątek od bramki dogfoodu z konstytucji
-(`docs/pl/konstytucja.md`, pyt. 2: „czy problem wystąpił w dogfoodzie?
-jeśli nie — zapisz obserwację"). Uzasadnienie wyjątku jest wąskie:
-zalewający pisze do **cudzego** logu, więc ofiara nie ma czym się bronić
-rozmową ani plikiem. Wyjątek, nie precedens — następna funkcja „na
-wszelki wypadek" wraca pod bramkę.
-
-**`RateLimiter` w `agentmachi/node.py:107` to nadal co innego** i ten
-rozdział musi zostać czytelny, bo to on był źródłem pierwotnej pomyłki:
-jest bezpiecznikiem **kosztu pętli wybudzeń agenta** (domyślnie 6/h,
-cooldown 60 s, wzmianka od człowieka omija oba), a nie ochroną kanału.
-Dwa limitery, dwa różne chronione zasoby, dwa pliki; wspólne mają tylko
-zwolnienie człowieka i inwariant „zero zegara w logice".
+**Limit tempa w hubie powstał 2026-08-06 i został wycofany tego samego
+dnia** — nie dlatego, że nie działał (działał i był zmierzony na żywym
+hubie), tylko dlatego, że nie przeszedł bramki: zalew **nigdy u nas nie
+wystąpił**, a `docs/pl/konstytucja.md` każe wtedy zapisać obserwację
+zamiast budować. Kod czeka na incydent na gałęzi
+`rate-limit-czeka-na-incydent` i wróci, gdy incydent będzie. Nie pisz go
+od nowa — pisz do `@human`, że zalew wystąpił.
 
 Hub **nie koduje zachowań**: podziału pracy, wyboru wykonawcy, kolejności,
 przejść stanów, konsensusu, workflow. To robią agenci — rozmową, `rules`
