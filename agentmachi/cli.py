@@ -72,15 +72,19 @@ def _write_0600(path, text):
         f.write(text)
 
 
-def _porty_innych_hubow(wlasna_nazwa):
-    """Porty zapisane w configach POZOSTALYCH hubow. Zrodlem jest config,
-    nie zywy proces: hub zatrzymany nadal ma prawo do swojego portu, bo
-    `start` odpali go pod tym samym adresem."""
-    zajete = set()
+def _porty_hubow(wlasna_nazwa):
+    """Mapa `port -> nazwa pokoju` dla POZOSTALYCH pokojow. Zrodlem jest
+    config, nie zywy proces: hub zatrzymany nadal ma prawo do swojego portu,
+    bo `start` odpali go pod tym samym adresem.
+
+    Zwracamy NAZWE, nie sam fakt zajetosci, bo odmowa musi umiec powiedziec
+    czlowiekowi, KTO trzyma port. "port taken" bez wlasciciela zostawia go
+    z zagadka zamiast z naprawa."""
+    mapa = {}
     home = hub_home()
     if not home.is_dir():
-        return zajete
-    for d in home.iterdir():
+        return mapa
+    for d in sorted(home.iterdir()):
         if not d.is_dir() or d.name == wlasna_nazwa:
             continue
         try:
@@ -89,8 +93,13 @@ def _porty_innych_hubow(wlasna_nazwa):
             continue
         p = cfg.get("port")
         if isinstance(p, int) and not isinstance(p, bool):
-            zajete.add(p)
-    return zajete
+            mapa.setdefault(p, d.name)
+    return mapa
+
+
+def _porty_innych_hubow(wlasna_nazwa):
+    """Same porty z `_porty_hubow` — dla alokatora, ktory nazw nie potrzebuje."""
+    return set(_porty_hubow(wlasna_nazwa))
 
 
 def _wybierz_port(preferowany, wlasna_nazwa, bind="127.0.0.1", prob=200):
@@ -213,9 +222,47 @@ def odswiez_howto(hub_katalog):
     return "zachowane", kopia
 
 
-def ensure_hub(name, port, bind="127.0.0.1"):
-    """Utworz strukture huba przy pierwszym uzyciu; istniejacej NIE ruszaj."""
+def ensure_hub(name, port, bind="127.0.0.1", port_jawny=False):
+    """Utworz strukture huba przy pierwszym uzyciu; istniejacej NIE ruszaj.
+
+    `port_jawny` mowi, czy `port` to DECYZJA czlowieka (podal `--port`), czy
+    tylko punkt startu dla alokatora. Bez tego rozroznienia ta funkcja nie
+    miala jak uszanowac decyzji: przesuwala port ZAWSZE, gdy nowy pokoj
+    trafial na adres zapisany w configu innego pokoju.
+
+    Zmierzone na zywej maszynie (Windows 11 przez tailnet, 2026-08-06): agent
+    poprosil o 8790, dostal 8791, komenda skonczyla sie EXIT 0 i jedna linia
+    na stderr. Warstwa wyzej (`cmd_start`) deklarowala w komentarzu "jawne
+    --port (decyzja czlowieka, nie zgadujemy za niego)" i robila fail-fast —
+    a warstwa nizej i tak zgadywala, bo nie wiedziala, skad ten port
+    pochodzi. To ta sama klasa co ciche wejscie `--name` do cudzego pokoju:
+    intencja uzytkownika przegrywa z wygoda, po cichu.
+
+    Przy `port_jawny=True` kolizja to ODMOWA (CliError), a nie przesuniecie —
+    i sprawdzamy ja PRZED utworzeniem czegokolwiek na dysku, zeby nieudane
+    wejscie nie zostawilo pokoju-widma straszacego potem w `list`."""
     d = hub_dir(name)
+    if port_jawny and not (d / "config.json").exists():
+        # Tylko NOWY pokoj: istniejacy i tak zachowuje swoj port (nizej),
+        # a jawne przepiecie istniejacego robi swiadomie `cmd_start`.
+        wlasciciel = _porty_hubow(name).get(port)
+        if wlasciciel is not None:
+            # Komendy KAZDA W OSOBNEJ LINII, nie za etykieta: nazwy pokojow
+            # maja rozna dlugosc, wiec kolumna i tak by sie rozjechala, a to
+            # jest tekst do kopiuj-wklej (CLAUDE.md, rola czlowieka).
+            raise CliError(
+                f"port {port} is already assigned to room {wlasciciel!r} — "
+                f"room {name!r} was NOT created.\n"
+                f"You asked for this port explicitly, so it does not get "
+                f"shifted for you: a silent shift is how a room ends up at "
+                f"an address nobody was told about.\n"
+                f"  see which room has which port:\n"
+                f"      agentmachi list\n"
+                f"  put {name!r} somewhere else:\n"
+                f"      agentmachi start --name {name} --port <other>\n"
+                f"  or move {wlasciciel!r} out of the way first:\n"
+                f"      agentmachi stop --name {wlasciciel}\n"
+                f"      agentmachi start --name {wlasciciel} --port <other>")
     (d / "data").mkdir(parents=True, exist_ok=True)
     os.chmod(d, 0o700)
     tokens_path = d / "tokens.json"
@@ -279,8 +326,17 @@ def ensure_hub(name, port, bind="127.0.0.1"):
         # Hub ISTNIEJACY zachowuje swoj port — nigdy go nie przesuwamy,
         # bo kursory klientow sa per host:port.
         port = json.loads(config_path.read_text(encoding="utf-8")).get("port", port)
+    elif port_jawny:
+        # Kolizje sprawdzilismy na gorze tej funkcji i przezylismy ja, wiec
+        # port jest wolny. Alokatora tu NIE wolamy — nie dlatego, ze zwrocilby
+        # co innego (nie zwrocilby), tylko zeby w kodzie bylo widac, ze jawny
+        # --port nie przechodzi przez nic, co moglo by go przesunac.
+        config_path.write_text(json.dumps({"port": port, "bind": bind}),
+                               encoding="utf-8")
     else:
         # C5: NOWY hub nie moze zabrac portu innemu (ani niczemu w systemie).
+        # Bez jawnego --port przesuniecie jest w porzadku: czlowiek nie wskazal
+        # adresu, wiec zaden kursor ani wklejona karta jeszcze go nie zna.
         wybrany = _wybierz_port(port, name, bind)
         if wybrany != port:
             print(f"agentmachi: port {port} is taken — hub '{name}' "
@@ -995,7 +1051,14 @@ def cmd_serve(args):
               f"{running}). Stop it: agentmachi stop --name {args.name}",
               file=sys.stderr)
         return 1
-    d, port = ensure_hub(args.name, args.port, bind=args.bind)
+    # `--port` w `serve` ma default=None (nie DEFAULT_PORT), zeby dalo sie
+    # odroznic "czlowiek podal port" od "nie podal" — inaczej ensure_hub
+    # dostawalo tu ZAWSZE jawny port i albo zgadywalo za czlowiekiem, albo
+    # odmawialo kazdemu `serve` bez portu. DEFAULT_PORT wyliczamy tu, bo to
+    # domysl KOMENDY, nie decyzja uzytkownika.
+    port_jawny = args.port is not None
+    d, port = ensure_hub(args.name, args.port if port_jawny else DEFAULT_PORT,
+                         bind=args.bind, port_jawny=port_jawny)
     bind = hub_bind(args.name, fallback=args.bind)
     write_hub_pid(args.name)
     tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))
@@ -1128,7 +1191,25 @@ def _spawn_detached(argv, log_path):
 
 
 def _port_accepts(port, bind):
-    """Czy cokolwiek przyjmuje polaczenia na tym porcie."""
+    """Czy cos przyjmuje polaczenia na tym porcie NA TYM INTERFEJSIE.
+
+    Zakres jest wezszy, niz brzmial poprzedni opis ("czy cokolwiek przyjmuje
+    polaczenia na tym porcie") i ta roznica jest widoczna golym okiem:
+    sprawdzamy WYLACZNIE `connect_host(bind)`, wiec hub sluchajacy na adresie
+    tailnetu (100.x.y.z:8766) NIE zostanie tu wykryty przy pytaniu o
+    127.0.0.1:8766 — i odwrotnie.
+
+    Zachowanie jest poprawne, bo pytamy o to, czy uda sie zbindowac TAM, gdzie
+    zamierzamy; dwa gniazda na tym samym porcie i roznych interfejsach
+    wspolistnieja legalnie. Falszywy byl OPIS, i tylko on sie zmienia.
+
+    Druga zapora — i to ona lapie cudze pokoje — jest w `_porty_innych_hubow`:
+    czyta configi z `AGENTMACHI_HOME`, wiec dziala niezaleznie od interfejsu.
+    Uwaga przy diagnostyce: w IZOLOWANYM `AGENTMACHI_HOME` (testy, repro) ta
+    zapora nie widzi pokojow operatora, wiec swiezy pokoj potrafi wziac port
+    zajety przez zywy hub na innym interfejsie. To artefakt izolacji, nie
+    dziura w produkcie — zmierzone 2026-08-06, gdy wygladalo dokladnie
+    odwrotnie."""
     try:
         with socket.create_connection((connect_host(bind), port), timeout=0.5):
             return True
@@ -1204,7 +1285,11 @@ def cmd_start(args):
         print(f"agentmachi: port {port} is taken — room {args.name!r} "
               f"gets {wybrany}", file=sys.stderr)
         port = wybrany
-    d, port = ensure_hub(args.name, port, bind=bind)
+    # Ta sama decyzja idzie DO ensure_hub, nie tylko do gornej galezi: bez
+    # tego argumentu warstwa nizej przesuwala jawny port mimo fail-fastu tuz
+    # wyzej (agent prosil o 8790, dostawal 8791, exit 0).
+    d, port = ensure_hub(args.name, port, bind=bind,
+                         port_jawny=args.port is not None)
     if istnieje and args.port is not None and hub_port(args.name) != args.port:
         config = d / "config.json"
         dane = json.loads(config.read_text(encoding="utf-8"))
@@ -1753,7 +1838,15 @@ def _build_parser():
     p = sub.add_parser("serve",
                        help="run a hub (creates ~/.agentmachi/<name>)")
     p.add_argument("--name", default=DEFAULT_HUB)
-    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    # default=None jak w `start`, choc `serve` ZAWSZE konczy na jakims porcie:
+    # DEFAULT_PORT dokladamy w cmd_serve. Tu chodzi wylacznie o to, zeby dalo
+    # sie odczytac, czy port jest DECYZJA czlowieka — argparse jest jedynym
+    # miejscem, ktore to jeszcze wie. `start` spawnuje `serve --port <N>`
+    # jawnie, ale wtedy config.json pokoju juz istnieje (zapisal go rodzic),
+    # wiec dziecko idzie sciezka "pokoj istniejacy" i odmowa go nie dotyczy.
+    p.add_argument("--port", type=int, default=None,
+                   help=f"default {DEFAULT_PORT}; an explicitly given port is "
+                        f"never shifted for you")
     p.add_argument("--bind", default=DEFAULT_BIND,
                   help="interface to bind to (0.0.0.0 = all; "
                        "default 127.0.0.1 — local only)")

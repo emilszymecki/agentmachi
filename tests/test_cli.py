@@ -636,7 +636,8 @@ def test_serve_does_not_treat_its_own_pidfile_as_another_hub(home, monkeypatch,
 
     started = {}
     monkeypatch.setattr(cli, "ensure_hub",
-                        lambda n, p, bind="127.0.0.1": (cli.hub_dir(n), 8961))
+                        lambda n, p, bind="127.0.0.1", **kw: (cli.hub_dir(n),
+                                                              8961))
     monkeypatch.setattr(cli, "print_card",
                         lambda *a, **k: started.setdefault("card", True))
 
@@ -1418,6 +1419,179 @@ def test_jawny_port_ma_pierwszenstwo_ale_kolizja_jest_widoczna(home, capsys):
     cli.ensure_hub("a", 8940)
     _, p = cli.ensure_hub("b", 8941)
     assert p == 8941
+
+
+def _serve_env_sprzatane(monkeypatch):
+    """`cmd_serve` pisze CHAT_* WPROST do os.environ (musi — sklada
+    srodowisko dla `import chat.server`). monkeypatch nie cofnie zapisu,
+    ktorego nie widzial, ale JUZ widzi ten klucz, gdy sami go tu ustawimy —
+    wiec teardown go posprzata. Bez tego CHAT_DATA/CHAT_TOKENS z tmp_path
+    przeciekaja do podprocesow w tests/test_send.py (ta sama pulapka, ktora
+    opisuje fixture _bez_wyciekow_env)."""
+    for klucz in ("CHAT_TOKENS", "CHAT_DATA", "CHAT_PORT", "CHAT_BIND"):
+        monkeypatch.setenv(klucz, os.environ.get(klucz, ""))
+
+
+# -- jawny --port jest DECYZJA, nie sugestia -----------------------------
+# Zmierzone na zywej maszynie (Windows 11 przez tailnet, 2026-08-06): agent
+# poprosil o 8790, dostal 8791 i EXIT 0 z jedna linia na stderr. `cmd_start`
+# mial fail-fast z komentarzem "jawne --port (decyzja czlowieka, nie zgadujemy
+# za niego)", a wolane zaraz potem `ensure_hub` i tak przesuwalo, bo nie
+# wiedzialo, skad ten port pochodzi. Ta sama klasa co ciche wejscie `--name`
+# do cudzego pokoju: intencja przegrywa z wygoda, po cichu.
+
+def test_jawny_port_zajety_przez_inny_pokoj_to_odmowa_z_nazwa_wlasciciela(
+        home, monkeypatch, capsys):
+    """1. Jawny --port + kolizja z configiem innego pokoju = ODMOWA.
+
+    Odmowa musi nazwac POKOJ trzymajacy port — "port taken" bez wlasciciela
+    zostawia czlowieka z zagadka zamiast z naprawa. I nie moze zostawic
+    pokoju-widma: nieudane wejscie, ktore zapisalo katalog, straszy potem
+    w `list` (patrz test_failed_start_leaves_no_ghost_room)."""
+    cli.ensure_hub("goldberg", 8790)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        lambda argv, log: pytest.fail(
+                            "start spawnowal huba mimo kolizji portu"))
+
+    rc = cli.main(["start", "--name", "nowy", "--port", "8790"])
+    err = capsys.readouterr().err
+    assert rc != 0, "przesuniecie jawnego portu meldowalo EXIT 0"
+    assert "goldberg" in err, "powiedz, KTO trzyma ten port"
+    assert "8790" in err
+    assert "agentmachi list" in err and "--port <other>" in err, \
+        "komunikat ma niesc naprawe, nie sam werdykt"
+    assert not (cli.hub_dir("nowy") / "config.json").exists(), \
+        "odmowa zostawila pokoj-widmo z adresem"
+    assert not cli.hub_dir("nowy").exists()
+    assert cli.hub_port("goldberg") == 8790, "wlasciciel nie moze stracic portu"
+
+
+def test_bez_jawnego_portu_nowy_pokoj_nadal_przesuwa_sie_w_gore(home, capsys):
+    """2. Granica poprzedniego testu: BEZ --port przesuniecie zostaje.
+
+    Czlowiek nie wskazal adresu, wiec zaden kursor ani zadna wklejona karta
+    jeszcze go nie zna — alokacja nalezy do narzedzia (C5)."""
+    cli.ensure_hub("goldberg", 8790)
+    _, port = cli.ensure_hub("nowy", 8790)          # port_jawny domyslnie False
+    assert port == 8791, "auto-wybor portu to zamierzone zachowanie, nie bug"
+    assert "gets 8791" in capsys.readouterr().err
+
+
+def test_istniejacy_pokoj_zachowuje_swoj_port_takze_przy_jawnym(home):
+    """3. Pokoj ISTNIEJACY nie zmienia adresu w `ensure_hub` — ani cicho w
+    gore, ani przez odmowe. Kursory klientow sa per host:port, wiec kazde
+    przesuniecie znaczy pusty log pod znanym adresem. Jawne przepiecie
+    istniejacego pokoju robi swiadomie `cmd_start` (osobny test nizej)."""
+    cli.ensure_hub("goldberg", 8790)
+    cli.ensure_hub("stary", 8795)
+    # nawet gdy ktos poda port zajety przez 'goldberga': config wygrywa,
+    # zadnego wyjatku
+    _, port = cli.ensure_hub("stary", 8790, port_jawny=True)
+    assert port == 8795
+    assert cli.hub_port("stary") == 8795
+
+
+def test_start_bez_portu_przezywa_wlasne_jawne_port_w_spawnowanym_serve(
+        home, monkeypatch, capsys):
+    """4. SCIEZKA start -> serve, czyli jedyne miejsce, gdzie ta naprawa
+    mogla wysadzic normalny start pokoju.
+
+    `cmd_start` spawnuje `agentmachi.cli serve --port <wyliczony>` — port
+    JAWNY w argv, choc czlowiek zadnego nie podal. Gdyby dziecko czytalo go
+    jako decyzje i odmawialo przy kolizji z configiem, kazdy `start` na
+    maszynie z drugim pokojem na tym porcie by padal. Nie pada, bo rodzic
+    zapisuje config.json PRZED spawnem, wiec dziecko idzie sciezka "pokoj
+    istniejacy". Odtwarzamy tu uruchomienie dziecka z jego prawdziwego argv
+    (przez parser), zeby to nie bylo zalozenie, tylko pomiar."""
+    cli.ensure_hub("goldberg", cli.DEFAULT_PORT)     # zajmuje domyslny port
+    spawned = {}
+
+    def fake_spawn(argv, log_path):
+        spawned["argv"] = argv
+        return 4242
+
+    monkeypatch.setattr(cli, "_spawn_detached", fake_spawn)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: False)
+
+    rc = cli.cmd_start(argparse.Namespace(name="nowy", port=None, bind=None))
+    assert rc == 0, capsys.readouterr().err
+    port = cli.hub_port("nowy")
+    assert port == cli.DEFAULT_PORT + 1, "bez --port pokoj mial sie przesunac"
+    argv = spawned["argv"]
+    assert "--port" in argv and argv[argv.index("--port") + 1] == str(port), \
+        "start przekazuje dziecku port JAWNIE — na tym opiera sie ten test"
+
+    # teraz dziecko: to samo argv, ten sam AGENTMACHI_HOME
+    _serve_env_sprzatane(monkeypatch)
+    args = cli._build_parser().parse_args(argv[3:])
+    assert args.cmd == "serve" and args.port == port
+    stan = {}
+
+    class Boom(RuntimeError):
+        pass
+
+    def fake_server_main():
+        stan["ran"] = True
+        raise Boom()
+
+    import chat.server
+    monkeypatch.setattr(chat.server, "main", fake_server_main)
+    try:
+        args.fn(args)
+    except Boom:
+        pass
+    assert stan.get("ran"), ("serve spawnowany przez start nie wstal: "
+                             + capsys.readouterr().err)
+    assert cli.hub_port("nowy") == port, "dziecko przestawilo adres pokoju"
+
+
+def test_serve_bez_portu_bierze_domyslny_i_nadal_przesuwa(home, monkeypatch,
+                                                          capsys):
+    """Granica zmiany parsera: `serve` ma teraz --port default=None, ale nadal
+    ma prawo do DEFAULT_PORT i nadal wolno mu ustapic, gdy nikt portu nie
+    wskazal. Bez tego samo `agentmachi serve --name X` przestaloby dzialac."""
+    cli.ensure_hub("goldberg", cli.DEFAULT_PORT)
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: False)
+    _serve_env_sprzatane(monkeypatch)
+    stan = {}
+
+    class Boom(RuntimeError):
+        pass
+
+    def fake_server_main():
+        stan["ran"] = True
+        raise Boom()
+
+    import chat.server
+    monkeypatch.setattr(chat.server, "main", fake_server_main)
+    args = cli._build_parser().parse_args(["serve", "--name", "nowy"])
+    assert args.port is None, "parser musi umiec powiedziec 'nie podal portu'"
+    try:
+        args.fn(args)
+    except Boom:
+        pass
+    assert stan.get("ran"), capsys.readouterr().err
+    assert cli.hub_port("nowy") == cli.DEFAULT_PORT + 1
+
+
+def test_serve_z_jawnym_portem_odmawia_zamiast_wejsc_obok(home, monkeypatch,
+                                                          capsys):
+    """Druga sciezka tej samej decyzji. `serve` to komenda, ktora czlowiek tez
+    odpala recznie — jawny --port musi tam znaczyc to samo, co w `start`."""
+    cli.ensure_hub("goldberg", 8790)
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: False)
+
+    import chat.server
+    monkeypatch.setattr(chat.server, "main",
+                        lambda: pytest.fail("serve wstal mimo kolizji portu"))
+    rc = cli.main(["serve", "--name", "nowy", "--port", "8790"])
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "goldberg" in err
+    assert not cli.hub_dir("nowy").exists()
 
 
 def test_skan_nie_myli_huba_z_innej_instalacji(home, monkeypatch):
