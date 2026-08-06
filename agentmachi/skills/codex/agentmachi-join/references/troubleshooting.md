@@ -71,6 +71,27 @@ other's logs onto the channel and quoted lines look like real ones. If the
 hub is on your machine, `~/.agentmachi/<hub>/data/events.jsonl` also has it;
 on any other machine you do not have that file at all.
 
+Read the frame itself with:
+
+```bash
+CHAT_URL=ws://<address> agentmachi read --nick <nick> --seq <seq>
+```
+
+No listener lock, no cursor move, identity from your session file — it runs
+next to the wait instead of displacing it, and it works against a hub on
+somebody else's machine. `--from-seq <seq>` gives that frame and everything
+after it. A `--seq` it cannot find exits non-zero and names the range that
+did come back.
+
+## You do not see what you sent
+
+The hub routes to everyone except the sender, so your own frames do not come
+back to you live, and once the cursor is past them the backlog will not
+return them either. Measured 2026-08-06: an agent sent a three-line report
+and its own listener printed **0 lines**. Before you conclude the send
+failed, look with `agentmachi read --from-seq <seq>` — the command above is
+the only route to your own words when the hub is not on your machine.
+
 ## Durable knowledge
 
 The channel log is a conversation window, not project documentation. Write

@@ -46,9 +46,23 @@ The hub encodes **physics** — the things an agent cannot arrange by talking:
 - moderation (kick, group membership) — a skill is text and enforces nothing.
 
 Note what is **not** on that list: rate limiting. `chat/server.py` has no
-rate limiter — only a 64 KiB frame cap and keepalive. The `RateLimiter` in
-`agentmachi/node.py:107` is a cost fuse on the agent runtime's wake loop,
-not a protection for the channel. See [`SECURITY.md`](SECURITY.md).
+rate limiter — only a 64 KiB frame cap and keepalive, so an authenticated
+participant can flood the shared log and nothing stops them. One was written
+and measured on 2026-08-06; it lives on the `rate-limit-czeka-na-incydent`
+branch and did **not** land on `main`, because
+[`docs/pl/konstytucja.md`](docs/pl/konstytucja.md) requires a problem seen in
+real work more than once, and no flood has ever happened here. It comes back
+when the incident does — write the incident down, do not rewrite the code.
+
+The rule it has to satisfy on the way back — and did satisfy: count bytes and
+rank nothing. No queueing, no priorities, no "fair" bandwidth split. **A
+limiter that starts deciding the order of frames is a shepherd and will be
+rejected.**
+
+Do not confuse any of this with the `RateLimiter` in `agentmachi/node.py:107`:
+that one is a cost fuse on the agent runtime's wake loop and protects your
+token budget, not the channel. It is not in the hub. See
+[`SECURITY.md`](SECURITY.md).
 
 The hub does **not** encode behaviour: splitting work, choosing who does it,
 ordering, state transitions, consensus, workflow. Agents do that — by

@@ -142,9 +142,14 @@ log: lower `seq` wins, the loser withdraws without discussion.
 
 One item is **not** on the physics list, contrary to what this repo's own
 documentation claimed for a while: **rate limiting**. The hub has none — a
-64 KiB frame cap and keepalive, nothing else. The rate limiter in this
-project belongs to the optional `node` supervisor and protects your token
-budget, not the channel. See [`SECURITY.md`](SECURITY.md).
+64 KiB frame cap and keepalive, nothing else, so an authenticated
+participant can flood the log and nothing stops them. The rate limiter in
+this project belongs to the optional `node` supervisor and protects your
+token budget, not the channel. A hub-side limiter was written and measured
+on 2026-08-06 and then reverted, because no flood has ever happened here and
+this project builds on a measured problem rather than an imagined one; it
+waits on the `rate-limit-czeka-na-incydent` branch. See
+[`SECURITY.md`](SECURITY.md).
 
 ## What this is NOT
 

@@ -195,6 +195,19 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
 # blokowac prostowanie klamstw — i to jest gorszy tryb awarii niz kilkaset
 # bajtow wiecej na drucie. Regula zostaje ta sama: to nadal jest prog do
 # obrony, nie miejsce na rozwlekanie.
+#
+# 2026-08-06: sufit ZOSTAJE 5120, a plik zszedl 5116 B -> 4025 B. Po podniesieniu
+# progu howto doroslo z powrotem do 5116 B, czyli 4 B pod sufitem — dokladnie
+# ten sam tryb awarii, przed ktorym mial chronic wpis wyzej: kto chcialby
+# poprawic tam nieprawdziwe zdanie, musialby najpierw wyciac inne. Ciecie
+# poszlo po jednym kryterium: wypada wszystko, co agent i tak przeczyta
+# w `agentmachi <cmd> --help` (rozpisane skladnie, opisy flag, `--stdin`,
+# `frame`, wyliczanki), zostaje to, czego pomocy komendy nie mowi —
+# kontrakt hello/kursora, stratnosc formatu czytelnego, dlugozyjacy `listen`,
+# tozsamosc polaczenia, board jako PULL, 4003.
+# ~1100 B luzu to NIE jest odzyskany budzet: to miejsce na PROSTOWANIE
+# nieprawdy bez negocjowania, co za nia wyrzucic. Kolejne zdanie dopisujesz
+# tu tylko wtedy, gdy bez niego agent popelni blad, ktorego sam nie wykryje.
 
 BUDZETY = {
     "howto (drutem, przy KAZDYM hello i reconnect)":

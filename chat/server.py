@@ -109,6 +109,28 @@ def _strict_json_loads(raw):
     return frame
 
 
+class CursorBeyondLog(AuthError):
+    """Kursor klienta wskazuje ZA koniec logu — i odmowa niesie tu LICZBE.
+
+    Powod istnienia jest waski i konkretny. Ta odmowa jest dla `read`
+    (send.read_frames) sytuacja ZWYKLA, nie awaria: agent pyta o `seq`,
+    ktorego jeszcze nie ma, i musi dostac koniec logu, zeby wiedziec, o co
+    zapytac. Dopoki liczba siedziala WYLACZNIE w tekscie dla czlowieka,
+    klient wylapywal ja regexem `r"> server last_seq (\\d+)"` — czyli
+    parsowal prose przeznaczona dla oczu. Repo zakazuje dokladnie tego przy
+    formacie czytelnym `listen` ("nie parsuj, agenci wklejaja sobie logi"),
+    a tutaj sam produkt robil to samo u siebie: przeredagowanie zdania
+    w tej klasie cicho psulo klienta, bez zadnego czerwonego testu po
+    stronie serwera.
+
+    Tekst zostaje bez zmian (czyta go czlowiek), a `server_last_seq` idzie
+    POLEM ramki `error` — pole jest kontraktem, zdanie nie jest."""
+
+    def __init__(self, server_last_seq, text):
+        super().__init__(text)
+        self.server_last_seq = server_last_seq
+
+
 class ChatServer:
     def __init__(self, data_dir, tokens, port, bind="127.0.0.1", open_mode=None):
         self.port = port
@@ -680,7 +702,8 @@ class ChatServer:
                 # tym samym porcie. Reset kursora robi CZLOWIEK — kontrakt
                 # client_session jest fail-closed i nie resetuje po cichu.
                 if last_seq > self.log.last_seq:
-                    raise AuthError(
+                    raise CursorBeyondLog(
+                        self.log.last_seq,
                         f"last_seq {last_seq} > server last_seq "
                         f"{self.log.last_seq}: your cursor comes from a "
                         f"DIFFERENT log — usually from a previous hub on the "
@@ -777,7 +800,13 @@ class ChatServer:
                         frame.get("from"), frame.get("instance_id"),
                         frame.get("token"))
             except AuthError as e:
-                await self._error(ws, str(e))
+                # Pole doklada WYLACZNIE ta jedna odmowa (patrz
+                # CursorBeyondLog). Nie dopisujemy go do kazdego bledu auth:
+                # zly token nie ma prawa dowiedziec sie, jak dlugi jest log
+                # pokoju, do ktorego wlasnie nie wszedl.
+                pola = ({"server_last_seq": e.server_last_seq}
+                        if isinstance(e, CursorBeyondLog) else {})
+                await self._error(ws, str(e), **pola)
                 return
             nick = frame["from"]
             # role jest stala z configu; groups to aktualny, trwaly stan

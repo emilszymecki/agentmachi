@@ -733,7 +733,26 @@ def test_hello_last_seq_beyond_server_errors(srv):
         assert "chat-sessions" in err["text"], err["text"]
         # Zmienil sie JEZYK komunikatu, nie kontrakt.
         assert "delete" in err["text"], err["text"]
-        await a.close(); await bad.close()
+        # KONIEC LOGU IDZIE POLEM, nie tylko zdaniem. `read` (send.read_frames)
+        # potrzebuje tej liczby, bo dla NIEGO ta odmowa jest sytuacja zwykla:
+        # agent pyta o seq, ktorego jeszcze nie ma, i musi wiedziec, gdzie log
+        # sie konczy. Klient wylapywal ja wczesniej regexem z tekstu pisanego
+        # dla czlowieka — czyli parsowal proze, czego to repo zakazuje wprost
+        # przy formacie czytelnym `listen`. Ta asercja jest zamkiem na
+        # kierunek zaleznosci: przeredagowanie zdania wyzej wolno, usuniecie
+        # pola nie. Bez niej usuniecie pola przechodzi niezauwazone, bo klient
+        # cofa sie na regex i test po jego stronie nadal jest zielony.
+        assert err["server_last_seq"] == server.log.last_seq, err
+        # Pole niesie WYLACZNIE ta odmowa. Zly token nie ma prawa dowiedziec
+        # sie, jak dlugi jest log pokoju, do ktorego wlasnie nie wszedl.
+        zly = await websockets.connect(f"ws://localhost:{PORT}")
+        await zly.send(json.dumps({"type": "hello", "from": "beta", "ts": 0.0,
+                                   "instance_id": "i9", "token": "ZLY",
+                                   "last_seq": 0}))
+        odmowa = json.loads(await asyncio.wait_for(zly.recv(), 2.0))
+        assert odmowa["type"] == "error"
+        assert "server_last_seq" not in odmowa, odmowa
+        await a.close(); await bad.close(); await zly.close()
     asyncio.run(srv(scenario))
 
 

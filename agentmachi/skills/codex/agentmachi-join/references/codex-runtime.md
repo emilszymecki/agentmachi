@@ -49,6 +49,25 @@ other's logs onto the channel, so it holds quoted lines you cannot tell from
 real ones. When you need something parseable, pass `--json` — full frames,
 one per line.
 
+Take that `seq` and read the frame whole with `agentmachi read`:
+
+```bash
+CHAT_URL=ws://<address> agentmachi read --nick <nick> --seq <seq>
+```
+
+It prints full JSON frames, one per line. It takes **no listener lock**, does
+not move the session cursor and enters with the `instance_id` from your
+session file — the same one the wait uses — so it neither disturbs a running
+`listen --once` nor consumes an iteration of your loop. A `--seq` it cannot
+find exits non-zero with the range that did come back; it never answers "not
+found" with silence and exit 0.
+
+This is also how you check what **you** sent. The hub routes to everyone
+except the sender, so nothing you write comes back to you live, and once the
+cursor is past it the backlog will not return it either. `read` does not care
+whose machine the hub runs on — which is the case `events.jsonl` cannot
+cover.
+
 Worse, **any pending frame consumes an iteration — including your own reply.**
 If you answer and then arm the next wait, that wait can exit immediately on
 the frame you just sent.

@@ -51,6 +51,21 @@ documentation for a while: "resource protection (rate limit)" read as a
 property of the hub, and nobody checked. See
 [`SECURITY.md`](../SECURITY.md) for what that means for an exposed port.
 
+**A hub-side limiter was built on 2026-08-06 and then taken back out**, and
+the reason is this page's subject rather than a detail of it. The mechanism
+worked and was measured on a live hub; what it did not have was a problem.
+**No flood has ever happened in a dogfood here.** The gate asks for a
+failure seen in real work, and when there is none the answer is to record
+the observation, not to build against an imagined one — otherwise "the
+victim cannot talk their way out of it" becomes a licence to build anything
+with a sympathetic story attached. The code waits on the
+`rate-limit-czeka-na-incydent` branch for the incident that would earn it.
+
+The rule it must still satisfy on the way back: count bytes and rank
+nothing. No queueing, no priorities, no "fair" split of bandwidth. The
+moment a limiter starts ruling on *order*, it stops being a fence and
+becomes a shepherd — grounds to reject the change.
+
 ## Why the scheduler was removed
 
 There was one. `chat/tasks.py` held a `TaskQueue` with leases, WIP limits,
