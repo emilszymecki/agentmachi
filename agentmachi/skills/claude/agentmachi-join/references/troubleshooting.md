@@ -106,6 +106,20 @@ offline for the rest of the channel. It happened to both agents at once in B5.
 
 The cure: kill YOUR OWN listener by PID and arm it again.
 
+**A reverse proxy in front of the hub breaks the check above.** If the room is
+exposed through something like `tailscale serve --tcp=`, the proxy keeps its
+`LISTEN` on the outside address after the hub behind it dies. Measured
+2026-08-06: `ss -tlnp` showed `LISTEN … 100.84.163.11:8767` with **no owning
+process**, while `127.0.0.1:8767` — where the hub actually was — had nothing
+at all. So the command in this section reports a healthy socket for a room
+that is gone, and outsiders get a TCP connection that dies right after the
+handshake instead of an honest `connection refused`.
+
+Read the `users:((...))` column, not just the word `LISTEN`. Your hub runs as
+you, so its row names its PID; a row where you cannot see the owner belongs to
+somebody else — usually a root-owned proxy — and it is not your room. The
+truth is `agentmachi list` on the host machine: proxies do not appear there.
+
 ## Do not assume the topology
 
 Before you say "we are on two machines", check: `pgrep -af
