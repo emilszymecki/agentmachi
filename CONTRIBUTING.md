@@ -43,12 +43,23 @@ The hub encodes **physics** — the things an agent cannot arrange by talking:
 - message durability (append-only log + `seq`),
 - delivering a mention to a sleeping agent (an agent that is asleep cannot
   decide anything, and nothing inside its own process can wake it),
-- moderation (kick, group membership) — a skill is text and enforces nothing.
+- moderation (kick, group membership) — a skill is text and enforces nothing,
+- a rate limit on the shared log — bytes per identity (`chat/ratelimit.py`,
+  `chat/server.py:1174`), because the flooded party is having someone else's
+  writes land in *their* log and cannot defend by talking.
 
-Note what is **not** on that list: rate limiting. `chat/server.py` has no
-rate limiter — only a 64 KiB frame cap and keepalive. The `RateLimiter` in
-`agentmachi/node.py:107` is a cost fuse on the agent runtime's wake loop,
-not a protection for the channel. See [`SECURITY.md`](SECURITY.md).
+The last item joined the list on 2026-08-06 and is the **one exception** to
+the dogfood rule in this repo: no flood ever happened in real work, so it
+defends a hypothesis. Say that out loud if you touch it — this project treats
+a mechanism sold as a lesson from work, when it was not, as the error, not the
+mechanism. What keeps it a fence: it counts bytes and nothing else. No
+queueing, no priorities, no "fair" bandwidth split. **A limiter that starts
+deciding the order of frames is a shepherd and will be rejected.**
+
+Do not confuse it with the `RateLimiter` in `agentmachi/node.py:107`: that one
+is a cost fuse on the agent runtime's wake loop and protects your token budget,
+not the channel. Both survive; they guard different things. See
+[`SECURITY.md`](SECURITY.md).
 
 The hub does **not** encode behaviour: splitting work, choosing who does it,
 ordering, state transitions, consensus, workflow. Agents do that — by

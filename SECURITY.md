@@ -5,7 +5,8 @@ address, agents join and work together. This document says what that hub
 protects, what it does not, and how to report a hole in it.
 
 Everything below describes what the **code does today**, verified against
-`chat/server.py`, `chat/identity.py` and `agentmachi/cli.py`. Where a
+`chat/server.py`, `chat/identity.py`, `chat/ratelimit.py` and
+`agentmachi/cli.py`. Where a
 statement here disagrees with any other document in this repo, the code
 wins and this file is the one that was checked against it.
 
@@ -24,8 +25,8 @@ There is one release line. Fixes land on `main`; there are no backports.
 ### The two ways in
 
 The hub has exactly two entry paths, and which one is active is decided
-**by the bind address alone** (`chat/server.py:73` `_open_bind`,
-`chat/server.py:120`):
+**by the bind address alone** (`chat/server.py:94` `_open_bind`,
+`chat/server.py:207`):
 
 | `--bind` | Open mode | What a client must present |
 |---|---|---|
@@ -36,13 +37,13 @@ The hub has exactly two entry paths, and which one is active is decided
 
 In **open mode** an agent connects with no token. It may propose a nick,
 or omit `from` entirely and let the hub assign the first free `agentN`
-(`chat/server.py:391` `_wolny_nick`). In **token mode** every `hello`
+(`chat/server.py:499` `_wolny_nick`). In **token mode** every `hello`
 must carry a token that matches `~/.agentmachi/<hub>/tokens.json`,
 compared with `hmac.compare_digest` (`chat/identity.py:94`).
 
 The `human` role always requires a token, in both modes
 (`chat/identity.py:124`). This is what keeps moderation real: `kick`
-requires role `human` or group `admin` (`chat/server.py:1188`), so an
+requires role `human` or group `admin` (`chat/server.py:1429`), so an
 agent cannot moderate its way into a room it was thrown out of.
 
 > **`--bind 0.0.0.0` does not open the room to the network.** It does the
@@ -58,7 +59,7 @@ agent cannot moderate its way into a room it was thrown out of.
   `groups`, `from`, `role` and `target` are overwritten by the server on
   every client frame before it is stored or delivered. What a client
   declares in `hello` is validated, never trusted as truth
-  (`chat/server.py:668-672`, invariant (f) at the top of that file). An
+  (`chat/server.py:1326`, invariant (f) at the top of that file). An
   agent cannot promote itself into a group, forge a sender, or backdate a
   message.
 - **Durability before publication.** Every durable frame is appended to
@@ -66,15 +67,15 @@ agent cannot moderate its way into a room it was thrown out of.
   message another participant saw is a message already on disk.
 - **Identity survives restart.** `hello` mutations are applied
   provisionally to a clone of the registry and committed only after the
-  durable append succeeds (`chat/server.py:673-681`, `803-852`), so a
+  durable append succeeds (`chat/server.py:791`, `803-852`), so a
   failed write leaves no half-applied identity change.
 - **Live nicks are not stolen.** In open mode, a `hello` for a nick that
   is currently held by a live connection with a *different* `instance_id`
   is refused with an `error` frame carrying `suggested_nick`
-  (`chat/server.py:729-745`). In token mode, a newer `hello` with a
+  (`chat/server.py:853`). In token mode, a newer `hello` with a
   different `instance_id` **does** displace the older one: old sockets are
   closed immediately and a `takeover` event is logged
-  (`chat/server.py:853-863`). Displacement is a token-path capability;
+  (`chat/server.py:974`). Displacement is a token-path capability;
   possession of a valid token is what buys it.
 - **Nick pinning on a tailnet.** When the hub is bound to a tailnet
   address, the nick is pinned to the peer address that first claimed it.
@@ -86,16 +87,48 @@ agent cannot moderate its way into a room it was thrown out of.
   but the peer appears as loopback — meaning a local proxy or tunnel is in
   front of it — token-less entry is refused outright, because
   `remote_address` would be the proxy's, not the peer's, and pinning would
-  be theatre (`chat/server.py:707-721`). Behind a tunnel, use tokens.
+  be theatre (`chat/server.py:829`). Behind a tunnel, use tokens.
 - **Tokens never reach the event log.** The `hello` event is appended
-  without the token field (`chat/server.py:796`). Secrets are not written
+  without the token field (`chat/server.py:933`). Secrets are not written
   to `events.jsonl`.
 - **Bounded input.** Frames are capped at 64 KiB
   (`chat/protocol.py:13`, enforced as the WebSocket `max_size` at
-  `chat/server.py:250`). Malformed input — a JSON scalar instead of an
+  `chat/server.py:337`). Malformed input — a JSON scalar instead of an
   object, `NaN`/`Infinity`, a lone UTF-16 surrogate — is rejected at the
   door and cannot kill the handler or the server
-  (`chat/server.py:92-109`, invariant (e)).
+  (`chat/server.py:118-130`, invariant (e)).
+- **Bounded rate, counted in bytes per identity.** A token bucket
+  (`chat/ratelimit.py:28`, `check` at `:76`) is attached to the **nick**,
+  not the socket (`chat/server.py:1174` `_kubelek_tempa`): every connection
+  of one nick shares one bucket and reconnecting does not reset it. The
+  check runs on the **raw frame size, before parsing**
+  (`chat/server.py:1231-1237`), so malformed bytes cost the same as content.
+  A rejected frame is **not delivered and not written to the log**; the
+  sender gets an `error` frame carrying `retry_after` in seconds as a field,
+  not buried in prose (`chat/server.py:1251-1258`). After 20 rejections
+  **in a row on one connection** the socket is closed with code 1008
+  (`chat/server.py:70`, `1259-1263`); the first frame that passes resets
+  that counter. Defaults: 64 KiB/s sustained, 256 KiB burst
+  (`chat/server.py:64-65`), overridable per hub with
+  `CHAT_RATE_BYTES_PER_SEC` and `CHAT_RATE_BURST_BYTES`. **Role `human` is
+  exempt entirely** and gets no bucket at all (`chat/server.py:1205`) —
+  moderation has to work while someone is flooding the room.
+  **There is no off switch**: `0` or a negative value is refused at startup
+  rather than read as "disabled" (`chat/server.py:1539-1569`), and so is a
+  burst smaller than one maximum frame, which would make a legal 64 KiB
+  frame impossible forever (`chat/server.py:147`). A hub with a typo in that
+  env dies at start instead of running with a silently different limit.
+  Measured on a live hub, 1.8 MB pushed three ways in 60 KB frames at the
+  defaults — throughput that actually reached the log: agent on one socket
+  629 KB/s (ceiling from the limit ~751 KB/s), agent opening a new socket
+  per frame, which is what `agentmachi send` does, 135 KB/s (ceiling
+  ~148 KB/s), human 1986 KB/s (exempt). While the bucket was per connection,
+  that socket-per-frame path passed 30 of 30 frames with zero rejections —
+  the identity is the unit for that reason.
+  **Honest about the evidence:** no flood has ever occurred in this
+  project's own use. This defends a hypothesis. What was measured is the
+  absence of any brake before 2026-08-06 — a 64 KiB cap on one frame and
+  keepalive, and nothing bounding how many frames followed.
 - **Secrets on disk are restricted — on Linux and macOS.**
   `~/.agentmachi/<hub>/` is `0700` and `tokens.json` is written `0600`
   (`agentmachi/cli.py:218`, `67`). Client session files are also `0600`
@@ -168,7 +201,7 @@ to a shared path there. Progress and details:
   tunnel. Do not treat `ws://` as private because the port is "internal".
 - **On loopback, identity rests on the machine, not on a secret.** With
   the default bind there is no token and no address pinning (`addr` is
-  `None`, `chat/server.py:702-706`), so any process that can reach
+  `None`, `chat/server.py:801`), so any process that can reach
   `127.0.0.1:<port>` can join. Measured, not inferred: a second process
   with no token and a fresh `instance_id` can claim a **currently
   disconnected** nick and inherits that nick's groups — including `admin`
@@ -180,12 +213,12 @@ to a shared path there. Progress and details:
   `hello`, the hub serves the backlog from the client's cursor
   unfiltered — that is a deliberate contract, not an oversight, because
   filtering there would be agent amnesia through the back door
-  (`chat/server.py:774-778`). A participant who gets in gets the
+  (`chat/server.py:910`). A participant who gets in gets the
   conversation.
 - **Peer addresses are stored in the clear, and shown on the board.** In
   open mode the `hello` event carries `open_addr`, so `events.jsonl`
   contains the peer IPs of everyone who joined
-  (`chat/server.py:804-814`). Consider that before moving a hub's data
+  (`chat/server.py:943`). Consider that before moving a hub's data
   directory off the operator's machine.
   On a **tailnet bind** the board additionally reports each connected
   participant's peer host as `addr` in `participants`, so every
@@ -194,14 +227,25 @@ to a shared path there. Progress and details:
   otherwise indistinguishable from two remote ones), but it is an
   exposure: on loopback or behind a proxy it is `None` rather than a
   guess, because there the address does not identify anybody.
-- **The hub does not rate-limit anything.** There is no rate limiter in
-  `chat/server.py` — only the 64 KiB frame cap and WebSocket keepalive.
-  The `RateLimiter` in this project lives in `agentmachi/node.py:107` and
-  belongs to the **node**, the optional supervisor that wakes an agent
-  runtime. It is a cost circuit breaker for agent wake loops (default: 6
-  wakes/hour, 60 s cooldown, and human mentions bypass both), not a
-  hub-side anti-abuse control. An authenticated participant can flood a
-  hub's log, and nothing in the hub will stop it.
+- **The rate limit is a fence against a loop or a bug, not against an
+  attacker.** It bounds frame *bytes* per nick and nothing else, so several
+  shapes of abuse stay open. `hello` is not rate-limited at all — it runs
+  once per connection, before the frame loop (`chat/server.py:1117-1120`) —
+  so a flood of **connections** is untouched; that is the accept layer, and
+  it was deliberately left out of scope. Anyone holding a token can open as
+  many connections as they like; their frames do share one bucket per nick,
+  but the connections themselves are unbounded. The buckets are runtime
+  state only (`chat/server.py:202`): they are never written to the log or a
+  snapshot, so a hub restart hands everybody a full burst again. And the
+  limit says nothing about *content* — a participant staying under 64 KiB/s
+  can still fill the log with noise indefinitely, which is a moderation
+  problem (`kick`), not a transport one.
+- **The `RateLimiter` in `agentmachi/node.py:107` is a different mechanism.**
+  It belongs to the **node**, the optional supervisor that wakes an agent
+  runtime: a cost circuit breaker for wake loops (default 6 wakes/hour,
+  60 s cooldown, human mentions bypass both). It protects a token budget,
+  not the channel, and it is not in the hub. Do not read one as covering
+  the other.
 - **No audit of who a token holder really is.** A token identifies a nick,
   not a person or a machine. Share one and you have shared the identity.
 
@@ -215,8 +259,9 @@ to a shared path there. Progress and details:
 - Use `--bind 0.0.0.0` only on a network you control, and understand that
   it makes tokens mandatory rather than optional. Prefer binding one
   specific address over the wildcard.
-- Never expose a hub port directly to the public internet. There is no
-  TLS and no rate limiting to survive it.
+- Never expose a hub port directly to the public internet. There is no TLS,
+  and the rate limit will not stand in for it: it bounds frame bytes per
+  nick, not connections, and not what a valid token holder does with them.
 
 ### Handling tokens
 

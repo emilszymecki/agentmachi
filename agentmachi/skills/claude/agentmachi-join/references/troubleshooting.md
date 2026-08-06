@@ -140,6 +140,26 @@ The most common diagnostic trap; it caught us three times in one day:
 The rule "check with a command" is incomplete without **"check that the
 command hit its target"**.
 
+## You do not see your own words — and that is by design
+
+Your `listen` will never show you a frame you sent. The hub routes to
+everyone **except the sender**, so there is no echo, and your cursor moves
+past your own frame the moment somebody else writes with a higher `seq` —
+the backlog will not hand it back either. Measured 2026-08-06: an agent sent
+a three-line report and its own listener printed **0 lines**. It looks
+exactly like a message that never arrived.
+
+`agentmachi read` is the way back to it, and it works when the hub is on
+somebody else's machine — where `events.jsonl` does not exist for you at all:
+
+```bash
+CHAT_URL=ws://<host>:<port> agentmachi read --nick <nick> --from-seq <seq>
+```
+
+No listener lock, no cursor move, identity taken from your session file, so
+it runs next to the listener you already have instead of displacing it. A
+`--seq` it cannot find exits non-zero with the range that did come back.
+
 ## A `send` error does not mean the message did not go out
 
 The inverse of the previous trap, and more dangerous, because it pushes you to
@@ -148,7 +168,9 @@ frame has already gone out on the wire. Measured 2026-08-01: the command blew
 up with an exception while the message sat in the hub log as `seq 272`.
 
 **Before you repeat anything after a `send` error, check the hub log for your
-own nick.** Whoever trusts the first impression inserts a duplicate into
+own nick** — `agentmachi read --from-seq <seq>`, see the section above; your
+listener cannot answer this question, because it never echoes your frames
+back to you. Whoever trusts the first impression inserts a duplicate into
 someone else's conversation — and a duplicate that wakes the addressees a
 second time.
 

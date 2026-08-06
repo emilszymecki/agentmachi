@@ -361,6 +361,66 @@ i żaden z dwóch agentów nie znalazł własnego. To jest empiryczne
 uzasadnienie całego produktu: kanał nie mnoży rąk, tylko niezależne punkty
 widzenia, a niezależność jest tu warunkiem wykrywalności, nie ozdobą.
 
+## 15. Czerwona suita też bywa prawdą o maszynie, nie o commicie
+
+Zasada 14 ma dowód, w którym **zielony** wynik opisywał maszynę, a nie
+commit („322 testy zielone", bo pokój użyty w teście jeszcze nie stał).
+Druga połowa tej samej reguły kosztowała nas dzień zablokowanego commita:
+**czerwony wynik kłamie tak samo i w tę samą stronę.**
+
+*Dowód — 2026-08-06, cztery serie na jednym drzewie roboczym, dwóch
+agentów pracujących równolegle:*
+
+1. Agent robiący limit tempa zgłosił jedno padnięcie **cudzego** testu
+   (`tests/test_send.py::test_read_seq_ktorego_nie_ma_w_zwrocie_konczy_sie_bledem`)
+   i uznał je za „wyścig pod obciążeniem", bo w kolejnych przebiegach nie
+   wróciło.
+2. Orkiestrator odpalił ten sam plik **8 razy i dostał 3 padnięcia**
+   (~37%). To już nie wygląda na jednorazowy wyścig, tylko na realną wadę
+   kodu — commit stanął.
+3. Sześć kolejnych przebiegów: **zero padnięć**. Jedyna różnica między
+   seriami — podczas pierwszej orkiestrator równolegle **edytował
+   `send.py` i `chat/server.py`**, podczas drugiej nie dotykał drzewa.
+4. Dowód przyczynowy zamiast korelacji: 3 przebiegi, a obok pętla
+   przepisująca `send.py` **tą samą treścią** (zwykły, nieatomowy zapis —
+   dokładnie tak pisze edytor). Padł 1 z 3. Plik po eksperymencie był bit
+   w bit identyczny z plikiem sprzed, więc to **wyścig importu**, a nie
+   uszkodzona zawartość.
+
+Mechanizm: procesy testowe importują prosto z drzewa roboczego, więc
+**każdy zapis do pliku `.py` w trakcie przebiegu może wywrócić losowy
+test** — ten, który akurat go importował. Padający test nie musi mieć nic
+wspólnego z przepisywanym plikiem, a objaw wygląda jak flake w cudzym
+kodzie.
+
+**Wniosek:** przy kilku agentach na jednym drzewie czerwony wynik nie
+dowodzi wady kodu tak samo, jak zielony nie dowodzi jego poprawności. Oba
+opisują **stan maszyny w chwili przebiegu**, a commit jest tylko jednym
+z jego składników.
+
+*Praktyka:*
+
+- **Skończ edycje, potem mierz.** Suita odpalona w trakcie własnych
+  zapisów mierzy twoje `write()`, nie twój kod.
+- Cudze „u mnie raz padło" traktuj jako **pytanie o stan drzewa w tamtej
+  chwili** (`git status`, kto wtedy pisał), nie jako zgłoszenie buga.
+  Zanim zaczniesz szukać wyścigu w kodzie, wyklucz wyścig w systemie
+  plików.
+- Własne worktree wycina całą tę klasę — ta sama logika co prefiks
+  z [zasady 11]: kolizja **niemożliwa** zamiast rozstrzyganej.
+
+*Koszt sprawdzenia:* jedna seria przebiegów przy nietkniętym drzewie.
+*Koszt niesprawdzenia:* u nas dzień — zablokowany commit i szukanie
+wyścigu w kodzie, w którym go nie było.
+
+Repo zna bliźniaczą pułapkę po stronie CLI: `agentmachi send` potrafi
+wywalić się wyjątkiem importu, bo instalowany klient też czyta prosto ze
+wspólnego drzewa roboczego —
+[`troubleshooting.md`](../../agentmachi/skills/claude/agentmachi-join/references/troubleshooting.md),
+sekcja „A `send` error does not mean the message did not go out". To ten
+sam wyścig; nowa jest wyłącznie ofiara — tym razem suita, czyli narzędzie,
+którym rozstrzygamy, czy wolno commitować.
+
 ---
 
 ## Co świadomie odrzuciliśmy

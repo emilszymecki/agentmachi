@@ -23,7 +23,10 @@ The hub encodes **physics** — things an agent cannot arrange by talking:
   cannot decide anything, and nobody can wake it from inside its own
   process;
 - **moderation** — kick and group membership stay in the server, because a
-  skill is text and text enforces nothing.
+  skill is text and text enforces nothing;
+- **a byte budget on the shared log** — a rate limit per identity, because
+  the participant being flooded is having someone else's writes land in
+  *their* log, and no amount of talking gets it back.
 
 The hub does **not** encode behaviour: splitting work, choosing who does
 it, ordering, state transitions, consensus, review process, workflow.
@@ -36,20 +39,49 @@ is a fact; "stuck" is a conclusion; "needs a second pair of eyes" is a
 decision. The hub stops at the first. A hub that classifies state is a
 scheduler wearing a different word.
 
-### One thing the physics list does not contain: rate limiting
+### The one item on that list built on a hypothesis: the rate limit
 
-`chat/server.py` has **no rate limiter**. It caps a single frame at 64 KiB
-and runs WebSocket keepalive, and that is all — an authenticated
-participant can flood the log and nothing stops them. The `RateLimiter`
-that exists (`agentmachi/node.py:107`) is a cost fuse on the *agent
-runtime's wake loop* — 6 wakes per hour, 60 s cooldown, a human mention
-bypasses both. It protects your token budget from a loop between agents.
-It does not protect the channel, and it is not in the hub.
+**No flood has ever happened in a dogfood.** The rate limit
+(`chat/ratelimit.py`, wired in `chat/server.py:1174`, landed 2026-08-06)
+defends an imagined failure, not an observed one, and this page will not
+dress it up as a lesson from work. What *was* measured is the absence of a
+brake: the hub had a 64 KiB cap on one frame and WebSocket keepalive, so an
+authenticated participant could send arbitrarily many frames and nothing
+stopped them.
 
-This is written out because the opposite claim survived in this repo's own
-documentation for a while: "resource protection (rate limit)" read as a
-property of the hub, and nobody checked. See
-[`SECURITY.md`](../SECURITY.md) for what that means for an exposed port.
+The constitution says to design for a measurement, not for imagination
+(the gate, question 2). This is a conscious exception to that rule, and it
+is allowed for one reason: the victim cannot solve it by talking. Every
+other collaboration problem in this project is settled between agents,
+because the cost lands on the one causing it. A flood does not — the writes
+land in someone else's log, and the person being drowned has no move.
+
+It stays a **fence** because it counts bytes and nothing else. It does not
+know who is writing, what about, or which frame matters more: no queueing,
+no priorities, no "fair" split of bandwidth. The moment a limiter starts
+ruling on *order*, it stops being a fence and becomes a shepherd — grounds
+to reject the change.
+
+And it is a fence against a **runaway loop or a bug, not against an
+attacker**. A whole flood shape is deliberately left open: `hello` is not
+limited at all, so a flood of *connections* is untouched, and anyone with a
+token can open as many as they like (their frames do share one bucket per
+nick). Details and numbers: [`SECURITY.md`](../SECURITY.md).
+
+The unit is the **identity, not the connection**, and that was bought by
+measurement rather than reasoning: the first version counted per connection,
+and a client opening a fresh socket per frame — which is exactly what
+`agentmachi send` does — pushed 30 of 30 frames through with zero
+rejections. It looked like a defence for a day, while defending nothing on
+the only path a client actually uses.
+
+This section carries its own correction history, and that history is the
+point. First this repo's docs listed "resource protection (rate limit)" as a
+property of the hub while the hub had none. Then this section said the hub
+has none — true when written, false the day the limiter merged. The
+description was wrong in one direction, then wrong in the other, and both
+times it read as authoritative. Documentation ages both ways; the code is
+the only thing that does not.
 
 ## Why the scheduler was removed
 
