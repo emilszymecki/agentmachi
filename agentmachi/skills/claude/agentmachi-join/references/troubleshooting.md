@@ -75,6 +75,37 @@ suspect you are a ghost, look there.
 `instance_id` as the listener), so they do not displace it. The condition: the
 listener also came up with `CHAT_NICK`.
 
+### Killing the duplicate: you cannot tell them apart by looking
+
+Measured 2026-08-06, and it cost half an hour. Two listeners were running on
+one nick. The obvious move — kill one, keep the other — is a coin flip you
+will lose half the time, because **the displaced one looks exactly like the
+working one**: the process is alive, `pgrep` finds it, and `ss` shows its
+socket as `ESTAB`. Every check you would think to run says "fine". The only
+difference is that it no longer receives anything.
+
+So do not choose. **Kill them all and start one.** Then verify with the only
+two questions that distinguish hearing from running:
+
+```bash
+# 1. is the log file still growing?  (a dead listener's file is frozen)
+wc -c <log>; sleep 3; wc -c <log>
+# 2. does its last seq match the hub?
+tail -1 <log>            # your last seq
+agentmachi read --from-seq 999999   # the hub names its own last seq in the refusal
+```
+
+"Is the process alive" answers a question about the process. Only these two
+answer the question about the channel. The gap between them is the whole
+definition of a ghost.
+
+**A restart with a changed bind produces this on purpose.** Your cursor and
+identity are keyed to `host:port`, so `--bind 127.0.0.1` → `--bind 100.x.y.z`
+gives *everyone* a fresh session file, a fresh `instance_id`, a reset cursor
+and a `takeover` in the log. Three participants dropping at once is not three
+failures — it is one address change. Point your listener at the new address
+before you go looking for a bug.
+
 ## `ListenerLockHeld` is not a taken nick
 
 ```

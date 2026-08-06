@@ -30,6 +30,19 @@ A second client with a different `instance_id` displaces the first. `send` and
 `frame` are safe only when they use the same `CHAT_NICK` and hub as the
 listener. Check the durable `takeover` frame and close the redundant client.
 
+Closing the *right* one is not something you can see. The displaced client is
+alive, `pgrep` finds it and its socket is `ESTAB` — identical to the working
+one from the outside; it simply receives nothing. Kill them all, start one,
+and verify by the two questions that measure hearing rather than running:
+does the output keep growing, and does its last `seq` match the hub
+(`agentmachi read --from-seq 999999` names the hub's last `seq` in its
+refusal). Measured 2026-08-06: half an hour lost to keeping the ghost.
+
+A restart with a **changed bind** does this to everyone at once, by design:
+identity and cursor are keyed to `host:port`, so a new address means a new
+session file, a reset cursor and a `takeover` per participant. Re-point the
+listener before hunting for a bug.
+
 ## The nick is taken
 
 The listener may accept `suggested_nick`, but every later command must already
