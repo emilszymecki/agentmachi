@@ -1492,6 +1492,91 @@ def test_istniejacy_pokoj_zachowuje_swoj_port_takze_przy_jawnym(home):
     assert cli.hub_port("stary") == 8795
 
 
+# -- ta sama decyzja ma DRUGIE wejscie: przepiecie ISTNIEJACEGO pokoju ----
+# Naprawa wyzej objela wylacznie `ensure_hub`, czyli pokoj NOWY. Recenzent
+# znalazl sciezke, ktora ja omija: `cmd_start` nadpisuje config istniejacego
+# pokoju ZARAZ PO `ensure_hub`, ktore dla istniejacego swiadomie zachowuje
+# stary port i kolizji nie sprawdza. Repro recenzenta (dwa ZATRZYMANE pokoje,
+# `owner` 8790 i `stary` 8795): `cmd_start(name="stary", port=8790)` dawalo
+# `rc=0, owner=8790, stary=8790` — dwa configi na jednym porcie.
+#
+# `_port_accepts` tej dziury nie zamyka i zamknac nie moze: rezerwacja jest
+# wlasnoscia CONFIGU, nie zywego gniazda — zatrzymany pokoj nadal ma prawo do
+# swojego portu, bo `start` postawi go pod tym samym adresem.
+
+def _bez_startu_huba(monkeypatch, powod):
+    """Kazdy spawn/oczekiwanie to blad testu — odmowa ma nastapic PRZED nimi."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: False)
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        lambda argv, log: pytest.fail(powod))
+    monkeypatch.setattr(cli, "_wait_until_listening",
+                        lambda *a, **kw: pytest.fail(powod))
+
+
+def test_przepiecie_istniejacego_pokoju_na_cudzy_port_to_odmowa(
+        home, monkeypatch, capsys):
+    """1. Kradziez rezerwacji przez PUBLICZNA sciezke `start`.
+
+    Nie przez `ensure_hub`: ta funkcja odmawia od wczoraj, a mimo to cala
+    komenda konczyla sie sukcesem — wiec tylko wejscie od gory dowodzi
+    czegokolwiek. Configi OBU pokoi maja zostac nietkniete: pokoj przepiety
+    do polowy (zapis przeszedl, start padl) to dokladnie ten stan, ktorego
+    ta kontrola ma nie dopuscic."""
+    cli.ensure_hub("owner", 8790)
+    cli.ensure_hub("stary", 8795)
+    _bez_startu_huba(monkeypatch, "start stawial huba mimo kradziezy portu")
+
+    rc = cli.main(["start", "--name", "stary", "--port", "8790"])
+    err = capsys.readouterr().err
+    assert rc != 0, "kradziez rezerwacji meldowala EXIT 0"
+    assert "owner" in err, "powiedz, KTO trzyma ten port"
+    assert "8790" in err
+    assert "agentmachi list" in err and "--port <other>" in err, \
+        "komunikat ma niesc naprawe, nie sam werdykt"
+    assert cli.hub_port("owner") == 8790, "wlasciciel stracil swoj port"
+    assert cli.hub_port("stary") == 8795, \
+        "odmowa i tak przestawila pytajacego — config ma zostac nietkniety"
+
+
+def test_przepiecie_istniejacego_pokoju_na_wolny_port_nadal_dziala(
+        home, monkeypatch, capsys):
+    """2. Granica poprzedniego testu: kontrola pyta o WLASCICIELA, nie o sam
+    fakt, ze port jest inny niz w configu. Port, ktorego nikt nie
+    zarezerwowal, wolno przejac — inaczej pokoj zapisany przy nieudanej
+    probie zostawalby na trwale przypiety do zajetego adresu (pulapka bez
+    wyjscia, patrz test_explicit_port_overrides_config_of_existing_room)."""
+    cli.ensure_hub("owner", 8790)
+    cli.ensure_hub("stary", 8795)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: False)
+    monkeypatch.setattr(cli, "_spawn_detached", lambda argv, log: 4243)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+
+    rc = cli.main(["start", "--name", "stary", "--port", "8799"])
+    assert rc == 0, capsys.readouterr().err
+    assert cli.hub_port("stary") == 8799, "wolny port wolno przejac"
+    assert cli.hub_port("owner") == 8790
+
+
+def test_restart_tez_nie_kradnie_zarezerwowanego_portu(home, monkeypatch,
+                                                       capsys):
+    """3. `restart` idzie przez `cmd_start`, wiec dziedziczy i dziure, i
+    naprawe — ale dziedziczenie trzeba zmierzyc, a nie zalozyc. Bez tego
+    testu jedna zmiana kolejnosci w `cmd_restart` (np. wlasne przepiecie
+    configu przed startem) cofnelaby naprawe niezauwazenie."""
+    cli.ensure_hub("owner", 8790)
+    cli.ensure_hub("stary", 8795)
+    _bez_startu_huba(monkeypatch, "restart stawial huba mimo kradziezy portu")
+
+    rc = cli.main(["restart", "--name", "stary", "--port", "8790"])
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "owner" in err and "8790" in err
+    assert cli.hub_port("owner") == 8790
+    assert cli.hub_port("stary") == 8795
+
+
 def test_start_bez_portu_przezywa_wlasne_jawne_port_w_spawnowanym_serve(
         home, monkeypatch, capsys):
     """4. SCIEZKA start -> serve, czyli jedyne miejsce, gdzie ta naprawa

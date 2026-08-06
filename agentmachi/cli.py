@@ -102,6 +102,47 @@ def _porty_innych_hubow(wlasna_nazwa):
     return set(_porty_hubow(wlasna_nazwa))
 
 
+def _odmow_zajetego_portu(name, port, skutek):
+    """Nic, gdy portu nikt nie zarezerwowal; CliError z nazwa wlasciciela,
+    gdy trzyma go inny pokoj.
+
+    Jedno miejsce na ten tekst, bo WEJSCIA SA DWA, a strzezone bylo jedno.
+    `ensure_hub` pilnowal pokoju NOWEGO — i tyle wystarczylo, zeby uznac
+    sprawe za zamknieta. Zmierzone przez recenzenta (2026-08-06) na drugim
+    wejsciu: dwa ZATRZYMANE pokoje, `owner` na 8790 i `stary` na 8795, po
+    `cmd_start(name="stary", port=8790)` dawaly `rc=0, owner=8790,
+    stary=8790` — dwa configi na jednym porcie, bo `cmd_start` nadpisywal
+    config istniejacego pokoju zaraz PO tym, jak `ensure_hub` swiadomie
+    zachowal stary port i nie sprawdzil kolizji.
+
+    Rezerwacja jest wlasnoscia CONFIGU, nie zywego procesu: zatrzymany pokoj
+    nadal ma prawo do swojego portu, bo `start` postawi go pod tym samym
+    adresem (patrz `_porty_hubow`). Dlatego kontrola zywego portu
+    (`_port_accepts`) tej dziury nie zamykala i zamknac nie mogla.
+
+    `skutek` mowi czlowiekowi, co przez odmowe NIE stalo sie z jego pokojem;
+    reszta komunikatu jest wspolna, bo naprawa jest ta sama."""
+    wlasciciel = _porty_hubow(name).get(port)
+    if wlasciciel is None:
+        return
+    # Komendy KAZDA W OSOBNEJ LINII, nie za etykieta: nazwy pokojow maja
+    # rozna dlugosc, wiec kolumna i tak by sie rozjechala, a to jest tekst
+    # do kopiuj-wklej (CLAUDE.md, rola czlowieka).
+    raise CliError(
+        f"port {port} is already assigned to room {wlasciciel!r} — "
+        f"{skutek}\n"
+        f"You asked for this port explicitly, so it does not get shifted "
+        f"for you: a silent shift is how a room ends up at an address "
+        f"nobody was told about.\n"
+        f"  see which room has which port:\n"
+        f"      agentmachi list\n"
+        f"  put {name!r} somewhere else:\n"
+        f"      agentmachi start --name {name} --port <other>\n"
+        f"  or move {wlasciciel!r} out of the way first:\n"
+        f"      agentmachi stop --name {wlasciciel}\n"
+        f"      agentmachi start --name {wlasciciel} --port <other>")
+
+
 def _wybierz_port(preferowany, wlasna_nazwa, bind="127.0.0.1", prob=200):
     """Pierwszy wolny port od `preferowanego` w gore.
 
@@ -244,25 +285,9 @@ def ensure_hub(name, port, bind="127.0.0.1", port_jawny=False):
     d = hub_dir(name)
     if port_jawny and not (d / "config.json").exists():
         # Tylko NOWY pokoj: istniejacy i tak zachowuje swoj port (nizej),
-        # a jawne przepiecie istniejacego robi swiadomie `cmd_start`.
-        wlasciciel = _porty_hubow(name).get(port)
-        if wlasciciel is not None:
-            # Komendy KAZDA W OSOBNEJ LINII, nie za etykieta: nazwy pokojow
-            # maja rozna dlugosc, wiec kolumna i tak by sie rozjechala, a to
-            # jest tekst do kopiuj-wklej (CLAUDE.md, rola czlowieka).
-            raise CliError(
-                f"port {port} is already assigned to room {wlasciciel!r} — "
-                f"room {name!r} was NOT created.\n"
-                f"You asked for this port explicitly, so it does not get "
-                f"shifted for you: a silent shift is how a room ends up at "
-                f"an address nobody was told about.\n"
-                f"  see which room has which port:\n"
-                f"      agentmachi list\n"
-                f"  put {name!r} somewhere else:\n"
-                f"      agentmachi start --name {name} --port <other>\n"
-                f"  or move {wlasciciel!r} out of the way first:\n"
-                f"      agentmachi stop --name {wlasciciel}\n"
-                f"      agentmachi start --name {wlasciciel} --port <other>")
+        # a jawne przepiecie istniejacego robi swiadomie `cmd_start` — i tam
+        # ta sama kontrola musi byc powtorzona, bo tamta sciezka omija te.
+        _odmow_zajetego_portu(name, port, f"room {name!r} was NOT created.")
     (d / "data").mkdir(parents=True, exist_ok=True)
     os.chmod(d, 0o700)
     tokens_path = d / "tokens.json"
@@ -1291,12 +1316,28 @@ def cmd_start(args):
     d, port = ensure_hub(args.name, port, bind=bind,
                          port_jawny=args.port is not None)
     if istnieje and args.port is not None and hub_port(args.name) != args.port:
+        # Przepiecie ISTNIEJACEGO pokoju to drugie wejscie do tej samej
+        # decyzji co w `ensure_hub` — i przez pol dnia jedyne niestrzezone.
+        # `ensure_hub` dla istniejacego pokoju swiadomie zachowuje stary port
+        # i kolizji nie sprawdza, wiec ten blok nadpisywal config zyczeniem
+        # uzytkownika bez zadnej kontroli: `owner` 8790 + `stary` 8795 ->
+        # `start --name stary --port 8790` konczylo sie `rc=0, owner=8790,
+        # stary=8790`. Odmawiamy PRZED zapisem, wiec configi OBU pokoi
+        # zostaja nietkniete.
+        _odmow_zajetego_portu(args.name, args.port,
+                              f"room {args.name!r} keeps its port "
+                              f"{hub_port(args.name)} and was NOT moved.")
         config = d / "config.json"
         dane = json.loads(config.read_text(encoding="utf-8"))
         dane["port"] = args.port
         config.write_text(json.dumps(dane), encoding="utf-8")
         port = args.port
     if args.bind is not None and hub_bind(args.name) != args.bind:
+        # Blizniaczej kontroli tu NIE MA i nie jest potrzebna: rezerwacja
+        # w `_porty_hubow` jest kluczowana SAMYM portem (bindu nie czyta),
+        # a ten blok portu nie rusza. Przepiecie bindu nie moze wiec stworzyc
+        # kolizji, ktorej nie byloby juz przed nim. Gdyby kiedys rezerwacja
+        # stala sie para (bind, port), to miejsce trzeba dopisac.
         config = d / "config.json"
         dane = json.loads(config.read_text(encoding="utf-8"))
         dane["bind"] = args.bind
