@@ -338,3 +338,86 @@ def test_codex_wait_nie_udaje_mechanizmu_wybudzania_modelu():
             f"AGENTS.md nie utrwala drogi Codexa: brak {wymagane!r}"
     assert "bez aktywnego celu nie\n  ogłaszaj wejścia" in agents, \
         "AGENTS.md pozwala znowu oglosic agenta-widmo"
+
+
+# --- wake_filter.py: filtr wybudzen, ktory kiedys byl wklejka z grepem -----
+
+def _wake_filter():
+    """Zaladuj skrypt ze skilla jako modul — testujemy PLIK, ktory agent
+    naprawde uruchamia, nie jego kopie przepisana do testu."""
+    import importlib.util
+    sciezka = (SKILLS / "agentmachi-join" / "scripts" / "wake_filter.py")
+    assert sciezka.exists(), f"brak {sciezka}"
+    spec = importlib.util.spec_from_file_location("wake_filter", sciezka)
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul
+
+
+def _przepuszcza(modul, linia, nick="agent_opus", peer="agent_codex"):
+    odsiej, budz = modul.zbuduj(nick, peer)
+    return (not odsiej(linia)) and bool(budz(linia))
+
+
+def test_wake_filter_budzi_na_wzmiance_czlowieka_TAKZE_z_liczba():
+    """Dziura, ktora autor tego filtra sam w siebie wpisal 2026-08-07:
+    wzorzec tnacy ramki liczace byl na tyle szeroki, ze zjadal ludzkie
+    `@nick 3`. Czlowiek pisze do agenta liczby (numer punktu, seq, port)
+    i taka wiadomosc NIE MOZE zginac."""
+    m = _wake_filter()
+    assert _przepuszcza(m, "[847] human: @agent_opus ?")
+    assert _przepuszcza(m, "[850] human: @agent_opus 3")
+    assert _przepuszcza(m, "[851] human: @all cos dla wszystkich")
+
+
+def test_wake_filter_tnie_ramki_liczace_TYLKO_od_peera():
+    """Ruch, ktory obsluguje juz inny proces, nie ma budzic modelu —
+    ale wylacznie od wskazanego peera i wylacznie gdy jest GOLA liczba."""
+    m = _wake_filter()
+    assert not _przepuszcza(m, "[826] agent_codex: 20 @agent_opus")
+    assert not _przepuszcza(m, "[827] agent_codex: @agent_opus 19")
+    # ta sama liczba w zdaniu to juz wiadomosc, nie ruch w grze
+    assert _przepuszcza(m, "[852] agent_codex: @agent_opus mam 7 uwag")
+    # bez podanego peera nie wycinamy NICZEGO — brak argumentu nie moze
+    # cicho wlaczyc filtrowania czyichkolwiek ramek
+    odsiej, budz = m.zbuduj("agent_opus")
+    assert not odsiej("[826] agent_codex: 20 @agent_opus")
+
+
+def test_wake_filter_tnie_session_metadata_PO_TYPIE_nie_po_slowach():
+    """Ta ramka niesie howto, a w howto siedza slowa lapiace wzmianki
+    (`@all`, `takeover`, `4003`). Filtr slowny przepuszczal ja w calosci —
+    zmierzone na zywym pokoju, trzy tokeny przebily naraz. I dzieje sie to
+    tylko przy reconnekcie, czyli w jedynym momencie, gdy ona przychodzi."""
+    m = _wake_filter()
+    ramka = ('{"type": "session_metadata", "howto": "@all budzi wszystkich, '
+             'takeover opisany nizej, kod 4003 to kick"}')
+    assert not _przepuszcza(m, ramka)
+
+
+def test_wake_filter_budzi_na_AWARIACH_bo_cisza_nie_jest_sukcesem():
+    """Bez tych wzorcow agent spi tak samo spokojnie, gdy hub go odrzucil,
+    jak gdy kanal jest pusty."""
+    m = _wake_filter()
+    for linia in ("[reconnect] connection dropped; retrying in 1s",
+                  "[hub] assigned nick: agent7",
+                  '{"type": "error", "text": "nick zajety"}',
+                  "REJECTED: bad token",
+                  "[nick] zmiana nicka"):
+        assert _przepuszcza(m, linia), f"filtr przespalby awarie: {linia!r}"
+
+
+def test_wake_filter_milczy_na_rozmowie_bez_wzmianki():
+    """Chat bez wzmianki i tak nie dociera do agenta z huba — ale gdyby
+    filtr go przepuszczal, kazda cudza rozmowa kosztowalaby ture."""
+    m = _wake_filter()
+    assert not _przepuszcza(m, "[853] ktos: zwykla rozmowa bez wzmianki")
+
+
+def test_wake_filter_bez_nicka_ODMAWIA_zamiast_przepuszczac_wszystko():
+    """Fail-closed: bez nicka nie da sie powiedziec, co jest wzmianka.
+    Cichy przepust byl by tu gorszy niz blad — agent placilby tura za
+    kazda linia i uznal to za normalny halas kanalu."""
+    m = _wake_filter()
+    assert m.main([]) == 2
+    assert m.main(["   "]) == 2
