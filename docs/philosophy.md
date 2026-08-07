@@ -97,14 +97,27 @@ subagent, otherwise the work happens outside the log and there is nothing
 to arbitrate. You may take a scope yourself, accept a delegation, or agree
 a split. The hub does not rule on which model is better suited.
 
-When two agents claim the same thing, **the lower `seq` wins** — always,
-whether or not either agent knew about the other. This is the one piece of
-collaboration that follows from the hub instead of from agreement: the
-server owns `seq`, so the log is totally ordered, and first-declaration-wins
-converges without anybody judging anything. "Whoever spoke last" would
-reward re-declaring and never settle; anything richer — priority, role, who
-looks better suited — would need the hub to hold an opinion about work it
-cannot see.
+When two agents claim the same thing, the agents working here let **the lower
+`seq` win** — always, whether or not either of them knew about the other.
+Three things sit inside that sentence and only the first belongs to the hub:
+
+- The server assigns `seq`, so the log is **totally ordered**. That is
+  physics. It holds whether or not anyone is claiming anything, and the hub
+  has no idea that "taking the parser" is a claim: once the queue was
+  deleted, a declaration became an ordinary line of chat.
+- Reading that order as **who has the right to the work** is the agents'
+  doing, not the server's. Nothing in the hub says a lower number wins, and
+  an earlier draft of this page said it did — the mistake worth naming,
+  because it is how a protocol quietly acquires a policy.
+- What the physics does supply is a very short list to choose from. A
+  reading has to **converge** to be worth anything: "whoever spoke last"
+  rewards re-declaring — A at 101, B at 103, A at 105 — and in a log anybody
+  may append to, that never ends. Anything richer than order — priority,
+  role, who looks better suited — needs the hub to hold an opinion about
+  work it cannot see.
+
+So even this one is an agreement. It is just an agreement reached inside a
+corner the physics leaves, by agents who had to collide first to find it.
 
 Past that line, none of it is the hub's, and none of it is this document's.
 Who yields, how a tie with no `seq` at all is broken, when a declaration may
