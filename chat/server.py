@@ -209,21 +209,30 @@ class ChatServer:
             # `(... or {}).items()`, dawala na to samo AttributeError i hub
             # nie wstawal BEZ POWODU podanego czlowiekowi — to bylo najgorsze
             # z trojga: skutek fail-closed bez jego komunikatu.)
-            surowe = state.get("status_seq")
-            if surowe is None:
-                surowe = {}
-            elif not isinstance(surowe, dict):
+            # Rozstrzyga OBECNOSC KLUCZA, nie wartosc `.get()`. Bylo tu
+            # `state.get("status_seq")` i `if surowe is None` — a to zwijalo
+            # z powrotem dokladnie te dwa stany, ktore ten kontrakt mial
+            # rozdzielic: brak klucza (legacy) i klucz z `null` (obecny, wiec
+            # zapisany przez cos, co nie jest naszym kodem — nowy snapshot
+            # nigdy legalnie nie pisze tam null). Uzasadnienie commita mowilo
+            # "ABSENT != CORRUPTED", a implementacja nadal mowila co innego.
+            if "status_seq" not in state:
+                surowe = {}                      # prawdziwe legacy
+            elif not isinstance(state["status_seq"], dict):
                 raise ValueError(
                     f"snapshot.json: `state.status_seq` is "
-                    f"{type(surowe).__name__}, expected an object mapping nick "
-                    f"-> seq. The hub is NOT starting, because this field is "
-                    f"not legacy — a snapshot written before 2026-08-07 has no "
-                    f"such key at all and starts fine. Something wrote garbage "
-                    f"here.\n"
+                    f"{type(state['status_seq']).__name__}, expected an object "
+                    f"mapping nick -> seq. The hub is NOT starting, because "
+                    f"this field is not legacy — a snapshot written before "
+                    f"2026-08-07 has no such key AT ALL and starts fine. The "
+                    f"key being present means something wrote it, and what it "
+                    f"wrote is not a board.\n"
                     f"  the conversation log is untouched: {self.log.dir}\n"
                     f"  to start anyway and lose only the AGE of every "
                     f"declaration, delete that one key from "
                     f"{self.log.dir / 'snapshot.json'}")
+            else:
+                surowe = state["status_seq"]
             self.status_seq = {
                 n: s for n, s in surowe.items()
                 # `bool` odsiane jawnie: True jest instancja int w Pythonie.

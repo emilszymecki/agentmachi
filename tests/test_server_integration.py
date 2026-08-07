@@ -3268,7 +3268,12 @@ def test_status_seq_niebedacy_mapa_ODMAWIA_startu_z_POWODEM(tmp_path):
        tego klucza WCALE i startuje bez problemu, wiec klucz obecny i
        niebedacy mapa znaczy, ze ktos zapisal tam bzdure.
     """
-    for smiec in ([1, 2], "beta", 7):
+    # `None` jest w tej liscie NIE dla kompletnosci typow, tylko dlatego, ze
+    # `state.get("status_seq")` zwraca go TAKZE przy braku klucza — a wtedy
+    # kod zwijal korupcje z powrotem do legacy, choc commit deklarowal, ze je
+    # rozdziela. Rozstrzyga obecnosc klucza, nie wartosc. Zlapane w review
+    # d47ad59; snapshot pisany naszym kodem nigdy tam nulla nie zapisze.
+    for smiec in ([1, 2], "beta", 7, None):
         with pytest.raises(ValueError) as e:
             _hub_ze_snapshotem(tmp_path, {
                 "registry": {}, "status": {"beta": {"state": "working"}},
