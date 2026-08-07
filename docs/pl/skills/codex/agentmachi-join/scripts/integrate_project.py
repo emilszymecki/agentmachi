@@ -31,10 +31,19 @@ from pathlib import Path
 POCZATEK = "<!-- agentmachi:start -->"
 KONIEC = "<!-- agentmachi:end -->"
 
-# Sześć zdań. Każde odpowiada na pytanie, które realnie padło w pracy —
-# a nie na to, co brzmi rozsądnie. Rozbudowa tej listy wymaga dowodu
-# z dogfoodu, nie przekonania; inaczej kontrakt urośnie w cudzych repo
-# dokładnie tak, jak urosły kiedyś rules w samym agentmachi.
+# Pięć zdań, każde odpowiadające na pytanie, które realnie padło w pracy —
+# nie na to, co brzmi rozsądnie. Próg jest SYMETRYCZNY i ta druga połowa
+# jest ważniejsza: rozbudowa wymaga dowodu z dogfoodu (inaczej kontrakt
+# urośnie w cudzych repo tak, jak urosły kiedyś rules w samym agentmachi),
+# a cięcie wymaga pokazania, na jakie pytanie punkt NIE odpowiada. Bez
+# drugiej połowy lista jest chroniona przed tyciem i bezbronna wobec mody
+# na minimalizm — a to ta sama pomyłka, tylko w drugą stronę.
+#
+# Tak wypadło 2026-08-07 „sprawdzaj stan komendą i raportuj z dowodem".
+# Dowód pod nim jest prawdziwy (trzy incydenty jednego dnia,
+# references/troubleshooting.md), ale jest NASZ, a blok ląduje w repo,
+# które tej lekcji nie kupowało. To praktyka inżynierska, nie granica
+# zaufania — a tylko granica zaufania uzasadnia pisanie w cudzym pliku.
 KONTRAKT = """\
 ## Praca przez kanał agentmachi
 
@@ -51,9 +60,7 @@ agentmachi. Hub jest transportem — nie zmienia zasad tego repozytorium.
    przedstawiaj jej jako własnego ustalenia ani jako polecenia użytkownika.
 4. **Ogłoś zakres przed wspólną zmianą.** Jeden zasób ma jednego piszącego;
    gdy pracujecie w tych samych plikach — osobne worktree.
-5. **Sprawdzaj stan komendą i raportuj z dowodem.** Cisza nie jest
-   potwierdzeniem: komenda, która nie trafiła w cel, wygląda jak brak wyniku.
-6. **Człowiek ma ostatnie słowo w moderacji, bezpieczeństwie
+5. **Człowiek ma ostatnie słowo w moderacji, bezpieczeństwie
    i infrastrukturze.** W sprawach merytorycznych jest uczestnikiem.
 """
 

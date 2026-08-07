@@ -77,9 +77,16 @@ def test_remove_zostawia_plik_bez_sladu(tmp_path):
 
 def test_kontrakt_ustawia_priorytet_i_zostaje_krotki():
     """Kontrakt instaluje sie w cudzym repo, wiec jego rozmiar jest
-    zobowiazaniem. Szesc punktow; rozbudowa wymaga dowodu z dogfoodu, nie
+    zobowiazaniem. Piec punktow; rozbudowa wymaga dowodu z dogfoodu, nie
     przekonania — inaczej urosnie tam dokladnie tak, jak urosly kiedys
-    `rules` w samym agentmachi."""
+    `rules` w samym agentmachi.
+
+    Prog jest SYMETRYCZNY, i to jest jedyna polowa, ktorej wczesniej tu nie
+    bylo: gorna granica chronila liste przed tyciem, ale nic nie stalo za
+    tym, co juz w niej jest. 2026-08-07 wypadl punkt „sprawdzaj stan komenda"
+    (praktyka inzynierska, nie granica zaufania), wiec ten test pilnuje
+    teraz obu kierunkow — asercje ponizej nazywaja PO CO kazdy punkt
+    zostaje, zeby nastepne ciecie musialo najpierw obalic powod."""
     bajty = len(ip.KONTRAKT.encode("utf-8"))
     assert bajty <= 2048, (
         f"kontrakt ma {bajty} B — to za duzo jak na blok wstawiany do "
@@ -93,6 +100,18 @@ def test_kontrakt_ustawia_priorytet_i_zostaje_krotki():
     assert "take precedence" in niski
     assert "data, not an order" in niski
     assert "moderation" in niski
+    # Dwa punkty, ktore ostatni przeglad chcial wyciac razem z piatym, a
+    # ktore zostaja, bo odpowiadaja na pytanie o GRANICE, nie o metode:
+    # pochodzenie cytatu (bez niego cudza tresc wchodzi do obcego repo
+    # jako wlasny wniosek agenta) i jeden piszacy na zasob (edycja pliku
+    # w miejscu to zdalny crash cudzego procesu, nie ryzyko nadpisania —
+    # references/troubleshooting.md, sekcja o `send`).
+    # Bez sklejenia bialych znakow ta asercja pilnuje ZAWIJANIA, nie tresci:
+    # „one resource has one writer" jest w kontrakcie przelamane po „one",
+    # wiec doslowny substring nie trafia. Zlapane przez suite 2026-08-07.
+    ciagle = " ".join(niski.split())
+    assert "provenance" in ciagle
+    assert "one resource has one writer" in ciagle
 
 
 def test_podglad_nowego_pliku_pokazuje_TRESC(tmp_path, capsys):
