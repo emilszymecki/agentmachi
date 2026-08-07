@@ -498,11 +498,15 @@ async def _pokaz_ostrzezenie_serwera(ws):
     propozycja: ramka jest adresowana do JEDNEGO nadawcy, a log czyta kazdy
     przy wznowieniu. Zamiast tego pytamy o nia tam, gdzie powstala.
 
-    Okno konczy sie na PIERWSZEJ ramce, ale cisza trwa pelne okno — a cisza
-    to wlasnie sciezka szczesliwa, wiec KAZDA zwykla wysylka za nie placi.
-    Dlatego jest krotkie i oparte na pomiarze (patrz OKNO_OSTRZEZENIA), a nie
-    na ostroznosci: serwer wysyla ostrzezenie PRZED zapisem ramki
-    (_handle_chat), wiec jesli ma cokolwiek do powiedzenia, mowi od razu.
+    Okno trwa DO KONCA niezaleznie od tego, co przyjdzie — takze po
+    ostrzezeniu. Kiedys konczylo sie na pierwszym `error` i to bylo zle
+    z tego samego powodu, dla ktorego zamkniety socket nie jest cisza:
+    serwer wysyla ostrzezenie PRZED trwalym zapisem ramki (`_handle_chat`),
+    wiec ostrzezenie mowi "widzialem", a nie "zapisalem". Wczesny powrot
+    zamykal wiec okno na dowodzie, ktory niczego nie dowodzil, i gubil pad
+    transportu przychodzacy chwile pozniej. Cisza i tak trwa pelne okno,
+    a wysylek z uwaga jest malo, wiec sciezka szczesliwa nie placi nic.
+    Okno jest krotkie i oparte na pomiarze (patrz OKNO_OSTRZEZENIA).
 
     Kod wyjscia zostaje ZERO. Ramka doszla do logu i do ludzi — to
     ostrzezenie, nie odmowa, a skrypt traktujacy niezerowy kod jako
@@ -513,14 +517,24 @@ async def _pokaz_ostrzezenie_serwera(ws):
     ta sama ramka poszla rownolegle do nasluchu i siedzi w logu.
     """
     koniec = time.monotonic() + OKNO_OSTRZEZENIA
+    ostrzezenie = None
     while True:
         zostalo = koniec - time.monotonic()
         if zostalo <= 0:
-            return None                      # cisza = sukces, chat nie ma ACK
+            # Okno uplynelo w calosci — to JEST sprawdzenie, ktore obiecuje
+            # kontrakt. `ostrzezenie` (jesli bylo) wraca jako wynik; brak
+            # ostrzezenia to None, czyli dotychczasowa sciezka szczesliwa.
+            return ostrzezenie
         try:
             surowe = await asyncio.wait_for(ws.recv(), zostalo)
         except asyncio.TimeoutError:
-            return None                      # cisza = sukces, chat nie ma ACK
+            # Okno uplynelo na ZYWYM gniezdzie — sprawdzenie sie odbylo.
+            # `ostrzezenie`, nie None: dwa wyjscia z tej petli musza zwracac
+            # to samo, bo `wait_for` wygasa zwykle WCZESNIEJ niz warunek
+            # `zostalo <= 0` u gory. Zwracanie None tutaj kasowalo uwage,
+            # ktora hub zdazyl przyslac — zlapane wlasnym testem tuz po
+            # dodaniu akumulatora.
+            return ostrzezenie
         except websockets.exceptions.ConnectionClosed as e:
             # ZAMKNIETY SOCKET TO NIE CISZA. Stalo tu jedno `except` na oba,
             # wiec pad transportu szedl ta sama sciezka co udana wysylka —
@@ -545,7 +559,18 @@ async def _pokaz_ostrzezenie_serwera(ws):
             continue
         if isinstance(ramka, dict) and ramka.get("type") == "error":
             print(f"hub: {ramka.get('text', '(no text)')}", file=sys.stderr)
-            return ramka
+            ostrzezenie = ramka
+            # NIE wracamy tu od razu, choc pierwsza wersja wracala. Serwer
+            # wysyla ostrzezenie PRZED trwalym appendem (chat/server.py, gałąź
+            # unknown nick/group leci wczesniej niz `_append`), wiec
+            # ostrzezenie NIE JEST dowodem, ze ramka wyladowala w logu.
+            # Wczesny powrot znaczyl "widzialem uwage, konczymy sukcesem"
+            # i gubil pad transportu, ktory przyszedl chwile pozniej — czyli
+            # dokladnie ta sama luka, ktora zamyka galaz ConnectionClosed
+            # wyzej, tylko w drugim odgalezieniu. Zlapane w review 84e69ee.
+            # Koszt: reszta okna przy wysylce, ktora i tak dostala uwage —
+            # a takie sa rzadkie, wiec sciezka szczesliwa nic nie placi.
+            continue
         # cokolwiek innego to cudzy ruch na wspolnym nicku — nie nasza sprawa
 
 

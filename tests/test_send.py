@@ -2206,15 +2206,35 @@ def test_zamkniecie_socketu_PRZED_appendem_daje_UNKNOWN(capsys):
     assert "agentmachi read" in t, "ma podac, jak sprawdzic samemu"
 
 
-def test_zamkniecie_socketu_PO_ostrzezeniu_tez_daje_UNKNOWN(capsys):
-    """Druga strona tego samego: hub zdazyl powiedziec cos o ramce, a potem
-    padl. Ostrzezenie ma sie wypisac (informacja nie ginie), ale wynik i tak
-    jest UNKNOWN — ostrzezenia leca PRZED zapisem, wiec nie sa dowodem, ze
-    ramka wyladowala w logu."""
+def test_zamkniecie_socketu_PO_CUDZEJ_ramce_tez_daje_UNKNOWN(capsys):
+    """Cudzy ruch w oknie nie zamienia padu transportu w sukces.
+
+    Nazwa jest wazna i wczesniej klamala: test nazywal sie
+    `PO_ostrzezeniu`, a wstrzykiwal ramke `chat`. Ostrzezeniem jest
+    WYLACZNIE `type=error`, wiec test nie badal tego, co obiecywal
+    (zlapane w review 84e69ee). Cudza ramka to osobna, realna sciezka:
+    `send_once` dzieli instance_id z nasluchem, wiec serwer pcha do
+    wszystkich socketow nicka."""
     ws = _WsZamykajacy([json.dumps({"type": "chat", "from": "ktos",
                                     "text": "cudzy ruch"})])
     with pytest.raises(send.WysylkaNieznana):
         asyncio.run(send._pokaz_ostrzezenie_serwera(ws))
+
+
+def test_zamkniecie_PO_PRAWDZIWYM_ostrzezeniu_tez_daje_UNKNOWN(capsys):
+    """Druga galaz tej samej luki, przeoczona w 84e69ee.
+
+    Serwer wysyla ostrzezenie PRZED trwalym appendem, wiec ostrzezenie
+    mowi "widzialem", a nie "zapisalem". Kod wracal na nim od razu — czyli
+    zamykal okno na dowodzie, ktory niczego nie dowodzil, i gubil pad
+    transportu przychodzacy chwile pozniej. Sekwencja error -> close
+    konczyla sie ZEREM. Teraz okno trwa do konca."""
+    ws = _WsZamykajacy([json.dumps({"type": "error", "from": "server",
+                                    "text": "unknown nick: duch"})])
+    with pytest.raises(send.WysylkaNieznana):
+        asyncio.run(send._pokaz_ostrzezenie_serwera(ws))
+    assert "duch" in capsys.readouterr().err, \
+        "ostrzezenie ma sie wypisac, zanim padnie UNKNOWN — informacja nie ginie"
 
 
 def test_UNKNOWN_jest_niezerowym_kodem_wyjscia():
