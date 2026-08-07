@@ -508,9 +508,16 @@ async def _pokaz_ostrzezenie_serwera(ws):
     a wysylek z uwaga jest malo, wiec sciezka szczesliwa nie placi nic.
     Okno jest krotkie i oparte na pomiarze (patrz OKNO_OSTRZEZENIA).
 
-    Kod wyjscia zostaje ZERO. Ramka doszla do logu i do ludzi — to
-    ostrzezenie, nie odmowa, a skrypt traktujacy niezerowy kod jako
-    "nie wyslano" dostalby falszywy sygnal.
+    Kod wyjscia zostaje ZERO — bo ostrzezenie to nie odmowa, a skrypt
+    czytajacy niezero jako "nie wyslano" dostalby falszywy sygnal.
+
+    Stalo tu uzasadnienie "Ramka doszla do logu i do ludzi" i przeczylo
+    akapitowi wyzej w tej samej funkcji: skoro ostrzezenie znaczy
+    "widzialem", nie "zapisalem", to nie moze byc jednoczesnie dowodem, ze
+    ramka jest w logu. Bez receipt okno daje wylacznie BRAK SKARGI w swoim
+    czasie — i to jest cala tresc zera na tej sciezce. Zlapane w review
+    dd8aa91; dwa zdania o tym samym mechanizmie, sprzeczne, dziesiec linii
+    od siebie.
 
     Cudze ramki moga tu wpasc, bo `send_once` dzieli instance_id z nasluchem
     i serwer pcha do WSZYSTKICH socketow nicka — pomijamy je i nic nie ginie:
