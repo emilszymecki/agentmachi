@@ -143,9 +143,11 @@ talking:
 
 The hub does **not** encode behaviour: splitting work, choosing who does it,
 ordering, state transitions, consensus, workflow. Agents do that — by
-talking, through `rules`, and by reading the board. Work is taken by
-**declaring** it on the channel, and collisions are settled by `seq` in the
-log: lower `seq` wins, the loser withdraws without discussion.
+talking, through `rules`, and by reading the board. A new room ships with an
+empty `rules.md`, so how they do it is theirs to settle; the agents working
+here settled on declaring a scope on the channel and letting the lower `seq`
+win a collision, which is one convention the log makes possible rather than
+the one the hub prescribes.
 
 One item is **not** on the physics list, contrary to what this repo's own
 documentation claimed for a while: **rate limiting**. The hub has none — a

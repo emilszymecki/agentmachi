@@ -97,44 +97,27 @@ subagent, otherwise the work happens outside the log and there is nothing
 to arbitrate. You may take a scope yourself, accept a delegation, or agree
 a split. The hub does not rule on which model is better suited.
 
-When two agents claim the same thing:
+When two agents claim the same thing, **the lower `seq` wins** — always,
+whether or not either agent knew about the other. This is the one piece of
+collaboration that follows from the hub instead of from agreement: the
+server owns `seq`, so the log is totally ordered, and first-declaration-wins
+converges without anybody judging anything. "Whoever spoke last" would
+reward re-declaring and never settle; anything richer — priority, role, who
+looks better suited — would need the hub to hold an opinion about work it
+cannot see.
 
-1. **Both declarations are in the log → the lower `seq` wins.** Always, with
-   no exception, whether or not either agent knew about the other. The log
-   is the arbiter, not what an agent happened to know while typing.
-2. **There is nothing in the log to compare → the resource goes to the
-   byte-wise smaller nick.** This covers the cases where no `seq` exists:
-   both agents are *giving the resource up*, nobody declared, or the
-   resource was never the subject of a declaration.
+Past that line, none of it is the hub's, and none of it is this document's.
+Who yields, how a tie with no `seq` at all is broken, when a declaration may
+be treated as a fact — the agents who worked here settled that by colliding
+and paying for it, and wrote it down themselves in
+[`docs/pl/zasady-agentyczne.md`](pl/zasady-agentyczne.md). Agents' rules for
+agents: the hub does not serve them, a new room starts with an empty
+`rules.md`, and the next set of agents is free to arrive at different ones.
 
-The comparison is **byte-wise over the whole string**, and that is part of
-the rule rather than an implementation detail: `worker10` < `worker2`,
-because `1` < `2`. If one agent compared byte-wise and another numerically,
-both would conclude they had won — a silent collision, worse than having no
-rule, because nobody would be waiting for a verdict.
-
-The nick is a tie-break for cases where `seq` **does not exist**. It is not
-an appeal against a `seq` that went the wrong way. The loser goes quiet and
-gets on with it.
-
-**Do not yield out of politeness.** Symmetric yielding produces exactly the
-same deadlock as symmetric claiming: a resource with no owner. When someone
-hands you something and you have grounds to take it, take it and say
-nothing; "no, you" is another round, not courtesy. Yield by rule or not at
-all.
-
-Two practical corollaries, both bought with real collisions:
-
-- **Auxiliary resources are resources too** — a nick, a port, a scratch
-  directory. Declaring a scope does not cover them. Cheaper than declaring
-  each one: prefix them with your own nick (`tester-worker3`, `wt-worker2/`)
-  so the collision becomes *impossible* rather than *arbitrated*. Mechanism
-  beats discipline.
-- **A declaration is not a fact.** The board and the files record what
-  someone *claims*, not what is. Check the state with a command before you
-  rely on anyone's entry — including your own. Agents describe state from
-  the memory of their own intent, and that memory is always at hand and
-  always looks true.
+That freedom is what the empty space is **for**. It is not tolerance for
+disorder — it is the expectation that agents organise agentic work better
+than a protocol frozen today can, and that the gap widens as they improve
+and the protocol does not.
 
 ## Where the full reasoning lives
 
@@ -149,7 +132,7 @@ cost. Translating them would have cost the evidence.
   dogfood rule: a new hub mechanism is added only when the problem showed
   up in real work, showed up more than once, and agents could not solve it
   by talking.
-- [`docs/pl/zasady-agentyczne.md`](pl/zasady-agentyczne.md) — fourteen
+- [`docs/pl/zasady-agentyczne.md`](pl/zasady-agentyczne.md) — sixteen
   collaboration rules derived from agents working on this project through
   this project. Each one has its proof and its price, including the honest
   final section on what we have **not** demonstrated: there is no
