@@ -2099,8 +2099,13 @@ def test_board_uszkodzony_wpis_PADA_zamiast_go_wyfiltrowac(tmp_path,
 
     with pytest.raises(send.ReadRefused) as e:
         asyncio.run(send.read_board("beta", as_json=True, emit=lambda _: None))
-    assert "not objects" in str(e.value) or "not objects" in str(e.value)
-    assert "MISSING" in str(e.value), \
+    # Wklejka: stalo tu `assert X or X` — ten sam warunek po obu stronach
+    # `or`, czyli asercja o polowe slabsza, niz wygladala. Zlapane w review.
+    komunikat = str(e.value)
+    assert "not objects" in komunikat
+    assert "index 1" in komunikat and "str" in komunikat, \
+        f"odmowa ma nazwac KTORY wpis i jakiego jest typu: {komunikat!r}"
+    assert "MISSING" in komunikat, \
         "komunikat ma nazwac, jak niepelny board sie CZYTA"
 
 
@@ -2149,3 +2154,20 @@ def test_board_wiek_nieznany_mowi_ze_jest_nieznany(capsys):
     out = capsys.readouterr().out
     assert "age unknown" in out
     assert "right now" not in out
+
+
+def test_board_resync_bez_snapshot_seq_tez_PADA(tmp_path, monkeypatch):
+    """Galaz `resync_required` sprawdzana WPROST, nie przez wspolny guard.
+
+    Obie galezie chroni jedno `if` po wyborze wartosci, wiec kontrakt drugiej
+    byl dotad tylko IMPLIKOWANY. Gdyby ktos rozdzielil te sciezki, test
+    ok-only przechodzilby dalej, a resync cicho drukowalby 'hub at seq None'.
+    Uwaga z review 1a7be8e."""
+    _stub_hello(monkeypatch, tmp_path, {
+        "type": "resync_required", "snapshot_seq": None, "conversation": [],
+        "state": {}, "participants": [{"nick": "beta"}]})
+
+    with pytest.raises(send.ReadRefused) as e:
+        asyncio.run(send.read_board("beta", as_json=True, emit=lambda _: None))
+    assert "snapshot_seq" in str(e.value), \
+        "odmowa ma nazwac POLE tej galezi, nie last_seq z drugiej"

@@ -545,11 +545,25 @@ def test_resync_snapshot_seq_matches_returned_fresh_state(srv):
         # (B) etykieta snapshot_seq MUSI odzwierciedlac faktyczny, swiezy
         # stan (status juz w srodku), nie stara wartosc sprzed niego
         assert reply["snapshot_seq"] == server.log.last_seq
-        # (A4) resync wire state = DOKLADNIE {registry, status} (queue wyciete,
-        # status dodane — dzis wire pomijal status)
+        # (A4) resync wire state = DOKLADNIE stan trwaly (queue wyciete,
+        # status dodane — kiedys wire pomijal status).
+        #
+        # Bylo tu `set(state) == {"registry", "status"}`. Kontraktem A4 jest
+        # "drut niesie TO SAMO, co przezywa kompakcje" — a zamrozona lista
+        # nazw to tylko jego OWCZESNA pisownia. Gdy 2026-08-07 doszlo
+        # `status_seq` (data deklaracji ginela przy restarcie), literal
+        # zaczal bronic czegos, czego kontrakt nie mowil: ze pol jest
+        # dokladnie dwa. Porownanie ze `_stan_trwaly()` sprawdza sam
+        # kontrakt, wiec nie zdezaktualizuje sie przy kolejnym polu — i jest
+        # MOCNIEJSZE: literal przechodzil takze wtedy, gdy dysk i drut sie
+        # rozjechaly, bo pilnowal drutu w oderwaniu od dysku.
         state = reply["state"]
-        assert set(state) == {"registry", "status"}
+        assert set(state) == set(server._stan_trwaly()), \
+            "drut rozjechal sie ze stanem zapisywanym na dysk"
+        assert "queue" not in state, "martwa kolejka wrocila na drut"
         assert state["status"]["alfa"]["subject"] == "audyt"
+        assert state["status_seq"]["alfa"] >= 1, \
+            "deklaracja bez daty — patrz chat/server.py, self.status_seq"
         assert "alfa" in state["registry"]["gen"]
         # replay od zwroconego snapshot_seq nie dubluje niczego juz w state
         assert server.log.events_after(reply["snapshot_seq"]) == []
@@ -3121,3 +3135,66 @@ def test_kick_dziala_gdy_socket_moderatora_juz_nie_zyje(tmp_path):
         "cel nie dostal informacji, dlaczego wypada"
     # i trwalosc byla, jak przedtem
     assert [e for e in server.log.replay() if e.get("type") == "kick"]
+
+
+def test_status_seq_przezywa_KOMPAKCJE_i_restart(srv, tmp_path):
+    """Wiek deklaracji przezywa dokladnie to samo, co deklaracja.
+
+    Nie mock round-tripu slownika — REALNY restart po kompakcji. Mock
+    dowiodlby, ze pole sie serializuje, i przegapilby jedyna rzecz, o ktora
+    tu chodzi: czy dzialajacy hub w ogole je zapisuje.
+
+    Sciezka replayu (`test_status_survives_restart_via_replay`) tego bledu
+    NIE lapie: dopoki event `status` lezy w logu, `_replay_events` odtwarza
+    status_seq i wszystko wyglada dobrze. Dopiero kompakcja usuwa ten event
+    (`status` nie jest w CONVERSATION_TYPES), a wtedy jedynym nosnikiem jest
+    snapshot — ktory daty nie wiozl. Dlatego test NAJPIERW dowodzi, ze
+    eventu status juz w logu nie ma, i dopiero potem sprawdza board."""
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 1.0, "state": "working",
+                                    "subject": "trwalosc wieku"}))
+        await asyncio.sleep(0.1)
+        seq_statusu = server.status_seq.get("beta")
+        server.snapshot()          # kompakcja: event `status` znika z logu
+        await ws_b.close()
+        return server.log.dir, seq_statusu
+
+    data_dir, seq_statusu = asyncio.run(srv(scenario))
+    assert isinstance(seq_statusu, int) and seq_statusu >= 1, \
+        f"hub nie nadal status_seq przed kompakcja: {seq_statusu!r}"
+
+    reborn = ChatServer(data_dir=data_dir, tokens=TOKENS, port=PORT + 1)
+    # POLOWA PIERWSZA: eventu status NAPRAWDE nie ma juz w logu. Bez tego
+    # test przeszedlby takze przez replay i nie dotykalby snapshotu wcale.
+    assert not [e for e in reborn.log.replay() if e.get("type") == "status"], \
+        "kompakcja nie usunela eventu status — test bada replay, nie snapshot"
+
+    # POLOWA DRUGA: board oddaje deklaracje RAZEM z jej data.
+    snap = {p["nick"]: p for p in reborn._participants_snapshot()}
+    assert snap["beta"]["status"] == {"state": "working",
+                                      "subject": "trwalosc wieku"}
+    assert snap["beta"]["status_seq"] == seq_statusu, \
+        (f"status przezyl restart, a jego wiek nie: status_seq="
+         f"{snap['beta']['status_seq']!r}, oczekiwano {seq_statusu}")
+
+
+def test_resync_niesie_DOKLADNIE_stan_snapshotu(srv, tmp_path):
+    """`state` w resync_required i stan zapisany na dysk to jedno zrodlo.
+
+    Komentarz obiecywal to od dawna ("wire resync state = DOKLADNIE persisted
+    snapshot state"), ale pisaly to dwa osobne literaly i nic ich nie
+    pilnowalo — dopisanie pola do jednego rozjezdzalo je po cichu. Wlasnie
+    tak zginal `status_seq`."""
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 1.0, "state": "review"}))
+        await asyncio.sleep(0.1)
+        await ws_b.close()
+        return server._stan_trwaly(), server.log.dir
+
+    stan, data_dir = asyncio.run(srv(scenario))
+    assert set(stan) == {"registry", "status", "status_seq"}
+    assert stan["status_seq"]["beta"] >= 1

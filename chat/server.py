@@ -161,9 +161,26 @@ class ChatServer:
         self.status = {}       # nick -> {state, subject?, note?} (ostatnia deklaracja)
         # Wiek deklaracji trzymany OSOBNO, zeby self.status zostal czysta
         # projekcja tego, co powiedzial agent — seq nadaje serwer i nie ma
-        # go z czym mieszac. Nie przezywa restartu bez logu i to jest w
-        # porzadku: po odtworzeniu z samego snapshotu wiek jest nieznany,
-        # co uczciwiej opisuje stan niz zmyslona liczba.
+        # go z czym mieszac.
+        #
+        # Stalo tu, ze wiek "nie przezywa restartu bez logu i to jest
+        # w porzadku, bo nieznany wiek uczciwiej opisuje stan niz zmyslona
+        # liczba". Rozumowanie bronilo przed ZMYSLANIEM wieku i w tym byla
+        # racja — ale wnioskiem bylo wyrzucenie liczby PRAWDZIWEJ. `seq`
+        # nadaje serwer przy appendzie, jest monotoniczny i nigdy nie wraca,
+        # wiec "zadeklarowane na 253" zostaje prawda na zawsze i liczy sie
+        # wzgledem dowolnego pozniejszego konca logu. Zapisanie go czyni wiek
+        # ZNANYM, a nie wymyslonym; to dwie rozne rzeczy.
+        # Rozstrzyga asymetria, w ktorej system przeczyl sam sobie: snapshot
+        # trzymal TWIERDZENIE i wyrzucal jego DATE, a komentarz przy
+        # `_participants_snapshot` mowi wprost, ze bez `status_seq` board
+        # KLAMIE zamiast milczec (incydent kinas-machine: "worker1: idle"
+        # przez cala jego prace). Po restarcie bylismy dokladnie w tym
+        # stanie — deklaracja bez daty. Uczciwe opcje byly dwie: zapisac
+        # oba albo zadne; wyrzucenie twierdzenia niszczyloby realna
+        # informacje, wiec zostaje data. Zmierzone na zywym pokoju
+        # `prezentacja` 2026-08-07, godzine po napisaniu `agentmachi board`:
+        # status przezyl restart, wiek wrocil jako nieznany.
         self.status_seq = {}   # nick -> seq ramki status (metadana serwera)
         if snap:
             # Legacy-snapshot sanityzacja: stary snapshot (pre-B1) niesie martwe
@@ -174,6 +191,17 @@ class ChatServer:
                                if k in v}
                            for n, v in restored_status.items()
                            if isinstance(n, str) and isinstance(v, dict)}
+            # Sanityzacja jak wyzej, i z tego samego powodu: snapshot lezy na
+            # dysku, wiec jego zawartosc jest WEJSCIEM, nie prawda. Wpis, co
+            # do ktorego nie mamy pewnosci, ODPADA — a odpadniety `status_seq`
+            # daje wiek "nieznany", czyli stan opisany uczciwie. Podstawienie
+            # czegokolwiek w to miejsce byloby dokladnie ta zmyslona liczba,
+            # przed ktora bronil pierwotny komentarz wyzej.
+            # `bool` odsiane jawnie: True jest instancja int w Pythonie.
+            self.status_seq = {
+                n: s for n, s in (state.get("status_seq") or {}).items()
+                if isinstance(n, str) and isinstance(s, int)
+                and not isinstance(s, bool) and s >= 1}
         self._replay_events()
         # Zrodlem sa GRUPY rejestru, nie mapa tokenow: agent z trybu otwartego
         # ma wpis w `groups`/`roles`, ale nigdy w `tokens`. Iteracja po tokenach
@@ -298,8 +326,7 @@ class ChatServer:
         i DOBRZE: wolimy hub bez kompakcji niz skasowana rozmowe. Glosny log
         operatora, zycie huba bez zmian."""
         try:
-            self._save_snapshot_unchecked({"registry": self.registry.dump(),
-                                 "status": dict(self.status)})
+            self._save_snapshot_unchecked(self._stan_trwaly())
         except ForeignWriterError:
             LOGGER.error(
                 "SPLIT-BRAIN: another hub process writes to %s — compaction "
@@ -307,6 +334,22 @@ class ChatServer:
                 "(agentmachi list / agentmachi stop).", self.log.dir)
             return
         self._events_since_snapshot = 0
+
+    def _stan_trwaly(self):
+        """Stan, ktory PRZEZYWA kompakcje — jedno zrodlo dla dysku i drutu.
+
+        Bylo pisane w DWOCH miejscach osobno (snapshot i `state` w
+        resync_required) z komentarzem "wire resync state = DOKLADNIE
+        persisted snapshot state". Komentarz opisywal intencje, a nic jej nie
+        pilnowalo: dopisanie pola do jednego z nich rozjezdzalo je po cichu.
+        Dokladnie ta klasa bledu, ktora tu wlasnie naprawiamy — `status`
+        przezywal restart, a jego `status_seq` nie."""
+        return {"registry": self.registry.dump(),
+                "status": dict(self.status),
+                # Data deklaracji jedzie razem z deklaracja. Rozdzielenie ich
+                # zostawialo board z twierdzeniem bez daty — patrz komentarz
+                # przy self.status_seq w __init__.
+                "status_seq": dict(self.status_seq)}
 
     def _save_snapshot_unchecked(self, state):
         self.log.save_snapshot(state)
@@ -962,8 +1005,7 @@ class ChatServer:
                                  # nicka, ktory po kompakcji trafia na resync,
                                  # inaczej nigdy nie pozna przydzielonego nicka)
                     snapshot_seq=self.log.snapshot_seq,
-                    state={"registry": self.registry.dump(),
-                           "status": dict(self.status)},
+                    state=self._stan_trwaly(),
                     # clamp: log sprzed sufitu wejscia moze trzymac ramki
                     # blisko 1 MiB — patrz protocol.clamp_frame.
                     conversation=[protocol.clamp_frame(e)
