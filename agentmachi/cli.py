@@ -2090,7 +2090,11 @@ def _build_parser():
                     "that is old, and what that means is yours to decide. "
                     "Takes no listener lock, never moves your cursor and "
                     "wakes nobody, so it runs next to a live `agentmachi "
-                    "listen`.")
+                    "listen`. Read-only towards YOUR SESSION, not towards the "
+                    "hub log: every hello appends one durable event, so asking "
+                    "who is here moves the log end by one and ages every "
+                    "declaration on the board by one frame. Watch `status_seq` "
+                    "if you poll — it stands still; the age does not.")
     p.add_argument("--json", action="store_true",
                    help="one JSON line with current_seq and the whole board — "
                         "the machine format. The readable one is for eyes "

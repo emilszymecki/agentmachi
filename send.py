@@ -936,7 +936,14 @@ def _wiek_deklaracji(status_seq, biezacy_seq):
             or isinstance(biezacy_seq, bool)
             or not isinstance(biezacy_seq, int)):
         return None
-    return max(biezacy_seq - status_seq, 0)
+    # status_seq ZA koncem logu = stan niespojny, nie "swiezutka deklaracja".
+    # Bylo tu `max(..., 0)` i to maskowanie klamalo dokladnie w tym jednym
+    # przypadku, w ktorym w ogole sie odpalalo: drukowalo "declared right
+    # now" o czyms, czego umiejscowic nie umiemy. None znaczy "nie wiem"
+    # i tak sie wypisuje (review f880849: "unknown byloby bezpieczniejsze").
+    if status_seq > biezacy_seq:
+        return None
+    return biezacy_seq - status_seq
 
 
 def _opis_statusu(status, wiek):
@@ -1010,6 +1017,17 @@ async def read_board(nick, as_json=False, emit=None):
     - NIE rusza kursora sesji (zero `advance`),
     - NIE bumpuje generacji (instance_id z pliku sesji).
 
+    Czego ta droga NIE obiecuje, a co latwo jej przypisac: board jest
+    read-only wobec TWOJEJ SESJI, a nie wobec logu huba. Kazde hello dopisuje
+    trwaly event (mutacja tozsamosci), wiec samo pytanie "kto tu jest"
+    przesuwa koniec logu o jeden. Zmierzone w review f880849 na zywym pokoju:
+    dwa wywolania pod rzad oddaly `current_seq` 266 i 267. Nikogo to nie budzi
+    (hub nie klade `hello` na drut) i kompakcja te ramki usuwa, ale WIEK
+    deklaracji liczy sie w ramkach — wiec odpytywanie boardu w petli samo
+    postarza kazdy status na nim. Chcesz sledzic zmiany: patrz na
+    `status_seq`, ktory stoi w miejscu, a nie na wiek, ktory rosnie od
+    twojego wlasnego patrzenia.
+
     Kursor w hello to STALE 0, a nie kursor sesji, i to nie jest skrot:
     `context="fresh"` kaze serwerowi policzyc backlog od konca logu, wiec
     backlog wychodzi pusty niezaleznie od tego, co przyslemy — a 0 jest
@@ -1036,7 +1054,31 @@ async def read_board(nick, as_json=False, emit=None):
             f"is not a confirmation that the channel is empty.\n"
             f"  a hub older than B5 does not send the board at all;\n"
             f"  check what it is: agentmachi card --name <hub>")
-    uczestnicy = [u for u in uczestnicy if isinstance(u, dict)]
+    zle = [(i, u) for i, u in enumerate(uczestnicy) if not isinstance(u, dict)]
+    if zle:
+        # FAIL-CLOSED NA KAZDYM WPISIE, nie filtr. Stal tu
+        # `[u for u in uczestnicy if isinstance(u, dict)]` i cichy filtr byl
+        # gorszy niz brak walidacji: `[poprawny, "bad"]` wychodzilo kodem 0
+        # jako board WIARYGODNY, tylko niepelny — a niepelny roster czyta sie
+        # jako "tego kogos tu nie ma". Zlapane w review f880849 (Codex).
+        i, u = zle[0]
+        raise ReadRefused(
+            f"the hub's board contains {len(zle)} entry/entries that are not "
+            f"objects (first at index {i}: {type(u).__name__} {u!r}). NOTHING "
+            f"was printed — a board with entries dropped would read as a "
+            f"roster somebody is MISSING from.\n"
+            f"  see the raw frame: agentmachi listen --json (session_metadata)")
+    if (isinstance(biezacy_seq, bool) or not isinstance(biezacy_seq, int)
+            or biezacy_seq < 0):
+        # `current_seq` to JEDYNY punkt odniesienia wieku kazdej deklaracji.
+        # Bez niego JSON wychodzil kodem 0 z `current_seq: null`, a tekst
+        # drukowal "hub at seq None" — czyli board udawal, ze odpowiedzial.
+        raise ReadRefused(
+            f"the hub replied without a usable log position "
+            f"({'last_seq' if reply.get('type') == 'ok' else 'snapshot_seq'}"
+            f"={biezacy_seq!r}). NOTHING was printed — without it the age of "
+            f"every declaration on the board is unknowable, so a printed "
+            f"board would be a guess wearing a number.")
     if as_json:
         # JEDNA linia z calym boardem, nie linia na uczestnika: `current_seq`
         # jest potrzebny do policzenia wieku KAZDEGO wpisu, wiec rozbicie go

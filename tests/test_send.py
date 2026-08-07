@@ -1948,9 +1948,13 @@ def test_wiek_deklaracji_liczy_RAMKI_a_brak_statusu_to_None():
     assert send._wiek_deklaracji(42, 42) == 0
     assert send._wiek_deklaracji(None, 42) is None
     assert send._wiek_deklaracji(10, None) is None
-    # Zegar serwera moze cofnac status_seq za biezacy koniec tylko przy
-    # niespojnym stanie; ujemny wiek bylby wtedy bzdura wygladajaca na dane.
-    assert send._wiek_deklaracji(50, 42) == 0
+    # Stalo tu `== 0` z uzasadnieniem "ujemny wiek bylby bzdura wygladajaca
+    # na dane". Uzasadnienie bylo dobre, wniosek zly: 0 wypisuje sie jako
+    # "declared right now", czyli podstawia najswiezsza mozliwa wartosc pod
+    # stan, ktorego nie umiemy umiejscowic. Ta sama klasa bledu, przed ktora
+    # bronil. Peiny przypadek: patrz
+    # test_wiek_deklaracji_za_koncem_logu_to_NIEWIADOMA_a_nie_zero.
+    assert send._wiek_deklaracji(50, 42) is None
 
 
 def test_board_pokazuje_status_SUROWO_bez_klasyfikacji(capsys):
@@ -2059,3 +2063,89 @@ def test_board_naglowek_mowi_CO_liczy_last_seq(capsys):
     out = capsys.readouterr().out
     assert "CONVERSATION frame" in out
     assert "status declaration does not move it" in out
+
+
+def _stub_hello(monkeypatch, tmp_path, odpowiedz):
+    """Hub, ktory oddaje DOKLADNIE `odpowiedz` na hello — do odmow boardu."""
+    class _StubWs:
+        async def send(self, _):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+    async def _hello(*_a, **_k):
+        return odpowiedz
+
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "HUB_ID", "localhost:1")
+    monkeypatch.setattr(send, "do_hello", _hello)
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _StubWs())
+
+
+def test_board_uszkodzony_wpis_PADA_zamiast_go_wyfiltrowac(tmp_path,
+                                                           monkeypatch):
+    """Cichy filtr byl gorszy niz brak walidacji.
+
+    `[poprawny, "bad"]` wychodzilo kodem 0 jako board WIARYGODNY, tylko
+    niepelny — a niepelny roster czyta sie jako "tego kogos tu nie ma",
+    czyli jako odpowiedz, a nie jako awarie. Zlapane w review f880849."""
+    _stub_hello(monkeypatch, tmp_path, {
+        "type": "ok", "last_seq": 7, "backlog": [],
+        "participants": [{"nick": "beta", "connected": True}, "bad"]})
+
+    with pytest.raises(send.ReadRefused) as e:
+        asyncio.run(send.read_board("beta", as_json=True, emit=lambda _: None))
+    assert "not objects" in str(e.value) or "not objects" in str(e.value)
+    assert "MISSING" in str(e.value), \
+        "komunikat ma nazwac, jak niepelny board sie CZYTA"
+
+
+def test_board_bez_current_seq_PADA_zamiast_drukowac_None(tmp_path,
+                                                          monkeypatch):
+    """`current_seq` to JEDYNY punkt odniesienia wieku deklaracji.
+
+    Bez niego JSON wychodzil kodem 0 z `current_seq: null`, a tekst drukowal
+    'hub at seq None' — board udawal, ze odpowiedzial."""
+    _stub_hello(monkeypatch, tmp_path, {
+        "type": "ok", "last_seq": None, "backlog": [],
+        "participants": [{"nick": "beta", "connected": True}]})
+
+    with pytest.raises(send.ReadRefused) as e:
+        asyncio.run(send.read_board("beta", as_json=True, emit=lambda _: None))
+    assert "last_seq" in str(e.value)
+    assert "guess wearing a number" in str(e.value)
+
+
+def test_board_current_seq_bool_tez_PADA(tmp_path, monkeypatch):
+    """`True` jest instancja `int` w Pythonie. Bez jawnego odsiania boola
+    `hub at seq True` przeszloby jako poprawna pozycja w logu."""
+    _stub_hello(monkeypatch, tmp_path, {
+        "type": "ok", "last_seq": True, "backlog": [],
+        "participants": [{"nick": "beta"}]})
+
+    with pytest.raises(send.ReadRefused):
+        asyncio.run(send.read_board("beta", as_json=True, emit=lambda _: None))
+
+
+def test_wiek_deklaracji_za_koncem_logu_to_NIEWIADOMA_a_nie_zero():
+    """`max(..., 0)` maskowalo stan niespojny na 'declared right now' —
+    czyli klamalo dokladnie w tym jedynym przypadku, w ktorym sie odpalalo.
+    None znaczy 'nie wiem' i tak ma sie wypisac."""
+    assert send._wiek_deklaracji(50, 42) is None
+    assert send._wiek_deklaracji(42, 42) == 0
+    assert send._wiek_deklaracji(41, 42) == 1
+
+
+def test_board_wiek_nieznany_mowi_ze_jest_nieznany(capsys):
+    """Niewiadoma ma byc widoczna. Gdyby wiek `None` drukowal sie tak samo
+    jak 0, czytajacy zobaczylby 'swiezy status' tam, gdzie nie wiadomo nic."""
+    send._wypisz_board([{"nick": "beta", "role": "agent", "groups": [],
+                         "connected": True, "addr": None, "last_seq": 5,
+                         "status": {"state": "working"}, "status_seq": 99}], 42)
+    out = capsys.readouterr().out
+    assert "age unknown" in out
+    assert "right now" not in out
