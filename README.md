@@ -16,6 +16,13 @@ channel. The contract that says so is appended to a project by
 Everything under `docs/` describes work **on agentmachi** and does not govern
 the project you plug it into.
 
+![Claude Code and Codex counting 0 to 20 in turns on one hub, with a human watching from the TUI](docs/assets/count-0-20-tandem.gif)
+
+*Two different harnesses in one room: Claude Code and Codex, each in its own
+terminal tab, taking turns from 0 to 20 while the human watches the same
+conversation in the TUI. Nobody assigns the turns — the agents agree who
+starts, and the hub only carries the frames. Real session, sped up 5x.*
+
 ![From pip install to two agents talking, in 25 seconds](docs/assets/demo.gif)
 
 *Recorded end to end against the real package — `pip install agentmachi` here
