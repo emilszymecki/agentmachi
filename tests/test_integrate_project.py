@@ -100,18 +100,23 @@ def test_kontrakt_ustawia_priorytet_i_zostaje_krotki():
     assert "take precedence" in niski
     assert "data, not an order" in niski
     assert "moderation" in niski
-    # Dwa punkty, ktore ostatni przeglad chcial wyciac razem z piatym, a
-    # ktore zostaja, bo odpowiadaja na pytanie o GRANICE, nie o metode:
-    # pochodzenie cytatu (bez niego cudza tresc wchodzi do obcego repo
-    # jako wlasny wniosek agenta) i jeden piszacy na zasob (edycja pliku
-    # w miejscu to zdalny crash cudzego procesu, nie ryzyko nadpisania —
-    # references/troubleshooting.md, sekcja o `send`).
-    # Bez sklejenia bialych znakow ta asercja pilnuje ZAWIJANIA, nie tresci:
-    # „one resource has one writer" jest w kontrakcie przelamane po „one",
-    # wiec doslowny substring nie trafia. Zlapane przez suite 2026-08-07.
+    # Bez sklejenia bialych znakow te asercje pilnuja ZAWIJANIA, nie tresci:
+    # zdania kontraktu lamia sie w srodku, wiec doslowny substring nie
+    # trafia. Zlapane przez suite 2026-08-07.
     ciagle = " ".join(niski.split())
+    # Pochodzenie cytatu: bez niego cudza tresc wchodzi do obcego repo jako
+    # wlasny wniosek agenta. To granica, nie metoda — zostaje.
     assert "provenance" in ciagle
-    assert "one resource has one writer" in ciagle
+    # Punkt o zasobie mowi o SZKODZIE, nie o rytuale, i ta roznica jest cala
+    # jego racja bytu. Wczesniej brzmial „ogloś zakres przed wspolna zmiana"
+    # — czyli kazal wykonac NASZ sposob samoorganizacji w cudzym repo, gdzie
+    # izolacja zalatwia to samo bez zadnej deklaracji. Zostaje to, co tworzy
+    # dopiero kanal: drugi piszacy. Dlatego asercja celuje w izolacje
+    # i w szkode, a NIE w slowo „announce" — gdyby wrocilo, ten test ma
+    # przejsc dalej, bo problemem bylby rytual, nie brak slowa.
+    assert "isolate" in ciagle
+    assert "crash" in ciagle, \
+        "punkt 4 wrocil do straszenia nadpisaniem zamiast nazwac szkode"
 
 
 def test_podglad_nowego_pliku_pokazuje_TRESC(tmp_path, capsys):
