@@ -3180,22 +3180,25 @@ def test_status_seq_przezywa_KOMPAKCJE_i_restart(srv, tmp_path):
          f"{snap['beta']['status_seq']!r}, oczekiwano {seq_statusu}")
 
 
-def test_resync_niesie_DOKLADNIE_stan_snapshotu(srv, tmp_path):
-    """`state` w resync_required i stan zapisany na dysk to jedno zrodlo.
+def test_stan_trwaly_niesie_date_deklaracji(srv):
+    """Jednostka na SAM ksztalt stanu trwalego — nie udaje testu resyncu.
 
-    Komentarz obiecywal to od dawna ("wire resync state = DOKLADNIE persisted
-    snapshot state"), ale pisaly to dwa osobne literaly i nic ich nie
-    pilnowalo — dopisanie pola do jednego rozjezdzalo je po cichu. Wlasnie
-    tak zginal `status_seq`."""
+    Stalo tu `test_resync_niesie_DOKLADNIE_stan_snapshotu` i nazwa byla
+    nieprawdziwa: nie wywolywala resyncu, nie czytala dysku, a zwrocony
+    `data_dir` byl nieuzyty. Sprawdzala dokladnie tyle, co ta funkcja, a
+    obiecywala cala droge. Test, ktorego nazwa klamie, jest gorszy niz jego
+    brak — czyta sie go jako pokryty przypadek. Zlapane w review cabe20d.
+    Prawdziwy dowod rownosci drut/dysk siedzi w
+    `test_resync_state_jest_TYM_SAMYM_co_snapshot_na_dysku`."""
     async def scenario(server):
         ws_b, _ = await hello("beta", "tb", instance="ib")
         await ws_b.send(json.dumps({"type": "status", "from": "beta",
                                     "ts": 1.0, "state": "review"}))
         await asyncio.sleep(0.1)
         await ws_b.close()
-        return server._stan_trwaly(), server.log.dir
+        return server._stan_trwaly()
 
-    stan, data_dir = asyncio.run(srv(scenario))
+    stan = asyncio.run(srv(scenario))
     assert set(stan) == {"registry", "status", "status_seq"}
     assert stan["status_seq"]["beta"] >= 1
 
@@ -3251,18 +3254,31 @@ def test_legacy_snapshot_bez_status_seq_zostawia_wiek_NIEZNANY(tmp_path):
     assert srv.status_seq.get("beta") is None
 
 
-def test_status_seq_niebedacy_mapa_NIE_WYWALA_huba(tmp_path):
-    """Warunek 5, najostrzejszy przypadek: `(x or {}).items()` ratowalo tylko
-    None i puste. NIEPUSTA lista jest prawdziwa, wiec `.items()` rzucalo
-    AttributeError i hub nie wstawal wcale. Uszkodzony snapshot ma kosztowac
-    wiek deklaracji, nie caly pokoj."""
+def test_status_seq_niebedacy_mapa_ODMAWIA_startu_z_POWODEM(tmp_path):
+    """Pole USZKODZONE to nie to samo, co pole NIEOBECNE.
+
+    Trzy warianty stanely tu po kolei i warto znac roznice, bo dwa pierwsze
+    wygladaja podobnie, a znacza co innego:
+    1. `(x or {}).items()` — AttributeError, hub nie wstawal i NIE MOWIL
+       dlaczego: skutek fail-closed bez jego komunikatu, czyli najgorszy
+       wariant z trzech;
+    2. ciche `{}` — hub wstawal, a uszkodzony snapshot po cichu tracil
+       WSZYSTKIE daty; awaria zamieniona w nieodroznialna degradacje;
+    3. jawna odmowa z powodem (ta) — bo snapshot sprzed tej zmiany nie ma
+       tego klucza WCALE i startuje bez problemu, wiec klucz obecny i
+       niebedacy mapa znaczy, ze ktos zapisal tam bzdure.
+    """
     for smiec in ([1, 2], "beta", 7):
-        srv = _hub_ze_snapshotem(tmp_path, {
-            "registry": {}, "status": {"beta": {"state": "working"}},
-            "status_seq": smiec})
-        assert srv.status["beta"] == {"state": "working"}, \
-            f"status nie przezyl smiecia w status_seq: {smiec!r}"
-        assert srv.status_seq == {}, f"smiec przeszedl: {smiec!r}"
+        with pytest.raises(ValueError) as e:
+            _hub_ze_snapshotem(tmp_path, {
+                "registry": {}, "status": {"beta": {"state": "working"}},
+                "status_seq": smiec})
+        komunikat = str(e.value)
+        assert "status_seq" in komunikat and "snapshot.json" in komunikat
+        assert type(smiec).__name__ in komunikat, \
+            f"odmowa ma nazwac, CO tam bylo: {komunikat!r}"
+        assert "not legacy" in komunikat, \
+            "odmowa ma odroznic uszkodzenie od starego snapshotu"
 
 
 def test_status_seq_z_PRZYSZLOSCI_i_bez_statusu_odpadaja(tmp_path):

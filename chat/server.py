@@ -198,14 +198,32 @@ class ChatServer:
             # czegokolwiek w to miejsce byloby dokladnie ta zmyslona liczba,
             # przed ktora bronil pierwotny komentarz wyzej.
             #
-            # Calosc nie bedaca mapa = CALY wiek nieznany, nie wyjatek. Bylo
-            # tu `(state.get("status_seq") or {}).items()`, co ratowalo
-            # wylacznie None i puste: niepusta lista jest prawdziwa, wiec
-            # `.items()` wywalalo AttributeError i hub NIE WSTAWAL. Uszkodzony
-            # snapshot ma kosztowac wiek deklaracji, a nie caly pokoj.
+            # BRAK pola i pole USZKODZONE to dwie rozne rzeczy i musza sie
+            # roznie konczyc. Pierwsza wersja zwijala oba do "caly wiek
+            # nieznany" — hub wstawal, a uszkodzony snapshot cicho tracil
+            # wszystkie daty. Review (2026-08-07) rozdzielil to ostrzej, niz
+            # to widzialem: pole NIEOBECNE to legacy, czyli snapshot sprzed
+            # tej zmiany i normalny stan; pole OBECNE, ale nie bedace mapa,
+            # znaczy, ze ktos zapisal tam bzdure — a to jest naruszenie
+            # spojnosci i ma byc slyszalne. (Wersja jeszcze wczesniejsza,
+            # `(... or {}).items()`, dawala na to samo AttributeError i hub
+            # nie wstawal BEZ POWODU podanego czlowiekowi — to bylo najgorsze
+            # z trojga: skutek fail-closed bez jego komunikatu.)
             surowe = state.get("status_seq")
-            if not isinstance(surowe, dict):
+            if surowe is None:
                 surowe = {}
+            elif not isinstance(surowe, dict):
+                raise ValueError(
+                    f"snapshot.json: `state.status_seq` is "
+                    f"{type(surowe).__name__}, expected an object mapping nick "
+                    f"-> seq. The hub is NOT starting, because this field is "
+                    f"not legacy — a snapshot written before 2026-08-07 has no "
+                    f"such key at all and starts fine. Something wrote garbage "
+                    f"here.\n"
+                    f"  the conversation log is untouched: {self.log.dir}\n"
+                    f"  to start anyway and lose only the AGE of every "
+                    f"declaration, delete that one key from "
+                    f"{self.log.dir / 'snapshot.json'}")
             self.status_seq = {
                 n: s for n, s in surowe.items()
                 # `bool` odsiane jawnie: True jest instancja int w Pythonie.
