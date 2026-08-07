@@ -470,6 +470,20 @@ def _sprawdz_rozmiar(wire):
 OKNO_OSTRZEZENIA = 0.25
 
 
+class WysylkaNieznana(SessionError):
+    """Transport padl, ZANIM dalo sie stwierdzic cokolwiek o ramce.
+
+    Dziedziczy po SessionError, wiec kod wyjscia jest niezerowy — i to jest
+    caly sens. UNKNOWN nie daje pewnosci; odbiera komendzie prawo do
+    produkowania pewnosci, ktorej nie miala. Exit 0 znaczylby tu "sprawdzilem
+    i bylo dobrze", a nic nie zostalo sprawdzone.
+
+    NIE jest to odmowa: ramka mogla zostac zapisana. Skrypt traktujacy
+    niezerowy kod jako "nie wyslano" dostanie tu sygnal mocniejszy, niz
+    powinien — dlatego komunikat mowi wprost, ze to nie raport o porazce,
+    i podaje, jak sprawdzic log."""
+
+
 async def _pokaz_ostrzezenie_serwera(ws):
     """Po wyslaniu chat/fyi poczekaj CHWILE na ewentualne `error` i wypisz je.
 
@@ -505,8 +519,26 @@ async def _pokaz_ostrzezenie_serwera(ws):
             return None                      # cisza = sukces, chat nie ma ACK
         try:
             surowe = await asyncio.wait_for(ws.recv(), zostalo)
-        except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
-            return None
+        except asyncio.TimeoutError:
+            return None                      # cisza = sukces, chat nie ma ACK
+        except websockets.exceptions.ConnectionClosed as e:
+            # ZAMKNIETY SOCKET TO NIE CISZA. Stalo tu jedno `except` na oba,
+            # wiec pad transportu szedl ta sama sciezka co udana wysylka —
+            # `send` konczyl sie ZEREM dla ramki, ktora mogla nigdy nie
+            # trafic do logu. To nie brak gwarancji (chat swiadomie nie ma
+            # ACK), tylko FALSZYWE TWIERDZENIE o gwarancji, ktora mamy:
+            # kontraktem jest "zadna skarga nie przyszla w ciagu okna",
+            # a gdy gniazdo padlo, OKNO SIE NIE ODBYLO. Klient raportowal
+            # wynik sprawdzenia, ktorego nie wykonal.
+            raise WysylkaNieznana(
+                f"the connection closed before the warning window ended "
+                f"({e}). The frame MAY OR MAY NOT be in the hub's log — this "
+                f"is not a failure report and not a success report.\n"
+                f"  nothing here distinguishes the two: the hub appends and "
+                f"THEN broadcasts, so a close can fall on either side of the "
+                f"write;\n"
+                f"  check the tail of the log yourself:\n"
+                f"      agentmachi read --nick <you> --from-seq <recent seq>")
         try:
             ramka = json.loads(surowe)
         except ValueError:

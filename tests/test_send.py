@@ -2171,3 +2171,84 @@ def test_board_resync_bez_snapshot_seq_tez_PADA(tmp_path, monkeypatch):
         asyncio.run(send.read_board("beta", as_json=True, emit=lambda _: None))
     assert "snapshot_seq" in str(e.value), \
         "odmowa ma nazwac POLE tej galezi, nie last_seq z drugiej"
+
+
+# --- zamkniety socket w oknie ostrzezen: UNKNOWN, nie sukces --------------
+
+class _WsZamykajacy:
+    """Socket, ktory pada w oknie ostrzezen. `ramki` ida przed padem."""
+
+    def __init__(self, ramki=()):
+        self.ramki = list(ramki)
+
+    async def recv(self):
+        if self.ramki:
+            return self.ramki.pop(0)
+        # import lokalny: `websockets` ma leniwe podmoduly, wiec sam
+        # `import websockets` na gorze pliku nie daje `.exceptions`
+        from websockets.exceptions import ConnectionClosedError
+        raise ConnectionClosedError(None, None)
+
+
+def test_zamkniecie_socketu_PRZED_appendem_daje_UNKNOWN(capsys):
+    """Sedno: pad transportu przestaje isc ta sama sciezka co udana wysylka.
+
+    Stalo tu jedno `except (TimeoutError, ConnectionClosed)`, wiec `send`
+    konczyl sie ZEREM dla ramki, ktora mogla nigdy nie trafic do logu.
+    To nie brak gwarancji — `chat` swiadomie nie ma ACK — tylko falszywe
+    twierdzenie o gwarancji, ktora mamy: kontraktem jest 'zadna skarga nie
+    przyszla w oknie', a gdy gniazdo padlo, OKNO SIE NIE ODBYLO."""
+    with pytest.raises(send.WysylkaNieznana) as e:
+        asyncio.run(send._pokaz_ostrzezenie_serwera(_WsZamykajacy()))
+    t = str(e.value)
+    assert "MAY OR MAY NOT" in t, "komunikat ma nazwac NIEWIEDZE, nie porazke"
+    assert "not a failure report" in t and "not a success report" in t
+    assert "agentmachi read" in t, "ma podac, jak sprawdzic samemu"
+
+
+def test_zamkniecie_socketu_PO_ostrzezeniu_tez_daje_UNKNOWN(capsys):
+    """Druga strona tego samego: hub zdazyl powiedziec cos o ramce, a potem
+    padl. Ostrzezenie ma sie wypisac (informacja nie ginie), ale wynik i tak
+    jest UNKNOWN — ostrzezenia leca PRZED zapisem, wiec nie sa dowodem, ze
+    ramka wyladowala w logu."""
+    ws = _WsZamykajacy([json.dumps({"type": "chat", "from": "ktos",
+                                    "text": "cudzy ruch"})])
+    with pytest.raises(send.WysylkaNieznana):
+        asyncio.run(send._pokaz_ostrzezenie_serwera(ws))
+
+
+def test_UNKNOWN_jest_niezerowym_kodem_wyjscia():
+    """`WysylkaNieznana` MUSI dziedziczyc po SessionError, bo tylko wtedy
+    `cmd_send` odda kod niezerowy. Exit 0 znaczylby tu 'sprawdzilem i bylo
+    dobrze', a nic nie zostalo sprawdzone."""
+    assert issubclass(send.WysylkaNieznana, send.SessionError)
+
+
+def test_cisza_na_ZYWYM_sockecie_dalej_jest_sukcesem():
+    """Kontrakt, ktorego ta zmiana NIE rusza. Timeout na otwartym gniezdzie
+    to swiadoma heurystyka ('chat nie ma ACK') — gdyby i on zaczal padac,
+    kazda zwykla wysylka konczylaby sie bledem."""
+    class _Cichy:
+        async def recv(self):
+            await asyncio.sleep(10)
+
+    assert asyncio.run(send._pokaz_ostrzezenie_serwera(_Cichy())) is None
+
+
+def test_zwykle_ostrzezenie_dalej_wypisuje_sie_i_NIE_rzuca(capsys):
+    """Ostrzezenie to nie odmowa i nie niewiedza: ramka doszla, hub ma tylko
+    uwage. Kod wyjscia zostaje zerowy — skrypt czytajacy niezero jako
+    'nie wyslano' dostalby falszywy sygnal."""
+    class _ZOstrzezeniem:
+        def __init__(self):
+            self.dane = [json.dumps({"type": "error", "from": "server",
+                                     "text": "unknown nick: duch"})]
+
+        async def recv(self):
+            if self.dane:
+                return self.dane.pop(0)
+            await asyncio.sleep(10)
+
+    wynik = asyncio.run(send._pokaz_ostrzezenie_serwera(_ZOstrzezeniem()))
+    assert wynik is not None and "duch" in wynik["text"]
+    assert "duch" in capsys.readouterr().err

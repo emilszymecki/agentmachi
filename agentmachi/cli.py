@@ -1636,7 +1636,13 @@ def cmd_send(args):
         asyncio.run(send.send_once(nick, tekst,
                                    quiet=getattr(args, "quiet", False)))
     except send.SessionError as e:
-        # Kontrakt klienta zlamany PRZED drutem (np. ramka ponad sufit huba).
+        # Dwa rozne przypadki, oba niezerowo i oba jedna czytelna linia:
+        # (a) kontrakt klienta zlamany PRZED drutem (np. ramka ponad sufit
+        #     huba) — ramki NIE MA w logu;
+        # (b) `WysylkaNieznana` — transport padl w oknie ostrzezen, wiec nie
+        #     wiadomo, czy ramka jest w logu. Kod jest ten sam, bo exit 0
+        #     znaczylby "sprawdzilem i bylo dobrze"; roznice niesie TRESC,
+        #     ktora w (b) mowi wprost, ze to nie jest raport o porazce.
         # Czytelna linia zamiast tracebacku: odbiorca tego komunikatu to agent,
         # ktory ma z niego wyciagnac, co zrobic inaczej — stos wywolan mu w tym
         # nie pomaga, tylko zjada kontekst.
