@@ -1766,3 +1766,296 @@ def test_read_nie_bumpuje_generacji_i_nie_wypiera_nasluchu(tmp_path,
     gen_przed, gen_po = asyncio.run(scenario())
     assert gen_po == gen_przed, \
         f"read bumpnal generacje: {gen_przed} -> {gen_po} (wypiera nasluch)"
+
+
+# --- board: kto jest na kanale (patrz send.read_board) -------------------
+
+def test_board_oddaje_roster_z_surowymi_polami(tmp_path, monkeypatch):
+    """SEDNO: `board` oddaje to, czego z samego kanalu wyczytac sie nie da —
+    kto istnieje, kto ma otwarte gniazdo, co sam o sobie zadeklarowal i ile
+    ramek temu.
+
+    Dowod jest dwuczesciowy, jak przy `read`: najpierw pokazujemy, ze zywy
+    nasluch tych danych NIE dostaje (board jedzie w `session_metadata`,
+    ktora filtr musi ciac po typie), a dopiero potem, ze `board` je oddaje.
+    Bez pierwszej polowy test przechodzilby takze wtedy, gdyby komenda byla
+    zbedna."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                await ws.send(json.dumps({
+                    "type": "status", "from": "beta", "ts": 0.0,
+                    "state": "working", "subject": "board"}))
+                await _czekaj_na_seq(srv, 2)
+                for i in range(2):
+                    await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                              "ts": 0.0, "text": f"r{i}"}))
+                await _czekaj_na_seq(srv, 4)
+                # POLOWA PIERWSZA: na zywym sockecie nie ma boardu. Wlasny
+                # status tez nie wraca (echo tlumione po nicku), wiec agent
+                # po wejsciu nie ma zadnego zrodla tych pol.
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(ws.recv(), 0.4)
+                ostatnia_beta = srv.log.last_seq
+                # POLOWA DRUGA: `board` je oddaje, obok zywego nasluchu.
+                zebrane = []
+                ile = await send.read_board("beta", as_json=True,
+                                            emit=zebrane.append)
+            return ile, zebrane, ostatnia_beta, srv.log.last_seq
+        finally:
+            await srv.stop()
+
+    ile, zebrane, ostatnia_beta, koniec = asyncio.run(scenario())
+    assert ile >= 1, f"board nie oddal nikogo: {zebrane!r}"
+    assert len(zebrane) == 1, "board --json to JEDNA linia z calym boardem"
+    board = zebrane[0]
+    assert board["current_seq"] == koniec, \
+        "bez current_seq wieku deklaracji nie da sie policzyc"
+    wpis = next(u for u in board["participants"] if u["nick"] == "beta")
+    assert wpis["connected"] is True
+    # `last_seq` uczestnika to jego WLASNA ostatnia ramka, a nie koniec logu
+    # — i ta roznica jest calym sensem tego pola: mowi, jak dawno ktos sie
+    # odezwal, mierzone w zyciu kanalu. Rowne beda tylko wtedy, gdy ostatnia
+    # ramka na hubie nalezy do tej osoby. Tu nie naleza: samo hello `board`
+    # dopisuje event (mutacja tozsamosci jest trwala), wiec koniec logu jest
+    # o jeden dalej niz ostatnia ramka bety.
+    assert wpis["last_seq"] == ostatnia_beta, \
+        f"last_seq ma byc seq OSTATNIEJ ramki nadawcy: {wpis!r}"
+    assert board["current_seq"] > wpis["last_seq"], \
+        "test nie rozroznilby tych dwoch pol, gdyby byly rowne"
+    assert wpis["status"] == {"state": "working", "subject": "board"}
+    assert isinstance(wpis["status_seq"], int), \
+        "bez status_seq board klamie zamiast milczec"
+
+
+def test_board_NIE_wypiera_zywego_nasluchu(tmp_path, monkeypatch):
+    """Ten sam kontrakt co `read`: board ma dzialac OBOK nasluchu.
+
+    Gdyby hello boardu bumpnelo generacje, agent placilby za sprawdzenie
+    'kto tu jest' utrata wlasnego nasluchu — i dowiedzialby sie o tym
+    dopiero po tym, jak przestalby cokolwiek slyszec."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                gen_przed = srv.registry.generation_of("beta")
+                await send.read_board("beta", as_json=True,
+                                      emit=lambda _: None)
+                gen_po = srv.registry.generation_of("beta")
+                # socket nasluchu ma ZYC dalej: po wyparciu serwer zamknalby
+                # go natychmiast (_close_stale_sockets), wiec ping padnie
+                await asyncio.wait_for(ws.ping(), 2.0)
+                return gen_przed, gen_po
+        finally:
+            await srv.stop()
+
+    gen_przed, gen_po = asyncio.run(scenario())
+    assert gen_po == gen_przed, \
+        f"board bumpnal generacje: {gen_przed} -> {gen_po} (wypiera nasluch)"
+
+
+def test_board_nie_rusza_kursora_sesji(tmp_path, monkeypatch):
+    """Kursor nasluchu jest JEGO wlasnoscia — board tylko oglada.
+
+    Czytamy stan z DYSKU przed i po, nie z obiektu w pamieci: przesuniecie
+    kursora zabraloby nasluchowi ramki, ktorych nigdy nie zobaczyl, a strata
+    wygladalaby jak cisza na kanale."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+    sess_dir = tmp_path / "sess"
+
+    def kursor_z_dysku():
+        return Session(f"localhost:{port}", "beta",
+                       base_dir=sess_dir).last_applied_seq
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                for i in range(3):
+                    await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                              "ts": 0.0, "text": f"r{i}"}))
+                await _czekaj_na_seq(srv, 4)
+                session.advance(2)
+                przed = kursor_z_dysku()
+                await send.read_board("beta", as_json=True,
+                                      emit=lambda _: None)
+                return przed, kursor_z_dysku()
+        finally:
+            await srv.stop()
+
+    przed, po = asyncio.run(scenario())
+    assert przed == 2, f"test nie ustawil kursora: {przed}"
+    assert po == przed, f"board przesunal kursor nasluchu: {przed} -> {po}"
+
+
+def test_board_bez_participants_PADA_zamiast_milczec(tmp_path, monkeypatch):
+    """Hub starszy niz B5 nie wysyla boardu wcale. Pusty wydruk z kodem 0
+    znaczylby wtedy 'kanal jest pusty' — czyli doklednie ta klasa cichego
+    falszywego sukcesu, ktora w tym repo kosztowala najwiecej."""
+    class _StubWs:
+        async def send(self, _):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+    async def _stare_hello(*_a, **_k):
+        return {"type": "ok", "last_seq": 7, "backlog": []}   # bez participants
+
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "HUB_ID", "localhost:1")
+    monkeypatch.setattr(send, "do_hello", _stare_hello)
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _StubWs())
+
+    with pytest.raises(send.ReadRefused) as e:
+        asyncio.run(send.read_board("beta", as_json=True,
+                                    emit=lambda _: None))
+    assert "participants" in str(e.value)
+    assert "not a confirmation" in str(e.value)
+
+
+def test_wiek_deklaracji_liczy_RAMKI_a_brak_statusu_to_None():
+    """Jednostka wieku jest czescia wyniku, nie ozdoba: to ramki, nie sekundy.
+    `status_seq=None` (nigdy nie zadeklarowal) musi dac None, a nie 0 —
+    0 czyta sie jak 'zadeklarowal wlasnie teraz'."""
+    assert send._wiek_deklaracji(10, 42) == 32
+    assert send._wiek_deklaracji(42, 42) == 0
+    assert send._wiek_deklaracji(None, 42) is None
+    assert send._wiek_deklaracji(10, None) is None
+    # Zegar serwera moze cofnac status_seq za biezacy koniec tylko przy
+    # niespojnym stanie; ujemny wiek bylby wtedy bzdura wygladajaca na dane.
+    assert send._wiek_deklaracji(50, 42) == 0
+
+
+def test_board_pokazuje_status_SUROWO_bez_klasyfikacji(capsys):
+    """Granica z CONTRIBUTING.md: board raportuje fakty, nie wnioski.
+
+    'stuck', 'idle' czy 'active' policzone z wieku zamienilyby hub w
+    ukrytego orchestratora — a wiek 900 ramek moze znaczyc 'utknal' albo
+    'skonczyl i milczy', i rozstrzyga to czytajacy."""
+    send._wypisz_board([{"nick": "beta", "role": "agent", "groups": [],
+                         "connected": True, "addr": None, "last_seq": 5,
+                         "status": {"state": "working", "subject": "kick"},
+                         "status_seq": 3}], 903)
+    out = capsys.readouterr().out
+    assert "working" in out and "kick" in out
+    assert "900 frame(s) ago" in out, "wiek ma byc widoczny i w RAMKACH"
+    for wniosek in ("stuck", "idle", "stale", "inactive", "active"):
+        assert wniosek not in out.lower(), \
+            f"board wyciagnal wniosek {wniosek!r} — to nalezy do czytajacego"
+
+
+def test_board_przy_zajetym_nicku_podpowiada_BOARD_a_nie_read(tmp_path,
+                                                              monkeypatch):
+    """Komunikat odmowy musi nazywac komende, ktora go wywolala.
+
+    Sciezke `suggested_nick` dzieli `read` i `board`. Zanim `naprawa` byla
+    argumentem, board odmawiajac podawal gotowca `agentmachi read --seq ...`
+    — agent uruchamia to, co przeczytal, wiec komunikat kierowal go do
+    zupelnie innego pytania niz zadal."""
+    class _StubWs:
+        async def send(self, _):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+    async def _zajety(*_a, **_k):
+        return {"type": "error", "text": "nick in use",
+                "suggested_nick": "beta2"}
+
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "HUB_ID", "localhost:1")
+    monkeypatch.setattr(send, "do_hello", _zajety)
+    monkeypatch.setattr(send.websockets, "connect", lambda *a, **k: _StubWs())
+
+    with pytest.raises(send.ReadRefused) as e:
+        asyncio.run(send.read_board("beta", as_json=True, emit=lambda _: None))
+    assert "agentmachi board --nick beta2" in str(e.value)
+    assert "--from-seq" not in str(e.value), \
+        "board nie ma zakresu seq — podpowiedz z --from-seq jest z innej komendy"
+
+
+def test_board_last_seq_liczy_ROZMOWE_a_status_go_nie_rusza(tmp_path,
+                                                            monkeypatch):
+    """Pinuje semantyke pola, ktore `board` pokazuje.
+
+    `status` nie jest w CONVERSATION_TYPES (chat/store.py:52), wiec
+    deklaracja statusu NIE przesuwa `last_seq` — przesuwa `status_seq`.
+    Zachowanie jest sluszne (to dwa rozne pytania: kiedy sie odezwal vs
+    kiedy zadeklarowal), ale komentarz w hubie mowil "ostatniej ramki,
+    ktora wyslal" i byl o klase za szeroki. Bez tego testu ktos zobaczy
+    rozjazd miedzy nazwa a wartoscia i "naprawi" go w druga strone."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "beta", session.instance_id)
+                await ws.send(json.dumps({"type": "chat", "from": "beta",
+                                          "ts": 0.0, "text": "odzywam sie"}))
+                await _czekaj_na_seq(srv, 2)
+                seq_rozmowy = srv.log.last_seq
+                await ws.send(json.dumps({"type": "status", "from": "beta",
+                                          "ts": 0.0, "state": "working"}))
+                await _czekaj_na_seq(srv, 3)
+                zebrane = []
+                await send.read_board("beta", as_json=True,
+                                      emit=zebrane.append)
+                return seq_rozmowy, zebrane[0]["participants"]
+        finally:
+            await srv.stop()
+
+    seq_rozmowy, uczestnicy = asyncio.run(scenario())
+    wpis = next(u for u in uczestnicy if u["nick"] == "beta")
+    assert wpis["last_seq"] == seq_rozmowy, \
+        f"status przesunal last_seq — to pole liczy ROZMOWE: {wpis!r}"
+    assert wpis["status_seq"] > wpis["last_seq"], \
+        "status_seq ma byc nowszy: to on niesie wiek deklaracji"
+
+
+def test_board_naglowek_mowi_CO_liczy_last_seq(capsys):
+    """Samo `last_seq=246` czyta sie jak 'ostatni znak zycia' i daje wniosek
+    odwrotny do prawdy u kogos, kto wlasnie zadeklarowal status. Jednostka
+    pola nalezy do wyniku."""
+    send._wypisz_board([{"nick": "beta", "role": "agent", "groups": [],
+                         "connected": True, "addr": None, "last_seq": 5,
+                         "status": None, "status_seq": None}], 9)
+    out = capsys.readouterr().out
+    assert "CONVERSATION frame" in out
+    assert "status declaration does not move it" in out

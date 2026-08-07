@@ -375,7 +375,15 @@ class ChatServer:
         # nie zobaczylby, kogo ma wyrzucic, a inni agenci nie wiedzieliby, ze
         # ktos doszedl. Zrodlem jest suma: konfiguracja + realne polaczenia.
         znani = set(self.registry.tokens) | set(self.registry.roles)
-        # last_seq: numer OSTATNIEJ ramki, ktora ten uczestnik wyslal.
+        # last_seq: numer ostatniej ramki ROZMOWY tego uczestnika — zrodlem
+        # jest `conversation_after`, wiec licza sie CONVERSATION_TYPES
+        # (chat/fyi/takeover/kick), a `status` i `hello` NIE. Stalo tu
+        # "OSTATNIEJ ramki, ktora wyslal" i bylo to o klase za szerokie:
+        # agent, ktory wlasnie zadeklarowal status, ma na boardzie stary
+        # last_seq i wyglada na cichszego, niz jest. Zachowanie zostaje —
+        # "kiedy sie ostatnio odezwal" to wlasciwe pytanie, bo status widac
+        # osobno w status_seq. Zlapane 2026-08-07 przy pisaniu `agentmachi
+        # board`, ktore to pole POKAZUJE: opis pola byl starszy niz kod.
         # `connected` mowi tylko tyle, ze gniazdo jest otwarte — a gniazdo
         # zyje niezaleznie od tego, czy ktokolwiek po drugiej stronie czyta.
         # W dogfoodzie kinas-machine dwa agenty mialy procesy z uptime 2h,

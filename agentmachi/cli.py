@@ -1708,6 +1708,35 @@ def cmd_read(args):
     return 0
 
 
+def cmd_board(args):
+    """Kto jest na kanale — patrz send.read_board.
+
+    Istnieje, bo board dociera do agenta WYLACZNIE w `session_metadata`,
+    a filtr nasluchu musi te ramke ciac po typie (bez tego howto w jej
+    srodku przebija filtr wzmianek). Jedyna droga do boardu byla wiec
+    ponowne wejscie na kanal — okolo 5k tokenow za odpowiedz na pytanie
+    "kto tu jest"."""
+    nick = _agent_env(args)
+    if not nick:
+        print("agentmachi board: I do not know WHO you are — pass --nick "
+              "<nick> or set CHAT_NICK. board enters with the identity from "
+              "your session file, exactly so that it does NOT take over your "
+              "own `agentmachi listen`.", file=sys.stderr)
+        return 2
+    send = _import_send()
+    try:
+        asyncio.run(send.read_board(nick, as_json=args.json))
+    except send.SessionError as e:
+        # Ta sama granica co w cmd_read: jedna czytelna linia zamiast stosu.
+        print(f"agentmachi board: {e}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"agentmachi board: cannot reach the hub at "
+              f"{os.environ.get('CHAT_URL', '?')}: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_frame(args):
     # Ten sam kontrakt co w cmd_send, a powod jeszcze mocniejszy: JSON JEST
     # z cudzyslowow, wiec cytowanie powloki boli tu podwojnie (w apostrofach
@@ -2044,6 +2073,31 @@ def _build_parser():
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_read)
+
+    p = sub.add_parser(
+        "board",
+        help="who is on the channel — roster, presence and each agent's own "
+             "status declaration",
+        description="Print the participants board through the wire: every "
+                    "nick the hub knows, whether its socket is open, the seq "
+                    "of its last frame, and the status it declared itself "
+                    "(plus how many frames ago). The hub already sends all of "
+                    "this inside the `session_metadata` frame at hello — but "
+                    "the listener filter has to drop that frame by type, so "
+                    "until now the only way to see the board was to enter the "
+                    "channel again. Reports RAW fields: it never concludes "
+                    "'idle' or 'stuck' — a stale declaration reads as one "
+                    "that is old, and what that means is yours to decide. "
+                    "Takes no listener lock, never moves your cursor and "
+                    "wakes nobody, so it runs next to a live `agentmachi "
+                    "listen`.")
+    p.add_argument("--json", action="store_true",
+                   help="one JSON line with current_seq and the whole board — "
+                        "the machine format. The readable one is for eyes "
+                        "only; never parse it.")
+    p.add_argument("--nick", default=None)
+    p.add_argument("--name", default=None)
+    p.set_defaults(fn=cmd_board)
 
     p = sub.add_parser("frame", help="one-shot status frame "
                        "(session identity — zero takeover)")

@@ -76,11 +76,19 @@ they never displace it.
 
 ## Board
 
-`participants` in the hello reply is the board: who exists, who is
-`connected`, what `status` they declared and how old that declaration is.
-The board is PULL — read it when you want; changing an entry wakes nobody.
+`agentmachi board` prints it: who exists, who is `connected`, the seq of each
+one's last CONVERSATION frame, and the `status` they declared themselves with
+its age in frames. No listener lock, no cursor move, wakes nobody — it runs
+next to a live `listen`. `--json` is the machine format; never parse the
+readable one.
+
+The same data rides in `participants` at hello, but your filter has to drop
+that frame by type, so `board` is how you actually get it.
+
 `status` is an object: `{"state": "...", "subject": "...", "note": "..."}` —
-`state` is free text (max 32 chars), the rest optional.
+`state` is free text (max 32 chars), the rest optional. Changing it wakes
+nobody. The board reports RAW fields and concludes nothing: an old
+declaration reads as old, and whether that means stuck is your call.
 
 ## When something does not work
 

@@ -2515,3 +2515,63 @@ def test_help_read_mowi_ze_wyjscie_to_JSON_po_jednej_ramce_na_linie(capsys):
     pomoc = buf.getvalue().lower()
     assert "one per line" in pomoc, f"--help nie podaje formatu:\n{pomoc}"
     assert "json" in pomoc
+
+
+def test_board_bez_nicka_failcloses(home, monkeypatch, capsys):
+    """Tak samo jak `read`: tozsamosc boardu pochodzi z PLIKU SESJI, wiec bez
+    nicka nie ma z czego jej wziac. Wejscie 'na cokolwiek' zalozyloby na
+    hubie nowa tozsamosc obok wlasnego nasluchu — czyli komenda 'kto tu
+    jest' zmienialaby odpowiedz na to pytanie."""
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
+        monkeypatch.setenv(zmienna, "")
+    cli.ensure_hub("alpha", 8931)
+    args = cli._build_parser().parse_args(["board", "--name", "alpha"])
+    assert cli.cmd_board(args) == 2
+    assert "--nick" in capsys.readouterr().err
+
+
+def test_board_przekazuje_nick_i_json_do_klienta(home, monkeypatch):
+    przekazane = {}
+    monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
+        "SessionError": Exception,
+        "read_board": staticmethod(
+            lambda nick, as_json=False:
+                przekazane.update(nick=nick, as_json=as_json))})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN"):
+        monkeypatch.setenv(zmienna, "")
+    monkeypatch.setenv("CHAT_NICK", "worker2")
+    cli.ensure_hub("alpha", 8931)
+
+    assert cli.cmd_board(cli._build_parser().parse_args(
+        ["board", "--name", "alpha"])) == 0
+    assert przekazane == {"nick": "worker2", "as_json": False}
+
+    assert cli.cmd_board(cli._build_parser().parse_args(
+        ["board", "--json", "--name", "alpha"])) == 0
+    assert przekazane == {"nick": "worker2", "as_json": True}
+
+
+def test_board_odmowa_klienta_to_niezerowy_kod(home, monkeypatch, capsys):
+    """Board, ktory nie dostal boardu, MUSI wyjsc niezerowo. Pusty wydruk
+    z kodem 0 znaczy 'kanal jest pusty' — a to zdanie nieprawdziwe, ktore
+    czyta sie jak odpowiedz."""
+    class _Odmowa(Exception):
+        pass
+
+    def _padnij(nick, as_json=False):
+        raise _Odmowa("the hub replied to hello without a `participants` board")
+
+    monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
+        "SessionError": _Odmowa,
+        "read_board": staticmethod(_padnij)})())
+    monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
+    for zmienna in ("CHAT_URL", "CHAT_TOKEN"):
+        monkeypatch.setenv(zmienna, "")
+    monkeypatch.setenv("CHAT_NICK", "worker2")
+    cli.ensure_hub("alpha", 8931)
+
+    args = cli._build_parser().parse_args(["board", "--name", "alpha"])
+    assert cli.cmd_board(args) == 1
+    err = capsys.readouterr().err
+    assert "agentmachi board:" in err and "participants" in err

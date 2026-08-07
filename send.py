@@ -783,13 +783,18 @@ def _koniec_logu_z_odmowy(reply):
     return int(dopasowanie.group(1)) if dopasowanie else None
 
 
-def _odczyt_albo_padnij(reply, nick, session, from_seq):
+def _odczyt_albo_padnij(reply, nick, session, from_seq, naprawa=None):
     """Fail-closed dla ODCZYTU, gdy hub odmowil hello. Zwraca None albo rzuca.
 
     Rownowaznik `_wysylka_albo_padnij` dla drugiej strony: tam chodzilo o to,
     zeby wysylka nie udawala, ze poszla; tu o to, zeby odczyt nie udawal, ze
     czegos nie ma. Odmowy nie da sie tu przemilczec — pusty stdout i kod 0
     znacza dla wolajacego dokladnie to samo, co udany odczyt pustego zakresu.
+
+    `naprawa` to gotowa komenda do przepisania, gdy hub proponuje inny nick.
+    Jest argumentem, bo tej sciezki uzywa juz DRUGI wolajacy (`read_board`),
+    a komunikat, ktory kaze uruchomic nie te komende co trzeba, jest gorszy
+    niz brak komunikatu: agent robi dokladnie to, co przeczytal.
     """
     if isinstance(reply, dict) and reply.get("type") in ("ok",
                                                          "resync_required"):
@@ -817,7 +822,7 @@ def _odczyt_albo_padnij(reply, nick, session, from_seq):
             f"  the nick is held by a client with a DIFFERENT identity than "
             f"your session file — often your own `agentmachi node`.\n"
             f"  read as the nick you really are on this hub:\n"
-            f"      agentmachi read --nick {proponowany} --from-seq {from_seq}")
+            f"      {naprawa(proponowany) if naprawa else f'agentmachi read --nick {proponowany} --from-seq {from_seq}'}")
     raise ReadRefused(
         f"the hub REJECTED hello for {nick!r} — nothing was read.\n"
         f"  reason: {powod}\n"
@@ -916,6 +921,132 @@ async def read_frames(nick, from_seq, only_seq=None, emit=None):
         print(f"[read] no frames at or after seq {from_seq} — the hub's log "
               f"ends at seq {koniec_logu}. Nothing printed.", file=sys.stderr)
     return len(wybrane)
+
+
+def _wiek_deklaracji(status_seq, biezacy_seq):
+    """Ile RAMEK temu powstala deklaracja statusu. None = nigdy nie zadeklarowal.
+
+    Jednostka jest tu czescia wyniku, nie ozdoba: to ramki, nie sekundy.
+    Board klamie najgorzej wtedy, gdy wyglada na swiezy — snapshot huba po
+    dogfoodzie kinas-machine pokazywal `worker1: idle` przez cala jego prace
+    (patrz chat/server.py:401). Wiek nie mowi, czy ktos utknal; mowi, ile
+    kanal przezyl od czasu, gdy to zdanie bylo prawda. Wniosek nalezy do
+    czytajacego — hub go nie wyciaga."""
+    if (isinstance(status_seq, bool) or not isinstance(status_seq, int)
+            or isinstance(biezacy_seq, bool)
+            or not isinstance(biezacy_seq, int)):
+        return None
+    return max(biezacy_seq - status_seq, 0)
+
+
+def _opis_statusu(status, wiek):
+    """Jedna linia o deklaracji uczestnika — SUROWA, bez klasyfikacji.
+
+    `idle`/`stuck`/`coding` swiadomie nie powstaja tutaj: to wnioski, a
+    wniosek na boardzie zamienilby hub w ukrytego orchestratora
+    (CONTRIBUTING.md, "Board classification, scoring, activity ranking")."""
+    if not isinstance(status, dict) or not status:
+        return "status: (never declared)"
+    czesci = [str(status.get("state") or "?")]
+    for pole in ("subject", "note"):
+        wartosc = status.get(pole)
+        if isinstance(wartosc, str) and wartosc.strip():
+            czesci.append(wartosc.strip())
+    ogon = ("(declared right now)" if wiek == 0
+            else f"(declared {wiek} frame(s) ago)" if wiek is not None
+            else "(age unknown — the hub sent no status_seq)")
+    return f"status: {' — '.join(czesci)}  {ogon}"
+
+
+def _wypisz_board(uczestnicy, biezacy_seq):
+    """Format DLA OCZU. Nie parsuj go — do tego jest `--json`.
+
+    Ta sama granica co przy `listen`: czytelny format gubi informacje i
+    agenci wklejaja sobie nawzajem jego fragmenty na kanal, wiec cytat
+    wyglada w nim dokladnie jak prawda."""
+    print(f"board of {URI} — {len(uczestnicy)} participant(s), "
+          f"hub at seq {biezacy_seq}")
+    # Raz w naglowku, nie przy kazdym wierszu: `last_seq` liczy ramki
+    # ROZMOWY, wiec ktos, kto wlasnie zadeklarowal status, wyglada tu
+    # ciszej, niz jest. Bez tego zdania pole czyta sie jako "ostatni
+    # znak zycia" i wniosek wychodzi odwrotny do prawdy.
+    print("last_seq = that participant's last CONVERSATION frame "
+          "(chat/fyi/kick/takeover); a status declaration does not move it")
+    for u in uczestnicy:
+        wiek = _wiek_deklaracji(u.get("status_seq"), biezacy_seq)
+        grupy = ",".join(u.get("groups") or []) or "-"
+        print(f"\n{u.get('nick')}"
+              f"  role={u.get('role')}"
+              f"  groups={grupy}"
+              f"  connected={'yes' if u.get('connected') else 'no'}"
+              f"  addr={u.get('addr') or '-'}"
+              f"  last_seq={u.get('last_seq')}")
+        print(f"  {_opis_statusu(u.get('status'), wiek)}")
+    # Puste `addr` u WSZYSTKICH czyta sie jak zepsuta kolumna, a jest
+    # odmowa: hub oddaje host peera tylko przy bindzie na tailnet, bo na
+    # loopbacku nie rozroznia podmiotow i wolal milczec niz zmyslic
+    # (chat/server.py:415). Bez tego zdania czytajacy zglosilby buga.
+    if uczestnicy and not any(u.get("addr") for u in uczestnicy):
+        print("\n(addr is blank for everyone: the hub reports a peer host "
+              "only on a tailnet bind — on loopback it would not tell "
+              "anybody apart, so it says nothing instead)")
+
+
+async def read_board(nick, as_json=False, emit=None):
+    """Kto jest na kanale — board PRZEZ DRUT, bez historii. Zwraca liczbe wpisow.
+
+    Istnieje, bo nasza WLASNA wymagana praktyka wyrzuca board do kosza:
+    filtr nasluchu musi ciac `session_metadata` po typie ramki
+    (skills/.../claude-code.md), a board jedzie wlasnie w srodku tej ramki.
+    Agent moze wiec zobaczyc, kto jest na kanale, wylacznie wchodzac od nowa
+    — okolo 5k tokenow za rzecz, o ktora nie da sie zapytac.
+
+    Zero zmian w serwerze i zero w protokole: `chat/server.py`
+    `_participants_snapshot` liczy te pola od B5, a hello je odsyla. To jest
+    komenda, ktora POKAZUJE dane juz wysylane.
+
+    Trzy rzeczy, ktorych ta droga nie robi — kontrakt wspolny z `read_frames`:
+    - NIE bierze listener-locka (ma dzialac OBOK zywego `listen`),
+    - NIE rusza kursora sesji (zero `advance`),
+    - NIE bumpuje generacji (instance_id z pliku sesji).
+
+    Kursor w hello to STALE 0, a nie kursor sesji, i to nie jest skrot:
+    `context="fresh"` kaze serwerowi policzyc backlog od konca logu, wiec
+    backlog wychodzi pusty niezaleznie od tego, co przyslemy — a 0 jest
+    zawsze legalne. Kursor sesji potrafi wyprzedzic hub po jego restarcie
+    i wtedy board padalby na `CursorBeyondLog`, czyli na rzecz zupelnie
+    niezwiazana z pytaniem "kto tu jest"."""
+    token = _require_token()
+    session = _session(nick)          # tylko zrodlo tozsamosci — zero zapisu
+    async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
+        reply = await do_hello(ws, nick, _ReadIdentity(session, 0), token,
+                               context="fresh", return_errors=True)
+        _odczyt_albo_padnij(reply, nick, session, 1,
+                            naprawa=lambda n: f"agentmachi board --nick {n}")
+        uczestnicy = reply.get("participants")
+        biezacy_seq = (reply.get("last_seq") if reply.get("type") == "ok"
+                       else reply.get("snapshot_seq"))
+    if not isinstance(uczestnicy, list):
+        # Fail-closed: pusty board i board, ktorego hub nie przyslal, znacza
+        # co innego. Starszy hub nie ma `participants` w hello i cisza z
+        # kodem 0 kazalaby czytajacemu uwierzyc, ze kanal jest pusty.
+        raise ReadRefused(
+            f"the hub replied to hello without a `participants` board "
+            f"(got: {type(uczestnicy).__name__}). NOTHING was printed — this "
+            f"is not a confirmation that the channel is empty.\n"
+            f"  a hub older than B5 does not send the board at all;\n"
+            f"  check what it is: agentmachi card --name <hub>")
+    uczestnicy = [u for u in uczestnicy if isinstance(u, dict)]
+    if as_json:
+        # JEDNA linia z calym boardem, nie linia na uczestnika: `current_seq`
+        # jest potrzebny do policzenia wieku KAZDEGO wpisu, wiec rozbicie go
+        # od nich oddzielaloby dane od ich jedynego punktu odniesienia.
+        (emit or _print_json)({"type": "board",
+                               "current_seq": biezacy_seq,
+                               "participants": uczestnicy})
+    else:
+        _wypisz_board(uczestnicy, biezacy_seq)
+    return len(uczestnicy)
 
 
 def main():
