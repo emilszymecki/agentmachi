@@ -197,11 +197,28 @@ class ChatServer:
             # daje wiek "nieznany", czyli stan opisany uczciwie. Podstawienie
             # czegokolwiek w to miejsce byloby dokladnie ta zmyslona liczba,
             # przed ktora bronil pierwotny komentarz wyzej.
-            # `bool` odsiane jawnie: True jest instancja int w Pythonie.
+            #
+            # Calosc nie bedaca mapa = CALY wiek nieznany, nie wyjatek. Bylo
+            # tu `(state.get("status_seq") or {}).items()`, co ratowalo
+            # wylacznie None i puste: niepusta lista jest prawdziwa, wiec
+            # `.items()` wywalalo AttributeError i hub NIE WSTAWAL. Uszkodzony
+            # snapshot ma kosztowac wiek deklaracji, a nie caly pokoj.
+            surowe = state.get("status_seq")
+            if not isinstance(surowe, dict):
+                surowe = {}
             self.status_seq = {
-                n: s for n, s in (state.get("status_seq") or {}).items()
+                n: s for n, s in surowe.items()
+                # `bool` odsiane jawnie: True jest instancja int w Pythonie.
                 if isinstance(n, str) and isinstance(s, int)
-                and not isinstance(s, bool) and s >= 1}
+                and not isinstance(s, bool)
+                # Z PRZYSZLOSCI = niespojne. Seq spoza tego, co snapshot
+                # obejmuje, dalby wiek ujemny — czyli liczbe wygladajaca na
+                # fakt, ktorej nie da sie umiejscowic w tym logu.
+                and 1 <= s <= _snapshot_seq
+                # Data bez deklaracji nie jest faktem o niczyim statusie.
+                # `self.status` jest juz przefiltrowany wyzej, wiec to takze
+                # odsiewa wiek przypiety do wpisu, ktory sam nie przeszedl.
+                and n in self.status}
         self._replay_events()
         # Zrodlem sa GRUPY rejestru, nie mapa tokenow: agent z trybu otwartego
         # ma wpis w `groups`/`roles`, ale nigdy w `tokens`. Iteracja po tokenach

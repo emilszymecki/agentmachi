@@ -3198,3 +3198,110 @@ def test_resync_niesie_DOKLADNIE_stan_snapshotu(srv, tmp_path):
     stan, data_dir = asyncio.run(srv(scenario))
     assert set(stan) == {"registry", "status", "status_seq"}
     assert stan["status_seq"]["beta"] >= 1
+
+
+def _hub_ze_snapshotem(tmp_path, state, snapshot_seq=10):
+    """Hub postawiony na RECZNIE napisanym snapshocie — do badania wejscia.
+
+    Snapshot lezy na dysku, wiec jego zawartosc jest wejsciem, nie prawda:
+    moze byc stary, moze byc uszkodzony, moze pochodzic z innej wersji."""
+    d = tmp_path / "hub"
+    (d).mkdir(parents=True, exist_ok=True)
+    (d / "snapshot.json").write_text(
+        json.dumps({"snapshot_seq": snapshot_seq, "state": state}),
+        encoding="utf-8")
+    return ChatServer(data_dir=str(d), tokens=TOKENS, port=PORT + 7)
+
+
+def test_status_seq_przezywa_DWA_restarty_pod_rzad(srv, tmp_path):
+    """Warunek 2 z review: po kompakcji snapshot niesie oba pola, a KOLEJNY
+    restart nadal oddaje oba.
+
+    Jeden restart nie wystarczy jako dowod: pierwszy hub po kompakcji ma
+    stan jeszcze w pamieci i zapisuje go w swoim snapshotcie. Dopiero drugi
+    czyta WYLACZNIE to, co pierwszy zostawil na dysku."""
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "status", "from": "beta",
+                                    "ts": 1.0, "state": "working",
+                                    "subject": "dwa restarty"}))
+        await asyncio.sleep(0.1)
+        seq = server.status_seq.get("beta")
+        server.snapshot()
+        await ws_b.close()
+        return server.log.dir, seq
+
+    data_dir, seq = asyncio.run(srv(scenario))
+    pierwszy = ChatServer(data_dir=data_dir, tokens=TOKENS, port=PORT + 1)
+    assert pierwszy.status_seq.get("beta") == seq
+    pierwszy.snapshot()                    # drugi zapis, juz z odtworzonego stanu
+    drugi = ChatServer(data_dir=data_dir, tokens=TOKENS, port=PORT + 2)
+    snap = {p["nick"]: p for p in drugi._participants_snapshot()}
+    assert snap["beta"]["status"]["subject"] == "dwa restarty"
+    assert snap["beta"]["status_seq"] == seq, \
+        f"wiek przezyl jeden restart, a nie dwa: {snap['beta']!r}"
+
+
+def test_legacy_snapshot_bez_status_seq_zostawia_wiek_NIEZNANY(tmp_path):
+    """Warunek 3: snapshot sprzed tej zmiany nie ma pola. Status ma przezyc,
+    wiek ma byc nieznany — a hub ma po prostu wstac."""
+    srv = _hub_ze_snapshotem(tmp_path, {
+        "registry": {}, "status": {"beta": {"state": "working"}}})
+    assert srv.status["beta"] == {"state": "working"}
+    assert srv.status_seq.get("beta") is None
+
+
+def test_status_seq_niebedacy_mapa_NIE_WYWALA_huba(tmp_path):
+    """Warunek 5, najostrzejszy przypadek: `(x or {}).items()` ratowalo tylko
+    None i puste. NIEPUSTA lista jest prawdziwa, wiec `.items()` rzucalo
+    AttributeError i hub nie wstawal wcale. Uszkodzony snapshot ma kosztowac
+    wiek deklaracji, nie caly pokoj."""
+    for smiec in ([1, 2], "beta", 7):
+        srv = _hub_ze_snapshotem(tmp_path, {
+            "registry": {}, "status": {"beta": {"state": "working"}},
+            "status_seq": smiec})
+        assert srv.status["beta"] == {"state": "working"}, \
+            f"status nie przezyl smiecia w status_seq: {smiec!r}"
+        assert srv.status_seq == {}, f"smiec przeszedl: {smiec!r}"
+
+
+def test_status_seq_z_PRZYSZLOSCI_i_bez_statusu_odpadaja(tmp_path):
+    """Warunek 5: seq spoza tego, co snapshot obejmuje, dalby wiek UJEMNY —
+    liczbe wygladajaca na fakt, ktorej nie da sie umiejscowic w tym logu.
+    A data przypieta do nicka bez deklaracji nie jest faktem o niczym."""
+    srv = _hub_ze_snapshotem(tmp_path, {
+        "registry": {},
+        "status": {"beta": {"state": "working"}},
+        "status_seq": {"beta": 999,        # > snapshot_seq=10
+                       "gamma": 5,         # nick bez statusu
+                       "delta": 0,         # seq nie zaczyna sie od 0
+                       "epsilon": True}},  # bool jest instancja int
+        snapshot_seq=10)
+    assert srv.status_seq == {}, f"przeszlo cos, co nie powinno: {srv.status_seq}"
+    assert srv.status["beta"] == {"state": "working"}, \
+        "odrzucenie wieku nie moze zabrac deklaracji"
+
+
+def test_resync_state_jest_TYM_SAMYM_co_snapshot_na_dysku(srv, tmp_path):
+    """Warunek 4 w mocnej wersji: drut porownany z DYSKIEM, nie z metoda.
+
+    Porownanie ze `_stan_trwaly()` sprawdza, ze oba wyjscia biora z jednego
+    zrodla — ale przeszloby takze wtedy, gdyby to zrodlo nie trafialo na
+    dysk. Jedyny dowod trwalosci to plik."""
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+        await a.send(json.dumps({"type": "status", "from": "alfa", "ts": 0.0,
+                                 "state": "working", "subject": "dysk"}))
+        await asyncio.sleep(0.1)
+        server.snapshot()
+        b, reply = await hello("beta", "tb", last_seq=0)
+        assert reply["type"] == "resync_required"
+        await a.close(); await b.close()
+        return reply["state"], server.log.dir
+
+    stan_z_drutu, data_dir = asyncio.run(srv(scenario))
+    z_dysku = json.loads(
+        (Path(data_dir) / "snapshot.json").read_text(encoding="utf-8"))["state"]
+    assert stan_z_drutu == z_dysku, \
+        "to, co hub obiecuje na drucie, nie jest tym, co zapisal na dysk"
+    assert z_dysku["status_seq"]["alfa"] >= 1
