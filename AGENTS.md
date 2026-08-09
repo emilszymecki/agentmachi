@@ -211,3 +211,45 @@ przy wzmiance (`listen | grep -m1`) — szczegóły i powód w `howto` z huba.
   Hub nie ma „obiektu aktywacji" i nie kolejkuje wzmianek; `activation_id`
   na ramce jest opcjonalne i służy wyłącznie klientowi do dedupu wybudzeń
   przy ponownym dostarczeniu.
+
+## Granice i ich egzekwowanie
+
+Jeśli mówimy ci, że organizujesz sobie pracę **w jawnych granicach projektu**,
+to jesteśmy ci winni listę granic — razem z tym, które są naprawdę
+egzekwowane, a które trzymają się wyłącznie na zaufaniu. Granica opisana jako
+płot, a będąca w rzeczywistości prośbą, jest gorsza niż jej brak: ufasz
+mechanizmowi, którego nie ma, i nie zachowujesz ostrożności, którą byś
+zachował, wiedząc.
+
+**Probe to test ZDOLNOŚCI, nigdy wykonanie skutku.** Sprawdzasz obecność
+credentiala, scope tokenu albo to, że mechanizm odrzucił operację testową —
+nie publikujesz paczki „na próbę" i nie robisz testowego pusha. Przy granicy
+`trust-only` sprawdzenie przez wykonanie **jest** skutkiem: nie ma czemu cię
+odrzucić.
+
+Tabela opisuje **stan zmierzony 2026-08-10**, nie stan docelowy ani nie
+politykę. Sprawdź sam, zamiast jej wierzyć — po to jest ostatnia kolumna.
+
+| Granica | Egzekwowanie | Typ | Probe |
+|---|---|---|---|
+| Publikacja na PyPI | Brak ścieżki publikacji w repo. `.github/workflows/ci.yml` ma tylko `twine check` (walidacja metadanych, nie upload) i zero odwołań do `secrets.*`. Wydanie robi operator ręcznie. | **absent** — mierzone z tej sesji | `grep -rn "secrets\." .github/`; `ls ~/.pypirc`; `env \| grep -iE "PYPI\|TWINE\|UV_PUBLISH"` — 2026-08-10 wszystkie puste |
+| Push do `main` | **Nic.** Brak classic branch protection (`404 Branch not protected`) i brak rulesetów (`[]`). Token `gh` ma scope `repo`. | **trust-only** | `gh api "repos/{owner}/{repo}/branches/main/protection"`; `gh api "repos/{owner}/{repo}/rules/branches/main"`; `gh auth status 2>&1 \| grep -i scopes` |
+| Plik tokenów huba | Kod pisze 0600 (`_write_0600`, `agentmachi/cli.py:69`), pilnuje tego test (`tests/test_cli.py:43`), katalogi huba są 0700. Przed wyciekiem do gita: wzorce `*.tokens.json` i `tokens.json` w `.gitignore`. | **trust-only wobec agenta**, gated wobec przypadku | `test -r ~/.agentmachi/<hub>/tokens.json` (nigdy `cat`); `git check-ignore -v hub.tokens.json` |
+
+Cztery rzeczy, których tabela nie powie skrótem:
+
+- **`absent` przy PyPI dotyczy tej sesji, nie świata.** Token w keyringu
+  systemowym byłby dla tych probe'ów niewidoczny i przesunąłby wiersz na
+  `trust-only`. **Do weryfikacji przez operatora:** gdzie faktycznie żyje
+  credential do PyPI. Nie zgadujemy.
+- **Wynik `gh api` to stan serwera, nie własność repozytorium.** Ustawienia na
+  GitHubie zmienia się poza gitem i żaden plik tutaj o tym nie napisze —
+  dlatego w tabeli stoi probe z datą, a nie werdykt. Odczyt jest read-only;
+  push testowy przy niechronionej gałęzi byłby po prostu pushem.
+- **0600 nie jest płotem dla ciebie.** Chodzisz jako ten sam użytkownik
+  systemowy co operator, więc uprawnienia pliku zatrzymują innych użytkowników
+  systemu, nie ciebie. `.gitignore` jest płotem wobec `git add -A` i przestaje
+  nim być przy `git add -f`.
+- **Samych wzorców w `.gitignore` nie pilnuje żaden test** — sprawdzone.
+  Historia gita jest czysta (`hub.tokens.json` nigdy w niej nie był), ale
+  utrzymuje to konwencja `git add` po jawnych ścieżkach, nie mechanizm.
