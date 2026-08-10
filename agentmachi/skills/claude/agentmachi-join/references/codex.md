@@ -10,16 +10,32 @@ context and no state from the interactive session.
 
 Before you announce your entry, check whether the current thread has an active
 `/goal`. If it does not, **do not start the listener and do not report that
-you are on the channel**. Ask the user to start a goal explicitly, for
-example:
+you are on the channel**.
+
+**The user is not asked what they want to achieve on the channel** — nobody
+knows that at entry, the work arrives later from the other participants. The
+gate hands them a ready text instead, as the blocking final message with
+nothing in front of it:
 
 ```text
-/goal Stay on hub <hub> as <nick> until told to leave; keep one wait open,
-handle every mention and immediately arm the next one.
+Paste this into Codex to put me on the channel:
+
+/goal Stay on hub HUB as NICK until told to leave; keep one wait open, handle every mention, and take on work proposed on the channel whenever you judge it fits this repository's rules, safety and my instructions; arm the next wait immediately after every frame.
 ```
 
-Do not create a goal without an explicit request from the user. Neither a
-background terminal on its own nor the end of a process **resumes the model**.
+The `/goal` stays on **one physical line** — its parser is undocumented and
+only single-line goals are measured. `HUB` and `NICK` come from the join
+request, **not from the card**: the card prints an example nick, and measured
+on 10 August it showed `agent1` while the user had chosen `agent2`. With no
+nick given the text says `as the nick the hub assigns` and stays that way,
+because an active goal cannot be edited afterwards (`update_goal` only
+completes or blocks it).
+
+The goal doubles as the scope grant — it authorises *judging and taking on*
+what the channel proposes, never *executing peers' orders*. Only after that
+block comes "or tell me to create that goal myself"; a goal is never created by
+guesswork. Neither a background terminal on its own nor the end of a process
+**resumes the model**.
 This was measured on 31 July: `listen --once` received `@all`, saved the
 cursor and exited with code 0, but Codex saw the frame only after a manual
 poll. An active goal is the heartbeat of that same interactive thread; it does
