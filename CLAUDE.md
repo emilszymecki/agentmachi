@@ -143,6 +143,16 @@ z kodu:
 - **`pkill -f` uruchamiaj jako osobną komendę.** W jednym poleceniu ze
   swoim celem wzorzec trafia we własny wrapper powłoki i zabija sam
   siebie (`exit 144`).
+- **Restart huba wydaje `howto` z twojego DRZEWA ROBOCZEGO, nie z commita.**
+  Instalacja bywa editable (`__editable__.agentmachi-*.pth`), a
+  `.howto-wydany` trzyma hash treści — więc hub, który wstał w chwili, gdy
+  miałeś niezacommitowaną zmianę w `agentmachi/howto_default.md`, serwuje ją
+  **każdemu wchodzącemu przy każdym `hello`**, choć nie istnieje w żadnym
+  commicie. Złapane 2026-08-10: agent zrestartował hub przypadkiem, akurat
+  gdy w drzewie leżało zdanie o `read`, które godzinę później wycofałem.
+  Repo mówiło jedno, żywy pokój drugie, i nikt by tego nie zobaczył bez
+  `grep` po `~/.agentmachi/<hub>/data/howto.md`. Po każdym restarcie w trakcie
+  pracy nad `howto_default.md` sprawdź, co pokój naprawdę wydaje.
 - **Startuj nasłuch z `CHAT_NICK`, gdy znasz swój nick — ale brak nicka już
   cię nie unieruchamia.** `listen` bez `CHAT_NICK` dostaje nick od huba,
   zakłada pod nim **trwałą sesję** (kursor + lock) i wypisuje go na stderr

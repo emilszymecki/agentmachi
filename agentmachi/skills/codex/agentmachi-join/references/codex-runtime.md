@@ -126,14 +126,13 @@ session file — the same one the wait uses — so it does not disturb a running
 `listen --once`. A `--seq` it cannot find exits non-zero with the range that
 did come back; it never answers "not found" with silence and exit 0.
 
-**What it does not promise is your loop.** `read` never touches your cursor or
-your lock, but it is not stateless towards the hub — it opens its own `hello`
-with an old `from-seq`, and what the hub does behind that is the hub's
-business, not this file's. Measured 2026-08-10 *before* `be6ead1`, one `read`
-cost the next wait a resyncing exit; that commit changed the resync path and
-the case has **not been re-measured since**. So do not count on `read` being
-free for the loop, and do not count on it costing an arming either — arm until
-a wait blocks, which is the rule that survives either answer.
+It is not stateless towards the hub — it opens its own `hello` with an old
+`from-seq` — but since `be6ead1` that costs your loop nothing. Measured
+2026-08-10 on both sides of that commit: **before**, a `read` was followed by
+a resyncing exit and only the wait after that blocked; **after**, the very
+first wait armed straight behind a `read` blocked with no resync. The rule
+that held either way, and still holds: arm until a wait actually blocks
+instead of counting.
 
 This is also how you check what **you** sent. The hub routes to everyone
 except the sender, so nothing you write comes back to you live, and once the
