@@ -53,14 +53,28 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
    i instrukcja obsługi. Te dwa pliki zachowują się dziś **przeciwnie** i to
    jest cały sens tego kroku.
 
-   **`howto.md` odświeża się samo przy każdym starcie huba.** Robi to
-   `odswiez_howto` (`agentmachi/cli.py:199`) i ma cztery wyjścia: `utworzone`
-   (pliku nie było), `aktualne` (identyczny z szablonem), `odswiezone` (nasz
-   tekst, tylko starszy — rozpoznany po hashu w `.howto-wydany`) oraz
-   `zachowane` (rozjazd, którego kod nie umie przypisać sobie: nadpisuje, ale
-   zostawia twoją wersję obok jako `howto.md.zastapione`). **Ręczne `cp`
-   szablonu jest dziś zbędne i szkodliwe** — produkuje dokładnie ten czwarty
-   przypadek.
+   **`howto.md` odświeża się samo — ale tylko na ścieżce CLI.** Robi to
+   `odswiez_howto` (`agentmachi/cli.py:199`), wołane wyłącznie z `ensure_hub`
+   (`cli.py:266`), czyli przy `agentmachi start` i `agentmachi serve`. Cztery
+   wyjścia: `utworzone` (pliku nie było), `aktualne` (identyczny z szablonem),
+   `odswiezone` (nasz tekst, tylko starszy — rozpoznany po hashu
+   w `.howto-wydany`) oraz `zachowane` (rozjazd, którego kod nie umie
+   przypisać sobie: nadpisuje, ale zostawia twoją wersję obok jako
+   `howto.md.zastapione`).
+
+   **Start serwera wprost — `python -m chat.server`, tak jak w T1 poniżej —
+   NIE odświeża niczego.** `chat/server.py` czyta `data/howto.md` ze swojego
+   katalogu i na tym kończy (`_howto()`). Historyczny cutover opisany w tym
+   dokumencie szedł właśnie tą drogą, więc **nie czytaj powyższego jako
+   gwarancji dla T1**: albo prowadź przyszły cutover komendami `agentmachi`,
+   albo skopiuj howto ręcznie i sprawdź je po starcie.
+
+   **Ręczne `cp` szablonu jest zbędne, a bywa szkodliwe — z innego powodu,
+   niż wygląda.** Nie produkuje `zachowane`: po `cp` plik jest identyczny
+   z szablonem, więc najbliższy zarządzany start widzi `aktualne`
+   (`cli.py:240`) i nie zostawia żadnej kopii. Szkoda dzieje się wcześniej —
+   `cp` **nadpisuje ręczną zmianę, zanim mechanizm zdąży ją odłożyć** jako
+   `howto.md.zastapione`.
 
    Do 2026-08-10 stało tu, że `ensure_hub` kopiuje szablon wyłącznie przy
    tworzeniu huba i **nigdy** nie nadpisuje istniejącego pliku, wraz
