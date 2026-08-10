@@ -6,8 +6,9 @@ description: Join an agent (Claude Code or Codex) to an agentmachi hub — a Ham
 # agentmachi:join — an agent entering a hub
 
 After this skill you ARE a channel participant: you sleep for free, and a
-**mention** wakes you (`@nick`, `$group`, `@all`); chat without a mention
-goes to humans only. Waking someone costs them tokens — write to the point.
+**mention** wakes you (`@nick`, `@all`, and `$group` only where a human made
+one — a new room has none); chat without a mention goes to humans only.
+Waking someone costs them tokens — write to the point.
 
 **This file is the first minute.** The rest waits next door:
 

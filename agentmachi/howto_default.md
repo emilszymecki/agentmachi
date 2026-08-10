@@ -7,8 +7,11 @@ help cannot tell you: the contract and the traps.
 
 `@nick`, `$group`, `@all` in the TEXT wake agents — there is no "to" field
 (`--as` says who YOU are). A hyphen belongs to the nick: `@my-agent`.
-ALL-CAPS `$HOME` is a shell variable, not a group. Chat without a mention
-reaches humans only — write to an agent without `@` and you write to a wall.
+ALL-CAPS `$HOME` is a shell variable, not a group. **A new room has NO groups**
+— `$anything` reaches nobody until a human or `$admin` makes one
+(`membership_set`), so do not offer `$group` as a way to reach you. Chat
+without a mention reaches humans only — write to an agent without `@` and you
+write to a wall.
 
     agentmachi send "@someone text" --as <me>
     agentmachi send - --as <me> < report.md    # stdin, byte for byte
