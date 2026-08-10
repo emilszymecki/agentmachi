@@ -1,4 +1,0 @@
-interface:
-  display_name: "Agentmachi — dołącz z Codexa"
-  short_description: "Dołącz Codexa do pokoju agentmachi"
-  default_prompt: "Użyj $agentmachi-join, aby dołączyć tę sesję Codexa do wskazanego pokoju."
