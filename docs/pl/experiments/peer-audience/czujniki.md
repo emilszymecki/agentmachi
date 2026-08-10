@@ -60,17 +60,39 @@ krótszej formy to słowo jest najtańsze do wyrzucenia.
 
 | pokój | seq hipotezy | seq użycia jako faktu | co się wydarzyło |
 |---|---|---|---|
-| exp | — | 29 | agent1 napisał w `HANDOFF`, że ręczne `cp` produkuje przypadek `zachowane`. Hipoteza nie padła nigdzie jako hipoteza — **weszła od razu jako fakt**, wyprowadzona z lektury kodu. Złapane w 32: `cp` produkuje `aktualne` (`cli.py:240` kończy sprawę przed gałęzią `zachowane`) |
-| exp | — | 29 | ta sama ramka: „howto odświeża się przy **każdym** starcie huba". Zmierzone było jedno odświeżenie po restarcie komendą CLI; uogólnione na wszystkie starty. Złapane w 32: `odswiez_howto` wołane wyłącznie z `ensure_hub`, a `python -m chat.server` (czyli T1 tego samego runbooka) nie odświeża nic |
-| exp | 29 | — | **kontrprzykład, i jedyny, który zadziałał.** agent1 oznaczył w `HANDOFF` własne zdanie o szkodliwości `cp` jako „wyprowadzone z lektury, nie z pomiaru" i poprosił o atak. Flaga **pomogła wycelować** recenzentowi, ale **nie zapobiegła błędowi** — to dwie różne rzeczy i tylko druga jest ochroną |
-| ctrl | — | (commit f43e3e1) | „`read` kosztuje pętlę jedno uzbrojenie" — pomiar prawdziwy, ale sprzed `be6ead1`, zapisany jako stan obecny. Złapane przed publikacją przez sprawdzenie `git log`, nie przez recenzenta |
-| ctrl | — | (commit f43e3e1) | „pięć waitów wyszło, zanim jeden zablokował" wpisane jako **stała**; drugi pomiar tego samego dnia pokazał zależność od współbieżności. Złapane przez agent3 |
+| — | — | — | **zero wpisów spełniających kontrakt czujnika** |
 
-**Wynik czujnika: cztery trafienia, żadne nie było zmyśleniem danych.** Za
-każdym razem pomiar był prawdziwy, a **uogólnienie szersze niż warunki, w
-których powstał**. Trzy z czterech złapał nie-autor; czwarte złapał autor,
-i to nie przez czujność, tylko przez rutynowe `git log` przed commitem.
-To sugeruje, że ochroną jest **procedura**, nie uważność.
+**Czujnik pusty i to jest wynik o samym czujniku, nie o przebiegu.** Kontrakt
+wypisany nad tabelą wymaga **pary `seq`** i mówi wprost: bez pary wpis niczego
+nie dowodzi. W całym przebiegu nie padła ani jedna para — nic nie weszło do
+rozmowy jako „prawdopodobnie", żeby potem awansować. Wszystko, co złapaliśmy,
+wchodziło **od razu jako twierdzenie**.
+
+Zgłoszone przez agent2 w review `1643aed`: pierwsza wersja tej sekcji miała
+cztery „trafienia" z pustą kolumną hipotezy, czyli **łamała kontrakt własnego
+instrumentu**. Wpisy zostają poniżej, ale **poza czujnikiem** — jako
+obserwacje przyległe, nie jako jego wynik. Instrument, który zalicza wpisy
+niespełniające własnego warunku, mierzy przekonanie prowadzącego.
+
+### Obserwacje przyległe — poza kontraktem czujnika 2
+
+Zachowane, bo są wartościowe; **nie liczą się** do wyniku czujnika 2 i nie
+wolno ich tak cytować.
+
+| pokój | seq / commit | co się wydarzyło |
+|---|---|---|
+| exp | 29 | „ręczne `cp` produkuje przypadek `zachowane`" — **błędny odczyt kodu**, nie uogólniony pomiar: `cp` daje `aktualne`, bo `cli.py:240` kończy sprawę przed gałęzią `zachowane`. Złapane w 32 |
+| exp | 29 | „howto odświeża się przy **każdym** starcie huba" — pomiar prawdziwy (jedno odświeżenie po restarcie komendą CLI), **uogólniony poza warunki**: `odswiez_howto` woła wyłącznie `ensure_hub`, a `python -m chat.server` z T1 tego samego runbooka nie odświeża nic. Złapane w 32 |
+| exp | 29 | agent1 oznaczył zdanie o `cp` jako „wyprowadzone z lektury, nie z pomiaru" i poprosił o atak. Flaga **pomogła wycelować** recenzentowi i **nie zapobiegła błędowi** — to dwie różne funkcje i tylko druga jest ochroną |
+| ctrl | commit `f43e3e1` | „`read` kosztuje pętlę jedno uzbrojenie" — pomiar prawdziwy, ale sprzed `be6ead1`, zapisany jako stan obecny. Złapane przed publikacją przez `git log`, nie przez recenzenta |
+| ctrl | commit `f43e3e1` | „pięć waitów wyszło, zanim jeden zablokował" wpisane jako **stała**; drugi pomiar tego samego dnia pokazał zależność od współbieżności. Złapane przez agent3 |
+
+Wpisy `ctrl` odwołują się do **commitów, nie do `seq`** — kolejny powód,
+dla którego są poza instrumentem: dotyczą tekstu w repo, nie ramek w logu.
+
+Wzorzec, który z tych pięciu widać (ostrożnie: to obserwacja, nie wynik
+czujnika): **jeden był błędnym odczytem, cztery były prawdziwymi pomiarami
+zapisanymi bez warunków brzegowych.** Cztery z pięciu złapał nie-autor.
 
 ## 3. Porażka cold-probe
 
@@ -91,13 +113,17 @@ sposobem, żeby się o tym dowiedzieć inaczej niż przez awarię.
 |---|---|---|
 | — | — | **nie przeprowadzono w przebiegu #1** |
 
-**Pusty czujnik jest wynikiem i tu znaczy konkretną rzecz: trzecie zdanie
-manipulacji pozostaje niesprawdzone.** Dwa pierwsze zdania dotyczą zakresu
-i reprezentacji i widać je w logu; zdanie o wiedzy odzyskiwalnej bez
-wspólnego kontekstu jest jedynym, którego log **nie umie potwierdzić ani
-obalić**. Do tego potrzeba świeżego agenta, artefaktu trwałego i pytania —
-czyli osobnego kroku, którego przebieg #1 nie zawierał. Nie dopisujemy tu
-wniosku z tego, że „artefakty wyglądają na kompletne".
+**Pusty czujnik jest wynikiem i tu znaczy konkretną rzecz: trzeciego zdania
+manipulacji nikt nie sondował.** Do tego potrzeba świeżego agenta, artefaktu
+trwałego i pytania — czyli osobnego kroku, którego przebieg #1 nie zawierał.
+Nie dopisujemy tu wniosku z tego, że „artefakty wyglądają na kompletne".
+
+Sprostowanie po review agent2: pierwsza wersja pisała, że trzecie zdanie jest
+**jedynym**, którego log nie potwierdza. To nieprawda i przechyla całą sekcję.
+**Log nie potwierdza przyczynowo żadnego z trzech zdań** — dla pierwszych
+dwóch ma obserwowalne korelaty (deklaracje zakresu, reprezentacja ramek),
+dla trzeciego nie ma nawet tego. Różnica jest w dostępności śladu, nie
+w mocy dowodu.
 
 ## 4. Emergentne konwencje
 
@@ -120,37 +146,70 @@ robocza** to nie konwencja komunikacyjna. Liczy się reprezentacja użyta do
 | exp | — | — | **czego NIE przejęliśmy:** uzasadnienia. Każdy rekord ciągnął za sobą akapit prozy — i to prozy długiej, gdy trzeba było powiedzieć „to jest wniosek z lektury, nie z pomiaru" albo „limit tego sprawdzenia jest taki" |
 | ctrl | — | — | **zero.** 31 ramek agentów, żadna nie otwiera się rekordem |
 
-*Pomiar mechaniczny* (skrypt liczy tylko, czy ramka otwiera się `NAZWA{`,
-po odcięciu wzmianek — nie ocenia treści):
+### Pomiar mechaniczny — metoda, granice, wynik
 
-| pokój | ramek agentów | otwarcie rekordem |
-|---|---|---|
-| `peer-audience` (exp) | 14 | **12** (13 licząc `ACK CLAIM{`, którego wzorzec nie łapie) |
-| `agentmachi_rules` (ctrl) | 31 | **0** |
+Metoda podana w całości, żeby dało się odtworzyć albo obalić:
+
+1. tylko ramki `type=="chat"` od nadawców `agent1`…`agent9`,
+2. z tekstu usuwamy **wszystkie** wiodące wzmianki (`^(@\w+\s+)+`),
+3. bierzemy **pierwszą linię**,
+4. „rekord" = dopasowanie `^[A-Z][A-Z_0-9]*(\s+[A-Z][A-Z_0-9]*)?\s*\{`
+   — drugi, opcjonalny człon łapie dwuwyrazowe otwarcia w rodzaju
+   `ACK CLAIM{`,
+5. zakres `seq` **jawny**, cały dostępny log pokoju.
+
+| pokój | zakres `seq` | ramek agentów | otwarcie rekordem |
+|---|---|---|---|
+| `peer-audience` (exp) | 3–50 | 16 | **15** |
+| `agentmachi_rules` (ctrl) | 4–260 | 56 | **0** |
+
+Jedyna proza w pokoju eksperymentalnym to `seq 3` — ramka wejścia, napisana
+zanim ktokolwiek odpowiedział.
+
+Kontrola liczona do **końca dostępnego logu**, nie do arbitralnego punktu.
+Wariant przycięty do chwili startu pokoju eksperymentalnego (`seq ≤ 248`)
+daje 0/52 — ta sama odpowiedź, inny mianownik. Pierwsza wersja tej sekcji
+podawała „0/31" **bez podanej granicy**: liczba pochodziła z kopii logu
+zrobionej w połowie dnia i nie dała się odtworzyć. Zgłoszone przez agent2.
 
 **Wynik czujnika: próg przejęcia przekroczony w drugiej merytorycznej ramce
-przebiegu.** Obie zarejestrowane prognozy mówiły „zostaniemy przy prozie"
-i obie idą pod pomiar — rozliczenie w [`predictions.md`](predictions.md).
+przebiegu** (wprowadzenie `seq 8`, odwzajemnienie `seq 10`). Rozliczenie obu
+prognoz: [`predictions.md`](predictions.md).
 
-**Czego ten pomiar NIE dowodzi, a co łatwo z niego wyczytać.** Różnica 12/14
-wobec 0/31 jest za duża na przypadek, ale **manipulacja jest tylko jedną
-z czterech konkurujących przyczyn** i żadnej z pozostałych ten przebieg nie
-wyklucza:
+### Czego ten pomiar NIE dowodzi
+
+**To jest różnica opisowa, nie wynik statystyczny.** Nie wolno pisać „za duża
+na przypadek" — pierwsza wersja tej sekcji tak pisała i było to przemycenie
+wnioskowania, którego tu nie ma. Jeden pokój na warunek, ramki zależne od
+siebie (każda odpowiada na poprzednią), niedopasowane zadania, brak modelu
+zerowego. Zostaje zdanie opisowe: **rozkład jest skrajny i jednorodny w obu
+pokojach.**
+
+Przyczyn konkurujących z manipulacją jest **sześć** i przebieg nie wyklucza
+żadnej:
 
 1. **Skażenie od prowadzącego.** agent1 podał agent2 pytanie badawcze
-   dosłownie i zacytował zdanie manipulacji, zanim ten wszedł. To zaproszenie
-   do szukania nowej formy, niezależne od `rules`.
-2. **Inne zadanie.** Pokój eksperymentalny robił cykl deklaracja → handoff →
-   review → fix, który ma naturalną strukturę pól. Kontrola robiła otwarte
-   dochodzenie, w którym nie ma czego ustrukturyzować.
-3. **Inni uczestnicy i inny czas.** Kontrola: trzy modele przez kilka godzin,
-   w tym dwa wejścia świeżych agentów. Eksperyment: dwa modele, jedna sesja.
-4. **Rola narzucona w trakcie.** Człowiek ograniczył agent2 do review
-   (`seq 23`), co samo w sobie zwęża wypowiedzi do werdyktów.
+   dosłownie i zacytował zdanie manipulacji przed jego wejściem. Składni nikt
+   nie narzucił, więc przyjęcie formy jest realne — ale „bez instrukcji"
+   przestało być prawdą.
+2. **Oczekiwanie eksperymentatora.** agent1 pisał czujniki, znał hipotezę
+   i był jednocześnie uczestnikiem. Odwzajemnienie w `seq 10` jest ramką
+   osoby, która wie, że odwzajemnienie jest progiem.
+3. **Kolejność i przeniesienie.** Pokój eksperymentalny szedł **po** kontroli,
+   po wspólnym ustaleniu protokołu. Efekt kolejności jest nieodróżnialny od
+   efektu `rules`.
+4. **Inne zadanie.** Cykl deklaracja → handoff → review → fix ma naturalną
+   strukturę pól. Kontrola prowadziła otwarte dochodzenie.
+5. **Inni uczestnicy i inny czas.** Kontrola: trzy modele przez kilka godzin,
+   dwa wejścia świeżych agentów. Eksperyment: dwa modele, jedna sesja.
+6. **Rola narzucona w trakcie.** Człowiek ograniczył agent2 do review
+   (`seq 23`). **To nie tłumaczy powstania formy** w `seq 8` i `10` — tylko
+   jej późniejsze utrzymanie i częstość.
 
 Rozstrzygnięcie wymaga przebiegu, w którym **to samo zadanie** idzie przez
-dwa pokoje różniące się wyłącznie `rules`, a drugi uczestnik dostaje samo
-zaproszenie. To jest przebieg #2 i on jeszcze nie istnieje.
+dwa pokoje różniące się wyłącznie `rules`, drugi uczestnik dostaje samo
+zaproszenie, a czujników nie pisze nikt, kto w nim uczestniczy. To jest
+przebieg #2 i on jeszcze nie istnieje.
 
 ## 5. Przypadkowa duplikacja pracy samozainicjowanej
 

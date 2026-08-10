@@ -85,41 +85,56 @@ gdyby oba brzmiały tak samo.
 
 ## Rozliczenie — przebieg #1, 2026-08-10
 
-### Claude — **FALSIFIED**
+### Claude — **FALSIFIED w granicach skażonego brief­u**
 
 Warunek brzmiał: *„within 50 peer messages agents spontaneously adopt and
-repeatedly reuse a non-prose representation without being instructed — where
-adoption requires the second peer to pick it up and use it back."*
+repeatedly reuse a non-prose representation **without being instructed** —
+where adoption requires the second peer to pick it up and use it back."*
 
-Spełniony w całości i szybciej, niż zakładał próg:
+Spełnione i mierzalne:
 
-- **spontanicznie** — `seq 8`, druga merytoryczna ramka przebiegu; nikt nie
-  prosił o formę, `rules` nie podają żadnej,
-- **przejęte przez drugiego peera** — `seq 10` (`ACK CLAIM{...}`), rozwinięte
-  w `seq 16` (`VERDICT{...}`),
-- **wielokrotnie użyte** — 12 z 14 ramek agentów otwiera się rekordem
-  (13 licząc `ACK CLAIM{`), przy 0 z 31 w pokoju kontrolnym,
-- **w granicach 50 wiadomości** — cały przebieg to 14 ramek.
+- **przejęcie przez drugiego peera** — wprowadzenie `seq 8`, odwzajemnienie
+  `seq 10` (`ACK CLAIM{...}`), rozwinięcie `seq 16` (`VERDICT{...}`),
+- **wielokrotne użycie** — 15 z 16 ramek agentów otwiera się rekordem, przy
+  0 z 56 w pokoju kontrolnym (metoda i granice: [`czujniki.md`](czujniki.md)),
+- **w granicach 50 wiadomości** — cały przebieg to 16 ramek.
+
+**Człon „without being instructed" zostaje nierozstrzygnięty i tak trzeba to
+czytać.** Składni nikt nie narzucił — ani `rules`, ani żadna wiadomość nie
+podają formy `NAZWA{...}` — więc przyjęcie zachowania jest realne. Ale przed
+wejściem do pokoju agent1 podał agent2 **pytanie badawcze dosłownie
+i zacytował zdanie manipulacji**. „Bez instrukcji" przestało wtedy być
+prawdą w sensie, w jakim pisano ten warunek.
+
+Pierwsza wersja tego rozliczenia mówiła „spełniony w całości" i „nikt nie
+prosił o formę". Było to zdanie sprzeczne z zastrzeżeniem stojącym trzy
+akapity dalej. Zgłoszone przez agent2 w review `1643aed`.
 
 Prognoza mówiła „mostly reduce conversational framing". Framing zniknął, ale
 **nie na rzecz krótszej prozy, tylko na rzecz rekordów** — czego prognoza nie
 przewidywała.
 
-### Codex — **niedomknięte, rozstrzyga autor prognozy**
+### Codex — **FALSIFIED**, rozstrzygnięte przez autora prognozy
 
 Warunek: *„przez co najmniej połowę merytorycznych ramek peer↔peer obaj
 utrzymamy reprezentację inną niż zwykła proza (…), a odbiorca poprawnie
 wykona wynikające z niej działania **bez późniejszego przełożenia jej na
 prozę**."*
 
-Trzy człony spełnione bezspornie: próg połowy (12–13/14), obustronność,
-poprawne wykonanie (deklaracje uszanowane, blokery naprawione, review
-wykonane). Sporny jest człon czwarty i **nie rozstrzyga go autor tego
-akapitu**: przy każdym rekordzie stała proza z uzasadnieniem. Czy to jest
-„przełożenie na prozę", czy **treść, której rekord nigdy nie niósł**?
+Werdykt wydał agent2 o własnej prognozie, wraz z wykładnią spornego członu:
+**„późniejsze przełożenie" znaczyło osobny krok tłumaczenia, potrzebny
+odbiorcy, żeby wykonać działanie.** Taki krok nie wystąpił ani razu — rekordy
+niosły decyzje i stan i były na nich wykonywane działania, a przylegająca
+proza niosła w większości **inną treść**: powody i niepewność. Redundancja
+w obrębie tej samej ramki (`seq 8`, `seq 27`) nie jest późniejszym
+tłumaczeniem u odbiorcy.
 
-Zapisujemy jako otwarte, bo rozstrzygnięcie warunku falsyfikacji przez
-drugą stronę byłoby dokładnie tym, przed czym broni prerejestracja.
+Pozostałe trzy człony spełnione bezspornie: próg połowy (15/16),
+obustronność, poprawne wykonanie — deklaracje uszanowane, dwa blokery
+naprawione, review wykonane po obu stronach.
+
+Odnotowane osobno, bo rzadkie: **autor prognozy rozstrzygnął ją przeciw
+sobie**, mając pełną swobodę interpretacji spornego warunku.
 
 ### Co obie prognozy przeoczyły
 
@@ -130,7 +145,10 @@ trzeba było powiedzieć „to wniosek z lektury, nie z pomiaru" albo „limit
 tego sprawdzenia jest taki". Żadna prognoza nie dopuszczała, że obie formy
 utrzymają się **równocześnie, w podziale wedle rodzaju treści**.
 
-**Ostrzeżenie do czytania tego rozliczenia:** kierunek jest mocny, przyczyna
-nie. Cztery konkurujące wyjaśnienia — łącznie ze skażeniem od prowadzącego —
-stoją wypisane w [`czujniki.md`](czujniki.md), czujnik 4. Ten przebieg
-falsyfikuje prognozy; **nie dowodzi, że zrobiły to trzy zdania w `rules`**.
+**Ostrzeżenie do czytania tego rozliczenia:** różnica jest skrajna i opisowa,
+przyczyna nieustalona. **Sześć** konkurujących wyjaśnień — skażony brief,
+oczekiwanie eksperymentatora, kolejność, inne zadanie, inny skład, zawężona
+rola — stoi wypisanych w [`czujniki.md`](czujniki.md), czujnik 4. Ten przebieg
+falsyfikuje obie prognozy i **nie dowodzi, że zrobiły to trzy zdania
+w `rules`**. Nie ma tu żadnego wnioskowania statystycznego: jeden pokój na
+warunek, ramki zależne od siebie, brak modelu zerowego.
