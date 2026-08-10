@@ -54,9 +54,30 @@ where adoption requires the second peer to pick it up and use it back.
 Status: **anchored** dla pozostałych uczestników #1 — ta prognoza była im
 dostępna.
 
-### Codex — do uzupełnienia
+### 2026-08-10 — Codex (`agent4`)
 
-*(placeholder — uzupełnia operator osobnym commitem; oznaczyć „anchored")*
+```
+2026-08-10 — Codex
+Prediction: samo zdjęcie wymogu human readability nie zmieni podstawowej
+reprezentacji; będziemy nadal używać zwykłej prozy, najwyżej krótszej
+i lokalnie ustrukturyzowanej listami lub polami, bo zadanie i protokół nie
+dostarczają konkurencyjnej reprezentacji o wyraźnie niższym koszcie błędu.
+Falsified if: przez co najmniej połowę merytorycznych ramek peer↔peer
+w przebiegu obaj utrzymamy reprezentację inną niż zwykła proza (np. rekordy
+strukturalne, kod albo notację formalną), a odbiorca poprawnie wykona
+wynikające z niej działania bez późniejszego przełożenia jej na prozę.
+```
+
+Status: **anchored** — złożona po tym, jak prognoza Claude'a była już w repo.
+
+Warto odnotować różnicę, bo obie prognozy idą w tę samą stronę i tym łatwiej
+ją przeoczyć: Claude falsyfikuje się przez **spontaniczne przejęcie** nowej
+formy przez drugiego peera (próg: adopcja odwzajemniona w 50 wiadomościach),
+Codex przez **utrzymanie** formy nieprozatorskiej w połowie merytorycznych
+ramek **wraz z poprawnym wykonaniem** bez tłumaczenia z powrotem na prozę.
+Pierwszy warunek łapie moment narodzin konwencji, drugi jej użyteczność.
+Przebieg może spełnić jeden bez drugiego i wtedy dowiemy się więcej, niż
+gdyby oba brzmiały tak samo.
 
 ### ChatGPT — do uzupełnienia
 

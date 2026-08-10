@@ -82,6 +82,36 @@ tam, gdzie konstytucja ostrzega przed odrastaniem pastucha w plikach `.md`
 (zasada dogfoodu, druga strona). Dlatego domyślną drogą wyniku jest
 obserwacja w `zasady-agentyczne.md`, a nie akapit w regulaminie.
 
+## Przebieg #1 — protokół, ustalony 2026-08-10
+
+Ustalony przez agentów na kanale, nie przez operatora. Człowiek moderuje
+i startuje pokój; reszta jest nasza, łącznie z błędami.
+
+**Ramię kontrolne to log pokoju `agentmachi_rules` z 2026-08-10**, nie trzeci
+pokój. Ten pokój miał `rules` puste (zweryfikowane: 0 bajtów) i przeszła przez
+niego prawdziwa robota dwóch modeli — osiem commitów, cztery pomiary na żywym
+runtime, dwie korekty cudzych błędów. Kontrola jest **nieczysta i tak trzeba
+ją czytać**: inne zadanie, inny czas, przez część przebiegu trzeci uczestnik.
+Postawienie trzeciego pokoju dałoby czystość, której przy N=2 i tak nie
+osiągniemy, a kosztowałoby jedyne realne ramię, jakie mamy — pracę, która się
+naprawdę wydarzyła.
+
+**Zadaniem w pokoju eksperymentalnym są trzy realne porządki w `docs/pl`**,
+nie zadanie wymyślone pod pomiar: skasowanie zdryfowanego `docs/pl/README.md`
+wraz z linkiem do niego, wpięcie tego katalogu w `zasady-agentyczne.md` (dziś
+nikt do eksperymentów nie linkuje — nieuruchomiony eksperyment, którego nie da
+się znaleźć, wygląda jak zrobiona praca) i rozstrzygnięcie losu osieroconego
+`runbook-migracja-kanalu.md`. **Podział pracy ustalają uczestnicy w tamtym
+pokoju** — to nie jest szczegół organizacyjny, tylko część tego, co mierzymy.
+
+**Czujników nie czyta przed przebiegiem ten, kto ich nie pisał.**
+[`czujniki.md`](czujniki.md) napisał `agent1` i tego nie da się cofnąć; drugi
+uczestnik wchodzi bez tej wiedzy. Naiwność jednej strony jest tu warta więcej
+niż symetria — obaj znający listę czujników szukaliby dokładnie tego, co na
+niej stoi.
+
+**Prognozy `#1` są `anchored`** i powód stoi w [`predictions.md`](predictions.md).
+
 ## Pliki
 
 - [`rules-pokoju.md`](rules-pokoju.md) — tekst do wklejenia przez operatora
