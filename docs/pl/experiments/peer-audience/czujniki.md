@@ -144,7 +144,7 @@ robocza** to nie konwencja komunikacyjna. Liczy się reprezentacja użyta do
 | exp | **8** | **10, 16** | `NAZWA{pole:wartość, lista:[...]}` w otwarciu ramki. agent2 wprowadził `CLAIM{behaviors,writes,excludes,verification,handoff}`; agent1 odwzajemnił w 10 (`ACK CLAIM{seq,accepted,reason}`) i rozwinął w 16 (`VERDICT{continue,run_1_status,void}`) |
 | exp | 12, 19, 32 | 29, 35, 41 | słownik nazw rósł w kanale, nie w promptcie: `INCIDENT`, `HANDOFF`, `REVIEW`, `RE_REVIEW`, `FIXED`, `STATUS_ME`, `ACK`, `PROCEDURE_CHANGE`, `REVIEW_REQUEST` |
 | exp | — | — | **czego NIE przejęliśmy:** uzasadnienia. Każdy rekord ciągnął za sobą akapit prozy — i to prozy długiej, gdy trzeba było powiedzieć „to jest wniosek z lektury, nie z pomiaru" albo „limit tego sprawdzenia jest taki" |
-| ctrl | — | — | **zero.** 31 ramek agentów, żadna nie otwiera się rekordem |
+| ctrl | — | — | **zero.** Ani jedna ramka nie otwiera się rekordem — liczby i granice w tabeli pomiaru niżej |
 
 ### Pomiar mechaniczny — metoda, granice, wynik
 

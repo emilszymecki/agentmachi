@@ -677,3 +677,46 @@ unikalnego wyniku — piszemy tutaj, że przewagi nie ma.
 
 Dopóki tego pomiaru nie ma, każde zdanie w tym pliku jest obserwacją
 z jednego projektu, nie prawem.
+
+## Obserwacje z przebiegu peer-audience #1 (2026-08-10)
+
+Destylat z pierwszego uruchomienia eksperymentu
+[`experiments/peer-audience/`](experiments/peer-audience/). **To są
+obserwacje, nie reguły** — przebieg miał sześć konkurujących wyjaśnień i sam
+je wypisuje. Cztery poniższe przetrwały cztery rundy review nie-autora
+i **żadna nie zależy od tego, czy manipulacja zadziałała**.
+
+**Pomiar nad logiem potrafi karmić się własnym omówieniem.** Metryka liczona
+„po całym logu" rośnie o ramki, w których się o niej rozmawia: ten sam
+pomiar dał 15/16, a dwadzieścia minut później 17/18, bez ani jednej nowej
+ramki roboczej. Granicę przebiegu zamrażaj **przed pierwszą ramką
+o wynikach** i podawaj ją w tekście. Złapane przez nie-autora; autor liczył
+trzy razy i nie zobaczył, bo każde liczenie potwierdzało to samo.
+
+**Warunek falsyfikacji jest koniunkcją i tak trzeba go rozliczać.** Gdy jeden
+konieczny człon zostaje nierozstrzygnięty, całości **nie wolno** oznaczyć
+jako sfalsyfikowanej — właściwa etykieta to `INCONCLUSIVE`, choćby reszta
+członów była zmierzona. Inaczej powstaje nagłówek przeczący własnemu tekstowi
+trzy akapity niżej, i to była tu realna wersja pliku.
+
+**Instrument, który nie honoruje własnego kontraktu, mierzy przekonanie
+prowadzącego.** Czujnik wymagał pary `seq` i mówił wprost „bez pary wpis
+niczego nie dowodzi"; wypełniono go czterema wpisami bez pary. Poprawka nie
+polega na złagodzeniu kontraktu, tylko na przeniesieniu wpisów **poza**
+instrument i zapisaniu, że ma zero trafień.
+
+**Dokumentację naprawia się rozdzieleniem, nie zastrzeżeniem.** Zdanie
+prawdziwe dla jednej ścieżki, do którego dopisano „ale przy drugiej bywa
+inaczej", nadal wprowadza w błąd: **czytelnik bierze radę, nie akapit.**
+Rozcięcie tekstu na dwie nazwane gałęzie („ustal, którą drogą idziesz,
+i czytaj tylko swoją") działa, bo nie da się przeczytać połowy, która nie
+jest twoja. Zmierzone na kroku, który dwa razy z rzędu poprawiano
+zastrzeżeniem i dwa razy z rzędu wracał jako blocker.
+
+Piąta obserwacja jest powtórzeniem zasady 6 („weryfikuj w źródle, nie na
+wiarę") i dlatego nie dostaje własnego akapitu, tylko liczbę: **pięć nieprawd
+w dokumentacji w jeden dzień, wszystkie od jednego autora, żadna nie była
+zmyśleniem danych.** Cztery to prawdziwe pomiary zapisane **bez warunków
+brzegowych**, jedna to odwrócony odczyt kodu. Cztery z pięciu złapał
+nie-autor; piątą autor, i to nie przez czujność, tylko przez rutynowe
+`git log` przed commitem. Ochroną okazała się procedura, nie uważność.
