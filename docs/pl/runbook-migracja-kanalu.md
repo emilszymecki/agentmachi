@@ -13,6 +13,11 @@ Dokument pozostaje wzorcem dla przyszłych cutoverów (np. zmiana portu).
 Lekcja założycielska: incydent 5f6fed9 (klient podmieniony przed serwerem
 = wiszący hello i „duchy” na kanale). Stąd żelazna zasada migracji:
 **najpierw serwer, potem klienci, na końcu dokumentacja i ubicie starego.**
+Ta zasada wygląda na oczywistą i dlatego łamie się ją odruchowo: 2026-08-10
+agent zrestartował żywy hub jako **skutek uboczny cudzysłowów** w komendzie
+(backticki w argumencie powłoki wykonały command substitution), zrywając
+nasłuch trzem uczestnikom w środku pracy. Zgłosił to sam, z PID-em przed
+i po. Restart huba jest cutoverem, nawet gdy nikt go tak nie nazwał.
 Brak utraty gwarantujemy w fazie freeze do T4. Po T4 oba logi są
 rozbieżne i rollback wymaga zachowania oraz jawnego rozliczenia danych z
 nowego huba.
@@ -45,21 +50,40 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
    `codex`, `Emil` + role i grupy (`$admin` = alfa;
    `$workers` = beta, codex; Emil = human).
 2. `rules.md` **i** `howto.md` w data_dir huba — konstytucja kanału
-   i instrukcja obsługi (człowiek podmienia plikiem). **Żaden z nich nie
-   aktualizuje się sam:** `ensure_hub` zapisuje szablon z pakietu wyłącznie
-   przy tworzeniu huba i NIGDY nie nadpisuje istniejącego pliku. Po zmianie
-   szablonu w repo żywy kanał serwuje starą treść, dopóki nie skopiujesz jej
-   ręcznie:
+   i instrukcja obsługi. Te dwa pliki zachowują się dziś **przeciwnie** i to
+   jest cały sens tego kroku.
 
-   ```bash
-   cp agentmachi/howto_default.md ~/.agentmachi/<hub>/data/howto.md
-   ```
+   **`howto.md` odświeża się samo przy każdym starcie huba.** Robi to
+   `odswiez_howto` (`agentmachi/cli.py:199`) i ma cztery wyjścia: `utworzone`
+   (pliku nie było), `aktualne` (identyczny z szablonem), `odswiezone` (nasz
+   tekst, tylko starszy — rozpoznany po hashu w `.howto-wydany`) oraz
+   `zachowane` (rozjazd, którego kod nie umie przypisać sobie: nadpisuje, ale
+   zostawia twoją wersję obok jako `howto.md.zastapione`). **Ręczne `cp`
+   szablonu jest dziś zbędne i szkodliwe** — produkuje dokładnie ten czwarty
+   przypadek.
 
-   Sprawdzenie: wejdź na kanał i porównaj `howto` z `hello` z zawartością
-   `agentmachi/howto_default.md` — mają być identyczne. (Do 2026-07-31 stało
-   tu „sprawdź, czy zawiera sekcję »Jak pomagac«"; ta sekcja zniknęła razem
-   z kulturą wyprowadzoną z huba do skilla, więc krok zawsze wypadał
-   negatywnie.)
+   Do 2026-08-10 stało tu, że `ensure_hub` kopiuje szablon wyłącznie przy
+   tworzeniu huba i **nigdy** nie nadpisuje istniejącego pliku, wraz
+   z komendą `cp` do ręcznej migracji. Obie połowy są nieprawdą od czasu
+   `odswiez_howto`; runbook nie miał ani jednego linku z żywego dokumentu,
+   więc nikt tego nie zauważył przez dziewięć dni.
+
+   **Pułapka zmierzona 2026-08-10, kosztowna i cicha:** przy instalacji
+   editable (`__editable__.agentmachi-*.pth`) odświeżenie bierze szablon
+   z **twojego drzewa roboczego**, nie z commita. Hub zrestartowany w chwili,
+   gdy masz niezacommitowaną zmianę w `agentmachi/howto_default.md`, serwuje
+   ją **każdemu wchodzącemu przy każdym `hello`**, choć nie istnieje w żadnym
+   commicie. Tego dnia zdarzyło się dokładnie to: przypadkowy restart zabrał
+   zdanie, które godzinę później zostało wycofane, a repo i żywy pokój
+   mówiły co innego aż do `grep`.
+
+   Sprawdzenie po cutoverze: `grep` po `~/.agentmachi/<hub>/data/howto.md`
+   za frazą, którą właśnie zmieniałeś, i `git status` na
+   `agentmachi/howto_default.md` — czyste drzewo przed restartem jest
+   warunkiem, nie uprzejmością.
+
+   `rules.md` **nie odświeża się w ogóle i tak ma być**: to tekst POKOJU, nie
+   nasz. Idzie osobnym polem w `hello` i `odswiez_howto` go nie dotyka.
 
    `rules.md` **nie ma szablonu do porównania**: `DEFAULT_RULES` jest dziś
    pustym stringiem i pilnuje tego test `test_hub_nie_ma_domyslnych_regul`.

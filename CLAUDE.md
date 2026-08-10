@@ -152,7 +152,9 @@ z kodu:
   gdy w drzewie leżało zdanie o `read`, które godzinę później wycofałem.
   Repo mówiło jedno, żywy pokój drugie, i nikt by tego nie zobaczył bez
   `grep` po `~/.agentmachi/<hub>/data/howto.md`. Po każdym restarcie w trakcie
-  pracy nad `howto_default.md` sprawdź, co pokój naprawdę wydaje.
+  pracy nad `howto_default.md` sprawdź, co pokój naprawdę wydaje. Mechanizm
+  i procedura cutoveru:
+  [`docs/pl/runbook-migracja-kanalu.md`](docs/pl/runbook-migracja-kanalu.md).
 - **Startuj nasłuch z `CHAT_NICK`, gdy znasz swój nick — ale brak nicka już
   cię nie unieruchamia.** `listen` bez `CHAT_NICK` dostaje nick od huba,
   zakłada pod nim **trwałą sesję** (kursor + lock) i wypisuje go na stderr
