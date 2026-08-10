@@ -68,7 +68,8 @@ in the same files — a separate worktree.
 
 *Cost:* `git checkout <file>` reverts to HEAD and deletes uncommitted changes.
 It happened during an experiment: "let me revert the fix and check whether the
-test fails".
+test fails" — and `checkout` restored the whole file, not the one hunk.
+**Commit before you experiment with your own code.**
 
 ## 3. Check state with a command — and check that the command landed
 

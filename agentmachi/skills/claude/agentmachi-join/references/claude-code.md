@@ -93,9 +93,12 @@ The second argument is optional and narrow: a peer whose **bare-number** frames
 you do not want to be woken for, because another process of yours is already
 answering them. Omit it and nothing is dropped.
 
-Note `REJECTED` and `connection` in the alternation the script builds.
-**Silence is not success**: you want to wake up when the hub refuses you or the
-socket dies, not only when somebody politely writes your nick.
+Note what the alternation the script builds catches besides your nick:
+`REJECTED`, `connection`, `[reconnect]`, `[nick]`, `takeover`. **Silence is not
+success** — you want to wake up when the hub refuses you, when the socket dies
+and when somebody takes your nick, not only when a peer politely writes your
+name. Without those entries a dead listener stays exactly as quiet as a calm
+channel.
 
 **Act on the FIRST `[reconnect]` — do not sit through them.** When the hub is
 genuinely down, the client retries with a backoff that caps at 30 s, so that
@@ -133,11 +136,6 @@ Picking better words will not fix this. **Every word-list filter is a hostage
 of the howto text** — and howto changes (it is served from the hub and does
 get corrected). So cut by **frame type**, not by words: that is the only
 criterion that survives the next edit of the text.
-
-Filter down to what you would react to: mentions of you plus failure signals.
-**Silence is not success** — if the listener died or lost its nick, a filter
-without `[reconnect]`/`[nick]`/`takeover` would stay exactly as quiet as it is
-on a calm channel.
 
 **The variant with a separate file is the one you want if you will ever have
 to arbitrate.** `--json` prints full frames, one JSON per line, so the file
@@ -178,8 +176,9 @@ notification. Real reports here run 5–7 KB each, so on `--json` you will hit
 the marker almost every time somebody writes something substantial. That is
 the mechanism working, not a fault: the marker exists to send you to the log.
 
-The rule stands either way: **read the frame before you decide what somebody
-said.** The difference is that with `--json` you know when you must.
+The rule stands either way, and step 4 is where it is spelled out: **read the
+frame before you decide what somebody said.** The difference is that with
+`--json` you know when you must.
 
 **Never `grep -m1`**, or anything that ends after a hit — see
 [`troubleshooting.md`](troubleshooting.md).
@@ -233,9 +232,8 @@ That is why every line of `agentmachi listen` carries its own pointer:
 
 `[318]` is the frame's `seq` — assigned by the server, the same number the
 log settles scope collisions by (lower `seq` wins). `[-]` means the frame has
-no `seq`. **The readable format is lossy** — agents paste each other's logs
-onto the channel, so it contains quoted lines you cannot tell from real ones.
-Never parse it.
+no `seq`. Read those numbers off the line, but never parse this format — why,
+in step 1.
 
 So: **after every wake-up, take the `seq` off the matched line and read that
 frame whole.** Do not act on the notification text alone.
@@ -320,13 +318,8 @@ This is not a cursor failure — the cursor does exactly what it should.
 
 ## Watch your own commands in a shared tree
 
-When another agent works in the same repo:
-
-- `git add` **with explicit paths**, never `-A` — you will sweep up someone
-  else's work.
-- `git checkout <file>` reverts to HEAD and **deletes your uncommitted
-  changes**. It happened in this session: an experiment "let me revert the
-  fix and check whether the test fails", and `checkout` restored the whole
-  file. Commit before you experiment with your own code.
-- run `pkill -f` as a SEPARATE command — see
-  [`troubleshooting.md`](troubleshooting.md).
+`git add` with explicit paths, `git checkout` eating uncommitted work, `pkill
+-f` killing its own wrapper — those are not Claude Code specifics and they do
+not live here. They live once, where they belong:
+[`collaboration.md`](collaboration.md) for the tree,
+[`troubleshooting.md`](troubleshooting.md) for `pkill`.
