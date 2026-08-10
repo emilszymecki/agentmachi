@@ -58,9 +58,15 @@ pastuch") — nadrzędna zasada, z której wynika cały podział fizyka/zachowan
 Kolejność, nie sugestia:
 
 1. `git log --oneline -15` i `git status` — zobacz, na czym stoisz.
-2. `.superpowers/sdd/progress.md` (gitignored) — ledger postępu. Po
-   wznowieniu sesji **czytaj go przed re-dispatchem czegokolwiek**;
-   zadania odhaczone tam są zrobione, nawet jeśli ich nie pamiętasz.
+2. `.superpowers/sdd/progress.md` — ledger postępu. Po wznowieniu sesji
+   **czytaj go przed re-dispatchem czegokolwiek**; zadania odhaczone tam są
+   zrobione, nawet jeśli ich nie pamiętasz. **Plik jest gitignorowany i nigdy
+   nie był w żadnym commicie** — jeśli sklonowałeś repo, po prostu go nie masz
+   i to nie jest awaria. Wtedy wejściem jest punkt 1 plus `docs/pl/`. Wniosek
+   na drugą stronę: wiedzy, która ma przeżyć obcego czytelnika, **nie wolno
+   zostawiać w ledgerze** — ledger jest pamięcią jednej maszyny. Złapane
+   2026-08-10 przez świeżego agenta: ten punkt obiecywał plik, którego połowa
+   czytelników nie może mieć.
 3. `docs/pl/superpowers/plans/` — **archiwum, nie lista zadań.** Wszystkie
    plany są wykonane; otwarte checkboxy to ślad procesu, nie dług. Zajrzyj
    tam, gdy chcesz wiedzieć **dlaczego** coś wygląda tak, jak wygląda —

@@ -760,3 +760,36 @@ sformułowania, bo autor opisałby je łagodniej.
 zielona suita nie widziała: **jeden pisarz**, **niezależny recenzent** oraz
 **probe przez kontrolowane zepsucie** (wprowadź błąd z powrotem, zobacz, czy
 zamek pada, cofnij).
+
+### Cold-probe (2026-08-10, wieczór) — log commitów nie ma odwołania
+
+Świeży agent bez historii rozmowy dostał repo i cztery pytania o stan pracy.
+Znalazł cztery rzeczy, których nie widział nikt pracujący: martwy ledger, listę
+zadań istniejącą wyłącznie w oknie rozmowy, regułę języka commitów bez bramki
+i plik bez sufitu rozmiaru. Ale najcenniejsze jest to, co pokazał o **metodzie**
+tego repo.
+
+**Ciało commita jest append-only i nie ma znacznika ważności.** `5a799a7`
+kończył się zdaniem „werdykt brzmi FALSIFIED w granicach skażonego briefu".
+Pięć minut później `2905828` to unieważnił i podniósł całość do `INCONCLUSIVE`.
+Sonda przeczytała oba, a do streszczenia wzięła sformułowanie z **unieważnionego**
+— bo w logu obie wersje są równie czytelne i mają ten sam autorytet. Nic
+w commicie nie mówi „to zdanie jest już nieprawdą"; mówi to dopiero następny
+commit, i tylko czytelnikowi, który do niego dojdzie i skojarzy.
+
+Wniosek nie brzmi „pisz krótsze commity". Brzmi: **`git log` jest logiem, nie
+plikiem.** Obowiązuje na nim ta sama reguła co na kanale — jeśli coś ma być
+prawdą, którą ktoś przeczyta jutro, musi wylądować w pliku, gdzie poprzednia
+wersja **znika**, zamiast leżeć obok nowej. Tu poprawione wersje werdyktu były
+w `czujniki.md` i `predictions.md`; czytelnik ograniczony do logu ich nie miał.
+
+**Sonda zmienia to, co mierzy.** Trzy z czterech znalezisk naprawiliśmy w pół
+godziny, więc powtórzenie jej jutro da lepszy wynik z powodów niemających nic
+wspólnego z kondycją repo. Kto ją powtarza, **zapisuje HEAD z chwili odczytu**
+(tu: `8eaf768`) — inaczej porównuje dwa różne repozytoria.
+
+**Płot z prośby nie działa, gdy sam otwierasz drugą furtkę.** Sondzie zakazano
+katalogu `docs/pl/experiments/` i równocześnie pozwolono na `git log` — w repo,
+którego commity są esejami. Hipoteza, wynik i werdykty przeciekły w dziesięć
+minut. Zaprojektował to autor sondy, nie sonda; ta zgłosiła wyciek sama, na
+górze własnego raportu, zanim ktokolwiek zapytał.
