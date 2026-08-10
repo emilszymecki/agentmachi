@@ -90,9 +90,13 @@ wolno ich tak cytować.
 Wpisy `ctrl` odwołują się do **commitów, nie do `seq`** — kolejny powód,
 dla którego są poza instrumentem: dotyczą tekstu w repo, nie ramek w logu.
 
-Wzorzec, który z tych pięciu widać (ostrożnie: to obserwacja, nie wynik
-czujnika): **jeden był błędnym odczytem, cztery były prawdziwymi pomiarami
-zapisanymi bez warunków brzegowych.** Cztery z pięciu złapał nie-autor.
+Wzorzec, który z tych wierszy widać (ostrożnie: to obserwacja, nie wynik
+czujnika). **Pięć wierszy, ale nieprawd cztery** — wiersz z flagą niepewności
+(„wyprowadzone z lektury, nie z pomiaru") nieprawdą nie jest; przeciwnie,
+pomógł recenzentowi wycelować. Cztery nieprawdy to **jeden odwrócony odczyt
+kodu i trzy prawdziwe pomiary zapisane bez warunków brzegowych**. Trzy złapał
+nie-autor, jedną autor — i to nie przez czujność, tylko przez rutynowe
+`git log` przed commitem.
 
 ## 3. Porażka cold-probe
 

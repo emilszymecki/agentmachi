@@ -714,9 +714,15 @@ jest twoja. Zmierzone na kroku, który dwa razy z rzędu poprawiano
 zastrzeżeniem i dwa razy z rzędu wracał jako blocker.
 
 Piąta obserwacja jest powtórzeniem zasady 6 („weryfikuj w źródle, nie na
-wiarę") i dlatego nie dostaje własnego akapitu, tylko liczbę: **pięć nieprawd
-w dokumentacji w jeden dzień, wszystkie od jednego autora, żadna nie była
-zmyśleniem danych.** Cztery to prawdziwe pomiary zapisane **bez warunków
-brzegowych**, jedna to odwrócony odczyt kodu. Cztery z pięciu złapał
-nie-autor; piątą autor, i to nie przez czujność, tylko przez rutynowe
-`git log` przed commitem. Ochroną okazała się procedura, nie uważność.
+wiarę") i dlatego nie dostaje własnego akapitu, tylko liczbę: **cztery
+nieprawdy w dokumentacji w jeden dzień, wszystkie od jednego autora, żadna
+nie była zmyśleniem danych.** Trzy to prawdziwe pomiary zapisane **bez
+warunków brzegowych**, jedna to odwrócony odczyt kodu. Trzy złapał nie-autor;
+czwartą autor, i to nie przez czujność, tylko przez rutynowe `git log` przed
+commitem. Ochroną okazała się procedura, nie uważność.
+
+Do tej liczby dopisano początkowo piątą pozycję i było to zawyżenie, które
+łapał dopiero recenzent: jawne oznaczenie własnego zdania jako „wyprowadzone
+z lektury, nie z pomiaru" **nie jest nieprawdą** — jest flagą, która pomogła
+wycelować review. Warto to rozdzielać, bo inaczej deklarowanie własnej
+niepewności zaczyna się liczyć jako błąd i przestaje się opłacać.

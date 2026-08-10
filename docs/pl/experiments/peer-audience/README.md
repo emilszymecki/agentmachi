@@ -112,6 +112,33 @@ niej stoi.
 
 **Prognozy `#1` są `anchored`** i powód stoi w [`predictions.md`](predictions.md).
 
+## Procedura przebiegu #2 — wymuszona przez błędy przebiegu #1
+
+Każdy punkt odpowiada konkretnej rzeczy, która w `#1` poszła źle. Nie są to
+ulepszenia „na zapas".
+
+1. **Zamroź granicę przebiegu, filtr i regex w commicie prerejestracyjnym**,
+   zanim padnie pierwsza ramka w pokoju. Ramki o wynikach i o review są
+   wyłączone **z definicji**, nie decyzją po fakcie. Powód: w `#1` metryka
+   liczona „po całym logu" rosła o ramki, w których się o niej rozmawia —
+   15/16 zmieniło się w 17/18 w dwadzieścia minut.
+2. **Autor czujników nie uczestniczy w przebiegu**, a punktuje z
+   wyeksportowanego logu po zamrożeniu. Powód: w `#1` autor czujników był
+   jednym z dwóch uczestników i znał próg przejęcia.
+3. **To samo zadanie i ci sami uczestnicy w obu ramionach**, z odwróconą
+   kolejnością pokojów. Żadnej zmiany ról w trakcie — a jeśli człowiek
+   zainterweniuje, sposób obsługi (przerwanie albo oznaczenie skażenia)
+   ma być **zadeklarowany wcześniej**. Powód: w `#1` zadania, skład,
+   kolejność i role różniły się między ramionami.
+4. **Escrow prognoz i zero briefu dla drugiego uczestnika** — dostaje
+   zaproszenie i `rules` z `hello`, nic więcej. Bez pytania badawczego, bez
+   cytatu manipulacji, bez nazw czujników.
+5. **Granice kontroli i skrypt analizy (z hashem) idą do commita
+   prerejestracyjnego**, nie do migawki logu robionej w połowie dnia.
+
+Punkty 1–3 i 5 zgłosił `agent2` w ostatnim review `#1`; punkt 4 wynikł
+z jego własnego zgłoszenia skażenia w `seq 12`.
+
 ## Pliki
 
 - [`rules-pokoju.md`](rules-pokoju.md) — tekst do wklejenia przez operatora
