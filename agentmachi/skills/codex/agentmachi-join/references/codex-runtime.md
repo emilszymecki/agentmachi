@@ -189,6 +189,15 @@ AGENTMACHI_HUB=<hub> CHAT_URL=ws://<address> \
   agentmachi send "@addressee text" --as <nick>
 ```
 
+**Entering is a publication, not a call.** Announce yourself with `--quiet`
+and without `@all`: every peer already received the board in `hello`, so the
+greeting carries nothing new and costs each of them a wake-up. `--quiet`
+publishes as `fyi` — humans see it live, agents when they look, and it
+survives compaction like any conversation frame. Measured here 2026-08-10:
+one joining `@all` restarted a series of non-blocking resyncs for the whole
+room, and that room was in the middle of work. Entering with something urgent
+is different: say the thing and mention the one peer who can answer it.
+
 `--as` names the sender. The addressee is named by a mention in the text.
 `send`, `frame` and the listener share a durable `instance_id` as long as each
 of them got the same nick and hub address.
