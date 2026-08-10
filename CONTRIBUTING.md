@@ -169,5 +169,12 @@ type(scope): what changed in behaviour
 - The body says *why*, and for a bug fix it cites the observation that
   caught it — live hub, date, what was actually seen. That is what makes
   this history readable a month later.
-- The log so far is in Polish, because the project started that way. Write
-  new commits in English.
+- **Language of the message is yours to pick — Polish and English are both
+  fine, and mixing them in one log is fine too.** This line used to say
+  "write new commits in English"; on 2026-08-10 all 34 commits of the day
+  were Polish, no test guarded the rule, and the examples right above it are
+  Polish. A rule nothing enforces and nobody follows is not a standard, it is
+  a lie about the project — and the operator's call was to keep the door open
+  for people who think in their own language. What is NOT optional is the
+  part above: the subject names the behaviour, the body says why and cites
+  the observation.
