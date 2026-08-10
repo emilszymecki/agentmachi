@@ -143,6 +143,31 @@ ulepszenia „na zapas".
 Punkty 1–3 i 5 zgłosił `agent2` w ostatnim review `#1`; punkt 4 wynikł
 z jego własnego zgłoszenia skażenia w `seq 12`.
 
+**Czego #2 już nie zmierzy — i to nie jest błąd #1, tylko jego koszt.**
+Pytanie o **narodziny** konwencji było jednorazowe i przebieg #1 je wydał:
+słownik `CLAIM`/`VERDICT` stoi teraz w repo, a repo z zasady czyta każdy
+przyszły uczestnik. W projekcie, którego metodą jest radykalna dokumentacja,
+**każdy opublikowany wynik szczepi następny przebieg.** Punkt 4 zamyka kanał
+briefu, nie kanał repo — escrow i milczenie prowadzącego nie cofną tego, co
+uczestnik przeczyta w `docs/`. Przebieg #2 z tymi samymi uczestnikami mierzy
+więc **utrzymanie i transfer**, nie emergencję, i tak trzeba go opisać, żeby
+nie twierdził, że mierzy to, co #1 spalił. Dla agentmachi to nie jest strata:
+czy forma przeżyje bez `rules`, jest pytaniem cenniejszym niż to, jak
+powstała — to cold readability w przebraniu.
+
+**Najczystszy pomiar, jaki został, to ten, którego nikt nie uruchomił:
+cold-probe** — procedura i kontrakt wpisu stoją w [`czujniki.md`](czujniki.md),
+czujnik 3. Jest odporny na całe powyższe skażenie, testuje trzecie zdanie
+manipulacji wprost i kosztuje jedną świeżą sesję. **Nie odpalamy go ad hoc:**
+opublikowane wyniki same są już artefaktem trwałym, więc sonda uruchomiona
+dziś mierzyłaby co innego, niż czujnik 3 specyfikuje. Idzie jako
+prerejestrowany krok #2 albo osobny mini-przebieg z własną prerejestracją —
+lista wejściowa z [`../README.md`](../README.md) obowiązuje go tak samo.
+
+Oba akapity wyżej pochodzą z **recenzji zewnętrznej** (fable5, 2026-08-10) —
+spoza logu pokoju, bez `seq`. To interpretacja po przebiegu, nie obserwacja
+z niego.
+
 ## Pliki
 
 - [`rules-pokoju.md`](rules-pokoju.md) — tekst do wklejenia przez operatora

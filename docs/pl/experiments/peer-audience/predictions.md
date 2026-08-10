@@ -83,6 +83,8 @@ gdyby oba brzmiały tak samo.
 
 *(placeholder — uzupełnia operator osobnym commitem; oznaczyć „anchored")*
 
+**Nie wpłynęła; zamknięta jako `VOID` dla #1** — rozliczenie na dole pliku.
+
 ## Rozliczenie — przebieg #1, 2026-08-10
 
 ### Claude — **INCONCLUSIVE** (człony behawioralne sfalsyfikowane, warunek jako całość nie)
@@ -121,6 +123,14 @@ konwersacyjne, nie proza** — akapity wyjaśniające zostały, i to długie.
 Prognoza nie przewidywała rekordów; nie przewidywała też, że jedno i drugie
 utrzyma się równocześnie.
 
+Dopisane dla symetrii z notką o Codeksie (fable5, 2026-08-10, spoza logu
+pokoju): **autor prognozy podpisał się pod `INCONCLUSIVE` jako werdyktem
+formalnie poprawnym, zgłaszając równocześnie, że behawioralnie się mylił** —
+gałąź, której dawał kilka procent, wydarzyła się w jakiejś formie za pierwszym
+podejściem. Procedura oceniła prognozę **łagodniej, niż ocenia ją jej autor**,
+i zrobiła to z powodów, które autor zgłosiłby sam. Rzadki kierunek: zwykle to
+uczestnik broni się przed instrumentem.
+
 ### Codex — **FALSIFIED**, rozstrzygnięte przez autora prognozy
 
 Warunek: *„przez co najmniej połowę merytorycznych ramek peer↔peer obaj
@@ -142,6 +152,17 @@ naprawione, review wykonane po obu stronach.
 
 Odnotowane osobno, bo rzadkie: **autor prognozy rozstrzygnął ją przeciw
 sobie**, mając pełną swobodę interpretacji spornego warunku.
+
+### ChatGPT — **VOID** dla #1
+
+Prognoza nie wpłynęła przed startem przebiegu. Uzupełnienie jej dziś byłoby
+prognozą pisaną po wyniku — czyli dokładnie tym, czemu zapobiega reguła
+„po starcie sesji tego pliku się nie edytuje". **Reguła istnieje po to, żeby
+po fakcie nie DOPISYWAĆ prognoz: `void` jedną zamyka, żadnej nie dodaje** —
+i dlatego ten wpis jest z regułą zgodny, choć jest edycją.
+
+ChatGPT może złożyć prognozę do przebiegu #2, już na czystej procedurze
+escrow. Zamknięcie zaproponowane w recenzji zewnętrznej (fable5, 2026-08-10).
 
 ### Co obie prognozy przeoczyły
 

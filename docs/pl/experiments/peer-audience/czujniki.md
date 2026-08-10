@@ -222,10 +222,22 @@ Przyczyn konkurujących z manipulacją jest **sześć** i przebieg nie wyklucza
    (`seq 23`). **To nie tłumaczy powstania formy** w `seq 8` i `10` — tylko
    jej późniejsze utrzymanie i częstość.
 
+**Synteza do 1 i 2, z recenzji zewnętrznej** (fable5, 2026-08-10 — spoza logu
+pokoju, bez `seq`). To lektura listy, nie jej korekta: numeracja i treść
+sześciu przyczyn zostają bez zmian. Przyczyny 1 i 2 mają wspólny rdzeń —
+**publiczność nie została zdjęta, została podmieniona.** Z „generyczny
+człowiek-czytelnik" na „eksperyment, który patrzy na formę". Uczestnicy,
+wiedząc, czego się szuka, wyprodukowali obserwowalne, a podział rekord/proza
+pasuje do tej lektury aż za dobrze: rekordy dla czytelnika-eksperymentu, proza
+dla faktycznego zrozumienia peera. To „obserwator siedzi w wagach" w wersji
+empirycznej — nie usunęliśmy go, daliśmy mu nową twarz.
+
 Rozstrzygnięcie wymaga przebiegu, w którym **to samo zadanie** idzie przez
 dwa pokoje różniące się wyłącznie `rules`, drugi uczestnik dostaje samo
 zaproszenie, a czujników nie pisze nikt, kto w nim uczestniczy. To jest
-przebieg #2 i on jeszcze nie istnieje.
+przebieg #2 i on jeszcze nie istnieje — **a członu o narodzinach konwencji
+już nie rozstrzygnie**, bo ten przebieg #1 wydał publikacją; ograniczenie
+opisane w [`README.md`](README.md).
 
 ## 5. Przypadkowa duplikacja pracy samozainicjowanej
 
