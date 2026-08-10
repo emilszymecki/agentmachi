@@ -1521,6 +1521,74 @@ def test_read_dziala_obok_zywego_nasluchu_trzymajacego_lock(tmp_path,
     assert [r.get("text") for r in zebrane] == ["obok nasluchu"]
 
 
+def test_read_resync_nie_wypycha_nastepnego_listen_once(tmp_path,
+                                                        monkeypatch):
+    """E2E sciezki zmierzonej na zywym hubie przez agent3.
+
+    ``read`` podstawia stary from-seq i legalnie dostaje resync, ale nie
+    rusza kursora sesji. Przed be6ead1 sam ten hello przesuwal GLOBALNY
+    snapshot, wiec nastepny ``listen --once`` z kursorem sesji znow
+    dostawal resync i natychmiast wychodzil. Po poprawce state jest rowny
+    persisted snapshotowi: read dostaje swieza etykiete wire, granica Store
+    zostaje w miejscu, a listener konczy sie dopiero na prawdziwej wzmiance.
+    """
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        listener = None
+        await srv.start()
+        try:
+            session = send._session("beta")
+            async with websockets.connect(f"ws://localhost:{port}") as seed:
+                reply = await _wejdz(seed, "beta", session.instance_id)
+                session.advance(reply["last_seq"])
+            while srv.conns.get("beta"):
+                await asyncio.sleep(0.01)
+
+            srv.snapshot()
+            snapshot_przed = srv.log.snapshot_seq
+            await send.read_frames("beta", 1, emit=lambda _frame: None)
+            snapshot_po_read = srv.log.snapshot_seq
+            while srv.conns.get("beta"):
+                await asyncio.sleep(0.01)
+
+            listener = asyncio.create_task(send.listen("beta", once=True))
+            deadline = time.monotonic() + 2.0
+            while (not srv.conns.get("beta") and not listener.done()
+                   and time.monotonic() < deadline):
+                await asyncio.sleep(0.01)
+            assert srv.conns.get("beta"), "listen --once nie wszedl na hub"
+            await asyncio.sleep(0)
+            assert not listener.done(), \
+                "listen --once wyszedl na resyncu zamiast czekac na wzmianke"
+
+            async with websockets.connect(f"ws://localhost:{port}") as alfa:
+                await _wejdz(alfa, "alfa", "instancja-alfa")
+                await alfa.send(json.dumps({
+                    "type": "chat", "from": "alfa", "ts": 0.0,
+                    "text": "@beta prawdziwe wybudzenie"}))
+                await asyncio.wait_for(listener, timeout=2.0)
+
+            kursor_po = send._session("beta").last_applied_seq
+            return snapshot_przed, snapshot_po_read, kursor_po, srv.log.last_seq
+        finally:
+            if listener is not None and not listener.done():
+                listener.cancel()
+                await asyncio.gather(listener, return_exceptions=True)
+            await srv.stop()
+
+    snapshot_przed, snapshot_po_read, kursor_po, last_seq = asyncio.run(
+        scenario())
+    assert snapshot_po_read == snapshot_przed, \
+        "bezmutacyjny read przesunal globalna granice snapshotu"
+    assert kursor_po == last_seq, \
+        "listener nie zapisal kursora ramki, ktora naprawde go obudzila"
+
+
 def test_read_seq_ktorego_nie_ma_w_zwrocie_konczy_sie_bledem(tmp_path,
                                                              monkeypatch):
     """CISZA NIE JEST POTWIERDZENIEM (zasady-agentyczne rozdz. 13).
