@@ -1478,14 +1478,55 @@ def _nicki_pokoju(name):
     return nicki
 
 
+def _pisownie_adresu(name):
+    """Wszystkie hub_id, pod ktorymi mogly powstac kursory TEGO pokoju.
+
+    Kursor jest kluczowany stringiem `host:port`, ktorym klient sie DOBIL,
+    a nie nazwa pokoju — i te dwie rzeczy rozjezdzaja sie legalnie. Pokoj
+    zbindowany na tailnet ma w configu `100.x.y.z`, ale jego wlasne TUI
+    laczy sie przez `ws://localhost:<port>` (fallback w `_tui_env`), wiec
+    ten sam pokoj zostawia na dysku DWA niezalezne komplety kursorow.
+
+    Zmierzone przez operatora 2026-08-10: `del test_agentmachi` (bind
+    tailnetowy) zabral dziewiec plikow dla `100.84.163.11:8766`, a kursor
+    `localhost:8766` przezyl, przechwycil nastepny pokoj na tym porcie
+    i wywalil mu wejscie komunikatem `last_seq 92 > server last_seq 0`.
+    Docstring `purge_cursors` mowil wtedy "zmierzone dwa razy" — to byl
+    trzeci raz i pierwszy z ustalona PRZYCZYNA.
+
+    Lista jest BEST-EFFORT i tak trzeba ja czytac. `_slug` jest hashem
+    jednokierunkowym, a plik sesji nie zapisuje adresu, wiec z samego dysku
+    nie da sie odzyskac, pod jakim stringiem powstal dany kursor —
+    wyliczamy wiec znane pisownie, nie wszystkie mozliwe. Kursor zalozony
+    przez klienta z jawnym `CHAT_URL` na jeszcze inna nazwe tego samego
+    hosta zostanie na dysku; to jest znany dlug, nie przeoczenie.
+
+    Bezpieczenstwo: `localhost:<port>` nie moze nalezec do innego
+    ZARZADZANEGO pokoju, bo `_odmow_zajetego_portu` nie pozwala dwom
+    pokojom w tym samym `AGENTMACHI_HOME` trzymac jednego portu. Poza ta
+    granica (inny AGENTMACHI_HOME, proces spoza CLI) kolizja jest mozliwa
+    i tego ta funkcja nie rozstrzyga."""
+    port = hub_port(name)
+    hosty = [connect_host(hub_bind(name)), "localhost", "127.0.0.1"]
+    widziane, out = set(), []
+    for host in hosty:
+        hub = f"{host}:{port}"
+        if hub not in widziane:
+            widziane.add(hub)
+            out.append(hub)
+    return out
+
+
 def purge_cursors(name):
     """Skasuj kursory klientow tego pokoju. Zwraca liczbe usunietych plikow.
 
     Kursor klienta jest per host:port, a port po skasowanym pokoju wraca do
     puli — wiec kursor, ktory przezyl swoj log, trafia na NASTEPNY hub pod
     tym adresem i wywala go komunikatem "last_seq N > serwerowy last_seq 0".
-    Zmierzone dwa razy: raz na zywym pokoju 2026-07-26, raz przez operatora
-    przy pierwszym uruchomieniu po sprzataniu.
+    Zmierzone trzy razy: 2026-07-26 na zywym pokoju, raz przez operatora
+    przy pierwszym uruchomieniu po sprzataniu i 2026-08-10 — ten ostatni raz
+    juz PO tej funkcji, bo kasowala tylko jedna pisownie adresu (patrz
+    `_pisownie_adresu`).
 
     Wolane z delete_hub PRZED rmtree — po nim nie ma juz skad wziac nickow."""
     if not hub_istnieje_lokalnie(name):
@@ -1494,10 +1535,10 @@ def purge_cursors(name):
         # skasowalibysmy komus zywy kursor przy sprzataniu po sobie. Lepiej
         # zostawic wlasne smieci niz ruszyc nie swoje.
         return 0
-    hub = f"{connect_host(hub_bind(name))}:{hub_port(name)}"
     usuniete = 0
     for nick in _nicki_pokoju(name):
-        usuniete += purge_session_files(hub, nick)
+        for hub in _pisownie_adresu(name):
+            usuniete += purge_session_files(hub, nick)
     return usuniete
 
 

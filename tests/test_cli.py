@@ -2107,6 +2107,75 @@ def test_del_zabiera_ze_soba_kursory_klientow(home, monkeypatch, tmp_path):
             f"kursor {nick} przezyl skasowanie pokoju"
 
 
+def test_purge_cursors_bierze_wszystkie_pisownie_adresu(home, monkeypatch,
+                                                        tmp_path):
+    """Jeden pokoj ma tyle kompletow kursorow, iloma adresami ktos sie dobil.
+
+    Zmierzone przez operatora 2026-08-10 i to jest cala historia tego testu:
+    `del test_agentmachi` (bind tailnetowy) skasowal dziewiec plikow dla
+    `100.84.163.11:8766`, ale kursor `localhost:8766` — zalozony przez TUI,
+    ktore laczy sie fallbackiem przez localhost — przezyl swoj pokoj,
+    przechwycil NASTEPNY hub na tym porcie i wywalil mu wejscie
+    komunikatem `last_seq 92 > server last_seq 0`. Awaria wyszla u czlowieka,
+    w miejscu, ktore z przyczyna nie mialo nic wspolnego.
+
+    Zamek pilnuje trzech rzeczy naraz, bo kazda z nich osobno da sie zepsuc
+    poprawka drugiej: wszystkie pisownie znikaja, obcy port zostaje,
+    a ZYWY listener-lock nie jest odlinkowany."""
+    from chat.client_session import Session, session_files
+    sesje = tmp_path / "sesje"
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
+    _, port = cli.ensure_hub("tailnetowy", 8941, bind="100.64.0.5")
+    _, port_obcy = cli.ensure_hub("obok", 8942)
+
+    pisownie = [f"100.64.0.5:{port}", f"localhost:{port}",
+                f"127.0.0.1:{port}"]
+    for hub in pisownie:
+        Session(hub, "human", base_dir=sesje).advance(7)
+    obcy = f"localhost:{port_obcy}"
+    Session(obcy, "human", base_dir=sesje).advance(9)
+
+    ok, _ = cli.delete_hub("tailnetowy", "tailnetowy")
+    assert ok is True
+
+    for hub in pisownie:
+        assert not session_files(hub, "human", sesje)[0].exists(), \
+            f"kursor {hub} przezyl skasowanie pokoju"
+    assert session_files(obcy, "human", sesje)[0].exists(), \
+        "sprzatanie zabralo kursor pokoju stojacego na INNYM porcie"
+
+
+def test_purge_cursors_nie_odlinkowuje_zywego_locka(home, monkeypatch,
+                                                    tmp_path):
+    """Kursor leci zawsze, zamek trzymany przez zywy proces NIGDY.
+
+    Odlaczenie nazwy nie zwalnia locka — siedzi on na i-wezle. Skasowanie
+    zamka trzymanego przez zyjacego listenera daje skutek odwrotny do
+    zamierzonego: nastepny listener tworzy NOWY i-wezel, bierze go bez oporu
+    i pokoj ma dwa nasluchy na jednym nicku. Rozszerzenie purge na trzy
+    pisownie mnozy okazje do tego bledu przez trzy, wiec zamek jest tu,
+    a nie w komentarzu."""
+    import os
+    from chat.client_session import Session, session_files
+    sesje = tmp_path / "sesje"
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
+    _, port = cli.ensure_hub("zajety", 8943)
+    hub = f"localhost:{port}"
+    Session(hub, "human", base_dir=sesje).advance(1)
+
+    _, _, listener_lock = session_files(hub, "human", sesje)
+    listener_lock.touch()
+    fd = os.open(listener_lock, os.O_WRONLY)
+    try:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        cli.delete_hub("zajety", "zajety")
+        assert listener_lock.exists(), \
+            "sprzatanie odlinkowalo zamek trzymany przez zywy proces"
+    finally:
+        os.close(fd)
+
+
 def test_purge_cursors_nie_rusza_kursorow_innego_pokoju(home, monkeypatch,
                                                         tmp_path):
     """Sprzatanie idzie po hub_id (host:port), wiec pokoj obok musi zostac
