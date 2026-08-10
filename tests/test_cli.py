@@ -2145,6 +2145,30 @@ def test_purge_cursors_bierze_wszystkie_pisownie_adresu(home, monkeypatch,
         "sprzatanie zabralo kursor pokoju stojacego na INNYM porcie"
 
 
+def test_purge_cursors_bierze_surowy_bind_wildcard(home, monkeypatch,
+                                                   tmp_path):
+    """`connect_host` GUBI bind wildcard: `0.0.0.0` mapuje sie na `localhost`.
+
+    Bez surowego `hub_bind` na liscie kursor zalozony doslownie na
+    `0.0.0.0:<port>` przezywalby swoj pokoj — czyli dokladnie ta awaria,
+    ktora ta poprawka mial zamknac, tylko pod inna pisownia. Zgloszone przez
+    agent2 jako probe: dla bindu 0.0.0.0 pierwsza wersja listy zwracala
+    wylacznie [localhost, 127.0.0.1]."""
+    from chat.client_session import Session, session_files
+    sesje = tmp_path / "sesje"
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
+    _, port = cli.ensure_hub("publiczny", 8944, bind="0.0.0.0")
+
+    assert f"0.0.0.0:{port}" in cli._pisownie_adresu("publiczny"), \
+        "surowy bind wildcard wypadl z listy pisowni"
+
+    hub = f"0.0.0.0:{port}"
+    Session(hub, "human", base_dir=sesje).advance(5)
+    cli.delete_hub("publiczny", "publiczny")
+    assert not session_files(hub, "human", sesje)[0].exists(), \
+        "kursor zalozony na surowym bindzie przezyl skasowanie pokoju"
+
+
 def test_purge_cursors_nie_odlinkowuje_zywego_locka(home, monkeypatch,
                                                     tmp_path):
     """Kursor leci zawsze, zamek trzymany przez zywy proces NIGDY.
@@ -2155,25 +2179,25 @@ def test_purge_cursors_nie_odlinkowuje_zywego_locka(home, monkeypatch,
     i pokoj ma dwa nasluchy na jednym nicku. Rozszerzenie purge na trzy
     pisownie mnozy okazje do tego bledu przez trzy, wiec zamek jest tu,
     a nie w komentarzu."""
-    import os
     from chat.client_session import Session, session_files
     sesje = tmp_path / "sesje"
     monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
     _, port = cli.ensure_hub("zajety", 8943)
     hub = f"localhost:{port}"
-    Session(hub, "human", base_dir=sesje).advance(1)
+    sesja = Session(hub, "human", base_dir=sesje)
+    sesja.advance(1)
 
-    _, _, listener_lock = session_files(hub, "human", sesje)
-    listener_lock.touch()
-    fd = os.open(listener_lock, os.O_WRONLY)
+    # Zamek bierzemy PRAWDZIWYM API sesji, nie `fcntl` wprost: klient ma
+    # cross-platformowa implementacje (Unix/Windows) i test ma dowodzic JEJ
+    # kontraktu, a nie powtarzac jedna z dwoch galezi. Zgloszone przez agent2.
+    sesja.acquire_listener_lock()
     try:
-        import fcntl
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _, _, listener_lock = session_files(hub, "human", sesje)
         cli.delete_hub("zajety", "zajety")
         assert listener_lock.exists(), \
             "sprzatanie odlinkowalo zamek trzymany przez zywy proces"
     finally:
-        os.close(fd)
+        sesja.release_listener_lock()
 
 
 def test_purge_cursors_nie_rusza_kursorow_innego_pokoju(home, monkeypatch,

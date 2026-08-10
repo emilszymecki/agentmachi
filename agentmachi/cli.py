@@ -1479,27 +1479,36 @@ def _nicki_pokoju(name):
 
 
 def _pisownie_adresu(name):
-    """Wszystkie hub_id, pod ktorymi mogly powstac kursory TEGO pokoju.
+    """ZNANE hub_id, pod ktorymi mogly powstac kursory TEGO pokoju.
 
     Kursor jest kluczowany stringiem `host:port`, ktorym klient sie DOBIL,
-    a nie nazwa pokoju — i te dwie rzeczy rozjezdzaja sie legalnie. Pokoj
-    zbindowany na tailnet ma w configu `100.x.y.z`, ale jego wlasne TUI
-    laczy sie przez `ws://localhost:<port>` (fallback w `_tui_env`), wiec
-    ten sam pokoj zostawia na dysku DWA niezalezne komplety kursorow.
+    a nie nazwa pokoju — i te dwie rzeczy rozjezdzaja sie legalnie, bo
+    jeden hub slucha pod wiecej niz jedna nazwa (bind z configu, forma
+    polaczeniowa z `connect_host`, loopback wpisany recznie).
 
     Zmierzone przez operatora 2026-08-10: `del test_agentmachi` (bind
     tailnetowy) zabral dziewiec plikow dla `100.84.163.11:8766`, a kursor
     `localhost:8766` przezyl, przechwycil nastepny pokoj na tym porcie
     i wywalil mu wejscie komunikatem `last_seq 92 > server last_seq 0`.
-    Docstring `purge_cursors` mowil wtedy "zmierzone dwa razy" — to byl
-    trzeci raz i pierwszy z ustalona PRZYCZYNA.
+
+    **Skad wzial sie ten kursor — NIE JEST USTALONE i nie zgadujemy.**
+    Pierwsza wersja tego opisu wskazywala `_tui_env` jako winowajce
+    ("TUI laczy sie fallbackiem przez localhost"); zgloszone przez agent2
+    i sprawdzone: dzisiejszy `_tui_env` ustawia `CHAT_URL` z
+    `connect_host(bind)`, wiec TUI pokoju tailnetowego celuje w tailnet,
+    nie w localhost. Zostaje jawny `CHAT_URL` albo klient sprzed zmiany
+    tamtej sciezki. Pomiar byl prawdziwy, historia przyczynowa dopisana.
 
     Lista jest BEST-EFFORT i tak trzeba ja czytac. `_slug` jest hashem
     jednokierunkowym, a plik sesji nie zapisuje adresu, wiec z samego dysku
     nie da sie odzyskac, pod jakim stringiem powstal dany kursor —
-    wyliczamy wiec znane pisownie, nie wszystkie mozliwe. Kursor zalozony
+    wyliczamy wiec ZNANE pisownie, nie wszystkie mozliwe. Kursor zalozony
     przez klienta z jawnym `CHAT_URL` na jeszcze inna nazwe tego samego
     hosta zostanie na dysku; to jest znany dlug, nie przeoczenie.
+
+    Surowy `hub_bind` jest na liscie osobno, bo `connect_host` GUBI go dla
+    bindu wildcard: `0.0.0.0` mapuje sie na `localhost`, wiec bez tego
+    wpisu kursor zalozony dosłownie na `0.0.0.0:<port>` przezywalby pokoj.
 
     Bezpieczenstwo: `localhost:<port>` nie moze nalezec do innego
     ZARZADZANEGO pokoju, bo `_odmow_zajetego_portu` nie pozwala dwom
@@ -1507,7 +1516,8 @@ def _pisownie_adresu(name):
     granica (inny AGENTMACHI_HOME, proces spoza CLI) kolizja jest mozliwa
     i tego ta funkcja nie rozstrzyga."""
     port = hub_port(name)
-    hosty = [connect_host(hub_bind(name)), "localhost", "127.0.0.1"]
+    bind = hub_bind(name)
+    hosty = [connect_host(bind), bind, "localhost", "127.0.0.1"]
     widziane, out = set(), []
     for host in hosty:
         hub = f"{host}:{port}"
