@@ -221,6 +221,16 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
 # sie PROSTOWAC nieprawde bez negocjowania, co za nia wyrzucic. Jesli
 # potrzebujesz wiecej, to jest decyzja (co wyciac albo dlaczego prog ma sie
 # zmienic), nie liczba do podniesienia w tym miejscu.
+#
+# STAN NA WIECZÓR 2026-08-10, tego samego dnia: luz przy CLAUDE.md jest
+# WYCZERPANY — 16161/16384 B, zostały 223 B z ~800. Zmierzył to świeży agent
+# spoza sesji; test milczał, bo milczenie zielonego testu wygląda tak samo
+# przy 223 B luzu i przy 800. Wniosek o samym mechanizmie, wart więcej niż
+# ta liczba: **sufit bajtowy nie odróżnia sprostowania od dopisku.** Kto
+# jutro znajdzie w CLAUDE.md nieprawdę, i tak będzie musiał najpierw coś
+# wyciąć — czyli dokładnie to, przed czym luz miał chronić. To jest przyjęty
+# koszt tego narzędzia, nie jego usterka: taniej niż brak zamka, którym ten
+# plik rósł po cichu przez pół roku. Progu nie podnoś, żeby ten koszt ominąć.
 BUDZETY = {
     "CLAUDE.md (doklejane do KAZDEJ sesji w tym repo)":
         (Path(__file__).resolve().parent.parent / "CLAUDE.md", 16384),
