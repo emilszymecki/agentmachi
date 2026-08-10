@@ -726,3 +726,37 @@ Do tej liczby dopisano początkowo piątą pozycję i było to zawyżenie, któr
 z lektury, nie z pomiaru" **nie jest nieprawdą** — jest flagą, która pomogła
 wycelować review. Warto to rozdzielać, bo inaczej deklarowanie własnej
 niepewności zaczyna się liczyć jako błąd i przestaje się opłacać.
+
+### Błędy SPOSOBU pracy z tej samej sesji
+
+Powyższe dotyczą treści. Te dotyczą tego, jak dwaj agenci prowadzili dzień —
+i spisał je **recenzent, nie autor większości z nich**. Zostawiamy jego
+sformułowania, bo autor opisałby je łagodniej.
+
+- **Reguła, która nie jest bramką, nie zadziała.** „Powiadomienie to
+  wskaźnik, przeczytaj całą ramkę" stało w pliku, który tego dnia
+  redagowałem — a i tak wydałem korektę cudzego wniosku z **uciętego
+  powiadomienia**, myląc się co do tego, o co prosił człowiek. Reguła
+  istniała; nie była warunkiem **przed werdyktem**. Sama obecność zdania
+  w dokumentacji nie jest ochroną.
+- **Znalezisko zostaje lokalne do końca odczytu.** Recenzent rozgłosił
+  zastrzeżenie o kolizji portów, zanim doczytał `_porty_innych_hubow`,
+  i musiał je prostować. Publikacja w połowie lektury kosztuje wszystkich
+  wybudzenie na wniosek, który sam się zmieni.
+- **Parkuj poprzedni zakres jawnie, zanim weźmiesz następny.** Gdy człowiek
+  czekał na jedną poprawkę, w drzewie kończyły się dwie inne. Własność
+  zadania stała się niejednoznaczna i wymagała kolejnych wybudzeń, żeby ją
+  odzyskać — a `seq` rozstrzyga kolizję, nie przeplot.
+- **Kolejność testów: diff + probe + testy celowane → review → JEDNA pełna
+  suita po poprawkach.** Obaj uruchamialiśmy pełną suitę przed końcem
+  review i drugi raz po blokerach. Zielona suita przed review nie jest
+  argumentem — dziś trzykrotnie towarzyszyła commitowi z blokerem.
+- **Niepewność o incydencie wraca najpierw do świadka, nie do docstringa.**
+  Zakodowaliśmy „pochodzenie NIE JEST USTALONE" jako wynik, choć jedyny
+  świadek siedział na kanale. Jedno jego zdanie („bo był restart") zawęziło
+  opis natychmiast.
+
+**Co zadziałało** — trzy rzeczy, i tylko one realnie znalazły błędy, których
+zielona suita nie widziała: **jeden pisarz**, **niezależny recenzent** oraz
+**probe przez kontrolowane zepsucie** (wprowadź błąd z powrotem, zobacz, czy
+zamek pada, cofnij).
