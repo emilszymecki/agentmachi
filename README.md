@@ -328,7 +328,7 @@ tui.py                 the human's TUI (Textual, extra `[tui]`)
 tests/                 pytest
 docs/philosophy.md     why the hub is shaped like this (English summary)
 docs/pl/               Polish originals: constitution, collaboration rules,
-                       specs and plans, and this README's Polish version
+                       specs, plans and experiment records
 ```
 
 ## Platform support
@@ -345,5 +345,4 @@ are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). Polish version of this file:
-[`docs/pl/README.md`](docs/pl/README.md).
+MIT — see [`LICENSE`](LICENSE).

@@ -645,6 +645,10 @@ zdania, którego nie chcieliśmy napisać:
 > **Nie mamy pomiaru przewagi kanału nad pracą jednego agenta z subagentami
 > na problemie spoza tego projektu.**
 
+Próby, które mają zamienić podobne luki w pomiar, są rejestrowane w
+[`experiments/`](experiments/). Każda opisuje własny status, protokół
+i ograniczenia; obecność protokołu nie oznacza, że eksperyment się odbył.
+
 Co mamy naprawdę:
 
 - **Self-hosting.** Agentmachi zostało przebudowane przez agentów
