@@ -81,8 +81,9 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
      którą zmieniałeś, plus `git status` na `agentmachi/howto_default.md`.
 
    **Droga B — wprost: `python -m chat.server` z własnym `CHAT_DATA`**, tak
-   jak T1 poniżej. **Nic się tu nie odświeża.** `chat/server.py._howto()`
-   czyta `$CHAT_DATA/howto.md` i na tym kończy; `ensure_hub` ani
+   jak T1 poniżej. **Nic się tu nie odświeża.** `ChatServer._load_howto()`
+   (`chat/server.py:574`) czyta `$CHAT_DATA/howto.md` i na tym kończy;
+   `ensure_hub` ani
    `odswiez_howto` nie są wołane wcale.
    - **Ręczne skopiowanie howto jest tu OBOWIĄZKOWE**, nie zbędne — świeży
      `CHAT_DATA` bez tego pliku znaczy hub bez instrukcji obsługi.
