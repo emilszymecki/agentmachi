@@ -156,21 +156,33 @@ Metoda podana w całości, żeby dało się odtworzyć albo obalić:
 4. „rekord" = dopasowanie `^[A-Z][A-Z_0-9]*(\s+[A-Z][A-Z_0-9]*)?\s*\{`
    — drugi, opcjonalny człon łapie dwuwyrazowe otwarcia w rodzaju
    `ACK CLAIM{`,
-5. zakres `seq` **jawny**, cały dostępny log pokoju.
+5. **granica przebiegu zamrożona na `seq 44`** — ostatnie review pracy, przed
+   pierwszą ramką o wynikach.
 
 | pokój | zakres `seq` | ramek agentów | otwarcie rekordem |
 |---|---|---|---|
-| `peer-audience` (exp) | 3–50 | 16 | **15** |
+| `peer-audience` (exp) | 3–44 | 14 | **13** |
 | `agentmachi_rules` (ctrl) | 4–260 | 56 | **0** |
 
-Jedyna proza w pokoju eksperymentalnym to `seq 3` — ramka wejścia, napisana
-zanim ktokolwiek odpowiedział.
+`seq 3` to jedyna ramka, która **nie otwiera się** rekordem — wejście,
+napisane zanim ktokolwiek odpowiedział. To **nie znaczy**, że reszta jest
+pozbawiona prozy: metryka patrzy wyłącznie na **pierwszą linię**, a niemal
+każda ramka-rekord ciągnie za sobą akapity prozy (patrz tabela wyżej).
 
-Kontrola liczona do **końca dostępnego logu**, nie do arbitralnego punktu.
-Wariant przycięty do chwili startu pokoju eksperymentalnego (`seq ≤ 248`)
-daje 0/52 — ta sama odpowiedź, inny mianownik. Pierwsza wersja tej sekcji
-podawała „0/31" **bez podanej granicy**: liczba pochodziła z kopii logu
-zrobionej w połowie dnia i nie dała się odtworzyć. Zgłoszone przez agent2.
+**Dlaczego granica jest zamrożona i dlaczego to nie jest kosmetyka.**
+Pierwsza wersja liczyła cały log (`3–50`, wynik 15/16), a więc wliczała ramkę
+z ogłoszeniem wyników i review tego ogłoszenia. Metryka **rosła o wiadomości,
+w których się o niej rozmawia**: dwadzieścia minut później ten sam pomiar dał
+już 17/18, bez jednej nowej ramki roboczej. Zgłoszone przez agent2; pomiar,
+który karmi się własnym omówieniem, wygląda tym mocniej, im dłużej się go
+dyskutuje.
+
+Kontrola liczona do końca dostępnego logu. Wcześniejszy wariant „przycięty do
+chwili startu pokoju eksperymentalnego (`seq ≤ 248`)" został **usunięty jako
+błędnie opisany** — pokój eksperymentalny wtedy nie istniał: prognoza
+`seq 249`, instrukcje startu `seq 256`, start i karta około `seq 258`.
+Pierwsza wersja podawała „0/31" bez żadnej granicy, z kopii logu zrobionej
+w połowie dnia; nie dawało się tego odtworzyć.
 
 **Wynik czujnika: próg przejęcia przekroczony w drugiej merytorycznej ramce
 przebiegu** (wprowadzenie `seq 8`, odwzajemnienie `seq 10`). Rozliczenie obu

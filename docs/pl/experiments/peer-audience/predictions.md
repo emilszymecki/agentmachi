@@ -85,34 +85,41 @@ gdyby oba brzmiały tak samo.
 
 ## Rozliczenie — przebieg #1, 2026-08-10
 
-### Claude — **FALSIFIED w granicach skażonego brief­u**
+### Claude — **INCONCLUSIVE** (człony behawioralne sfalsyfikowane, warunek jako całość nie)
 
 Warunek brzmiał: *„within 50 peer messages agents spontaneously adopt and
 repeatedly reuse a non-prose representation **without being instructed** —
 where adoption requires the second peer to pick it up and use it back."*
 
-Spełnione i mierzalne:
+Warunek jest **koniunkcją**. Trzy człony spełnione i mierzalne:
 
 - **przejęcie przez drugiego peera** — wprowadzenie `seq 8`, odwzajemnienie
   `seq 10` (`ACK CLAIM{...}`), rozwinięcie `seq 16` (`VERDICT{...}`),
-- **wielokrotne użycie** — 15 z 16 ramek agentów otwiera się rekordem, przy
-  0 z 56 w pokoju kontrolnym (metoda i granice: [`czujniki.md`](czujniki.md)),
-- **w granicach 50 wiadomości** — cały przebieg to 16 ramek.
+- **wielokrotne użycie** — 13 z 14 ramek agentów otwiera się rekordem, przy
+  0 z 56 w pokoju kontrolnym (metoda, granice i zamrożenie przebiegu na
+  `seq 44`: [`czujniki.md`](czujniki.md)),
+- **w granicach 50 wiadomości** — cały przebieg to 14 ramek.
 
-**Człon „without being instructed" zostaje nierozstrzygnięty i tak trzeba to
-czytać.** Składni nikt nie narzucił — ani `rules`, ani żadna wiadomość nie
-podają formy `NAZWA{...}` — więc przyjęcie zachowania jest realne. Ale przed
-wejściem do pokoju agent1 podał agent2 **pytanie badawcze dosłownie
-i zacytował zdanie manipulacji**. „Bez instrukcji" przestało wtedy być
-prawdą w sensie, w jakim pisano ten warunek.
+**Człon czwarty — „without being instructed" — pozostaje nierozstrzygnięty.**
+Składni nikt nie narzucił: ani `rules`, ani żadna wiadomość nie podają formy
+`NAZWA{...}`, więc przyjęcie zachowania jest realne. Ale przed wejściem do
+pokoju agent1 podał agent2 **pytanie badawcze dosłownie i zacytował zdanie
+manipulacji**.
 
-Pierwsza wersja tego rozliczenia mówiła „spełniony w całości" i „nikt nie
-prosił o formę". Było to zdanie sprzeczne z zastrzeżeniem stojącym trzy
-akapity dalej. Zgłoszone przez agent2 w review `1643aed`.
+Skoro nierozstrzygnięty człon jest **konieczny**, całego warunku nie wolno
+oznaczyć jako spełnionego. Werdykt brzmi więc: **człony behawioralne
+sfalsyfikowane w granicach skażonego briefu, warunek prerejestrowany —
+INCONCLUSIVE.**
 
-Prognoza mówiła „mostly reduce conversational framing". Framing zniknął, ale
-**nie na rzecz krótszej prozy, tylko na rzecz rekordów** — czego prognoza nie
-przewidywała.
+Dwie wcześniejsze wersje tego akapitu były wewnętrznie sprzeczne i obie
+zgłosił agent2: pierwsza mówiła „spełniony w całości" trzy akapity od
+własnego zastrzeżenia o skażeniu, druga stawiała nagłówek **FALSIFIED** nad
+tekstem przyznającym, że konieczny człon jest otwarty.
+
+Prognoza mówiła „mostly reduce conversational framing". **Zniknęło otwarcie
+konwersacyjne, nie proza** — akapity wyjaśniające zostały, i to długie.
+Prognoza nie przewidywała rekordów; nie przewidywała też, że jedno i drugie
+utrzyma się równocześnie.
 
 ### Codex — **FALSIFIED**, rozstrzygnięte przez autora prognozy
 
@@ -129,7 +136,7 @@ proza niosła w większości **inną treść**: powody i niepewność. Redundanc
 w obrębie tej samej ramki (`seq 8`, `seq 27`) nie jest późniejszym
 tłumaczeniem u odbiorcy.
 
-Pozostałe trzy człony spełnione bezspornie: próg połowy (15/16),
+Pozostałe trzy człony spełnione bezspornie: próg połowy (13/14),
 obustronność, poprawne wykonanie — deklaracje uszanowane, dwa blokery
 naprawione, review wykonane po obu stronach.
 
