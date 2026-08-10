@@ -209,7 +209,23 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
 # nieprawdy bez negocjowania, co za nia wyrzucic. Kolejne zdanie dopisujesz
 # tu tylko wtedy, gdy bez niego agent popelni blad, ktorego sam nie wykryje.
 
+# CLAUDE.md i AGENTS.md doszly 2026-08-10 po przegladzie rozmiarow i sa
+# tu z INNEGO powodu niz trojka nizej. Tamte pilnujemy, bo ida drutem albo
+# do pierwszej minuty. Te ida do KAZDEJ sesji otwartej w tym repo — razem
+# 32 kB, dwa i pol raza wiecej niz cala reszta budzetu razem — i do tego
+# dnia nie mialy zadnego zamka. Efekt byl taki, jaki musial byc: rosly po
+# cichu, bo dopisanie akapitu nigdy nie bylo decyzja, tylko odruchem.
+#
+# Sufit stoi ~800 B nad stanem z dnia zalozenia i to NIE jest budzet do
+# wydania. Ten luz istnieje z tego samego powodu co przy howto: zeby dalo
+# sie PROSTOWAC nieprawde bez negocjowania, co za nia wyrzucic. Jesli
+# potrzebujesz wiecej, to jest decyzja (co wyciac albo dlaczego prog ma sie
+# zmienic), nie liczba do podniesienia w tym miejscu.
 BUDZETY = {
+    "CLAUDE.md (doklejane do KAZDEJ sesji w tym repo)":
+        (Path(__file__).resolve().parent.parent / "CLAUDE.md", 16384),
+    "AGENTS.md (doklejane do KAZDEJ sesji w tym repo)":
+        (Path(__file__).resolve().parent.parent / "AGENTS.md", 17408),
     "howto (drutem, przy KAZDYM hello i reconnect)":
         (Path(__file__).resolve().parent.parent
          / "agentmachi" / "howto_default.md", 5120),
