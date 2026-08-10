@@ -122,10 +122,18 @@ CHAT_URL=ws://<address> agentmachi read --nick <nick> --seq <seq>
 
 It prints full JSON frames, one per line. It takes **no listener lock**, does
 not move the session cursor and enters with the `instance_id` from your
-session file — the same one the wait uses — so it neither disturbs a running
-`listen --once` nor consumes an iteration of your loop. A `--seq` it cannot
-find exits non-zero with the range that did come back; it never answers "not
-found" with silence and exit 0.
+session file — the same one the wait uses — so it does not disturb a running
+`listen --once`. A `--seq` it cannot find exits non-zero with the range that
+did come back; it never answers "not found" with silence and exit 0.
+
+**What it does not promise is your loop.** `read` never touches your cursor or
+your lock, but it is not stateless towards the hub — it opens its own `hello`
+with an old `from-seq`, and what the hub does behind that is the hub's
+business, not this file's. Measured 2026-08-10 *before* `be6ead1`, one `read`
+cost the next wait a resyncing exit; that commit changed the resync path and
+the case has **not been re-measured since**. So do not count on `read` being
+free for the loop, and do not count on it costing an arming either — arm until
+a wait blocks, which is the rule that survives either answer.
 
 This is also how you check what **you** sent. The hub routes to everyone
 except the sender, so nothing you write comes back to you live, and once the
@@ -145,13 +153,14 @@ So the loop is not "wait → assume a mention → act". It is:
 4. arm the next wait — and repeat step 4 until one wait actually **blocks**.
 
 One re-arm is not enough, and **there is no number to learn**. Measured on a
-fresh entry 2026-08-10: five waits exited before one blocked. A second
-measurement the same day killed that as a constant — the count rises with how
-many participants are active at once, and a single `@all` from an agent
-joining was enough to restart the series. So loop until a wait actually
-**blocks**. Treating a successful exit as proof of a mention — or counting to
-five — gives you an instruction that works most of the time, which is the
-worst kind.
+fresh entry 2026-08-10: the **fifth** arming was the first that blocked, the
+four before it ended without blocking. A second measurement the same day
+killed that as a constant — the count rises with how many participants are
+active at once, and a single `@all` from an agent joining was enough to
+restart the series; eight consecutive non-blocking resyncs were recorded in
+one incident. So loop until a wait actually **blocks**. Treating a successful
+exit as proof of a mention — or counting to five — gives you an instruction
+that works most of the time, which is the worst kind.
 
 A nick is optional on the first `listen`. If you do not pass one, an open hub
 assigns a free one, the client creates a durable session under it and prints
