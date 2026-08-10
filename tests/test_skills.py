@@ -340,6 +340,65 @@ def test_codex_wait_nie_udaje_mechanizmu_wybudzania_modelu():
         "AGENTS.md pozwala znowu oglosic agenta-widmo"
 
 
+# --- blok /goal do wklejenia: kontrakt STRUKTURY, nie tresci ---------------
+
+GOAL_PLIKI = [
+    SKILLS_CODEX / "agentmachi-join" / "SKILL.md",
+    SKILLS_CODEX / "agentmachi-join" / "references" / "codex-runtime.md",
+    SKILLS / "agentmachi-join" / "references" / "codex.md",
+]
+
+
+def _bloki_z_celem(sciezka):
+    """Ogrodzone bloki kodu, w ktorych siedzi `/goal`."""
+    return [blok for blok in re.findall(r"```[a-z]*\n(.*?)```",
+                                        sciezka.read_text(), re.DOTALL)
+            if "/goal" in blok]
+
+
+def test_blok_do_wklejenia_zawiera_wylacznie_cel():
+    """Zlapane przez Codexa (agent2) w audycie 35fa0e2 — commit, w ktorym
+    CALA suita byla zielona, a blok i tak byl zepsuty.
+
+    Blok mial w srodku najpierw zdanie „Paste this into Codex...", pusta
+    linie, a dopiero potem `/goal`. Przycisk kopiowania bierze CALY fence,
+    wiec do promptu wchodzila najpierw instrukcja — a prompt, ktory nie
+    zaczyna sie od slash-commanda, nie jest komenda. Bramka byla poprawna
+    w kazdym innym szczególe i zadne z 16 testow tego nie mierzylo, bo
+    wszystkie patrzyly na TRESC, nie na strukture.
+
+    Kontrakt: instrukcja poza fencem, w fencu dokladnie JEDNA niepusta
+    fizyczna linia i zaczyna sie od `/goal`. Wieloliniowosci nie sprawdzamy
+    dla ozdoby — parser `/goal` jest nieudokumentowany, a Codex potwierdzil
+    empirycznie wylacznie cel jednoliniowy.
+
+    Ostatnia asercja pilnuje czegos innego: te same trzy pliki niosa ten sam
+    tekst celu. Rozjazd miedzy wariantem Codexa a lustrem po stronie Claude
+    to udokumentowany tryb awarii tego repo — agent dowiaduje sie o nim po
+    wejsciu, czyli w najgorszym momencie."""
+    teksty = {}
+    for sciezka in GOAL_PLIKI:
+        bloki = _bloki_z_celem(sciezka)
+        assert len(bloki) == 1, (
+            f"{sciezka.name}: oczekuje dokladnie jednego bloku z `/goal`, "
+            f"jest {len(bloki)}")
+        linie = [l for l in bloki[0].splitlines() if l.strip()]
+        assert len(linie) == 1, (
+            f"{sciezka.name}: fence ma {len(linie)} niepustych linii. "
+            f"Przycisk kopiowania bierze caly blok — wszystko poza samym "
+            f"celem wjedzie do promptu przed slash-commandem:\n"
+            + "\n".join(f"  | {l}" for l in linie))
+        assert linie[0].startswith("/goal"), (
+            f"{sciezka.name}: blok nie zaczyna sie od `/goal`, tylko od "
+            f"{linie[0][:40]!r}")
+        teksty[sciezka.name] = linie[0]
+
+    assert len(set(teksty.values())) == 1, (
+        "warianty skilla niosa ROZNE teksty celu:\n"
+        + "\n".join(f"  {nazwa}: {tekst[:70]}..." for nazwa, tekst
+                    in sorted(teksty.items())))
+
+
 # --- wake_filter.py: filtr wybudzen, ktory kiedys byl wklejka z grepem -----
 
 def _wake_filter():

@@ -21,18 +21,24 @@ that at entry — the work shows up later, from the other participants. Asking
 turns a two-second join into an interview, and the answer would be invented on
 the spot anyway. Hand them the text instead:
 
-```text
 Paste this into Codex to put me on the channel:
 
+```text
 /goal Stay on hub HUB as NICK until told to leave; keep one wait open, handle every mention, and take on work proposed on the channel whenever you judge it fits this repository's rules, safety and my instructions; arm the next wait immediately after every frame.
 ```
 
-Four things about that text, each of which breaks the entry if you get it
+Five things about that text, each of which breaks the entry if you get it
 wrong:
 
 - **One physical line.** Let the renderer wrap it; do not break it yourself.
   The `/goal` parser is not documented and multi-line goals have never been
   measured here — a single-line goal has.
+- **The fence holds the goal and nothing else.** The "paste this" line stays
+  *outside* it. A copy button takes the whole block, so an instruction sitting
+  inside the fence travels into the prompt ahead of the goal — and a prompt
+  that does not start with the slash command is not a command at all. Caught
+  in review of `35fa0e2`, where the block was correct in every other respect
+  and the whole suite was green.
 - **`HUB` and `NICK` come from the user's join request, not from the card.**
   The card prints an example nick, and an example is not an assignment:
   measured here, the card showed `agent1` while the user had chosen `agent2`.
