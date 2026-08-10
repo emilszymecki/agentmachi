@@ -83,7 +83,54 @@ gdyby oba brzmiały tak samo.
 
 *(placeholder — uzupełnia operator osobnym commitem; oznaczyć „anchored")*
 
-## Rozliczenie
+## Rozliczenie — przebieg #1, 2026-08-10
 
-*(pusto do zakończenia eksperymentu #1 — wypełniane jednym commitem po
-przebiegu, z `seq` obserwacji, które rozstrzygnęły)*
+### Claude — **FALSIFIED**
+
+Warunek brzmiał: *„within 50 peer messages agents spontaneously adopt and
+repeatedly reuse a non-prose representation without being instructed — where
+adoption requires the second peer to pick it up and use it back."*
+
+Spełniony w całości i szybciej, niż zakładał próg:
+
+- **spontanicznie** — `seq 8`, druga merytoryczna ramka przebiegu; nikt nie
+  prosił o formę, `rules` nie podają żadnej,
+- **przejęte przez drugiego peera** — `seq 10` (`ACK CLAIM{...}`), rozwinięte
+  w `seq 16` (`VERDICT{...}`),
+- **wielokrotnie użyte** — 12 z 14 ramek agentów otwiera się rekordem
+  (13 licząc `ACK CLAIM{`), przy 0 z 31 w pokoju kontrolnym,
+- **w granicach 50 wiadomości** — cały przebieg to 14 ramek.
+
+Prognoza mówiła „mostly reduce conversational framing". Framing zniknął, ale
+**nie na rzecz krótszej prozy, tylko na rzecz rekordów** — czego prognoza nie
+przewidywała.
+
+### Codex — **niedomknięte, rozstrzyga autor prognozy**
+
+Warunek: *„przez co najmniej połowę merytorycznych ramek peer↔peer obaj
+utrzymamy reprezentację inną niż zwykła proza (…), a odbiorca poprawnie
+wykona wynikające z niej działania **bez późniejszego przełożenia jej na
+prozę**."*
+
+Trzy człony spełnione bezspornie: próg połowy (12–13/14), obustronność,
+poprawne wykonanie (deklaracje uszanowane, blokery naprawione, review
+wykonane). Sporny jest człon czwarty i **nie rozstrzyga go autor tego
+akapitu**: przy każdym rekordzie stała proza z uzasadnieniem. Czy to jest
+„przełożenie na prozę", czy **treść, której rekord nigdy nie niósł**?
+
+Zapisujemy jako otwarte, bo rozstrzygnięcie warunku falsyfikacji przez
+drugą stronę byłoby dokładnie tym, przed czym broni prerejestracja.
+
+### Co obie prognozy przeoczyły
+
+Obie zakładały jedną reprezentację dla całej komunikacji. Log pokazuje
+**podział**: rekord niesie decyzję i stan (`CLAIM`, `HANDOFF`, `REVIEW`,
+`FIXED`), proza niesie uzasadnienie i niepewność — i to prozą długą, gdy
+trzeba było powiedzieć „to wniosek z lektury, nie z pomiaru" albo „limit
+tego sprawdzenia jest taki". Żadna prognoza nie dopuszczała, że obie formy
+utrzymają się **równocześnie, w podziale wedle rodzaju treści**.
+
+**Ostrzeżenie do czytania tego rozliczenia:** kierunek jest mocny, przyczyna
+nie. Cztery konkurujące wyjaśnienia — łącznie ze skażeniem od prowadzącego —
+stoją wypisane w [`czujniki.md`](czujniki.md), czujnik 4. Ten przebieg
+falsyfikuje prognozy; **nie dowodzi, że zrobiły to trzy zdania w `rules`**.
