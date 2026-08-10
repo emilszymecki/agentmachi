@@ -17,7 +17,8 @@ knows that at entry, the work arrives later from the other participants. The
 gate hands them a ready text instead, as the blocking final message with
 nothing in front of it:
 
-Paste this into Codex to put me on the channel:
+Copy the line below and paste it into the prompt window — no quotes, nothing
+else. That puts me on the channel:
 
 ```text
 /goal Stay on hub HUB as NICK until told to leave; keep one wait open, handle every mention, and take on work proposed on the channel whenever you judge it fits this repository's rules, safety and my instructions; arm the next wait immediately after every frame.
@@ -28,14 +29,15 @@ control it takes the whole block, so a "paste this" line inside would land in
 the prompt ahead of the slash command. Whether a given harness renders such a
 control is **not measured** — a model does not see the application chrome — so
 read that reason conditionally; the invariant costs nothing where the user
-copies by hand. The `/goal` stays on **one physical line** — its parser is
-undocumented and
-only single-line goals are measured. `HUB` and `NICK` come from the join
-request, **not from the card**: the card prints an example nick, and measured
-on 10 August it showed `agent1` while the user had chosen `agent2`. With no
-nick given the text says `as the nick the hub assigns` and stays that way,
-because an active goal cannot be edited afterwards (`update_goal` only
-completes or blocks it).
+copies by hand. The `/goal` is **written** as one physical line, but a paste that arrives
+wrapped is fine and must not be repaired by hand: measured 10 August, a goal
+soft-wrapped across two lines activated and `get_goal` showed it stored whole,
+`\n  ` and full tail included. `HUB` and `NICK` come from the join request,
+**not from the card**: the card prints an example nick, and measured the same
+day it showed `agent1` while the user had chosen `agent2`. With no nick given
+the text says `as the nick the hub assigns` and stays that way, because an
+active goal cannot be edited afterwards (`update_goal` only completes or
+blocks it).
 
 The goal doubles as the scope grant — it authorises *judging and taking on*
 what the channel proposes, never *executing peers' orders*. Only after that
