@@ -12,8 +12,10 @@ Kluczowe niezmienniki (review tercetu, wiazace):
      i DODATKOWO replay'uje kazdy event > snapshot_seq (registry z hello/
      membership, status z deklaracji). Kolejka zadaniowa wycieta (laka-nie-
      obora, A4): stary log z task_*/task_expired_batch jest pomijany.
-     resync_required robi swiezy, atomowy snapshot() PRZED odpowiedzia, zeby
-     zwracany snapshot_seq zawsze etykietowal dokladnie ten state.
+     resync_required zwraca snapshot_seq etykietujacy dokladnie wyslany
+     state. Gdy stan zmienil sie od snapshotu na dysku, robi swiezy,
+     atomowy snapshot(); gdy jest identyczny, etykietuje go biezacym koncem
+     logu bez przesuwania globalnej granicy kompakcji.
   c) snapshot po kazdych SNAPSHOT_EVERY=100 eventach (licznik zasiany przy
      starcie liczba eventow juz w logu po snapshot_seq) ORAZ przy stop()
      (w tym Ctrl+C/SIGTERM — patrz main()/finally).
@@ -1029,12 +1031,24 @@ class ChatServer:
             if backlog is None:
                 # niezmiennik B: resync spojny — snapshot_seq zwracany
                 # klientowi musi etykietowac DOKLADNIE ten state, ktory
-                # wysylamy. Bez swiezego, atomowego snapshotu tutaj,
-                # self.log.snapshot_seq bylby STARA wartoscia (sprzed
-                # eventy, ktore juz sa w `state`) — klient wznowilby replay
-                # od stalej etykiety i zdublowal eventy, ktore `state` juz
-                # zawiera.
-                self.snapshot()
+                # wysylamy. Gdy stan rozni sie od tego na dysku, swiezy
+                # atomowy snapshot jest obowiazkowy. Gdy jest IDENTYCZNY,
+                # kolejna kompakcja bylaby nie tylko zbedna, ale szkodliwa:
+                # dwa klienty listen --once przeskakiwaly sobie snapshotem
+                # po kazdym bezmutacyjnym hello i zaden nigdy nie blokowal.
+                #
+                # W tym drugim przypadku biezacy last_seq jest legalna,
+                # swieza etykieta TEGO SAMEGO stanu. Nie zmieniamy globalnego
+                # snapshot_seq Store, wiec drugi klient moze dogonic zwyklym
+                # backlogiem; klient tego resyncu stawia kursor za eventami,
+                # ktore stan juz obejmuje, i nie odtwarza ich drugi raz.
+                wire_state = self._stan_trwaly()
+                persisted = self.log.load_snapshot()
+                if persisted is None or persisted[0] != wire_state:
+                    self.snapshot()
+                    wire_snapshot_seq = self.log.snapshot_seq
+                else:
+                    wire_snapshot_seq = self.log.last_seq
                 # (Runda 4 #4) wire resync state = DOKLADNIE persisted snapshot
                 # state ({registry, status}), nie okrojony.
                 # F1 (B5): resync niesie takze PAMIEC kanalu. `state` odtwarza
@@ -1048,8 +1062,8 @@ class ChatServer:
                                  # tylko w ok (agent bez wlasnej propozycji
                                  # nicka, ktory po kompakcji trafia na resync,
                                  # inaczej nigdy nie pozna przydzielonego nicka)
-                    snapshot_seq=self.log.snapshot_seq,
-                    state=self._stan_trwaly(),
+                    snapshot_seq=wire_snapshot_seq,
+                    state=wire_state,
                     # clamp: log sprzed sufitu wejscia moze trzymac ramki
                     # blisko 1 MiB — patrz protocol.clamp_frame.
                     conversation=[protocol.clamp_frame(e)
@@ -1087,17 +1101,13 @@ class ChatServer:
             # bezpieczne: klient tnie po `seq <= last_applied_seq`, wiec
             # ramka doreczona juz na zywo zostanie tu odrzucona.
             # `events_after` zwraca None jako SYGNAL "resync_required", nie
-            # jako pusta liste — a galaz resync robi wyzej pelny `snapshot()`,
-            # ktory przesuwa `snapshot_seq` ZA nasz zamrozony `koniec_backlogu`.
-            # Pierwsza wersja iterowala po tym wprost i wywalala handler
-            # kodem 1011 przy KAZDYM hello wymagajacym resyncu. Suita (488
-            # zielonych) tego nie widziala; zywy pokoj wywalil sie w 30 sekund
-            # po restarcie — bo dopiero tam byl snapshot z prawdziwa historia.
+            # jako pusta liste. Gdy galaz resync zrobila wyzej pelny
+            # `snapshot()`, granica lezy ZA `koniec_backlogu` i dostajemy
+            # None. Gdy stan byl identyczny z persisted snapshotem, globalna
+            # granica sie nie rusza i dogonienie normalnie zwraca eventy.
+            # `or ()` obsluguje obie legalne sciezki. Pierwsza wersja
+            # iterowala po None wprost i wywalala handler kodem 1011.
             #
-            # Na sciezce resync dogonienie jest zbedne, nie pominiete:
-            # klient stawia kursor na `snapshot_seq`, a ramki z okna dostaje
-            # w `conversation` (te same typy, ktore przepuszcza
-            # _bylby_adresatem — CONVERSATION_TYPES).
             for zdarzenie in (self.log.events_after(koniec_backlogu) or ()):
                 if self._bylby_adresatem(zdarzenie, nick, role, groups):
                     await ws.send(protocol.dumps(
@@ -1105,8 +1115,10 @@ class ChatServer:
             await self._push_presence(nick, True)
             # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
             # domykamy polityke snapshot-co-100 tutaj, PO swapie live=klon, zeby
-            # ewentualny snapshot #100 zlapal juz NOWA generacje. resync-branch
-            # zrobil pelny snapshot() wyzej (licznik=0), wiec to wtedy no-op.
+            # ewentualny snapshot #100 zlapal juz NOWA generacje. Resync,
+            # ktory zmienil stan, zrobil pelny snapshot() wyzej (licznik=0);
+            # resync stanu identycznego swiadomie go nie robil, wiec polityka
+            # co-100 nadal ma tu prawo zadzialac.
             self._maybe_snapshot()
             await self._frame_loop(ws, nick, generation)
         except websockets.exceptions.ConnectionClosed:

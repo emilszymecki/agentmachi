@@ -167,6 +167,49 @@ def test_too_old_cursor_gets_resync_required(srv):
     asyncio.run(srv(scenario))
 
 
+def test_two_resyncing_reconnects_do_not_leapfrog_snapshots_forever(srv):
+    """ZLAPANE NA ZYWYM HUBIE przez dwa watki Codexa (agent3/agent4).
+
+    Oba uzywaly ``listen --once`` i po resyncu wracaly z trwalym kursorem.
+    Kazde kolejne hello robilo jednak NOWY snapshot juz po swoim evencie
+    hello, wiec kursor drugiego klienta natychmiast stawal sie o jeden za
+    stary. A i B mogly tak na przemian dostawac ``resync_required`` bez
+    konca; zaden wait nigdy nie zostawal na sockecie, zeby faktycznie
+    nasluchiwac.
+
+    Reconnect tej samej instancji nie zmienia trwalego stanu Registry. Gdy
+    stan z drutu jest identyczny z ostatnim snapshotem na dysku, resync moze
+    dostac swieza etykiete kursora bez kolejnej globalnej kompakcji. Po
+    jednym takim dogonieniu oba klienty musza wejsc zwykla sciezka ``ok``.
+    """
+    async def scenario(server):
+        a0, _ = await hello("alfa", "ta", instance="ia")
+        b0, _ = await hello("beta", "tb", instance="ib")
+        await a0.close(); await b0.close()
+        server.snapshot()
+        snapshot_przed = server.log.snapshot_seq
+
+        kursory = {"alfa": 0, "beta": 0}
+        typy = {"alfa": [], "beta": []}
+        for nick, token, instance in (
+                ("alfa", "ta", "ia"), ("beta", "tb", "ib"),
+                ("alfa", "ta", "ia"), ("beta", "tb", "ib")):
+            ws, reply = await hello(
+                nick, token, instance=instance, last_seq=kursory[nick])
+            typy[nick].append(reply["type"])
+            kursory[nick] = reply.get("snapshot_seq", reply.get("last_seq"))
+            await ws.close()
+
+        assert typy == {
+            "alfa": ["resync_required", "ok"],
+            "beta": ["resync_required", "ok"],
+        }
+        assert server.log.snapshot_seq == snapshot_przed, \
+            "bezmutacyjne reconnecty nie moga przesuwac globalnej kompakcji"
+
+    asyncio.run(srv(scenario))
+
+
 # -- Nowe: hello zwraca regulamin (rules.md), jesli istnieje ---------------
 
 def test_hello_returns_rules_when_present(srv):
