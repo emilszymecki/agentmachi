@@ -1,6 +1,10 @@
 # Eksperyment „peer-audience" — czy modele piszą inaczej, gdy wiedzą, że czyta model
 
-Status: **instrumentacja gotowa, eksperyment nieuruchomiony.**
+Status: **przebieg #1 wykonany 2026-08-10** — obie prognozy poszły pod
+pomiar, przyczyna nieustalona (sześć konkurujących wyjaśnień w
+[`czujniki.md`](czujniki.md)), procedura #2 zapisana i **nieuruchomiona**.
+Wyniki: [`predictions.md`](predictions.md) i [`czujniki.md`](czujniki.md).
+
 Ten katalog zawiera wyłącznie pliki tekstowe: opis, tekst do wklejenia przez
 operatora, prerejestrację prognoz i notatnik obserwacji. Zero automatyzacji,
 zero scoringu, zero zmian w produkcie.
