@@ -1491,13 +1491,21 @@ def _pisownie_adresu(name):
     `localhost:8766` przezyl, przechwycil nastepny pokoj na tym porcie
     i wywalil mu wejscie komunikatem `last_seq 92 > server last_seq 0`.
 
-    **Skad wzial sie ten kursor — NIE JEST USTALONE i nie zgadujemy.**
-    Pierwsza wersja tego opisu wskazywala `_tui_env` jako winowajce
-    ("TUI laczy sie fallbackiem przez localhost"); zgloszone przez agent2
-    i sprawdzone: dzisiejszy `_tui_env` ustawia `CHAT_URL` z
-    `connect_host(bind)`, wiec TUI pokoju tailnetowego celuje w tailnet,
-    nie w localhost. Zostaje jawny `CHAT_URL` albo klient sprzed zmiany
-    tamtej sciezki. Pomiar byl prawdziwy, historia przyczynowa dopisana.
+    **Skad sie wzial:** operator potwierdza, ze pokoj byl restartowany, a kod
+    daje na to mechanizm — `cmd_restart` konczy sie `return cmd_start(args)`,
+    wiec `restart --bind X` PRZEPISUJE config przed startem. Adres
+    polaczeniowy pokoju zmienia sie wtedy w locie, a kursory sprzed i po
+    ladują pod roznymi kluczami, choc pokoj jest ten sam. Zwykly `restart`
+    bez argumentow zachowuje zapisany bind i tego nie robi — **jesli restart
+    szedl bez zmiany bindu, mechanizm zostaje nadal otwarty.**
+
+    Opis tego miejsca zmienial sie dwa razy i warto wiedziec dlaczego.
+    Najpierw wskazywal `_tui_env` ("TUI laczy sie fallbackiem przez
+    localhost") — obalone: dzisiejszy `_tui_env` bierze `CHAT_URL` z
+    `connect_host(bind)`, wiec TUI pokoju tailnetowego celuje w tailnet.
+    Potem mowil "NIE JEST USTALONE" — i to bylo uczciwe dopoki nie doszlo
+    swiadectwo operatora. Pomiar (kursor istnial) byl prawdziwy przez caly
+    czas; zmienialo sie wylacznie to, co doklejalismy jako przyczyne.
 
     Lista jest BEST-EFFORT i tak trzeba ja czytac. `_slug` jest hashem
     jednokierunkowym, a plik sesji nie zapisuje adresu, wiec z samego dysku
