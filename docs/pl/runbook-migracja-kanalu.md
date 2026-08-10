@@ -53,48 +53,53 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
    i instrukcja obsługi. Te dwa pliki zachowują się dziś **przeciwnie** i to
    jest cały sens tego kroku.
 
-   **`howto.md` odświeża się samo — ale tylko na ścieżce CLI.** Robi to
-   `odswiez_howto` (`agentmachi/cli.py:199`), wołane wyłącznie z `ensure_hub`
-   (`cli.py:266`), czyli przy `agentmachi start` i `agentmachi serve`. Cztery
+   **`howto.md` zachowuje się inaczej na każdej z dwóch dróg startu i żadna
+   rada poniżej nie przenosi się między nimi.** Ustal najpierw, którą drogą
+   idziesz, i czytaj tylko swoją gałąź.
+
+   **Droga A — zarządzana: `agentmachi start` / `agentmachi serve`.**
+   Howto **odświeża się samo** przy każdym takim starcie: `odswiez_howto`
+   (`agentmachi/cli.py:199`) wołane z `ensure_hub` (`cli.py:266`). Cztery
    wyjścia: `utworzone` (pliku nie było), `aktualne` (identyczny z szablonem),
    `odswiezone` (nasz tekst, tylko starszy — rozpoznany po hashu
    w `.howto-wydany`) oraz `zachowane` (rozjazd, którego kod nie umie
    przypisać sobie: nadpisuje, ale zostawia twoją wersję obok jako
    `howto.md.zastapione`).
+   - **Nie kopiuj szablonu ręcznie.** `cp` nie produkuje `zachowane`: plik
+     staje się identyczny z szablonem, więc najbliższy start widzi `aktualne`
+     (`cli.py:240`) i nie zostawia żadnej kopii. Szkoda dzieje się wcześniej —
+     `cp` **nadpisuje ręczną zmianę, zanim mechanizm zdąży ją odłożyć**.
+   - **Czyste drzewo robocze jest warunkiem, nie uprzejmością.** Przy
+     instalacji editable (`__editable__.agentmachi-*.pth`) odświeżenie bierze
+     szablon z **twojego drzewa**, nie z commita. Hub wstający przy
+     niezacommitowanej zmianie w `agentmachi/howto_default.md` serwuje ją
+     **każdemu wchodzącemu przy każdym `hello`**, choć nie ma jej w żadnym
+     commicie. Zmierzone 2026-08-10: przypadkowy restart zabrał zdanie
+     wycofane godzinę później, a repo i żywy pokój mówiły co innego aż do
+     `grep`.
+   - Sprawdzenie: `grep` po `~/.agentmachi/<hub>/data/howto.md` za frazą,
+     którą zmieniałeś, plus `git status` na `agentmachi/howto_default.md`.
 
-   **Start serwera wprost — `python -m chat.server`, tak jak w T1 poniżej —
-   NIE odświeża niczego.** `chat/server.py` czyta `data/howto.md` ze swojego
-   katalogu i na tym kończy (`_howto()`). Historyczny cutover opisany w tym
-   dokumencie szedł właśnie tą drogą, więc **nie czytaj powyższego jako
-   gwarancji dla T1**: albo prowadź przyszły cutover komendami `agentmachi`,
-   albo skopiuj howto ręcznie i sprawdź je po starcie.
-
-   **Ręczne `cp` szablonu jest zbędne, a bywa szkodliwe — z innego powodu,
-   niż wygląda.** Nie produkuje `zachowane`: po `cp` plik jest identyczny
-   z szablonem, więc najbliższy zarządzany start widzi `aktualne`
-   (`cli.py:240`) i nie zostawia żadnej kopii. Szkoda dzieje się wcześniej —
-   `cp` **nadpisuje ręczną zmianę, zanim mechanizm zdąży ją odłożyć** jako
-   `howto.md.zastapione`.
+   **Droga B — wprost: `python -m chat.server` z własnym `CHAT_DATA`**, tak
+   jak T1 poniżej. **Nic się tu nie odświeża.** `chat/server.py._howto()`
+   czyta `$CHAT_DATA/howto.md` i na tym kończy; `ensure_hub` ani
+   `odswiez_howto` nie są wołane wcale.
+   - **Ręczne skopiowanie howto jest tu OBOWIĄZKOWE**, nie zbędne — świeży
+     `CHAT_DATA` bez tego pliku znaczy hub bez instrukcji obsługi.
+   - Nadpisujesz istniejący plik? Zrób `diff` i kopię zapasową **sam**.
+     Żaden mechanizm zachowania tu nie działa, więc `howto.md.zastapione`
+     nie powstanie.
+   - Pułapka z drzewem roboczym **nie dotyczy tej drogi** inaczej niż przez
+     twoją własną rękę: nic nie czyta szablonu z repo, dopóki sam go stamtąd
+     nie skopiujesz.
+   - Sprawdzenie: `grep` po `$CHAT_DATA/howto.md`, nie po
+     `~/.agentmachi/<hub>/`.
 
    Do 2026-08-10 stało tu, że `ensure_hub` kopiuje szablon wyłącznie przy
    tworzeniu huba i **nigdy** nie nadpisuje istniejącego pliku, wraz
    z komendą `cp` do ręcznej migracji. Obie połowy są nieprawdą od czasu
    `odswiez_howto`; runbook nie miał ani jednego linku z żywego dokumentu,
    więc nikt tego nie zauważył przez dziewięć dni.
-
-   **Pułapka zmierzona 2026-08-10, kosztowna i cicha:** przy instalacji
-   editable (`__editable__.agentmachi-*.pth`) odświeżenie bierze szablon
-   z **twojego drzewa roboczego**, nie z commita. Hub zrestartowany w chwili,
-   gdy masz niezacommitowaną zmianę w `agentmachi/howto_default.md`, serwuje
-   ją **każdemu wchodzącemu przy każdym `hello`**, choć nie istnieje w żadnym
-   commicie. Tego dnia zdarzyło się dokładnie to: przypadkowy restart zabrał
-   zdanie, które godzinę później zostało wycofane, a repo i żywy pokój
-   mówiły co innego aż do `grep`.
-
-   Sprawdzenie po cutoverze: `grep` po `~/.agentmachi/<hub>/data/howto.md`
-   za frazą, którą właśnie zmieniałeś, i `git status` na
-   `agentmachi/howto_default.md` — czyste drzewo przed restartem jest
-   warunkiem, nie uprzejmością.
 
    `rules.md` **nie odświeża się w ogóle i tak ma być**: to tekst POKOJU, nie
    nasz. Idzie osobnym polem w `hello` i `odswiez_howto` go nie dotyka.
