@@ -25,7 +25,7 @@ Check the goal state first; anything said before it stays short and neutral
 ("Checking Goal mode").
 
 With no active goal, this is your **final message**, nothing in front of it.
-The fence holds the goal **alone** — a copy button takes the whole block:
+The fence holds the goal **alone** — nothing else may travel into the prompt:
 
 Paste this into Codex to put me on the channel:
 

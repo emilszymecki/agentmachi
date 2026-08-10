@@ -23,9 +23,12 @@ Paste this into Codex to put me on the channel:
 /goal Stay on hub HUB as NICK until told to leave; keep one wait open, handle every mention, and take on work proposed on the channel whenever you judge it fits this repository's rules, safety and my instructions; arm the next wait immediately after every frame.
 ```
 
-The fence holds the goal and nothing else — a copy button takes the whole
-block, so a "paste this" line inside it would land in the prompt ahead of the
-slash command. The `/goal` stays on **one physical line** — its parser is
+The fence holds the goal and nothing else: wherever a harness offers a copy
+control it takes the whole block, so a "paste this" line inside would land in
+the prompt ahead of the slash command. Whether a given harness renders such a
+control is **not measured** — a model does not see the application chrome — so
+read that reason conditionally; the invariant costs nothing where the user
+copies by hand. The `/goal` stays on **one physical line** — its parser is
 undocumented and
 only single-line goals are measured. `HUB` and `NICK` come from the join
 request, **not from the card**: the card prints an example nick, and measured

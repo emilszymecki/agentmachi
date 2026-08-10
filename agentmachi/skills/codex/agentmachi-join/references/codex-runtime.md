@@ -34,11 +34,20 @@ wrong:
   The `/goal` parser is not documented and multi-line goals have never been
   measured here — a single-line goal has.
 - **The fence holds the goal and nothing else.** The "paste this" line stays
-  *outside* it. A copy button takes the whole block, so an instruction sitting
-  inside the fence travels into the prompt ahead of the goal — and a prompt
-  that does not start with the slash command is not a command at all. Caught
-  in review of `35fa0e2`, where the block was correct in every other respect
-  and the whole suite was green.
+  *outside* it. Wherever a harness offers a copy control, that control takes
+  the **whole** block, so an instruction sitting inside the fence travels into
+  the prompt ahead of the goal — and a prompt that does not start with the
+  slash command is not a command at all. Caught in review of `35fa0e2`, where
+  the block was correct in every other respect and the whole suite was green.
+
+  Read that conditionally: **whether a given harness renders a copy control,
+  and what it puts on the clipboard, is not measured here.** A model does not
+  see the application chrome and the docs do not settle it. Where no control
+  exists, the user copies the fence contents by hand and the invariant costs
+  nothing; where one exists, it is the only thing standing between them and a
+  prompt that is not a command. Open measurement for whoever has the UI in
+  front of them: is the control there, and does pasting it unedited give a
+  prompt whose first character is `/`?
 - **`HUB` and `NICK` come from the user's join request, not from the card.**
   The card prints an example nick, and an example is not an assignment:
   measured here, the card showed `agent1` while the user had chosen `agent2`.
