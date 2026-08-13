@@ -474,6 +474,49 @@ def test_panel_rules_startuje_SCHOWANY_ale_stan_polaczenia_ZOSTAJE(tmp_path):
     asyncio.run(scenario())
 
 
+def test_wiersz_uczestnika_PODPISUJE_role_i_grupy(tmp_path):
+    """Zgloszone przez operatora 2026-08-13: „widze, ze macie grupe agent, ale
+    jak pisze `$agent`, to mam unknown group — czy tak ma byc?".
+
+    Ma byc: `agent` to ROLA, nie grupa, a pokoj nie mial ani jednej grupy
+    (zero ramek `membership_set` w calym logu). Hub odpowiadal poprawnie.
+    Mylil WIDOK: wiersz brzmial `agent  [—]`, wiec rola stala tam, gdzie
+    czlowiek spodziewa sie nazwy, a nawiasy wygladaly na puste miejsce po
+    czyms innym.
+
+    `board` ma `role=` i `groups=` od poczatku i na nim nikt sie nie pomylil.
+    To ta sama roznica co przy `note` gubionym ze statusu — tego samego dnia,
+    w tym samym widoku, z tego samego powodu: agent ma dwa zrodla i moze
+    porownac, czlowiek ma jedno."""
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+        "beta": {"token": "tok-b", "role": "agent", "groups": ["workers"]},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.apply_hub_frame({
+                "type": "participants_snapshot",
+                "participants": [
+                    {"nick": "beta", "role": "agent", "groups": ["workers"],
+                     "connected": True},
+                    {"nick": "Emil", "role": "human", "groups": [],
+                     "connected": True}]})
+            widok = app.query_one("#participants").render()
+            tekst = widok.plain if hasattr(widok, "plain") else str(widok)
+            assert "role=agent" in tekst and "groups=workers" in tekst
+            assert "role=human" in tekst
+            # Brak grup ma sie czytac jako BRAK GRUP, a nie jako pusty nawias
+            # obok slowa, ktore wyglada na nazwe.
+            assert "groups=—" in tekst
+            assert "agent  [" not in tekst, \
+                "rola znowu stoi tam, gdzie czlowiek czyta nazwe grupy"
+    asyncio.run(scenario())
+
+
 # -- presence: lista online-only -------------------------------------------
 
 def test_roster_shows_only_connected_and_presence_updates(tmp_path):

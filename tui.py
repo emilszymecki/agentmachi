@@ -716,9 +716,17 @@ class AgentmachiApp(App):
             participant = self.roster[nick]
             if index:
                 lines.append("\n")
+            # ROLA i GRUPY podpisane, a nie tylko postawione obok siebie.
+            # Do 2026-08-13 wiersz brzmial `agent  [—]` i czlowiek przeczytal
+            # `agent` jako nazwe grupy — napisal `$agent` i dostal z huba
+            # `unknown group`. Zapytal wtedy "czy tak ma byc", bo widok
+            # sugerowal, ze grupa istnieje. Zachowanie huba bylo poprawne;
+            # mylil WIDOK. `board` ma `role=` i `groups=` od poczatku i nikt
+            # sie na nim nie pomylil — to ta sama roznica co przy `note`
+            # gubionym ze statusu, tego samego dnia.
             groups = ",".join(participant.groups) or "—"
             lines.append(f"● {nick}", style="bold")
-            lines.append(f"  {participant.role}  [{groups}]")
+            lines.append(f"  role={participant.role}  groups={groups}")
             # "cicho od N" odroznia siedzacego cicho od tego, kto oglochl.
             # `connected` mowi tylko, ze gniazdo jest otwarte — a proces
             # potrafi zyc godzinami, nie dostarczajac modelowi ani jednej
