@@ -2961,3 +2961,28 @@ def test_all_konczy_KATEGORYCZNYM_podsumowaniem(czasownik, slowo, tmp_path,
     ostatnia = [w for w in capsys.readouterr().out.splitlines() if w.strip()][-1]
     assert slowo in ostatnia and "failed" in ostatnia, \
         f"ostatnia linia nie jest podsumowaniem: {ostatnia!r}"
+
+
+@pytest.mark.parametrize("argumenty,slowo", [
+    (["stop", "--all"], "stopped 0"),
+    (["restart", "--all"], "restarted 0"),
+    (["start", "--all"], "started 0"),
+    (["del", "--all"], "deleted 0"),
+])
+def test_all_podsumowuje_TAKZE_gdy_nie_bylo_co_robic(argumenty, slowo,
+                                                     tmp_path, monkeypatch,
+                                                     capsys):
+    """Wczesny `return` przy zerze celow omijal podsumowanie — czyli „kazdy
+    `--all` konczy sie podsumowaniem" bylo nieprawda dokladnie w tym
+    przypadku, w ktorym czlowiek najbardziej potrzebuje jednoznacznej
+    odpowiedzi: NIC NIE ZROBIONO.
+
+    Zgloszone przez recenzenta jako sprzecznosc z tytulem wlasnego commita.
+    Poprzedni test pokrywal tylko cele niepuste, wiec przechodzil i milczal
+    o luce — ten sam wzorzec, ktory lapiemy dzis od rana."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    # Pusty dom: zaden pokoj nie istnieje, wiec kazdy czasownik ma zero celow.
+    cli.main(argumenty)
+    wyjscie = capsys.readouterr().out
+    assert slowo in wyjscie and "failed 0" in wyjscie, \
+        f"brak kategorycznego podsumowania przy zerze celow: {wyjscie!r}"

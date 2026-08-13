@@ -56,8 +56,9 @@ agentmachi tui     --name <hub>
 agentmachi del     --name <hub> --yes-delete <hub>
 ```
 
-**`--all`** works on start, restart, stop and del, and each targets the rooms
-NOT yet in the state you asked for: `start --all` brings up every stopped room,
+**`--all`** works on start, restart, stop and del. Each targets the rooms its
+verb can act on — and that is NOT the same rule for all four, so read the
+scope, not the pattern: `start --all` brings up every stopped room,
 `restart --all` and `stop --all` act on running ones, `del --all` removes
 stopped ones. A room already in the target state is a no-op, not an error, and
 every command names the rooms it skipped. One failure does not stop the rest.

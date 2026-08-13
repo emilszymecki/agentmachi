@@ -1209,6 +1209,7 @@ def cmd_stop(args):
                   f"{', '.join(pominiete)}")
         if not cele:
             print("agentmachi: no running rooms")
+            print(f"agentmachi: stopped 0, skipped {len(pominiete)}, failed 0")
             return 0
         rc, udane = 0, 0
         for nazwa in cele:
@@ -1318,6 +1319,7 @@ def _start_all(args):
         print(f"agentmachi: already running, skipped: {', '.join(pominiete)}")
     if not cele:
         print("agentmachi: no stopped rooms — everything is already running")
+        print(f"agentmachi: started 0, skipped {len(pominiete)}, failed 0")
         return 0
     rc, udane = 0, 0
     for nazwa in cele:
@@ -1460,6 +1462,8 @@ def cmd_restart(args):
                   f"{', '.join(pominiete)}")
         if not cele:
             print("agentmachi: no running rooms")
+            print(f"agentmachi: restarted 0, skipped {len(pominiete)}, "
+                  f"failed 0")
             return 0
         rc, udane = 0, 0
         for nazwa in cele:
@@ -1762,6 +1766,8 @@ def _del_all(args):
         if dzialajace:
             print(f"agentmachi: still running (untouched): "
                   f"{', '.join(dzialajace)}")
+        print(f"agentmachi: deleted 0, skipped (running) {len(dzialajace)}, "
+              f"failed 0")
         return 0
     podane = _potwierdzenia(args.confirm)
     if sorted(podane) != zatrzymane:
