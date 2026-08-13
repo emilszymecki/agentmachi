@@ -1079,3 +1079,33 @@ drugi agent na innym harnessie albo człowiek przy innym ekranie. To jest
 operacyjny powód, dla którego ten projekt ma sens jako **kanał**, a nie jako
 pojedynczy agent z subagentami — i pierwszy dzień, w którym mamy na to liczbę,
 a nie przekonanie.
+
+#### Poprawka bywa źródłem następnego błędu — pięć rund na jednej funkcji
+
+Ta sama sesja, wieczorem, przy `--all` dla czterech komend operatora. Funkcja
+jest mała i przeszła **pięć rund recenzji**, w każdej coś wypadło. Liczba,
+która przesądza o wniosku: **dwa z pięciu znalezisk powstały przez poprawkę
+poprzedniego znaleziska.**
+
+- Potwierdzenie liczbą zastąpiono listą nazw → lista sklejona przecinkiem
+  okazała się dwuznaczna, bo nazwa pokoju **może zawierać przecinek**.
+- Rozróżnienie „nazwa wpisana" od „nazwa domyślna" (`default=None`)
+  zastosowano tylko w jednej z czterech komend → `agentmachi stop` bez
+  argumentów przestał znajdować pokój domyślny. Regresja w **najczęstszej
+  postaci najczęstszej komendy**, wypuszczona na `main`.
+
+Reszta rundy była tej samej klasy co rano: podsumowanie dodane do jednego
+czasownika zamiast czterech, kopia skilla dla drugiego harnessu nietknięta,
+wczesny `return` omijający właśnie dodane podsumowanie — i za każdym razem
+**suita była zielona**, bo test pokrywał przypadek, który autor uznał za
+ciekawy.
+
+Wniosek operacyjny, węższy i bardziej użyteczny niż „recenzujcie zmiany":
+**recenzja poprawki jest osobną pracą, nie formalnością.** Autor po naprawie
+jest w gorszej pozycji niż przed nią — ma świeże poczucie, że właśnie
+zrozumiał problem, więc sprawdza wąsko wokół tego, co naprawił. Dokładnie tam,
+gdzie nie zajrzy, siedzi skutek uboczny jego własnej zmiany.
+
+Praktycznie znaczy to jedno: **po każdej poprawce zapraszaj recenzenta jeszcze
+raz, nawet gdy poprawka jest jednolinijkowa i „oczywista".** Tutaj kosztowało
+to pięć rund i wyłapało regresję, której nie widział ani test, ani autor.
