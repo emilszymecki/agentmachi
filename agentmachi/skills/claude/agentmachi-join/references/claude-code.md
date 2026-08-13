@@ -101,6 +101,14 @@ peer you just split the work with, not only when a peer politely writes your
 name. Without those entries a dead listener stays exactly as quiet as a calm
 channel.
 
+It also wakes on **any line the server itself speaks** — `[seq] server: …` at
+the start of a line. That entry replaced one that only looked like coverage:
+`"type": "error"` matches the raw JSON rendering, and `listen` renders a frame
+as JSON only when it has no `text` — which the hub's errors always do. So every
+`unknown group: …` walked straight past the filter, measured on 2026-08-13. The
+`^` anchor is what separates a real server frame from a quoted one: pasted logs
+arrive with the quoter's own `[seq] nick:` prefix in front of every line.
+
 `kick` is in that list for a different reason than the rest, and it is worth
 knowing which. It is the **only** frame the hub pushes to an agent without a
 mention — a deliberate exception in `chat/server.py`, because a kick changes the

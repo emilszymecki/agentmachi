@@ -64,6 +64,22 @@ def zbuduj(nick, peer=None):
         # `_print_event` drukuje ja calym JSON-em; `[kick]` lapie linie
         # stderr wyrzucanego przy potoku z `2>&1`.
         r'"type": "kick"', r"\[kick\]",
+        # KAZDA ramka od serwera, po prefiksie renderu. `"type": "error"` nizej
+        # bylo wzorcem, ktory WYGLADAL na pokrycie i nie pokrywal niczego:
+        # `_print_event` drukuje calym JSON-em tylko ramke BEZ pola `text`,
+        # a hub do kazdego bledu tekst doklada — wiec blad renderuje sie jako
+        # `[seq] server: tresc` i po typie nie da sie go zlapac. Zmierzone na
+        # pokoju `poligon` 2026-08-13, przy weryfikacji poprawki na `kick`:
+        # OFIARA kicka dostaje `type: error` z tekstem (server.py:1421), a nie
+        # ramke `kick`, wiec wzorzec po typie ratowal samych swiadkow. Ofiare
+        # ratowal `[kick]` ze stderr — dodany z innego powodu, trafiony
+        # przypadkiem.
+        #
+        # `^` odsiewa CYTATY i robi to za darmo: gdy agent wkleja cudzy log,
+        # `_print_event` doklada wlasny prefiks na poczatku KAZDEJ linii, wiec
+        # cytat wyglada jak `[124] alfa: [318] server: ...` i pod kotwice nie
+        # podpada. Ramki serwera sa rzadkie i zawsze warte tury.
+        r"^\[[^\]]*\] server:",
         r'"type": "error"', r"REJECTED", r"connection",
     ]))
     # Ruch, ktory obsluguje juz JAKIS INNY proces (np. petla liczaca) —

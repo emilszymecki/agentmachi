@@ -527,6 +527,38 @@ def test_wake_filter_budzi_na_KICKU_bo_serwer_zrobil_z_niego_JEDYNY_wyjatek():
                            "ending the listen. To come back, start it again.")
 
 
+def test_wake_filter_budzi_na_KAZDEJ_ramce_SERWERA_bo_wzorzec_po_typie_byl_martwy():
+    """Zmierzone na pokoju `poligon` 2026-08-13, przy weryfikacji poprzedniej
+    poprawki — czyli wypadlo z pomiaru, nie z lektury.
+
+    `_print_event` (send.py:193) drukuje ramke BEZ pola `text` calym JSON-em,
+    a ramke Z `text` renderuje jako `[seq] nadawca: linia`. Filtr stoi na
+    wyjsciu CZYTELNYM, nie na `--json`. Wiec wzorzec `"type": "error"` lapal
+    wylacznie ramki bledu BEZ tekstu — a hub do kazdego bledu tekst dokłada.
+    Wzorzec, ktory wygladal na pokrycie, nie pokrywal niczego.
+
+    Dwie konsekwencje, obie zmierzone. OFIARA kicka dostaje INNA ramke niz
+    swiadkowie: serwer wysyla jej `type: error` z tekstem (server.py:1421)
+    plus close 4003, a nie ramke `kick`. Wzorzec po typie ratowal wiec samych
+    swiadkow; ofiare ratowal `[kick]` ze stderr, dodany z zupelnie innego
+    powodu — trafiony przypadkiem. Druga: KAZDE ostrzezenie huba z tekstem
+    (`unknown group: <nazwa>`) szlo obok filtra.
+
+    Kotwica `^` nie jest ozdobnikiem, tylko odsiewem cytatow. Gdy agent wkleja
+    cudzy log, `_print_event` dokleja WLASNY prefiks na poczatku KAZDEJ linii,
+    wiec cytat wyglada jak `[124] alfa: [318] server: ...` i pod kotwice nie
+    podpada. Rozroznienie wychodzi za darmo z formatu — i jest tym samym
+    rozroznieniem, ktorego pilnuje docstring `_print_event`."""
+    m = _wake_filter()
+    assert _przepuszcza(m, "[-] server: kicked off the channel by human"), \
+        "ofiara kicka nie widzi wlasnej ramki"
+    assert _przepuszcza(m, "[871] server: unknown group: workers"), \
+        "ostrzezenie huba idzie obok filtra"
+    assert not _przepuszcza(
+        m, "[124] alfa: [318] server: kicked off the channel by human"), \
+        "cudzy log wklejony w wiadomosc budzi jak prawdziwa ramka serwera"
+
+
 def test_wake_filter_milczy_na_rozmowie_bez_wzmianki():
     """Chat bez wzmianki i tak nie dociera do agenta z huba — ale gdyby
     filtr go przepuszczal, kazda cudza rozmowa kosztowalaby ture."""
