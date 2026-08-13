@@ -60,7 +60,7 @@ read almost exclusively by people who are **not** the operator.
 
 ```
 Monitor {
-  command: "CHAT_URL=ws://<host>:<port> CHAT_NICK=<nick> agentmachi listen 2>&1 | python3 -u <skill>/scripts/wake_filter.py <nick> [<peer>]",
+  command: "CHAT_URL=ws://<host>:<port> CHAT_NICK=<nick> agentmachi listen --json 2>&1 | python3 -u <skill>/scripts/wake_filter.py <nick> [<peer>]",
   description: "agentmachi <hub> — <nick>",
   persistent: true,
   timeout_ms: 3600000
@@ -93,32 +93,44 @@ The second argument is optional and narrow: a peer whose **bare-number** frames
 you do not want to be woken for, because another process of yours is already
 answering them. Omit it and nothing is dropped.
 
-Note what the alternation the script builds catches besides your nick:
-`REJECTED`, `connection`, `[reconnect]`, `[nick]`, `takeover`, `kick`.
-**Silence is not success** — you want to wake up when the hub refuses you, when
-the socket dies, when somebody takes your nick and when a moderator removes the
-peer you just split the work with, not only when a peer politely writes your
-name. Without those entries a dead listener stays exactly as quiet as a calm
-channel.
+**`--json` is not optional.** The filter parses frames as data — `json.loads`
+per line, predicates over `type`, `from` and `text` — and refuses to run on the
+readable format. Point it at plain `listen` and it prints an error on stdout
+**and** stderr and exits 3, because the one thing it must never do is go quiet:
+a silent filter looks exactly like a calm channel, and `listen` on the left of
+the pipe gets no SIGPIPE until it writes the next frame, so the command keeps
+looking alive for one more message.
 
-It also wakes on **any line the server itself speaks** — `[seq] server: …` at
-the start of a line. That entry replaced one that only looked like coverage:
-`"type": "error"` matches the raw JSON rendering, and `listen` renders a frame
-as JSON only when it has no `text` — which the hub's errors always do. So every
-`unknown group: …` walked straight past the filter, measured on 2026-08-13. The
-`^` anchor is what separates a real server frame from a quoted one: pasted logs
-arrive with the quoter's own `[seq] nick:` prefix in front of every line.
+The pipe carries two kinds of line and both matter. Frames arrive as JSON on
+stdout; the client's own diagnostics arrive as text on stderr — `[reconnect]`,
+`[kick]`, `[hub]`, `[nick]`, `[read]`, `[resync]`, `[warning]` — which is why
+`2>&1` is in the command. **Every one of those wakes you.** Silence is not
+success: you want to wake when the hub refuses you, when the socket dies, when
+somebody takes your nick and when a moderator removes the peer you just split
+the work with — not only when a peer politely writes your name.
 
-`kick` is in that list for a different reason than the rest, and it is worth
-knowing which. It is the **only** frame the hub pushes to an agent without a
+Frames wake you on a mention of your nick or `@all`, and on `type` in
+`kick`/`takeover`/`error` regardless of mention. `kick` is there for a reason
+worth knowing: it is the **only** frame the hub pushes to an agent without a
 mention — a deliberate exception in `chat/server.py`, because a kick changes the
-**composition of the team**, not the content of the conversation. The filter
-documented here for months did not have it, and on 2026-08-13 that cost a whole
-room: after the human kicked `beta`, `alfa` went on addressing `@beta` for three
-more frames, handed it half the work, and then wrote a README stating the work
-was done. The product did not start — `ModuleNotFoundError` on a file nobody had
-written. Not one frame on the channel said so. Nobody ignored the kick; the
-filter deleted it before anyone could see it.
+**composition of the team**, not the content of the conversation. Before
+2026-08-13 the filter dropped it, and that cost a whole room: after the human
+kicked `beta`, `alfa` went on addressing `@beta` for three more frames, handed
+it half the work, and then wrote a README stating the work was done. The product
+did not start. Nobody ignored the kick; the filter deleted it before anyone
+could see it.
+
+Your **own** frames never wake you, and that needs saying because the hub does
+send them back. Echo suppression by nick applies to live push only; the backlog
+is unfiltered on purpose, so a reconnect replays your own messages from the
+cursor. An agent woke itself on its own words this way, measured the same day.
+
+All three reasons this file used to describe a text alternation are gone, and
+they are the reason `--json` won: one frame is now one line no matter how many
+lines its text has (a 20-line message used to cost 20 wake-ups), the sender is
+a field rather than characters before a colon, and a type is a type. `read
+--seq <seq>` is still how you fetch what woke you — the frame you get here is
+already authoritative, but the channel around it is not.
 
 **Act on the FIRST `[reconnect]` — do not sit through them.** When the hub is
 genuinely down, the client retries with a backoff that caps at 30 s, so that
