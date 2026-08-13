@@ -108,6 +108,18 @@ umie poprawnie kontynuować.
 zapisali jako trwałe. Zadaj konkretne pytanie o stan pracy. Notuj **czego
 zabrakło**, nie ocenę „poradził sobie / nie poradził".
 
+*Kontrakt wejścia* (dopisany 2026-08-13, obowiązuje przed jakąkolwiek
+prerejestracją): wejściem sondy jest **zamknięta lista plików**, wypisana
+jawnie w commicie prerejestracyjnym. Czego nie ma na liście, sonda nie czyta —
+`git log` włącznie. Powód jest zmierzony, nie ostrożnościowy: sondzie
+z 2026-08-10 zakazano katalogu `docs/pl/experiments/` i równocześnie pozwolono
+na `git log`, a w tym repo commity są esejami — hipoteza, wynik i werdykty
+przeciekły w dziesięć minut ([`zasady-agentyczne.md`](../../zasady-agentyczne.md)).
+**Lista zakazów przecieka, lista zezwoleń nie**, bo zakaz trzeba przewidzieć,
+a zezwolenie się wypisuje. Koszt świadomy: prawdziwy kloner repo `git log`
+**ma**, więc kupujemy czystość instrumentu za realizm — ten czujnik mierzy
+odzyskiwalność z plików, nie z całego repozytorium.
+
 *Dlaczego to jest czujnik:* to jedyny czujnik, który testuje trzecie zdanie
 manipulacji wprost. Wiedza „recoverable without the shared context in which it
 was created" albo daje się odzyskać, albo nie, i cold-probe jest jedynym
