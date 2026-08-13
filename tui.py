@@ -670,15 +670,23 @@ class AgentmachiApp(App):
                                 "arrows = history, Ctrl+Q quits")
             with VerticalScroll(id="participants-panel", classes="panel"):
                 yield Label("Participants / groups", classes="panel-title")
+                # Stan polaczenia zostaje TUTAJ, a nie w panelu Rules, bo
+                # panel Rules jest domyslnie schowany (prosba operatora
+                # 2026-08-13). Gdyby stan poszedl razem z nim, czlowiek
+                # traciby jedyna linie mowiaca, ze hub padl — a milczenie
+                # wyglada wtedy jak spokojny kanal. Regula z tego samego dnia,
+                # z zupelnie innego miejsca produktu: cisza nie jest sukcesem.
+                yield Static("connecting...", id="connection-status")
                 yield Static("", id="participants")
             with VerticalScroll(id="rules-panel", classes="panel"):
-                yield Label("Rules / state  (Ctrl+R hides)",
-                            classes="panel-title")
-                yield Static("connecting...", id="connection-status")
+                yield Label("Rules  (Ctrl+R)", classes="panel-title")
                 yield Static("", id="rules-hash")
                 yield Static("", id="rules")
 
     def on_mount(self):
+        # Rules sa dluga, statyczna sciana tekstu, ktora czlowiek czyta raz.
+        # Domyslnie schowane na prosbe operatora (2026-08-13); Ctrl+R pokazuje.
+        self.query_one("#rules-panel").display = False
         self.query_one("#message-input", MessageInput).disabled = True
         self._render_participants()
         self.run_worker(

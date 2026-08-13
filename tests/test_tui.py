@@ -435,6 +435,45 @@ def test_TUI_nie_gubi_note_gdy_jest_takze_subject(tmp_path):
     asyncio.run(scenario())
 
 
+def test_panel_rules_startuje_SCHOWANY_ale_stan_polaczenia_ZOSTAJE(tmp_path):
+    """Prosba operatora 2026-08-13: „Rules/state moze byc z defaultu schowane".
+
+    Rules to dluga, statyczna sciana tekstu, ktora czlowiek czyta raz — wiec
+    domyslnie schowana, `Ctrl+R` pokazuje. Ale `connection-status` NIE moze
+    z nia zniknac i dlatego wyprowadzilem go do panelu uczestnikow.
+
+    Powod jest z tego samego dnia i z zupelnie innego miejsca produktu: to
+    jedyna linia mowiaca czlowiekowi, ze hub padl. Schowana razem z Rules
+    dawalaby stan, w ktorym awaria wyglada jak spokojny kanal — czyli cisza
+    udajaca sukces. Wykonanie prosby operatora CO DO LITERY zabralo by mu
+    rzecz, ktorej nie prosil sie pozbyc."""
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#rules-panel")
+            assert panel.display is False, "Rules maja startowac schowane"
+            stan = app.query_one("#connection-status")
+            assert stan.display is not False, \
+                "stan polaczenia zniknal razem z Rules — awaria wygladalaby " \
+                "jak spokojny kanal"
+            # Rodzicem stanu jest panel uczestnikow, nie schowany panel Rules;
+            # bez tego asercja wyzej przechodzilaby, a element i tak bylby
+            # niewidoczny razem z rodzicem.
+            assert stan.parent is app.query_one("#participants-panel")
+            # Ctrl+R dalej dziala w obie strony.
+            app.action_toggle_rules()
+            assert app.query_one("#rules-panel").display is True
+            app.action_toggle_rules()
+            assert app.query_one("#rules-panel").display is False
+    asyncio.run(scenario())
+
+
 # -- presence: lista online-only -------------------------------------------
 
 def test_roster_shows_only_connected_and_presence_updates(tmp_path):
