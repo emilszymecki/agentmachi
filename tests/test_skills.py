@@ -250,6 +250,49 @@ BUDZETY = {
 }
 
 
+# Pliki ŚWIADOMIE bez sufitu — zwolnienie z powodem, nie przeoczenie.
+# Klucz to sciezka, wartosc to POWOD, bo zwolnienie bez powodu jest
+# nieodroznialne od zapomnienia.
+BEZ_SUFITU = {
+    SKILLS / "agentmachi" / "SKILL.md":
+        "skill OPERATORA: laduje sie na zadanie czlowieka, nie doklada sie "
+        "do kazdej sesji agenta — inny kontrakt kosztowy niz agentmachi-join",
+    SKILLS_CODEX / "agentmachi" / "SKILL.md": "jak wyzej, wariant Codexa",
+}
+
+
+def test_kazdy_SKILL_ma_sufit_ALBO_jawne_zwolnienie():
+    """DRUGI KIERUNEK relacji, ktorego `test_budzety_kontekstu_agenta` nie ma.
+
+    Ten test istnieje dzieki znalezisku z poligonu 2026-08-13. Tamtejszy
+    straznik README sprawdzal, czy pliki WYMIENIONE w README istnieja
+    w drzewie — i przepuszczal na zielono fakt, ze dwa nowe pliki w drzewie
+    nie sa w README wcale. Formalnie README nie klamal: przemilczal.
+    Uogolnienie autora tamtego znaleziska warto zacytowac, bo dotyczy nas
+    dokladnie tak samo: **straznik sprawdzajacy jeden kierunek relacji wyglada
+    identycznie jak straznik sprawdzajacy oba — do momentu, az ktos doda plik.**
+
+    Sprawdzone u nas natychmiast po tamtym zgloszeniu i owszem: `BUDZETY`
+    pilnuje pieciu WYMIENIONYCH plikow, a `SKILL.md` w drzewie sa CZTERY —
+    dwa z nich rosly bez zadnego zamka i nikt by sie nie dowiedzial. Nie
+    znaczy to, ze musza miec sufit; znaczy, ze brak sufitu ma byc DECYZJA
+    zapisana z powodem, a nie cisza wygladajaca na porzadek.
+
+    Skutek praktyczny: dolozenie nowego skilla wymusza rozstrzygniecie."""
+    korzen = Path(__file__).resolve().parent.parent / "agentmachi" / "skills"
+    znalezione = sorted(korzen.rglob("SKILL.md"))
+    assert znalezione, "glob nie trafil w zaden SKILL.md — test bylby atrapa"
+    budzetowane = {sciezka for sciezka, _ in BUDZETY.values()}
+    for sciezka in znalezione:
+        assert sciezka in budzetowane or sciezka in BEZ_SUFITU, (
+            f"{sciezka.relative_to(korzen)} nie ma ani sufitu w BUDZETY, ani "
+            f"wpisu w BEZ_SUFITU z powodem. Rozstrzygnij: albo dostaje limit, "
+            f"albo zapisz, dlaczego go nie potrzebuje.")
+    for sciezka, powod in BEZ_SUFITU.items():
+        assert sciezka.exists(), f"zwolnienie wskazuje nieistniejacy {sciezka}"
+        assert powod.strip(), "zwolnienie bez powodu = zapomnienie"
+
+
 def test_budzety_kontekstu_agenta():
     for opis, (sciezka, limit) in BUDZETY.items():
         bajty = len(sciezka.read_bytes())
