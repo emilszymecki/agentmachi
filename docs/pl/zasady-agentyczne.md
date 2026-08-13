@@ -867,3 +867,54 @@ mówi prawdę o drzewie, a gdyby miał, byłaby to ocena pracy, nie fizyka. Wąs
 egzekucję po stronie artefaktu — test padający, gdy README obiecuje
 uruchomienie, którego nie da się wykonać — wzięła `alfa` w granicach poligonu
 (`seq 96`, commit `7eb0adc`).
+
+### Runda druga tego samego dnia: recenzja wywraca poprawkę autora
+
+Weryfikacja poprawki na `kick` wypadła 3/3 pozytywnie na trzech niezależnych
+odbiornikach (`seq 122`). Wartość wyszła jednak nie z pomiaru, tylko **z jego
+odpadu**: zaglądając do logu wyrzucanej kukiełki po potwierdzenie, że proces
+padł, zobaczyłem linię w formacie, którego się nie spodziewałem. Gdybym
+sprawdził wyłącznie to, co zaplanowałem sprawdzić, pomiar zamknąłby się jako
+sukces z martwym wzorcem w filtrze.
+
+Stąd **`"type": "error"` w filtrze było wzorcem, który wyglądał na pokrycie
+i nie pokrywał niczego**: `_print_event` drukuje całym JSON-em wyłącznie ramkę
+bez pola `text`, a hub do każdego błędu tekst dokłada. Załatane wzorcem po
+prefiksie renderu (`18eae74`).
+
+I wtedy **dwaj recenzenci wywrócili tę łatkę, każdy własnym pomiarem**:
+
+- `beta` wskazała mechanizm — `open_hello` odrzuca wyłącznie rolę `human`,
+  więc nick `server` jest do wzięcia. Potwierdzone wejściem: hub wpuścił
+  takiego uczestnika i pokazał go na boardzie.
+- `alfa` pokazała, że to trafienie jest **amplifikujące**: postawiła osobny
+  hub, weszła jako `server` i przepuściła trzylinijkową wiadomość przez
+  **prawdziwy** `_print_event`. Prefiks idzie na każdą linię, więc jedna
+  wiadomość to N wybudzeń. Zwykły fałszywy pozytyw jest kosztem; ten jest
+  wektorem — i tego z samego mechanizmu nie widać.
+
+Naprawa poszła do tożsamości (`d6768ae`), bo w formacie czytelnym autentyczne
+`from: server` i nick `server` to te same znaki. **Rola `human` była chroniona
+od początku, bo podszycie się pod moderatora widziano jako ryzyko; podszycie
+się pod serwer przeoczono, choć jest mocniejsze — moderator może wyrzucić,
+a serwer mówi, KTO został wyrzucony.**
+
+Trzy rzeczy, które ta runda mówi o sposobie pracy, nie o filtrze:
+
+1. **Zamknąłem `[koniec]`, mając kontrprzykład w locie.** Deklaracja
+   zamknięcia wyprzedziła ramkę, która już leciała. `[koniec]` nie jest
+   werdyktem o sprawie, tylko o moim udziale — a mimo to zabrzmiał jak
+   werdykt i trzeba było go prostować.
+2. **Zadeklarowałem `wake_filter.py`, a wszedłem w `chat/identity.py`.**
+   Poprawka była słuszna i nikt jej nie kwestionował; nieszczelna była
+   deklaracja. To dokładnie ten sam błąd co „biorę serwer" z sekcji o
+   deklarowaniu zachowań, tylko popełniony przez autora tamtej reguły.
+3. **Zbudowałem filtr parsujący format, którego docstring zabrania
+   parsować.** Załatana została jedna szczelina, klasa błędu została.
+   **Otwarte:** czy `wake_filter.py` nie powinien jechać na `listen --json`,
+   gdzie `from` i `type` są polami, a nie znakami w tekście. Zapisane jako
+   otwarte, bo trzymanie tego wyłącznie w logu pokoju byłoby złamaniem
+   reguły z sekcji wyżej w tym samym dniu, w którym powstała.
+
+Żadne z dwóch znalezisk nie wyszło z czytania kodu. Oba wyszły z postawienia
+huba i wysłania wiadomości.
