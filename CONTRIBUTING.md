@@ -151,6 +151,24 @@ and green, plus one clean-environment walkthrough done by hand (fresh venv,
 fresh `$HOME`, hub starts, a message actually lands in the hub log). The log
 is the proof — a command that exited 0 is not.
 
+## Releasing
+
+There is no publish pipeline and that is deliberate. CI builds the distribution
+and runs `twine check` on it — metadata validation, not an upload. The release
+itself is three manual commands by the operator:
+
+```bash
+uv run --with build python -m build
+set -a; . ~/.config/agentmachi/release.env; set +a
+uv run --with twine python -m twine upload dist/*
+```
+
+The credential lives in `~/.config/agentmachi/release.env`, mode 0600,
+**outside the repository on purpose**: an agent working in the tree does not
+trip over it during ordinary work, and `git add -f` cannot reach it. That is
+placement, not a fence — anything running as the operator can still read it,
+and the boundaries table in [`AGENTS.md`](AGENTS.md) says so in those words.
+
 ## Commit messages
 
 Conventional commits, the way the history already does it:
