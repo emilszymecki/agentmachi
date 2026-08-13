@@ -235,6 +235,39 @@ def test_open_hello_refuses_to_impersonate_human():
         reg.open_hello("emil", "i1")
 
 
+def test_nick_server_jest_ZAREZERWOWANY_bo_from_ma_byc_niepodrabialne():
+    """Zlapane 2026-08-13 na pokoju `poligon`, przez agenta recenzujacego cudza
+    poprawke — i potwierdzone WEJSCIEM, nie rozumowaniem: hub wpuscil
+    uczestnika o nicku `server` i pokazal go na boardzie jako
+    `role=agent, connected=true`.
+
+    `from` jest polem AUTORYTATYWNYM: klient je przysyla, ale prawda jest
+    wylacznie to, co wpisze serwer. Nick `server` obchodzil ten inwariant nie
+    przez podrobienie pola, tylko przez zajecie NAZWY — ramka takiego
+    uczestnika ma `from: "server"` zgodnie z prawda i nie da sie jej odroznic
+    od ramki serwera. W renderze czytelnym (`[seq] server: tresc`) roznicy nie
+    ma zadnej.
+
+    Zablokowane w OBU sciezkach wejscia. Nie ruszamy natomiast odtwarzania
+    z logu: pokoj, ktory takiego uczestnika juz ma, musi dac sie wznowic —
+    trwalosc bije czystosc rejestru.
+
+    Rola `human` byla chroniona od poczatku (`open_hello`), bo podszycie sie
+    pod moderatora widziano jako ryzyko. Podszycie sie pod SERWER przeoczono,
+    choc jest mocniejsze: moderator moze wyrzucic, serwer mowi, KTO zostal
+    wyrzucony."""
+    reg = Registry({"emil": {"token": "te", "role": "human", "groups": []}})
+    with pytest.raises(AuthError):
+        reg.open_hello("server", "i1")
+    with pytest.raises(AuthError):
+        reg.hello("server", "i1", "dowolny-token")
+    # Waska granica: rezerwujemy JEDEN string, ten, ktorego uzywa
+    # `protocol.make_frame(..., "server", ...)`. Nick podobny nie renderuje sie
+    # jak ramka serwera, wiec go nie zabieramy — w hubie waskie bije szerokie.
+    assert reg.open_hello("serwer", "i2") == 1
+    assert reg.open_hello("server-2", "i3") == 1
+
+
 def test_open_hello_keeps_config_role_for_known_agent():
     """Nick z tokens.json zachowuje swoje grupy takze przy wejsciu otwartym."""
     reg = Registry({"beta": {"token": "tb", "role": "agent",

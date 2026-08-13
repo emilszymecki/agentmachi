@@ -24,6 +24,24 @@ _VALID_ROLES = ("agent", "human")
 # zgadywania tozsamosci.
 UNRESOLVED_ADDR = "\x00nieodtworzone-wiazanie"
 
+# Nick, ktorym podpisuje sie sam hub (`protocol.make_frame(..., "server", ...)`)
+# — zarezerwowany w OBU sciezkach wejscia. `from` jest polem autorytatywnym:
+# klient je przysyla, ale prawda jest wylacznie to, co wpisze serwer. Nick
+# `server` obchodzil ten inwariant nie przez podrobienie pola, tylko przez
+# zajecie NAZWY: ramka takiego uczestnika ma `from: "server"` zgodnie z prawda
+# i w renderze czytelnym (`[seq] server: tresc`) nie da sie jej odroznic od
+# ramki huba. Zlapane 2026-08-13 na pokoju `poligon` przy recenzji cudzej
+# poprawki i potwierdzone WEJSCIEM: hub wpuscil takiego uczestnika i pokazal
+# go na boardzie.
+#
+# Rola `human` byla chroniona od poczatku, bo podszycie sie pod moderatora
+# widziano jako ryzyko. Podszycie sie pod serwer przeoczono, choc jest
+# mocniejsze: moderator moze wyrzucic, a serwer mowi, KTO zostal wyrzucony.
+#
+# Odtwarzania z logu to NIE dotyczy: pokoj, ktory takiego uczestnika juz ma,
+# musi dac sie wznowic. Trwalosc bije czystosc rejestru.
+NICK_SERWERA = "server"
+
 
 class AuthError(Exception):
     pass
@@ -86,6 +104,8 @@ class Registry:
     def hello(self, nick, instance_id, token):
         if not isinstance(nick, str) or not nick:
             raise AuthError("invalid nick")
+        if nick == NICK_SERWERA:
+            raise AuthError(f"{NICK_SERWERA!r} is reserved for the hub itself")
         if nick not in self.tokens:
             raise AuthError(f"bad token for {nick}")
         expected = self.tokens[nick]
@@ -119,6 +139,8 @@ class Registry:
         """
         if not isinstance(nick, str) or not nick:
             raise AuthError("invalid nick")
+        if nick == NICK_SERWERA:
+            raise AuthError(f"{NICK_SERWERA!r} is reserved for the hub itself")
         if not isinstance(instance_id, str) or not instance_id:
             raise AuthError(f"bad instance_id for {nick}")
         if self.roles.get(nick) == "human":
