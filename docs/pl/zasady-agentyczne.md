@@ -959,3 +959,97 @@ Dwie rzeczy warte zapamiętania poza samym filtrem:
 **Stare testy były zielone przy wszystkich trzech defektach**, bo każdy karmił
 filtr linią, którą sam wymyślił. Blok przepisano w całości — to świadome
 złamanie działającego kontraktu i powód stoi w komentarzu nad nim.
+
+### Test widma w TUI (2026-08-13) — i to, co zobaczył człowiek, a nie my
+
+Jedyny pomiar tego dnia, w którym **instrumentem był operator**, a agenci
+obsługą. Powód: cały dzień naprawiał rzeczy widoczne dla agentów, a
+powierzchnia człowieka to TUI, skille i moderacja — i akurat TUI nie sprawdzał
+nikt.
+
+**Runda 1 zmierzyła co innego, niż zapowiadała, i wykryłem to sam — za późno,
+żeby uniknąć błędu, w porę, żeby nie podpisać wyniku fałszywą etykietą.**
+Ubiłem własny nasłuch `SIGKILL`-em i ogłosiłem stan „widmo". Nieprawda: jądro
+zamyka deskryptory po zabitym procesie i wysyła `FIN`, więc hub dostał czyste
+rozłączenie natychmiast. Zobaczyłem to dopiero w `ss -tnp` — mojego socketu po
+prostu nie było. Napisałem „socket zostaje w powietrzu" o sygnale, który go
+zamyka, znając tę różnicę. Przerwałem ciszę pomiaru, żeby to sprostować, bo
+**milczenie broniłoby procedury, która jest zła.** Runda 1 zostaje w mocy pod
+właściwą nazwą — *widoczność czystego rozłączenia* — i dała liczbę: hub wiedział
+o odejściu w **kilka sekund** (board `connected=true` przy `seq 272`, `false`
+kilka sekund później).
+
+**Runda 2, prawdziwe widmo:** `kill -STOP` zamiast `-9`. Proces żyje i trzyma
+deskryptor, nie czyta, więc nie ma `FIN`. Tym razem sprawdziłem `ss` **przed**
+ogłoszeniem: `ESTAB`, proces w stanie `Tl`. Po ~3 minutach socket stał
+w `CLOSE-WAIT` z 33 bajtami w kolejce, których zamrożony proces nigdy nie
+przeczyta — czyli **to hub zamknął swoją stronę**. Keepalive
+(`ping_interval=20, ping_timeout=20`, `chat/server.py`) wyrzucił
+nieodpowiadającego klienta, a TUI pokazało prawdę, bo hub ją znał.
+
+**Widmo umiera samo w ~40 s i to jest dobra wiadomość o produkcie** — mówimy ją
+tak samo głośno jak znaleziska. Zastrzeżenie: sprawdzona została JEDNA ścieżka,
+ta z zamrożonym klientem.
+
+#### Znalezisko właściwe: `connected` znaczy co innego u różnych harnessów
+
+Zobaczył je **człowiek przy TUI**, nie trzej agenci pracujący cały dzień na tym
+kanale:
+
+> *znika z listy `@beta`, czyli Codex ma tak, że gdy pracuje, znika z listy,
+> a jak jest w oczekiwaniu albo w idle, to go widzę*
+
+Potwierdzone dwoma niezależnymi pomiarami, żadnym przez lekturę kodu. Ramki
+`hello` w zachowanym oknie logu: **beta 9, alfa 1, orkiestra 1**, przy odstępach
+między kolejnymi `hello` bety 7–61 s. Drugi agent odczytał board trzy razy co
+6 s i zobaczył betę migoczącą `no → no → yes` przy `last_seq` **stojącym
+w miejscu** — czyli ani wyjścia, ani powrotu, ani awarii.
+
+Mechanizm jest w `codex-wait.sh`: `listen --once` kończy się po jednej ramce,
+model idzie pracować, potem uzbraja następny wait. **Między ramkami połączenia
+nie ma.**
+
+Konsekwencja jest dla operatora, nie dla nas: **człowiek ma jeden wskaźnik
+żywotności i ten wskaźnik nie znaczy tego samego u różnych harnessów.** Dla
+klienta z trwałym `listen` brak w liście znaczy „nie żyje". Dla Codeksa brak
+znaczy „pracuje ALBO nie żyje", nierozróżnialnie. Nie zauważyliśmy tego przez
+cały dzień, bo agent patrzy na kanał, a nie na listę uczestników — a lista jest
+tym, na co patrzy człowiek.
+
+**Kierunek rozwiązania jest po stronie zachowania, nie fizyki**, więc tam, gdzie
+konstytucja każe szukać najpierw: ramka `status` istnieje od początku i `send`
+nie potrzebuje nasłuchu, więc agent Codeksa może zadeklarować `working`, zanim
+wyjdzie z waitu. Czy jego cel to obejmuje, wie wyłącznie on — pytanie zostało
+zadane na kanale i **odpowiedź należy do niego, nie do nas**. Warto pamiętać, że
+ten sam plik notuje wyżej pomiar z dwóch dogfoodów: *żaden agent nie odświeżył
+statusu ani razu*. Mechanizm rozróżniający „pracuje" od „zniknął" leży
+nieużywany, odkąd powstał.
+
+**Odpowiedź przyszła od obu i obie były mocniejsze od pytania.**
+
+Agent Codeksa potwierdził, że jego cel to obejmuje, i wysłał żywy `status:
+working` jako pierwszą czynność po odebraniu pytania. Nazwał przy tym własne
+ograniczenie, zanim ktokolwiek zapytał: **statusu nie da się wysłać, zanim wait
+wybudzi model**, więc między zamknięciem `listen --once` a ramką `status`
+zostaje szczelina — potem status trwa już bez socketu. I dorzucił zastrzeżenie
+warte przepisania do każdej dyskusji o tym polu: **`status` jest deklaracją,
+nie pomiarem.**
+
+Drugi agent obrócił znalezisko przeciwko sobie i to jest cięższa część.
+Ograniczenie dotyczy Codeksa; on sam **miał ten mechanizm przez cały dzień
+i zmarnował go**. Jego własny wiersz na boardzie brzmiał:
+
+```
+alfa  connected=yes  status: idle  (declared 34 frame(s) ago)
+```
+
+Przez te 34 ramki stawiał testowe huby, wchodził na nie jako `server` i mierzył
+amplifikację. Board mówił człowiekowi „bezczynny". Nikt nie kłamał ramką —
+kłamał **brak ramki**.
+
+Wniosek jest o metodzie, nie o statusie. Reguła „zgłaszaj stan" stoi w
+`AGENTS.md` od dawna, a pomiar „nikt nigdy nie odświeżył" stoi wyżej w TYM
+pliku. Dziś złamał ją agent, który jedno i drugie przeczytał — i zauważył
+dopiero wtedy, gdy **człowiek** zapytał o coś zupełnie innego. **Zapisana
+reguła nie egzekwuje się sama, a najskuteczniejszym audytorem okazał się ten
+uczestnik, który patrzy na inny ekran niż wszyscy pozostali.**
