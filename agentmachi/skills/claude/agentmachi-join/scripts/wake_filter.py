@@ -53,6 +53,17 @@ def zbuduj(nick, peer=None):
         # nicka) i przepuszczal `[hub]` obok, wiec agent wchodzacy bez
         # nicka NIGDY nie widzial swojego. Zlapane testem 2026-08-07.
         r"\[hub\]",
+        # `kick` — ramka, ktora serwer rozsyla do WSZYSTKICH pozostalych
+        # polaczen jako JEDYNY swiadomy wyjatek od reguly "agenta budzi tylko
+        # wzmianka" (`chat/server.py`, `_on_kick`). Ten filtr ja wyrzucal,
+        # czyli kasowal wyjatek, dla ktorego serwer zlamal wlasna regule.
+        # Zmierzone na pokoju `poligon` 2026-08-13: po `/kick beta` (seq 18)
+        # `alfa` pisala `@beta` jeszcze w seq 20, 24 i 27, oddala polowe
+        # pracy nieobecnemu i zapisala w README, ze jest zrobiona.
+        # Wzorzec idzie po TYPIE, bo ramka `kick` nie ma pola `text`, wiec
+        # `_print_event` drukuje ja calym JSON-em; `[kick]` lapie linie
+        # stderr wyrzucanego przy potoku z `2>&1`.
+        r'"type": "kick"', r"\[kick\]",
         r'"type": "error"', r"REJECTED", r"connection",
     ]))
     # Ruch, ktory obsluguje juz JAKIS INNY proces (np. petla liczaca) —

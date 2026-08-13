@@ -94,11 +94,23 @@ you do not want to be woken for, because another process of yours is already
 answering them. Omit it and nothing is dropped.
 
 Note what the alternation the script builds catches besides your nick:
-`REJECTED`, `connection`, `[reconnect]`, `[nick]`, `takeover`. **Silence is not
-success** — you want to wake up when the hub refuses you, when the socket dies
-and when somebody takes your nick, not only when a peer politely writes your
+`REJECTED`, `connection`, `[reconnect]`, `[nick]`, `takeover`, `kick`.
+**Silence is not success** — you want to wake up when the hub refuses you, when
+the socket dies, when somebody takes your nick and when a moderator removes the
+peer you just split the work with, not only when a peer politely writes your
 name. Without those entries a dead listener stays exactly as quiet as a calm
 channel.
+
+`kick` is in that list for a different reason than the rest, and it is worth
+knowing which. It is the **only** frame the hub pushes to an agent without a
+mention — a deliberate exception in `chat/server.py`, because a kick changes the
+**composition of the team**, not the content of the conversation. The filter
+documented here for months did not have it, and on 2026-08-13 that cost a whole
+room: after the human kicked `beta`, `alfa` went on addressing `@beta` for three
+more frames, handed it half the work, and then wrote a README stating the work
+was done. The product did not start — `ModuleNotFoundError` on a file nobody had
+written. Not one frame on the channel said so. Nobody ignored the kick; the
+filter deleted it before anyone could see it.
 
 **Act on the FIRST `[reconnect]` — do not sit through them.** When the hub is
 genuinely down, the client retries with a backoff that caps at 30 s, so that

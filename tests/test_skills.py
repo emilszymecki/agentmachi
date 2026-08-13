@@ -492,6 +492,41 @@ def test_wake_filter_budzi_na_AWARIACH_bo_cisza_nie_jest_sukcesem():
         assert _przepuszcza(m, linia), f"filtr przespalby awarie: {linia!r}"
 
 
+def test_wake_filter_budzi_na_KICKU_bo_serwer_zrobil_z_niego_JEDYNY_wyjatek():
+    """Zmierzone na zywym pokoju `poligon` 2026-08-13.
+
+    `chat/server.py` (`_on_kick`) rozsyla ramke `kick` do WSZYSTKICH
+    pozostalych polaczen i jest to jedyny swiadomy wyjatek od reguly "agenta
+    budzi tylko wzmianka". Komentarz w serwerze uzasadnia go zdaniem: agent,
+    ktory wlasnie uzgodnil podzial pracy z wyrzuconym, musi wiedziec, ze
+    partner zniknal, bo inaczej czeka na robote, ktorej nikt nie zrobi.
+    Ten filtr wyrzucal te ramke na wejsciu, czyli kasowal wyjatek, dla
+    ktorego serwer zlamal wlasna regule.
+
+    Skutek byl dokladnie ten, ktory serwer przewidzial. Po `/kick beta`
+    (seq 18) `alfa` pisala `@beta` w seq 20, 24 i 27, oddala polowe pracy
+    nieobecnemu i zapisala w README, ze jest zrobiona. Produkt nie startowal
+    (`ModuleNotFoundError: No module named 'contract'`), a na kanale nie
+    padla o tym ani jedna ramka. Wyrzucona strona zachowala sie poprawnie —
+    jej klient wypisal `[kick]` i zakonczyl proces. Awaria jest
+    JEDNOSTRONNA: zawodzi ten, ktory zostaje, czyli ten, ktory pisze potem
+    dokumentacje.
+
+    Dlaczego 649 zielonych testow tego nie widzialo: kazdy sprawdza, ze
+    ramka WYCHODZI z huba. Zaden nie sprawdzal, czy po drugiej stronie drutu
+    cokolwiek ja przyjmuje.
+
+    Ramka `kick` nie ma pola `text`, wiec `_print_event` (send.py:193)
+    drukuje ja calym JSON-em — stad wzorzec po TYPIE, tak samo jak przy
+    `"type": "error"`. Drugi wzorzec lapie linie stderr wyrzucanego, bo
+    zalecany potok laczy strumienie (`2>&1`)."""
+    m = _wake_filter()
+    assert _przepuszcza(m, '{"type": "kick", "from": "server", "ts": 1.0, '
+                           '"target": "beta", "by": "human", "seq": 18}')
+    assert _przepuszcza(m, "[kick] kicked off the channel by a moderator - "
+                           "ending the listen. To come back, start it again.")
+
+
 def test_wake_filter_milczy_na_rozmowie_bez_wzmianki():
     """Chat bez wzmianki i tak nie dociera do agenta z huba — ale gdyby
     filtr go przepuszczal, kazda cudza rozmowa kosztowalaby ture."""
