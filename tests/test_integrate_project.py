@@ -75,6 +75,57 @@ def test_remove_zostawia_plik_bez_sladu(tmp_path):
     assert "Zasady wlasne." in tresc
 
 
+def test_remove_KASUJE_plik_ktory_sam_utworzyl(tmp_path):
+    """Zlapane 2026-08-13 na cudzym repo produkcyjnym.
+
+    `--apply` w projekcie bez `AGENTS.md` tworzy ten plik. `--remove --apply`
+    kasowal z niego blok i zostawial plik **0-bajtowy** — czyli instalator,
+    ktorego cala obietnica brzmi "odwracalny", zostawial po sobie slad
+    w cudzym drzewie. Widac to bylo dopiero jako `?? AGENTS.md` w `git status`
+    i trzeba bylo sprzatnac recznie.
+
+    Reguly kasowania nie da sie oprzec na "czy to my utworzylismy" — miedzy
+    wywolaniami nie ma zadnego stanu. Opiera sie na tresci: jesli po usunieciu
+    bloku nie zostaje NIC, to nie ma czego trzymac. Plik zawierajacy wylacznie
+    nasz blok jest nasz, kto by go nie stworzyl.
+
+    Test sprawdza OBA cele (`PLIKI`), bo blad byl widoczny tylko na tym,
+    ktorego projekt wczesniej nie mial."""
+    ip.main([str(tmp_path), "--apply"])
+    for nazwa in ip.PLIKI:
+        assert (tmp_path / nazwa).exists(), f"--apply nie utworzyl {nazwa}"
+    ip.main([str(tmp_path), "--remove", "--apply"])
+    for nazwa in ip.PLIKI:
+        sciezka = tmp_path / nazwa
+        assert not sciezka.exists(), (
+            f"{nazwa} zostal po --remove, rozmiar "
+            f"{sciezka.stat().st_size} B — instalator zostawia smiec "
+            f"w cudzym repo")
+
+
+def test_remove_NIE_kasuje_pliku_z_cudza_trescia(tmp_path):
+    """Druga strona tej samej reguly i wazniejsza od niej: kasujemy WYLACZNIE
+    plik, w ktorym po usunieciu bloku nie ma nic. Jedna wlasna linia czlowieka
+    wystarczy, zeby plik przezyl."""
+    plik = tmp_path / "AGENTS.md"
+    plik.write_text("x\n")
+    ip.main([str(tmp_path), "--apply"])
+    ip.main([str(tmp_path), "--remove", "--apply"])
+    assert plik.exists() and plik.read_text().strip() == "x"
+    assert not (tmp_path / "CLAUDE.md").exists()
+
+
+def test_podglad_remove_zapowiada_kasowanie_zamiast_diffa(tmp_path, capsys):
+    """Podglad ma pokazac to, co `--apply` naprawde zrobi. Diff do pustego
+    pliku czyta sie jak "wyczyszcze zawartosc", a nie jak "usune plik"."""
+    ip.main([str(tmp_path), "--apply"])
+    capsys.readouterr()
+    ip.main([str(tmp_path), "--remove"])
+    wyjscie = capsys.readouterr().out
+    assert "[remove file]" in wyjscie
+    assert (tmp_path / "AGENTS.md").exists(), "podglad nie zapisuje ani nie kasuje"
+
+
 def test_kontrakt_ustawia_priorytet_i_zostaje_krotki():
     """Kontrakt instaluje sie w cudzym repo, wiec jego rozmiar jest
     zobowiazaniem. Piec punktow; rozbudowa wymaga dowodu z dogfoodu, nie
