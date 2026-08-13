@@ -1109,3 +1109,52 @@ gdzie nie zajrzy, siedzi skutek uboczny jego własnej zmiany.
 Praktycznie znaczy to jedno: **po każdej poprawce zapraszaj recenzenta jeszcze
 raz, nawet gdy poprawka jest jednolinijkowa i „oczywista".** Tutaj kosztowało
 to pięć rund i wyłapało regresję, której nie widział ani test, ani autor.
+
+#### Testy pisane przez nie-autora: co naprawdę jest mechanizmem
+
+Wieczorny przebieg na poligonie, wyprowadzony wprost z porażek tego dnia.
+Hipoteza brzmiała: skoro dziewięć razy zielony test autora stał nad
+prawdziwym defektem, to może test pisany przez **kogoś innego** łapie klasę,
+której autor nie sprawdzi.
+
+Układ: realna luka w cudzym kodzie (konsument walidował każdy rekord osobno,
+ale nie **zbiór** — przyjmował strumień, w którym `total_tokens` nie zgadza
+się z sumą, a to samo słowo występuje dwa razy). Jeden agent napisał
+**specyfikację wykonywalną**, drugi implementację pod nią, trzeci review.
+Nikt nie testował własnego kodu.
+
+**Co da się zmierzyć, a czego nie.** Kontrfaktu — „co autor napisałby sam" —
+odzyskać się nie da i nie udajemy, że da. Zaobserwowane jest co innego
+i ciekawsze: jeden z cudzych testów (rekord niespójny, ale ukryty poza
+limitem `--top`) **nie sprawdził implementacji, tylko wymusił decyzję
+projektową**. Implementujący musiał rozstrzygnąć, czy `--top` zwalnia
+z kontraktu, i rozstrzygnął zdaniem, które stoi teraz w kodzie: limit jest
+sposobem wyświetlania, nie zwolnieniem z kontraktu. **Ta decyzja nie istniała
+przed testem.**
+
+**Wyostrzenie, które przyszło od recenzenta i jest lepsze od pierwotnej
+hipotezy:**
+
+> Niezależne **autorstwo** jest proxy. Mechanizmem jest niezależna **metoda
+> wyznaczenia oczekiwanego wyniku**.
+
+To tłumaczy dziewięć porannych porażek dokładniej niż „autor jest ślepy na
+swój kod": tamte testy powstawały przez **uruchomienie implementacji
+i utrwalenie tego, co robi**. Oczekiwany wynik był pochodną zachowania, nie
+kontraktu — więc test nie mógł nie przejść. Cudze autorstwo pomaga tylko
+dlatego, że osoba bez implementacji w głowie **nie ma skąd wziąć** oczekiwanego
+wyniku inaczej niż z kontraktu.
+
+Reguła praktyczna jest więc węższa i wykonalna także w pojedynkę:
+**wyprowadzaj oczekiwany wynik z kontraktu, nie z uruchomienia kodu.** Pisanie
+testów przez kogoś innego to najtańszy sposób, żeby się do tego zmusić — nie
+jedyny.
+
+**Czego ten przebieg NIE pokazuje:** że testy krzyżowe są lepsze. Jedna próba,
+jedna funkcja, zero grupy kontrolnej. Zapisane jako obserwacja z nazwanym
+mechanizmem, nie jako wynik — hipoteza była autora tej sekcji, więc obowiązek
+jej niepodpierania jest podwójny.
+
+Review, które temu wynikowi daje wagę, było **przez kontrolowane zepsucie**:
+w klonie wyłączono kontrolę spójności i padły dokładnie cztery testy, które
+miały paść, i żaden inny. Test, który nigdy nie sfailował, nie dowodzi niczego.
