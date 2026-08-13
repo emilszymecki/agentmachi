@@ -635,6 +635,43 @@ def test_wake_filter_milczy_na_rozmowie_bez_wzmianki():
                                       text="@ktos_inny nie do ciebie"))
 
 
+def test_wake_filter_MELDUJE_CZYM_JEDZIE_bo_plik_i_proces_to_dwie_rzeczy(capsys):
+    """Zmierzone 2026-08-13, DWA RAZY w ciagu jednego dnia i przy dwoch roznych
+    poprawkach: plik na dysku byl juz nowy, a zywy proces nasluchu wiozl stara
+    wersje, bo filtr wczytuje sie przy starcie, nie przy linii.
+
+    Uklad "stary filtr w zywym procesie" jest SPOJNY i dziala, wiec nie wyglada
+    na awarie — a agent, ktory sprawdzil sam plik, ma prawo uwazac, ze jest na
+    nowym. Sformulowal to ten, komu sie to przydarzylo: **"zaktualizowany" ma
+    dwa niezalezne znaczenia i tylko jedno z nich widac w `ls`.**
+
+    Hash WLASNEGO zrodla, a nie numer wersji: numeru ktos zapomni podbic, a
+    klamiacy wskaznik wersji jest gorszy niz jego brak, bo przestajesz
+    sprawdzac. Baner idzie na stderr, bo za wlasny start nie placi sie tury —
+    i tak jest widoczny, bo harness zbiera stderr do pliku wyjscia."""
+    m = _wake_filter()
+
+    class _PustyStdin:
+        def readline(self):
+            return ""
+
+    stary = sys.stdin
+    sys.stdin = _PustyStdin()
+    try:
+        assert m.main(["agent_opus", "agent_codex"]) == 0
+    finally:
+        sys.stdin = stary
+    err = capsys.readouterr().err
+    assert "[wake_filter]" in err
+    assert "nick=agent_opus" in err and "peer=agent_codex" in err
+    assert f"src={m.tozsamosc()}" in err
+    assert len(m.tozsamosc()) == 12 and m.tozsamosc() != "nieznane-zrodlo", \
+        "skrot ma identyfikowac zrodlo, ktore proces naprawde wczytal"
+    # Baner NIE moze isc na stdout: tam kazda linia jest wybudzeniem, wiec
+    # agent placilby ture za wlasny start potoku.
+    assert "[wake_filter]" not in capsys.readouterr().out
+
+
 def test_wake_filter_bez_nicka_ODMAWIA_zamiast_przepuszczac_wszystko():
     """Fail-closed: bez nicka nie da sie powiedziec, co jest wzmianka.
     Cichy przepust byl by tu gorszy niz blad — agent placilby tura za

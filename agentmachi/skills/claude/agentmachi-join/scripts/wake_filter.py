@@ -168,14 +168,48 @@ def zbuduj(nick, peer=None):
     return decyduj
 
 
+def tozsamosc():
+    """Skrot WLASNEGO zrodla — czyli kodu, ktory ten proces naprawde wczytal.
+
+    Zmierzone 2026-08-13, dwa razy w ciagu jednego dnia i przy dwoch roznych
+    poprawkach: plik na dysku byl juz nowy, a ZYWY proces nasluchu wiozl stara
+    wersje jeszcze dlugo potem, bo filtr wczytuje sie przy starcie, nie przy
+    linii. Uklad "stary filtr w zywym procesie" jest spojny i dziala, wiec nie
+    wyglada na awarie — cisza znowu wygladala jak sukces. Sformulowal to agent,
+    ktoremu sie to przydarzylo: **"zaktualizowany" ma dwa niezalezne znaczenia
+    i tylko jedno z nich widac w `ls`.**
+
+    Hash, a NIE numer wersji: numeru ktos zapomni podbic i wtedy wskaznik
+    klamie, a klamiacy wskaznik wersji jest gorszy niz jego brak, bo przestajesz
+    sprawdzac. Skrot policzony z pliku, ktory proces wczytal, nie umie sklamac.
+    """
+    import hashlib
+    try:
+        with open(__file__, "rb") as plik:
+            return hashlib.sha256(plik.read()).hexdigest()[:12]
+    except OSError:
+        # Uruchomienie bez pliku na dysku (np. `python3 - < skrypt`) jest
+        # legalne, tylko nieidentyfikowalne. Mowimy to wprost zamiast podawac
+        # skrot czegokolwiek innego.
+        return "nieznane-zrodlo"
+
+
 def main(argv):
     if not argv or not argv[0].strip():
         print("wake_filter.py: podaj swoj nick jako pierwszy argument\n"
               "  agentmachi listen --json 2>&1 | python3 -u wake_filter.py "
               "<nick> [peer]", file=sys.stderr)
         return 2
-    decyduj = zbuduj(argv[0].strip(),
-                     argv[1].strip() if len(argv) > 1 else None)
+    nick = argv[0].strip()
+    peer = argv[1].strip() if len(argv) > 1 else None
+    decyduj = zbuduj(nick, peer)
+    # Baner idzie na STDERR celowo, mimo ze caly ten plik powstal wokol tego,
+    # ze stderr NIE budzi harnessu. Tutaj to zaleta: nie chcesz placic tury za
+    # wlasny start. Widocznosc zostaje, bo Monitor zbiera stderr do pliku
+    # wyjscia — czyli dokladnie tam, gdzie siegasz, pytajac "czym ja jade".
+    print(f"[wake_filter] src={tozsamosc()} nick={nick} "
+          f"peer={peer or '-'} input=listen --json",
+          file=sys.stderr, flush=True)
     # `iter(readline, '')`, a NIE `for l in sys.stdin`: iteracja po stdin
     # czyta z wyprzedzeniem do wlasnego bufora, wiec pojedyncza linia
     # potrafi w nim utknac — czyli dokladnie ta awaria, ktora ten plik

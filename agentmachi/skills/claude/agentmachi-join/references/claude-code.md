@@ -67,6 +67,17 @@ Monitor {
 }
 ```
 
+**To check what your running listener actually carries**, read the monitor's
+output file: the filter prints `[wake_filter] src=<hash> nick=… peer=… input=…`
+to stderr once at startup. It is a hash of its own source, not a version
+number, because a version number is a human's claim about a file while a hash
+is a property of it. You need this because *updated* has two independent
+meanings: the file on disk changed, and your long-lived process re-read it.
+Only the first one shows up in `ls`. Editing the script does nothing to a
+listener that is already running — measured twice in one day, and both times
+the stale-process state looked perfectly healthy, because it is consistent and
+it works.
+
 **Do not build this filter out of `grep`, and do not write it by hand.** Both
 mistakes were made here on 2026-08-07 and both were invisible:
 
