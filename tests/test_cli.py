@@ -2690,8 +2690,8 @@ def test_del_all_ODMAWIA_bez_potwierdzenia_i_pokazuje_co_by_skasowal(
     wyjscie = capsys.readouterr()
     razem = wyjscie.out + wyjscie.err
     assert "a" in razem and "b" in razem, "odmowa ma pokazac, co jest na celowniku"
-    assert "--yes-delete a --yes-delete b" in razem, \
-        "odmowa ma podac gotowa komende, po jednej fladze na pokoj"
+    assert "--yes-delete=a" in razem and "--yes-delete=b" in razem, \
+        "odmowa ma podac gotowa komende, po jednym argumencie na pokoj"
     assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists()
 
 
@@ -2883,3 +2883,55 @@ def test_stop_all_NAZYWA_pominiete_pokoje(tmp_path, monkeypatch, capsys):
     cli.main(["stop", "--all"])
     wyjscie = capsys.readouterr().out
     assert "stoi" in wyjscie, "pominiety pokoj musi byc nazwany, nie przemilczany"
+
+
+@pytest.mark.parametrize("czasownik", ["start", "stop", "restart", "del"])
+def test_czasownik_BEZ_name_dalej_bierze_pokoj_domyslny(czasownik, tmp_path,
+                                                        monkeypatch, capsys):
+    """REGRESJA, ktora sam wprowadzilem w 73f7eb3 i zglosil recenzent.
+
+    Zmiana `--name` na `default=None` byla potrzebna, zeby odroznic „czlowiek
+    wpisal nazwe" od „wzieta z domyslnej" — ale znormalizowalem ja tylko
+    w `cmd_del`. Pozostale trzy szly z `None` prosto do `hub_pid`/`hub_dir`
+    i konczyly sie `bad hub name: None`, czyli zlamaniem kontraktu domyslnego
+    pokoju przy NAJCZESTSZEJ komendzie operatora.
+
+    Suita tego nie zlapala, bo nie miala ani jednego testu wolajacego czasownik
+    BEZ `--name`. Ten test istnieje po to, zeby ta droga nigdy nie byla pusta."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub(cli.DEFAULT_HUB, 8987)
+    # `start`/`restart` naprawde odpalaja proces w tle. Pierwsza wersja tego
+    # testu zostawila po suicie ZYWY hub na porcie 8987 — czyli test dolozyl
+    # do maszyny demona, ktorego nikt nie zamawial. Podmieniamy sam spawn:
+    # sprawdzamy WYBOR POKOJU, a nie to, czy proces wstaje (to jest pokryte
+    # osobno i tam swiadomie).
+    monkeypatch.setattr(cli, "_spawn_detached", lambda argv, log: 999999)
+    monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, nazwa: False)
+    cli.main([czasownik])
+    razem = capsys.readouterr()
+    assert "bad hub name: None" not in (razem.out + razem.err), \
+        f"`agentmachi {czasownik}` bez --name zgubil pokoj domyslny"
+
+
+def test_gotowa_komenda_przezywa_nazwe_wygladajaca_jak_FLAGA(tmp_path,
+                                                             monkeypatch,
+                                                             capsys):
+    """Recenzent: `hub_dir` nie zabrania nazwy zaczynajacej sie od myslnika,
+    wiec pokoj moze nazywac sie `--all`. Cytowana OSOBNO wartosc traci cudzyslow
+    przy wklejeniu i powloka odda ja jako OPCJE, nie jako nazwe.
+
+    Dlatego cytujemy CALY argument razem z nazwa flagi (`--yes-delete=<nazwa>`):
+    po utracie cudzyslowow dalej jest to jeden token i argparse czyta go jako
+    wartosc."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("--all", 8988)
+    cli.main(["del", "--all"])
+    podpowiedz = capsys.readouterr().err
+    import shlex
+    linia = [w for w in podpowiedz.splitlines() if "if you are sure" in w][0]
+    tokeny = shlex.split(linia.split("if you are sure:")[1])
+    assert "--yes-delete=--all" in tokeny, \
+        f"gotowa komenda rozpada sie na nazwie wygladajacej jak flaga: {tokeny}"
+    # I round-trip: to, co podpowiedzielismy, ma naprawde zadzialac.
+    assert cli.main(tokeny[1:]) == 0
+    assert not cli.hub_dir("--all").exists()

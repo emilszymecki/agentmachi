@@ -1217,6 +1217,7 @@ def cmd_stop(args):
                   file=sys.stdout if ok else sys.stderr)
             rc = rc or (0 if ok else 1)
         return rc
+    args.name = args.name or DEFAULT_HUB
     ok, komunikat = stop_hub(args.name)
     print(f"agentmachi: {komunikat}",
           file=sys.stdout if ok else sys.stderr)
@@ -1327,6 +1328,7 @@ def cmd_start(args):
         return 1
     if getattr(args, "all", False):
         return _start_all(args)
+    args.name = args.name or DEFAULT_HUB
     running = hub_pid(args.name)
     if running is not None and _pid_is_our_hub(running, args.name):
         print(f"agentmachi: room {args.name!r} is already running "
@@ -1454,6 +1456,7 @@ def cmd_restart(args):
             rc = cmd_restart(argparse.Namespace(
                 name=nazwa, port=None, bind=None, all=False)) or rc
         return rc
+    args.name = args.name or DEFAULT_HUB
     # Kolizje portu rozstrzygamy PRZED `os.kill`, nie po. Kolejnosc jest tu
     # calym sensem: `cmd_start` ponizej i tak odmowi, gdy zadany port trzyma
     # inny pokoj — ale wtedy ten pokoj jest juz UBITY, wiec komenda, ktora
@@ -1734,7 +1737,12 @@ def _del_all(args):
     # nieodwracalnej dwuznacznosc potwierdzenia jest sama w sobie usterka.
     # `shlex.quote` bo nazwa moze zawierac spacje i metaznaki powloki, a to
     # zdanie czlowiek kopiuje do terminala. Zgloszone przez recenzenta.
-    kanoniczna = " ".join(f"--yes-delete {shlex.quote(n)}" for n in zatrzymane)
+    # Cytujemy CALY argument razem z nazwa flagi. `hub_dir` nie zabrania
+    # nazwy zaczynajacej sie od myslnika, wiec pokoj moze nazywac sie `--all`:
+    # osobno cytowana wartosc po utracie cudzyslowow zostaje odczytana przez
+    # powloke i argparse jako OPCJA, nie jako nazwa. Zgloszone przez
+    # recenzenta razem z testem round-trip gotowej komendy.
+    kanoniczna = " ".join(shlex.quote(f"--yes-delete={n}") for n in zatrzymane)
     if not zatrzymane:
         print("agentmachi: no stopped rooms to delete")
         if dzialajace:
@@ -1758,17 +1766,18 @@ def _del_all(args):
         print(f"  if you are sure:  agentmachi del --all {kanoniczna}",
               file=sys.stderr)
         return 1
-    rc = 0
+    rc, udane, nieudane = 0, [], []
     for nazwa in zatrzymane:
         ok, komunikat = delete_hub(nazwa, nazwa)
         print(f"agentmachi: {komunikat}",
               file=sys.stdout if ok else sys.stderr)
+        (udane if ok else nieudane).append(nazwa)
         rc = rc or (0 if ok else 1)
-    if dzialajace:
-        # NIE po cichu: milczenie znaczyloby dla czlowieka "skasowalem
-        # wszystko", a to nieprawda.
-        print(f"agentmachi: left running, not deleted: "
-              f"{', '.join(dzialajace)}")
+    # Linie per pokoj mowia, co sie stalo z kazdym z osobna; to zdanie mowi,
+    # czy operacja jako CALOSC wyszla. Czlowiek czyta ostatnia linie.
+    print(f"agentmachi: deleted {len(udane)}, skipped (running) "
+          f"{len(dzialajace)}, failed {len(nieudane)}"
+          + (f" — running: {', '.join(dzialajace)}" if dzialajace else ""))
     return rc
 
 
