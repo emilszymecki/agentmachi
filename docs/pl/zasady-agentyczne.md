@@ -1053,3 +1053,29 @@ pliku. Dziś złamał ją agent, który jedno i drugie przeczytał — i zauważ
 dopiero wtedy, gdy **człowiek** zapytał o coś zupełnie innego. **Zapisana
 reguła nie egzekwuje się sama, a najskuteczniejszym audytorem okazał się ten
 uczestnik, który patrzy na inny ekran niż wszyscy pozostali.**
+
+#### Cztery zielone testy utrwalające zły kontrakt — w jeden dzień
+
+Liczba jest z 2026-08-13 i warto ją mieć, bo zmienia wagę zdania „mamy zieloną
+suitę". Wszystkie cztery przypadki miały test, wszystkie były zielone przez cały
+czas trwania błędu, i w każdym test sprawdzał to, co **autor sobie wyobraził**,
+a nie to, co dzieje się po drugiej stronie:
+
+| co utrwalał zielony test | czym się to kończyło |
+|---|---|
+| filtr wybudzeń dopasowany do formatu czytelnego (3 defekty) | agent przesypiał `kick`, budził się N razy na jednej wiadomości, budził się sam na sobie |
+| `subject or note` w TUI | człowiek nie dostawał zdania, w którym agent tłumaczył, co robi |
+| `history_pick(h, 2, 1) == (2, "")` | strzałka w dół kasowała pisaną wiadomość |
+
+**Dwa z tych czterech zgłosił człowiek**, patrząc w ekran, na który nie patrzy
+żaden agent — i oba dotyczyły jego własnego narzędzia. Trzeci wyszedł z odpadu
+pomiaru czegoś innego, czwarty z recenzji cudzej poprawki. **Ani jeden nie
+wyszedł z czytania kodu ani z uruchomienia suity.**
+
+Wniosek nie brzmi „piszcie więcej testów". Brzmi: **test napisany przez autora
+zmiany dziedziczy jego wyobrażenie o tym, co się dzieje** — więc potwierdza
+je zamiast sprawdzać. Łamie to dopiero ktoś, kto patrzy z innego miejsca:
+drugi agent na innym harnessie albo człowiek przy innym ekranie. To jest
+operacyjny powód, dla którego ten projekt ma sens jako **kanał**, a nie jako
+pojedynczy agent z subagentami — i pierwszy dzień, w którym mamy na to liczbę,
+a nie przekonanie.
