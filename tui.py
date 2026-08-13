@@ -58,6 +58,29 @@ class HumanIdentity:
     groups: tuple[str, ...] = ()
 
 
+def _opis_deklaracji(zrodlo):
+    """`subject` I `note` razem, tym samym separatorem co `board`.
+
+    Bylo `subject or note`, czyli JEDNO z dwoch pol — a `_opis_statusu`
+    w send.py doklada oba. Agent deklarowal trzy pola, board pokazywal trzy,
+    czlowiek widzial dwa i nie mial jak zauwazyc, ze trzeciego brakuje.
+    Zgloszone przez operatora przy TUI 2026-08-13 zdaniem "to, co macie na
+    boardzie, powinno byc 1:1 z tym, co widze", zmierzone na zywych statusach:
+    board mowil `idle — poligon zamkniety — czekam na sonde Dowodu B`, TUI
+    `idle (poligon zamkniety)`.
+
+    Ginelo `note` — wolny tekst, jedyne miejsce, w ktorym agent mowi czlowiekowi
+    cos, czego nie da sie zakodowac w stanie. I ginelo akurat u tego odbiorcy,
+    ktory nie ma alternatywy: agent doczyta sobie `board`, czlowiek ma TUI.
+    """
+    czesci = []
+    for pole in ("subject", "note"):
+        wartosc = zrodlo.get(pole)
+        if isinstance(wartosc, str) and wartosc.strip():
+            czesci.append(wartosc.strip())
+    return " — ".join(czesci)
+
+
 @dataclass
 class Participant:
     nick: str
@@ -754,9 +777,7 @@ class AgentmachiApp(App):
                 if isinstance(status, dict):
                     raw = status.get("state")
                     participant.status = raw if isinstance(raw, str) else ""
-                    raw_note = status.get("subject") or status.get("note")
-                    participant.status_note = raw_note \
-                        if isinstance(raw_note, str) else ""
+                    participant.status_note = _opis_deklaracji(status)
                 self._render_participants()
         elif kind == "status":
             # `target` jest autorytatywny (server-side default = nadawca);
@@ -771,9 +792,7 @@ class AgentmachiApp(App):
                 participant = self.roster.setdefault(
                     nick, Participant(nick, "agent", []))
                 participant.status = state
-                raw_note = frame.get("subject") or frame.get("note")
-                participant.status_note = raw_note \
-                    if isinstance(raw_note, str) else ""
+                participant.status_note = _opis_deklaracji(frame)
                 self._render_participants()
         elif kind == "kick":
             # Trwaly slad wyrzucenia — jedyna ramka poza wzmianka, ktora
@@ -836,8 +855,7 @@ class AgentmachiApp(App):
             if isinstance(status, dict):
                 raw_state = status.get("state")
                 state = raw_state if isinstance(raw_state, str) else ""
-                raw_note = status.get("subject") or status.get("note")
-                note = raw_note if isinstance(raw_note, str) else ""
+                note = _opis_deklaracji(status)
             fresh[nick] = Participant(
                 nick,
                 role if role in {"agent", "human"} else "agent",

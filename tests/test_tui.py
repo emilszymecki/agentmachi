@@ -380,6 +380,61 @@ def test_snapshot_carries_status_into_roster(tmp_path):
     asyncio.run(scenario())
 
 
+def test_TUI_nie_gubi_note_gdy_jest_takze_subject(tmp_path):
+    """Zgloszone przez OPERATORA przy TUI 2026-08-13: "to, co macie na
+    boardzie, powinno byc 1:1 z tym, co widze".
+
+    Bylo `subject or note` — czyli TUI brala JEDNO z dwoch pol, a `board`
+    (send.py `_opis_statusu`) dokleja OBA. Agent deklarowal trzy pola, board
+    pokazywal trzy, czlowiek widzial dwa i nie wiedzial, ze trzeciego nie ma.
+
+    Zmierzone na zywym pokoju, na prawdziwych statusach:
+      board:  idle — poligon zamkniety — czekam na sonde Dowodu B
+      TUI:    idle (poligon zamkniety)
+    Ginelo `note` — wolny tekst, JEDYNE miejsce, w ktorym agent mowi
+    czlowiekowi cos, czego nie da sie zakodowac w stanie. Gubione akurat
+    u tego odbiorcy, dla ktorego ma najwieksza wartosc: agent moze sobie
+    doczytac `board`, czlowiek ma tylko TUI."""
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+        "beta": {"token": "tok-b", "role": "agent", "groups": []},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.apply_hub_frame({
+                "type": "participants_snapshot",
+                "participants": [
+                    {"nick": "beta", "role": "agent", "groups": [],
+                     "connected": True,
+                     "status": {"state": "idle", "subject": "poligon",
+                                "note": "czekam na sonde"}}]})
+            assert "poligon" in app.roster["beta"].status_note
+            assert "czekam na sonde" in app.roster["beta"].status_note, \
+                "note zginelo przy obecnym subject — czlowiek traci zdanie, " \
+                "ktorego nie ma gdzie indziej"
+            # Ta sama regula na ramce ZYWEJ, nie tylko w snapshocie.
+            await app.apply_hub_frame({
+                "type": "status", "from": "beta", "state": "working",
+                "subject": "filtr", "note": "blokuje mnie brak tokenu",
+                "seq": 50})
+            assert "filtr" in app.roster["beta"].status_note
+            assert "blokuje mnie brak tokenu" in app.roster["beta"].status_note
+            # Kazde z pol z osobna dalej dziala i NIE zostawia separatora.
+            await app.apply_hub_frame({
+                "type": "status", "from": "beta", "state": "review",
+                "note": "sam note", "seq": 51})
+            assert app.roster["beta"].status_note == "sam note"
+            await app.apply_hub_frame({
+                "type": "status", "from": "beta", "state": "review",
+                "subject": "sam subject", "seq": 52})
+            assert app.roster["beta"].status_note == "sam subject"
+    asyncio.run(scenario())
+
+
 # -- presence: lista online-only -------------------------------------------
 
 def test_roster_shows_only_connected_and_presence_updates(tmp_path):
