@@ -64,6 +64,36 @@ agentmachi del     --name <room> --yes-delete <room> # deletes it along with the
 This is not a `--yes` or a `--force` — the room name itself is the
 confirmation.
 
+**`--all` works on start, restart, stop and del**, and each one targets the
+rooms that are not yet in the state you asked for:
+
+```bash
+agentmachi start   --all      # every STOPPED room comes up
+agentmachi restart --all      # every RUNNING room is restarted
+agentmachi stop    --all      # every RUNNING room goes down
+agentmachi del     --all --yes-delete <a> --yes-delete <b>   # STOPPED rooms, forever
+```
+
+A room already in the target state is a no-op, not an error: `--all` names the
+end state, not a number of operations. One room failing does not stop the rest
+— the loop finishes and reports per room, then exits non-zero.
+
+Every one of them names the rooms it **skipped**, because silence there reads as
+"I did all of them".
+
+`del --all` never touches a running room. Its confirmation is `--yes-delete`
+**repeated once per room**, and the set must match what is on disk at that
+moment. Two weaker designs were tried and rejected on review: a count is not
+enough (the same number can describe a different set, so a room that appeared
+since the human last looked would be deleted unseen), and one comma-separated
+list is ambiguous (a room may legally be called `a,b`). No separator, no
+ambiguity. Same rule as for one room — type what disappears. The refusal prints
+the ready command with every name shell-quoted.
+
+`--all` cannot be combined with `--name`, nor with `--port`/`--bind` on
+start/restart: one value cannot serve every room, and guessing which target
+wins is worse than an error.
+
 **Room name:** if the human did not give one, suggest something tied to their
 project and simply use it. Do not interrogate them about the name, the port or
 the bind — bind has a sensible default and the port picks itself: a new room

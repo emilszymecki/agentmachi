@@ -2674,14 +2674,14 @@ def test_board_odmowa_klienta_to_niezerowy_kod(home, monkeypatch, capsys):
 
 def test_del_all_ODMAWIA_bez_potwierdzenia_i_pokazuje_co_by_skasowal(
         tmp_path, monkeypatch, capsys):
-    """Potwierdzeniem przy `--all` jest LICZBA, nie flaga — z tego samego
-    powodu, dla ktorego przy jednym pokoju jest nim nazwa: „flage dopisuje sie
-    odruchowo, a nazwe trzeba przeczytac" (`delete_hub`).
+    """Potwierdzeniem przy `--all` jest DOKLADNA LISTA NAZW, po jednej na
+    powtorzona flage — ta sama zasada co przy jednym pokoju: „flage dopisuje
+    sie odruchowo, a nazwe trzeba przeczytac" (`delete_hub`).
 
-    Liczba ma nad stalym slowem jedna przewage, ktora jest calym sensem tego
-    wyboru: WIAZE SIE ZE STANEM. Jesli miedzy `list` a ta komenda pojawi sie
-    nowy pokoj, liczba przestaje pasowac i czlowiek dostaje odmowe zamiast
-    cichego skasowania czegos, czego nie widzial."""
+    DOCSTRING POPRAWIONY: pierwsza wersja mowila, ze potwierdzeniem jest
+    LICZBA, i zostala martwa po zmianie kontraktu. Zwrocil na to uwage
+    recenzent — martwy docstring w tescie jest gorszy niz jego brak, bo
+    opisuje zasade, ktorej kod juz nie ma, a test obok przechodzi."""
     monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
     cli.ensure_hub("a", 8951)
     cli.ensure_hub("b", 8952)
@@ -2690,7 +2690,8 @@ def test_del_all_ODMAWIA_bez_potwierdzenia_i_pokazuje_co_by_skasowal(
     wyjscie = capsys.readouterr()
     razem = wyjscie.out + wyjscie.err
     assert "a" in razem and "b" in razem, "odmowa ma pokazac, co jest na celowniku"
-    assert "--yes-delete a,b" in razem, "odmowa ma podac gotowa komende"
+    assert "--yes-delete a --yes-delete b" in razem, \
+        "odmowa ma podac gotowa komende, po jednej fladze na pokoj"
     assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists()
 
 
@@ -2823,3 +2824,62 @@ def test_all_z_portem_albo_bindem_to_ODMOWA(tmp_path, monkeypatch):
     cli.ensure_hub("a", 8973)
     assert cli.main(["start", "--all", "--port", "9000"]) == 1
     assert cli.main(["restart", "--all", "--bind", "0.0.0.0"]) == 1
+
+
+def test_del_all_NAZWA_Z_PRZECINKIEM_nie_udaje_dwoch_pokoi(tmp_path,
+                                                           monkeypatch):
+    """BLOKER zgloszony przez recenzenta na kanale 2026-08-13.
+
+    `hub_dir` odrzuca slash i poczatkowa kropke, ale NIE przecinek. Wiec
+    JEDEN pokoj o nazwie `a,b` i DWA pokoje `a` oraz `b` daja te sama
+    komende potwierdzajaca, jesli sklejac nazwy przecinkiem. Przy komendzie
+    nieodwracalnej dwuznacznosc potwierdzenia jest sama w sobie usterka —
+    czlowiek potwierdza cos innego, niz mysli.
+
+    Dlatego potwierdzenie jest POWTARZALNE, po jednej nazwie na flage:
+    separatora nie ma, wiec nie ma czego pomylic."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a,b", 8981)
+    # Sklejenie przecinkiem opisuje ten pokoj tak samo jak zestaw {a, b}.
+    # Kontrakt ma to odroznic: JEDNA flaga z pelna nazwa przechodzi.
+    assert cli.main(["del", "--all", "--yes-delete", "a,b"]) == 0
+    assert not cli.hub_dir("a,b").exists()
+
+
+def test_del_all_POWTARZALNA_FLAGA_zamiast_sklejania(tmp_path, monkeypatch):
+    """Dwa pokoje = dwie flagi. Nie ma separatora, wiec nazwa moze zawierac
+    cokolwiek, co przezyje `hub_dir`."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a", 8982)
+    cli.ensure_hub("b", 8983)
+    assert cli.main(["del", "--all", "--yes-delete", "a"]) == 1
+    assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists()
+    assert cli.main(["del", "--all",
+                     "--yes-delete", "a", "--yes-delete", "b"]) == 0
+    assert not cli.hub_dir("a").exists() and not cli.hub_dir("b").exists()
+
+
+def test_all_z_nazwa_ROWNA_DOMYSLNEJ_tez_jest_odmowa(tmp_path, monkeypatch):
+    """BLOKER zgloszony przez recenzenta: wykrywanie jawnego `--name` przez
+    porownanie z DEFAULT_HUB przepuszcza `--all --name <dokladnie DEFAULT_HUB>`.
+
+    Sprzecznosc jest ta sama niezaleznie od tego, jaka nazwe czlowiek wpisal —
+    liczy sie to, ZE ja wpisal, a nie jaka."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub(cli.DEFAULT_HUB, 8984)
+    assert cli.main(["del", "--all", "--name", cli.DEFAULT_HUB,
+                     "--yes-delete", cli.DEFAULT_HUB]) == 1
+    assert cli.hub_dir(cli.DEFAULT_HUB).exists()
+
+
+def test_stop_all_NAZYWA_pominiete_pokoje(tmp_path, monkeypatch, capsys):
+    """Recenzent: `--all` filtruje cele i milczy o reszcie. Milczenie czyta sie
+    jak „zrobilem wszystko", a to nieprawda — ta sama zasada, ktora przy
+    `del --all` kazala wymieniac dzialajace z nazwy."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("chodzi", 8985)
+    cli.ensure_hub("stoi", 8986)
+    (cli.hub_dir("chodzi") / "hub.pid").write_text(str(os.getpid()))
+    cli.main(["stop", "--all"])
+    wyjscie = capsys.readouterr().out
+    assert "stoi" in wyjscie, "pominiety pokoj musi byc nazwany, nie przemilczany"

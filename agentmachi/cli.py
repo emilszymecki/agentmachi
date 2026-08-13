@@ -19,6 +19,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import signal
 import socket
@@ -1199,7 +1200,13 @@ def cmd_stop(args):
         # Bez potwierdzenia, bo `stop` jest ODWRACALNY: `start` przywraca
         # historie i tokeny. Potwierdzenie przy operacji odwracalnej uczy je
         # klikac odruchowo, a wtedy przestaje dzialac tam, gdzie jest potrzebne.
-        cele = _cele_all(True)
+        args.name = None
+        cele = sorted(_cele_all(True))
+        pominiete = sorted(_cele_all(False))
+        if pominiete:
+            # Milczenie o reszcie czyta sie jak "zrobilem wszystko".
+            print(f"agentmachi: already stopped, skipped: "
+                  f"{', '.join(pominiete)}")
         if not cele:
             print("agentmachi: no running rooms")
             return 0
@@ -1301,7 +1308,10 @@ def _start_all(args):
     niezero. Inaczej jeden zajety port zatrzymywalby start calej reszty, a to
     jest dokladnie odwrotnosc tego, po co czlowiek pisze `--all`.
     """
-    cele = _cele_all(False)
+    cele = sorted(_cele_all(False))
+    pominiete = sorted(_cele_all(True))
+    if pominiete:
+        print(f"agentmachi: already running, skipped: {', '.join(pominiete)}")
     if not cele:
         print("agentmachi: no stopped rooms — everything is already running")
         return 0
@@ -1431,7 +1441,11 @@ def cmd_restart(args):
         # Cele liczone RAZ, na poczatku: inaczej pokoj zatrzymany w polowie
         # petli przez kogos innego zostalby wciagniety do restartu, czyli
         # `restart --all` potrafilby URUCHOMIC cos, co bylo wylaczone.
-        cele = _cele_all(True)
+        cele = sorted(_cele_all(True))
+        pominiete = sorted(_cele_all(False))
+        if pominiete:
+            print(f"agentmachi: not running, skipped: "
+                  f"{', '.join(pominiete)}")
         if not cele:
             print("agentmachi: no running rooms")
             return 0
@@ -1646,6 +1660,21 @@ def delete_hub(name, confirm):
     return True, f"room {name!r} deleted{ogon}"
 
 
+def _potwierdzenia(wartosc):
+    """Znormalizuj `--yes-delete` do LISTY nazw.
+
+    CLI daje liste (flaga jest powtarzalna), ale `cmd_del` wolaja tez testy
+    i kod, ktore podaja pojedynczy string — i ten kontrakt nie byl bledny,
+    wiec go nie lamiemy. Bez tej normalizacji `list("pokoj")` daje piec liter
+    i komenda odmawia z bledu, ktorego nikt nie popelnil.
+    """
+    if wartosc is None:
+        return []
+    if isinstance(wartosc, str):
+        return [wartosc]
+    return list(wartosc)
+
+
 def _cele_all(dzialajace):
     """Nazwy pokoi w zadanym stanie, w kolejnosci z `hub_rows()`.
 
@@ -1668,7 +1697,11 @@ def _all_kontra_name(args):
     """
     if not getattr(args, "all", False):
         return False
-    if args.name != DEFAULT_HUB:
+    if args.name is not None:
+        # JAWNOSC, nie wartosc. Porownanie z DEFAULT_HUB przepuszczalo
+        # `--all --name <dokladnie DEFAULT_HUB>` — a sprzecznosc jest ta sama
+        # niezaleznie od tego, jaka nazwe czlowiek wpisal. Liczy sie to, ZE ja
+        # wpisal. Zgloszone przez recenzenta na kanale 2026-08-13.
         print(f"agentmachi: --all and --name {args.name!r} contradict each "
               f"other; pick one", file=sys.stderr)
         return True
@@ -1695,14 +1728,20 @@ def _del_all(args):
     """
     zatrzymane = sorted(_cele_all(False))
     dzialajace = sorted(_cele_all(True))
-    kanoniczna = ",".join(zatrzymane)
+    # POWTARZALNA flaga, nie sklejanie przecinkiem. `hub_dir` odrzuca slash
+    # i poczatkowa kropke, ale NIE przecinek — wiec jeden pokoj `a,b` i zestaw
+    # {a, b} dawaly te sama komende potwierdzajaca. Przy operacji
+    # nieodwracalnej dwuznacznosc potwierdzenia jest sama w sobie usterka.
+    # `shlex.quote` bo nazwa moze zawierac spacje i metaznaki powloki, a to
+    # zdanie czlowiek kopiuje do terminala. Zgloszone przez recenzenta.
+    kanoniczna = " ".join(f"--yes-delete {shlex.quote(n)}" for n in zatrzymane)
     if not zatrzymane:
         print("agentmachi: no stopped rooms to delete")
         if dzialajace:
             print(f"agentmachi: still running (untouched): "
                   f"{', '.join(dzialajace)}")
         return 0
-    podane = [c.strip() for c in (args.confirm or "").split(",") if c.strip()]
+    podane = _potwierdzenia(args.confirm)
     if sorted(podane) != zatrzymane:
         print(f"this deletes {len(zatrzymane)} room(s) FOREVER (tokens, "
               f"rules, howto, the whole conversation history):",
@@ -1716,8 +1755,8 @@ def _del_all(args):
             print(f"the list you passed does not match what is on disk "
                   f"right now — look again, do not retype blindly",
                   file=sys.stderr)
-        print(f"  if you are sure:  agentmachi del --all --yes-delete "
-              f"{kanoniczna}", file=sys.stderr)
+        print(f"  if you are sure:  agentmachi del --all {kanoniczna}",
+              file=sys.stderr)
         return 1
     rc = 0
     for nazwa in zatrzymane:
@@ -1739,7 +1778,13 @@ def cmd_del(args):
         return 1
     if getattr(args, "all", False):
         return _del_all(args)
-    ok, komunikat = delete_hub(args.name, args.confirm)
+    args.name = args.name or DEFAULT_HUB
+    podane = _potwierdzenia(args.confirm)
+    if len(podane) > 1:
+        print("agentmachi: several --yes-delete without --all: name ONE room "
+              "or pass --all", file=sys.stderr)
+        return 1
+    ok, komunikat = delete_hub(args.name, podane[0] if podane else None)
     print(f"agentmachi: {komunikat}",
           file=sys.stdout if ok else sys.stderr)
     return 0 if ok else 1
@@ -2155,7 +2200,7 @@ def _build_parser():
     p = sub.add_parser("start",
                        help="run a room IN THE BACKGROUND and print its "
                             "address")
-    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--name", default=None)
     # default=None, zeby odroznic "user podal --port" od "wziete z configu":
     # jawny --port musi wygrac z zapisanym, inaczej pokoj przypiety do
     # zajetego portu nie ma jak wstac.
@@ -2169,7 +2214,7 @@ def _build_parser():
 
     p = sub.add_parser("restart",
                        help="stop and start a room with one command")
-    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--name", default=None)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--bind", default=None)
     p.add_argument("--all", action="store_true",
@@ -2177,12 +2222,14 @@ def _build_parser():
     p.set_defaults(fn=cmd_restart)
 
     p = sub.add_parser("del", help="delete a room (irreversible)")
-    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--name", default=None)
     p.add_argument("--all", action="store_true",
                    help="every STOPPED room; running ones are never touched")
-    p.add_argument("--yes-delete", dest="confirm", default=None,
-                   help="type the room name to confirm; with --all type the "
-                        "exact comma-separated list of rooms that will go")
+    p.add_argument("--yes-delete", dest="confirm", action="append",
+                   default=None,
+                   help="type the room name to confirm; with --all repeat it "
+                        "once per room — no separator, so a name containing "
+                        "a comma stays unambiguous")
     p.set_defaults(fn=cmd_del)
 
     p = sub.add_parser("list", help="which rooms exist and which are running")
@@ -2201,7 +2248,7 @@ def _build_parser():
 
     p = sub.add_parser("stop",
                        help="stop a hub (SIGTERM to the PID from hub.pid)")
-    p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--name", default=None)
     p.add_argument("--all", action="store_true",
                    help="every running room")
     p.set_defaults(fn=cmd_stop)

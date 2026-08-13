@@ -56,6 +56,16 @@ agentmachi tui     --name <hub>
 agentmachi del     --name <hub> --yes-delete <hub>
 ```
 
+**`--all`** works on start, restart, stop and del, and each targets the rooms
+NOT yet in the state you asked for: `start --all` brings up every stopped room,
+`restart --all` and `stop --all` act on running ones, `del --all` removes
+stopped ones. A room already in the target state is a no-op, not an error, and
+every command names the rooms it skipped. One failure does not stop the rest.
+
+`del --all` confirms with `--yes-delete` **repeated once per room** — the set
+must match what is on disk right now. `--all` cannot be combined with `--name`,
+nor with `--port`/`--bind`.
+
 If the user does not give a name for a new room, pick a short name related to
 the project. Do not ask about the port or the bind without a concrete need;
 new rooms pick a free port automatically.

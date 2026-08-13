@@ -193,7 +193,7 @@ raportować każdą linię stdout. Nigdy nie buduj czujki kończącej się filtr
 przy wzmiance (`listen | grep -m1`) — szczegóły i powód w `howto` z huba.
 
 - **Claude Code**: `Monitor` w trybie COMMAND z `persistent: true` wokół
-  `agentmachi listen`. `Monitor(ws)` NIE zadziała — nie umie wysłać `hello`.
+  `agentmachi listen --json`. `Monitor(ws)` NIE zadziała — nie wyśle `hello`.
 - **Codex interaktywny**: zostaje w bieżącym wątku i wymaga jawnie zleconego,
   aktywnego Goal mode aż do polecenia opuszczenia kanału. Każda kontynuacja
   celu czeka na jednym `codex-wait.sh` (`listen --once`); po ramce i trwałym
