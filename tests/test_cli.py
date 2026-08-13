@@ -2668,3 +2668,80 @@ def test_board_odmowa_klienta_to_niezerowy_kod(home, monkeypatch, capsys):
     assert cli.cmd_board(args) == 1
     err = capsys.readouterr().err
     assert "agentmachi board:" in err and "participants" in err
+
+
+# --- --all dla stop / restart / del: prosba operatora 2026-08-13 ---------
+
+def test_del_all_ODMAWIA_bez_potwierdzenia_i_pokazuje_co_by_skasowal(
+        tmp_path, monkeypatch, capsys):
+    """Potwierdzeniem przy `--all` jest LICZBA, nie flaga — z tego samego
+    powodu, dla ktorego przy jednym pokoju jest nim nazwa: „flage dopisuje sie
+    odruchowo, a nazwe trzeba przeczytac" (`delete_hub`).
+
+    Liczba ma nad stalym slowem jedna przewage, ktora jest calym sensem tego
+    wyboru: WIAZE SIE ZE STANEM. Jesli miedzy `list` a ta komenda pojawi sie
+    nowy pokoj, liczba przestaje pasowac i czlowiek dostaje odmowe zamiast
+    cichego skasowania czegos, czego nie widzial."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a", 8951)
+    cli.ensure_hub("b", 8952)
+    rc = cli.main(["del", "--all"])
+    assert rc == 1
+    wyjscie = capsys.readouterr()
+    razem = wyjscie.out + wyjscie.err
+    assert "a" in razem and "b" in razem, "odmowa ma pokazac, co jest na celowniku"
+    assert "--yes-delete-all 2" in razem, "odmowa ma podac gotowa komende"
+    assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists()
+
+
+def test_del_all_ZLA_LICZBA_nie_kasuje_niczego(tmp_path, monkeypatch):
+    """Zla liczba to nie literowka do wybaczenia — to znak, ze czlowiek widzial
+    inny stan niz ten na dysku."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a", 8953)
+    cli.ensure_hub("b", 8954)
+    assert cli.main(["del", "--all", "--yes-delete-all", "1"]) == 1
+    assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists()
+
+
+def test_del_all_kasuje_ZATRZYMANE_i_OMIJA_dzialajace(tmp_path, monkeypatch,
+                                                      capsys):
+    """Pokoj DZIALAJACY nie jest kasowany i nie jest pomijany po cichu —
+    zostaje wymieniony z nazwy. Cisza tutaj znaczylaby dla czlowieka
+    „skasowalem wszystko", a to nieprawda."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("stoi", 8955)
+    cli.ensure_hub("chodzi", 8956)
+    (cli.hub_dir("chodzi") / "hub.pid").write_text(str(os.getpid()))
+    rc = cli.main(["del", "--all", "--yes-delete-all", "1"])
+    assert rc == 0
+    razem = capsys.readouterr().out
+    assert not cli.hub_dir("stoi").exists(), "zatrzymany mial zniknac"
+    assert cli.hub_dir("chodzi").exists(), "dzialajacy NIE moze zostac skasowany"
+    assert "chodzi" in razem, "pominiety pokoj musi byc nazwany, nie przemilczany"
+
+
+def test_all_razem_z_name_to_ODMOWA_a_nie_zgadywanie(tmp_path, monkeypatch):
+    """Dwa sprzeczne wskazania celu. Zgadywanie, ktore wygrywa, przy komendzie
+    nieodwracalnej jest gorsze niz blad."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a", 8957)
+    assert cli.main(["del", "--all", "--name", "a",
+                     "--yes-delete-all", "1"]) == 1
+    assert cli.hub_dir("a").exists()
+
+
+def test_stop_all_bez_potwierdzenia_bo_jest_odwracalny(tmp_path, monkeypatch,
+                                                       capsys):
+    """`stop` jest odwracalny (`start` wszystko przywraca), wiec `--all` idzie
+    bez potwierdzenia — symetrycznie do tego, ze pojedynczy `stop` tez go nie
+    wymaga. Potwierdzenie przy operacji odwracalnej uczy je klikac odruchowo,
+    a wtedy przestaje dzialac tam, gdzie jest potrzebne."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a", 8958)
+    cli.ensure_hub("b", 8959)
+    rc = cli.main(["stop", "--all"])
+    razem = capsys.readouterr().out + capsys.readouterr().err
+    assert rc == 0, "brak dzialajacych pokoi to nie jest blad"
+    assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists(), \
+        "stop nie ma prawa niczego skasowac"

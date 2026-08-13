@@ -1193,6 +1193,23 @@ def stop_hub(name):
 
 
 def cmd_stop(args):
+    if _all_kontra_name(args):
+        return 1
+    if getattr(args, "all", False):
+        # Bez potwierdzenia, bo `stop` jest ODWRACALNY: `start` przywraca
+        # historie i tokeny. Potwierdzenie przy operacji odwracalnej uczy je
+        # klikac odruchowo, a wtedy przestaje dzialac tam, gdzie jest potrzebne.
+        cele = _cele_all(True)
+        if not cele:
+            print("agentmachi: no running rooms")
+            return 0
+        rc = 0
+        for nazwa in cele:
+            ok, komunikat = stop_hub(nazwa)
+            print(f"agentmachi: {komunikat}",
+                  file=sys.stdout if ok else sys.stderr)
+            rc = rc or (0 if ok else 1)
+        return rc
     ok, komunikat = stop_hub(args.name)
     print(f"agentmachi: {komunikat}",
           file=sys.stdout if ok else sys.stderr)
@@ -1381,6 +1398,21 @@ def cmd_restart(args):
     dzis wymagal sekwencji stop -> start -> list, dyktowanej przez czat.
     Czekamy, az stary proces NAPRAWDE zejdzie — inaczej `start` zobaczy
     wlasny, jeszcze zajety port i odmowi."""
+    if _all_kontra_name(args):
+        return 1
+    if getattr(args, "all", False):
+        # Cele liczone RAZ, na poczatku: inaczej pokoj zatrzymany w polowie
+        # petli przez kogos innego zostalby wciagniety do restartu, czyli
+        # `restart --all` potrafilby URUCHOMIC cos, co bylo wylaczone.
+        cele = _cele_all(True)
+        if not cele:
+            print("agentmachi: no running rooms")
+            return 0
+        rc = 0
+        for nazwa in cele:
+            rc = cmd_restart(argparse.Namespace(
+                name=nazwa, port=None, bind=None, all=False)) or rc
+        return rc
     # Kolizje portu rozstrzygamy PRZED `os.kill`, nie po. Kolejnosc jest tu
     # calym sensem: `cmd_start` ponizej i tak odmowi, gdy zadany port trzyma
     # inny pokoj — ale wtedy ten pokoj jest juz UBITY, wiec komenda, ktora
@@ -1587,8 +1619,78 @@ def delete_hub(name, confirm):
     return True, f"room {name!r} deleted{ogon}"
 
 
+def _cele_all(dzialajace):
+    """Nazwy pokoi w zadanym stanie, w kolejnosci z `hub_rows()`.
+
+    Jedno zrodlo dla `--all` i dla `list`, zeby czlowiek nie mogl zobaczyc
+    w jednym czegos innego niz w drugim. Prosba operatora 2026-08-13.
+    """
+    return [r["name"] for r in hub_rows() if bool(r["running"]) is dzialajace]
+
+
+def _all_kontra_name(args):
+    """`--all` razem z jawnym `--name` to ODMOWA, nie zgadywanie.
+
+    Dwa sprzeczne wskazania celu przy komendzie, ktora potrafi byc
+    nieodwracalna. Zgadywanie, ktore wygrywa, jest tu gorsze niz blad.
+    """
+    if getattr(args, "all", False) and args.name != DEFAULT_HUB:
+        print(f"agentmachi: --all and --name {args.name!r} contradict each "
+              f"other; pick one", file=sys.stderr)
+        return True
+    return False
+
+
+def _del_all(args):
+    """Skasuj WSZYSTKIE zatrzymane pokoje. Dzialajacych nie tyka.
+
+    Potwierdzeniem jest LICZBA, nie flaga — z tego samego powodu, dla ktorego
+    przy jednym pokoju jest nim nazwa (`delete_hub`): flage dopisuje sie
+    odruchowo. Liczba ma nad stalym slowem przewage, ktora jest calym sensem
+    tego wyboru: WIAZE SIE ZE STANEM. Gdy miedzy `list` a ta komenda pojawi
+    sie nowy pokoj, liczba przestaje pasowac i czlowiek dostaje odmowe zamiast
+    cichego skasowania czegos, czego nie widzial.
+    """
+    zatrzymane = _cele_all(False)
+    dzialajace = _cele_all(True)
+    if not zatrzymane:
+        print("agentmachi: no stopped rooms to delete")
+        if dzialajace:
+            print(f"agentmachi: still running (untouched): "
+                  f"{', '.join(dzialajace)}")
+        return 0
+    if args.confirm_all != len(zatrzymane):
+        print(f"this deletes {len(zatrzymane)} room(s) FOREVER (tokens, "
+              f"rules, howto, the whole conversation history):",
+              file=sys.stderr)
+        for nazwa in zatrzymane:
+            print(f"  {nazwa}", file=sys.stderr)
+        if dzialajace:
+            print(f"running rooms are NOT touched: "
+                  f"{', '.join(dzialajace)}", file=sys.stderr)
+        print(f"  if you are sure:  agentmachi del --all --yes-delete-all "
+              f"{len(zatrzymane)}", file=sys.stderr)
+        return 1
+    rc = 0
+    for nazwa in zatrzymane:
+        ok, komunikat = delete_hub(nazwa, nazwa)
+        print(f"agentmachi: {komunikat}",
+              file=sys.stdout if ok else sys.stderr)
+        rc = rc or (0 if ok else 1)
+    if dzialajace:
+        # NIE po cichu: milczenie znaczyloby dla czlowieka "skasowalem
+        # wszystko", a to nieprawda.
+        print(f"agentmachi: left running, not deleted: "
+              f"{', '.join(dzialajace)}")
+    return rc
+
+
 def cmd_del(args):
     """Skasuj pokoj. Nieodwracalne: znikaja tokeny, rules, howto i log."""
+    if _all_kontra_name(args):
+        return 1
+    if getattr(args, "all", False):
+        return _del_all(args)
     ok, komunikat = delete_hub(args.name, args.confirm)
     print(f"agentmachi: {komunikat}",
           file=sys.stdout if ok else sys.stderr)
@@ -2020,12 +2122,21 @@ def _build_parser():
     p.add_argument("--name", default=DEFAULT_HUB)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--bind", default=None)
+    p.add_argument("--all", action="store_true",
+                   help="every running room")
     p.set_defaults(fn=cmd_restart)
 
     p = sub.add_parser("del", help="delete a room (irreversible)")
     p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--all", action="store_true",
+                   help="every STOPPED room; running ones are never touched")
     p.add_argument("--yes-delete", dest="confirm", default=None,
                    help="type the room name to confirm")
+    p.add_argument("--yes-delete-all", dest="confirm_all", type=int,
+                   default=None,
+                   help="with --all: type HOW MANY rooms will be deleted; "
+                        "a mismatch refuses, so a room that appeared since "
+                        "your last `list` cannot be deleted unseen")
     p.set_defaults(fn=cmd_del)
 
     p = sub.add_parser("list", help="which rooms exist and which are running")
@@ -2045,6 +2156,8 @@ def _build_parser():
     p = sub.add_parser("stop",
                        help="stop a hub (SIGTERM to the PID from hub.pid)")
     p.add_argument("--name", default=DEFAULT_HUB)
+    p.add_argument("--all", action="store_true",
+                   help="every running room")
     p.set_defaults(fn=cmd_stop)
 
     p = sub.add_parser("card", help="show the hub entry card")
