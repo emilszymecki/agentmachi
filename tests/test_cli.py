@@ -2935,3 +2935,29 @@ def test_gotowa_komenda_przezywa_nazwe_wygladajaca_jak_FLAGA(tmp_path,
     # I round-trip: to, co podpowiedzielismy, ma naprawde zadzialac.
     assert cli.main(tokeny[1:]) == 0
     assert not cli.hub_dir("--all").exists()
+
+
+@pytest.mark.parametrize("czasownik,slowo", [
+    ("stop", "stopped"), ("start", "started"), ("del", "deleted")])
+def test_all_konczy_KATEGORYCZNYM_podsumowaniem(czasownik, slowo, tmp_path,
+                                                monkeypatch, capsys):
+    """Linie per pokoj mowia, co sie stalo z KAZDYM. Ostatnia linia mowi, czy
+    operacja jako CALOSC wyszla — i to ja czlowiek czyta.
+
+    Do 2026-08-13 mial ja tylko `del --all`, mimo ze kontrakt uzgodniony na
+    kanale obejmowal wszystkie cztery czasowniki. Zglosil to recenzent jako
+    niedomkniecie: niespojnosc miedzy komendami tej samej rodziny znaczy, ze
+    czlowiek musi pamietac, przy ktorej z nich moze zaufac ostatniej linii."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("jeden", 8977)
+    if czasownik in ("stop",):
+        (cli.hub_dir("jeden") / "hub.pid").write_text(str(os.getpid()))
+    monkeypatch.setattr(cli, "_spawn_detached", lambda argv, log: 999999)
+    monkeypatch.setattr(cli, "stop_hub", lambda n: (True, f"stopped {n}"))
+    if czasownik == "del":
+        cli.main(["del", "--all", "--yes-delete", "jeden"])
+    else:
+        cli.main([czasownik, "--all"])
+    ostatnia = [w for w in capsys.readouterr().out.splitlines() if w.strip()][-1]
+    assert slowo in ostatnia and "failed" in ostatnia, \
+        f"ostatnia linia nie jest podsumowaniem: {ostatnia!r}"

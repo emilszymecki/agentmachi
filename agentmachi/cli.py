@@ -1210,12 +1210,15 @@ def cmd_stop(args):
         if not cele:
             print("agentmachi: no running rooms")
             return 0
-        rc = 0
+        rc, udane = 0, 0
         for nazwa in cele:
             ok, komunikat = stop_hub(nazwa)
             print(f"agentmachi: {komunikat}",
                   file=sys.stdout if ok else sys.stderr)
+            udane += 1 if ok else 0
             rc = rc or (0 if ok else 1)
+        print(f"agentmachi: stopped {udane}, skipped {len(pominiete)}, "
+              f"failed {len(cele) - udane}")
         return rc
     args.name = args.name or DEFAULT_HUB
     ok, komunikat = stop_hub(args.name)
@@ -1316,10 +1319,17 @@ def _start_all(args):
     if not cele:
         print("agentmachi: no stopped rooms — everything is already running")
         return 0
-    rc = 0
+    rc, udane = 0, 0
     for nazwa in cele:
-        rc = cmd_start(argparse.Namespace(
-            name=nazwa, port=None, bind=None, all=False)) or rc
+        wynik = cmd_start(argparse.Namespace(
+            name=nazwa, port=None, bind=None, all=False))
+        udane += 1 if not wynik else 0
+        rc = rc or wynik
+    # Ta sama, kategoryczna ostatnia linia co przy `del --all`: linie wyzej
+    # mowia, co sie stalo z kazdym pokojem, ta mowi, czy operacja jako CALOSC
+    # wyszla. Czlowiek czyta ostatnia linie.
+    print(f"agentmachi: started {udane}, skipped {len(pominiete)}, "
+          f"failed {len(cele) - udane}")
     return rc
 
 
@@ -1451,10 +1461,14 @@ def cmd_restart(args):
         if not cele:
             print("agentmachi: no running rooms")
             return 0
-        rc = 0
+        rc, udane = 0, 0
         for nazwa in cele:
-            rc = cmd_restart(argparse.Namespace(
-                name=nazwa, port=None, bind=None, all=False)) or rc
+            wynik = cmd_restart(argparse.Namespace(
+                name=nazwa, port=None, bind=None, all=False))
+            udane += 1 if not wynik else 0
+            rc = rc or wynik
+        print(f"agentmachi: restarted {udane}, skipped {len(pominiete)}, "
+              f"failed {len(cele) - udane}")
         return rc
     args.name = args.name or DEFAULT_HUB
     # Kolizje portu rozstrzygamy PRZED `os.kill`, nie po. Kolejnosc jest tu

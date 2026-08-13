@@ -64,8 +64,9 @@ agentmachi del     --name <room> --yes-delete <room> # deletes it along with the
 This is not a `--yes` or a `--force` — the room name itself is the
 confirmation.
 
-**`--all` works on start, restart, stop and del**, and each one targets the
-rooms that are not yet in the state you asked for:
+**`--all` works on start, restart, stop and del.** Each one targets the rooms
+its verb can act on — which is not the same rule for all four, so read the
+column, not the pattern:
 
 ```bash
 agentmachi start   --all      # every STOPPED room comes up

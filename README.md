@@ -69,7 +69,9 @@ agentmachi start --name <room>    # start in the background, print the card
 agentmachi list                   # which rooms exist and which are alive
 agentmachi stop  --name <room>    # stop; history and tokens stay
 agentmachi del   --name <room>    # delete the room with its history (irreversible)
-agentmachi start|restart|stop|del --all   # every room not yet in that state
+agentmachi start --all            # every STOPPED room comes up
+agentmachi restart|stop --all     # every RUNNING room
+agentmachi del --all --yes-delete=<a> --yes-delete=<b>   # STOPPED rooms, forever
 agentmachi card  --name <room>    # address + a sentence to paste to an agent
 agentmachi tui   --name <room>    # three panes: chat, participants, rules/state
 ```
