@@ -531,11 +531,59 @@ def test_history_pick_w_gore_zatrzymuje_sie_na_najstarszym():
     assert tui.history_pick(h, pos, -1) == (0, "a")
 
 
-def test_history_pick_w_dol_wraca_do_pustego_szkicu():
+def test_history_pick_w_dol_ODDAJE_SZKIC_a_nie_pustke():
+    """KONTRAKT ZMIENIONY 2026-08-13 i stary byl bledny — dowod jest
+    zgloszeniem operatora z zywego TUI, nie przekonaniem:
+
+      "jak pisze aktualna wiadomosc i klikne strzalke w dol, to mi ja czysci
+       w historii jako wartosc przyszla, a przyszlej nie ma, wiec czysci mi
+       okno"
+
+    Poprzedni test utrwalal `(2, "")` i byl zielony przez caly czas, gdy blad
+    istnial — bo `""` czytalo sie jako "pusty szkic", a znaczylo "skasuj to,
+    co jest w polu". To sa dwie rozne rzeczy dokladnie wtedy, gdy w polu
+    cos JEST: szkic to tresc, ktorej jeszcze nie ma w historii, wiec zadne
+    "w dol" jej nie odzyska.
+
+    Teraz `None` znaczy jedno: nie ma czego podstawic Z HISTORII. Co zrobic
+    z polem, wie widget, ktory trzyma szkic — patrz test nizej."""
     h = ["a", "b"]
     assert tui.history_pick(h, 0, 1) == (1, "b")
-    assert tui.history_pick(h, 1, 1) == (2, "")
-    assert tui.history_pick(h, 2, 1) == (2, "")
+    assert tui.history_pick(h, 1, 1) == (2, None), \
+        "powrot z historii do szkicu nie moze podstawiac pustki"
+    assert tui.history_pick(h, 2, 1) == (2, None), \
+        "strzalka w dol w samym szkicu nie ma prawa dotknac pola"
+
+
+def test_MessageInput_strzalka_w_dol_NIE_KASUJE_pisanej_wiadomosci():
+    """Zgloszenie operatora, odtworzone na widgecie: piszesz i naciskasz dol.
+
+    Sprawdzamy tez droge powrotna, ktora jest ta sama usterka od drugiej
+    strony: gora-gora-dol musi oddac to, co pisales, a nie pustke. Bez
+    zapamietania szkicu przy WEJSCIU w historie draft ginie tak samo, tylko
+    ciszej — bo wtedy czlowiek sam nacisnal gore i latwiej uwierzy, ze tak
+    ma byc."""
+    inp = tui.MessageInput()
+    inp.remember("stara wiadomosc")
+
+    # 1. Piszesz swiezy szkic i naciskasz DOL. Pole ma zostac nietkniete.
+    inp.text = "wlasnie to pisze"
+    inp._history_step(1)
+    assert inp.text == "wlasnie to pisze", \
+        "strzalka w dol skasowala wiadomosc, ktorej nikt nie wyslal"
+
+    # 2. GORA wchodzi w historie, DOL wraca do TEGO SAMEGO szkicu.
+    inp._history_step(-1)
+    assert inp.text == "stara wiadomosc"
+    inp._history_step(1)
+    assert inp.text == "wlasnie to pisze", \
+        "powrot z historii oddal pustke zamiast szkicu"
+
+    # 3. Po wyslaniu szkic przestaje istniec — dol niczego nie wskrzesza.
+    inp.remember("wlasnie to pisze")
+    inp.text = ""
+    inp._history_step(1)
+    assert inp.text == ""
 
 
 def test_message_input_remember_nie_dubluje_powtorzen():

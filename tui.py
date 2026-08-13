@@ -149,17 +149,33 @@ def history_pick(history, pos, direction):
 
     Kontrakt jak w powloce. `pos == len(history)` znaczy „nie przegladam,
     jestem w swiezym szkicu". W gore cofa sie do najstarszego i TAM ZOSTAJE
-    (nie zawija — zawijanie gubi to, co wlasnie chciales znalezc); w dol
-    wraca do pustego szkicu. None = nie ma czego podstawic, nie dotykaj pola.
+    (nie zawija — zawijanie gubi to, co wlasnie chciales znalezc).
+    None = nie ma czego podstawic Z HISTORII, nie dotykaj pola.
+
+    W DOL NIE ZWRACA JUZ `""` i to jest zmiana kontraktu, nie poprawka
+    literowki. Zgloszone przez operatora przy zywym TUI 2026-08-13: pisal
+    wiadomosc, nacisnal strzalke w dol i pole sie WYCZYSCILO. Stary kontrakt
+    mowil „w dol wraca do pustego szkicu" i mylil dwie rozne rzeczy — „wroc
+    do szkicu" z „szkic jest pusty". Szkic nie jest pusty; szkic to jest to,
+    co czlowiek wlasnie pisze, a czego jeszcze nie ma w historii. `""`
+    kasowalo mu to bez odwolania.
+
+    Rozdzial odpowiedzialnosci: ta funkcja wie tylko o historii, wiec przy
+    powrocie do szkicu mowi None. Tekst szkicu zna wylacznie widget, ktory go
+    trzyma — i on go odtwarza.
     """
     if not history:
         return pos, None
     if direction < 0:
         nowy = max(0, min(pos, len(history)) - 1)
         return nowy, history[nowy]
-    nowy = min(len(history), pos + 1)
+    if pos >= len(history):
+        # Juz w szkicu. Przyszlosci nie ma i nie wolno niczego podstawiac —
+        # to jest dokladnie ten przypadek, ktory kasowal wpisywana wiadomosc.
+        return len(history), None
+    nowy = pos + 1
     if nowy >= len(history):
-        return len(history), ""
+        return len(history), None
     return nowy, history[nowy]
 
 
@@ -500,6 +516,7 @@ class MessageInput(TextArea):
         super().__init__(*args, **kwargs)
         self._history = []
         self._history_pos = 0
+        self._szkic = ""      # to, co czlowiek pisal, zanim wszedl w historie
 
     class Submitted(Message):
         """Operator zatwierdzil tekst (Enter) — do wyslania na hub."""
@@ -532,6 +549,9 @@ class MessageInput(TextArea):
         if text and (not self._history or self._history[-1] != text):
             self._history.append(text)
         self._history_pos = len(self._history)
+        # Szkic zostal wyslany, wiec przestaje istniec. Bez tego strzalka
+        # w dol po wyslaniu wskrzeszalaby tresc sprzed wysylki.
+        self._szkic = ""
 
     def action_history_prev(self) -> None:
         row, _ = self.cursor_location
@@ -547,12 +567,25 @@ class MessageInput(TextArea):
         self._history_step(1)
 
     def _history_step(self, direction) -> None:
+        # Szkic zapamietujemy w MOMENCIE WEJSCIA w historie, nie przy kazdym
+        # kroku — inaczej pierwsza strzalka w gore nadpisalaby go wpisem
+        # z historii i powrot w dol oddawalby nie to, co czlowiek pisal.
+        w_szkicu = self._history_pos >= len(self._history)
+        if w_szkicu and direction < 0:
+            self._szkic = self.text
         pos, tekst = history_pick(self._history, self._history_pos, direction)
+        wracamy_do_szkicu = pos >= len(self._history)
         self._history_pos = pos
-        if tekst is None:
+        if tekst is not None:
+            self.text = tekst
+            self.move_cursor(self.document.end)
             return
-        self.text = tekst
-        self.move_cursor(self.document.end)
+        # None z historii ma dwa znaczenia i tylko jedno z nich cos robi:
+        # powrot z przegladania do szkicu odtwarza szkic, a strzalka w dol
+        # w samym szkicu NIE RUSZA POLA (nie ma przyszlosci do pokazania).
+        if direction > 0 and wracamy_do_szkicu and not w_szkicu:
+            self.text = self._szkic
+            self.move_cursor(self.document.end)
 
 
 class AgentmachiApp(App):
