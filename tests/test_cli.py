@@ -2690,17 +2690,17 @@ def test_del_all_ODMAWIA_bez_potwierdzenia_i_pokazuje_co_by_skasowal(
     wyjscie = capsys.readouterr()
     razem = wyjscie.out + wyjscie.err
     assert "a" in razem and "b" in razem, "odmowa ma pokazac, co jest na celowniku"
-    assert "--yes-delete-all 2" in razem, "odmowa ma podac gotowa komende"
+    assert "--yes-delete a,b" in razem, "odmowa ma podac gotowa komende"
     assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists()
 
 
-def test_del_all_ZLA_LICZBA_nie_kasuje_niczego(tmp_path, monkeypatch):
-    """Zla liczba to nie literowka do wybaczenia — to znak, ze czlowiek widzial
-    inny stan niz ten na dysku."""
+def test_del_all_NIEPELNA_LISTA_nie_kasuje_niczego(tmp_path, monkeypatch):
+    """Niezgodna lista to nie literowka do wybaczenia — to znak, ze czlowiek
+    widzial inny stan niz ten na dysku."""
     monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
     cli.ensure_hub("a", 8953)
     cli.ensure_hub("b", 8954)
-    assert cli.main(["del", "--all", "--yes-delete-all", "1"]) == 1
+    assert cli.main(["del", "--all", "--yes-delete", "a"]) == 1
     assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists()
 
 
@@ -2713,7 +2713,7 @@ def test_del_all_kasuje_ZATRZYMANE_i_OMIJA_dzialajace(tmp_path, monkeypatch,
     cli.ensure_hub("stoi", 8955)
     cli.ensure_hub("chodzi", 8956)
     (cli.hub_dir("chodzi") / "hub.pid").write_text(str(os.getpid()))
-    rc = cli.main(["del", "--all", "--yes-delete-all", "1"])
+    rc = cli.main(["del", "--all", "--yes-delete", "stoi"])
     assert rc == 0
     razem = capsys.readouterr().out
     assert not cli.hub_dir("stoi").exists(), "zatrzymany mial zniknac"
@@ -2727,7 +2727,7 @@ def test_all_razem_z_name_to_ODMOWA_a_nie_zgadywanie(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
     cli.ensure_hub("a", 8957)
     assert cli.main(["del", "--all", "--name", "a",
-                     "--yes-delete-all", "1"]) == 1
+                     "--yes-delete", "a"]) == 1
     assert cli.hub_dir("a").exists()
 
 
@@ -2793,3 +2793,33 @@ def test_start_all_gdy_wszystko_juz_chodzi_NIE_jest_bledem(
     (cli.hub_dir("chodzi") / "hub.pid").write_text(str(os.getpid()))
     assert cli.main(["start", "--all"]) == 0
     assert "no stopped rooms" in capsys.readouterr().out
+
+
+def test_del_all_TEN_SAM_ROZMIAR_INNY_ZESTAW_jest_odrzucany(tmp_path,
+                                                            monkeypatch):
+    """Kontrprzyklad recenzenta z kanalu, ktory obalil pierwsza wersje tej
+    komendy — i jest nie do obrony.
+
+    Potwierdzenie bralo poczatkowo LICZBE pokoi. Liczba wiaze sie z
+    LICZNOSCIA, nie z TOZSAMOSCIA: gdy miedzy `list` a komenda jeden pokoj
+    zniknie, a pojawi sie inny, N dalej sie zgadza — i ginie zestaw, ktorego
+    czlowiek nigdy nie widzial. Dokladnie ten przypadek mial byc chroniony.
+
+    Tu odtworzone wprost: czlowiek widzial `a,b`, na dysku sa `a,c`. Ta sama
+    liczebnosc, inny zestaw. Ma byc odmowa i zero skasowanych."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a", 8971)
+    cli.ensure_hub("c", 8972)
+    assert cli.main(["del", "--all", "--yes-delete", "a,b"]) == 1
+    assert cli.hub_dir("a").exists() and cli.hub_dir("c").exists()
+
+
+def test_all_z_portem_albo_bindem_to_ODMOWA(tmp_path, monkeypatch):
+    """Jedna wartosc dla WSZYSTKICH pokoi. `start --all --port 9000` wsadzalby
+    kazdy pokoj na ten sam port, wiec wstalby najwyzej jeden, a reszta
+    zglosilaby kolizje. Zgloszone przez recenzenta, zanim ktokolwiek to
+    wpisal."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("a", 8973)
+    assert cli.main(["start", "--all", "--port", "9000"]) == 1
+    assert cli.main(["restart", "--all", "--bind", "0.0.0.0"]) == 1

@@ -1656,37 +1656,54 @@ def _cele_all(dzialajace):
 
 
 def _all_kontra_name(args):
-    """`--all` razem z jawnym `--name` to ODMOWA, nie zgadywanie.
+    """`--all` razem z jawnym `--name`, `--port` albo `--bind` to ODMOWA.
 
-    Dwa sprzeczne wskazania celu przy komendzie, ktora potrafi byc
-    nieodwracalna. Zgadywanie, ktore wygrywa, jest tu gorsze niz blad.
+    Nazwa: dwa sprzeczne wskazania celu przy komendzie, ktora potrafi byc
+    nieodwracalna — zgadywanie, ktore wygrywa, jest gorsze niz blad.
+
+    Port i bind: JEDNA wartosc dla WSZYSTKICH pokoi. `start --all --port 9000`
+    probowalby wsadzic kazdy pokoj na ten sam port, wiec wstalby najwyzej
+    jeden, a reszta zglosilaby kolizje. To nie jest ostroznosc, to jest blad
+    czekajacy na wpisanie. Zgloszone przez recenzenta na kanale 2026-08-13.
     """
-    if getattr(args, "all", False) and args.name != DEFAULT_HUB:
+    if not getattr(args, "all", False):
+        return False
+    if args.name != DEFAULT_HUB:
         print(f"agentmachi: --all and --name {args.name!r} contradict each "
               f"other; pick one", file=sys.stderr)
         return True
+    for flaga in ("port", "bind"):
+        if getattr(args, flaga, None) is not None:
+            print(f"agentmachi: --all cannot be combined with --{flaga}: one "
+                  f"value for every room would collide", file=sys.stderr)
+            return True
     return False
 
 
 def _del_all(args):
     """Skasuj WSZYSTKIE zatrzymane pokoje. Dzialajacych nie tyka.
 
-    Potwierdzeniem jest LICZBA, nie flaga — z tego samego powodu, dla ktorego
-    przy jednym pokoju jest nim nazwa (`delete_hub`): flage dopisuje sie
-    odruchowo. Liczba ma nad stalym slowem przewage, ktora jest calym sensem
-    tego wyboru: WIAZE SIE ZE STANEM. Gdy miedzy `list` a ta komenda pojawi
-    sie nowy pokoj, liczba przestaje pasowac i czlowiek dostaje odmowe zamiast
-    cichego skasowania czegos, czego nie widzial.
+    Potwierdzeniem jest DOKLADNA, POSORTOWANA LISTA NAZW — ta sama flaga
+    `--yes-delete` co przy jednym pokoju i ta sama zasada: wpisz to, co
+    zniknie. Niezgodnosc z biezacym stanem = odmowa.
+
+    Pierwsza wersja (2026-08-13) brala tu LICZBE i to bylo zle. Zarzut zglosil
+    recenzent na kanale i jest nie do obrony: liczba wiaze sie z LICZNOSCIA,
+    nie z TOZSAMOSCIA. Gdy miedzy `list` a komenda jeden pokoj zniknie,
+    a pojawi sie inny, N dalej sie zgadza — i kasujemy zestaw, ktorego czlowiek
+    nigdy nie widzial. Dokladnie ten przypadek mial byc chroniony.
     """
-    zatrzymane = _cele_all(False)
-    dzialajace = _cele_all(True)
+    zatrzymane = sorted(_cele_all(False))
+    dzialajace = sorted(_cele_all(True))
+    kanoniczna = ",".join(zatrzymane)
     if not zatrzymane:
         print("agentmachi: no stopped rooms to delete")
         if dzialajace:
             print(f"agentmachi: still running (untouched): "
                   f"{', '.join(dzialajace)}")
         return 0
-    if args.confirm_all != len(zatrzymane):
+    podane = [c.strip() for c in (args.confirm or "").split(",") if c.strip()]
+    if sorted(podane) != zatrzymane:
         print(f"this deletes {len(zatrzymane)} room(s) FOREVER (tokens, "
               f"rules, howto, the whole conversation history):",
               file=sys.stderr)
@@ -1695,8 +1712,12 @@ def _del_all(args):
         if dzialajace:
             print(f"running rooms are NOT touched: "
                   f"{', '.join(dzialajace)}", file=sys.stderr)
-        print(f"  if you are sure:  agentmachi del --all --yes-delete-all "
-              f"{len(zatrzymane)}", file=sys.stderr)
+        if podane:
+            print(f"the list you passed does not match what is on disk "
+                  f"right now — look again, do not retype blindly",
+                  file=sys.stderr)
+        print(f"  if you are sure:  agentmachi del --all --yes-delete "
+              f"{kanoniczna}", file=sys.stderr)
         return 1
     rc = 0
     for nazwa in zatrzymane:
@@ -2160,12 +2181,8 @@ def _build_parser():
     p.add_argument("--all", action="store_true",
                    help="every STOPPED room; running ones are never touched")
     p.add_argument("--yes-delete", dest="confirm", default=None,
-                   help="type the room name to confirm")
-    p.add_argument("--yes-delete-all", dest="confirm_all", type=int,
-                   default=None,
-                   help="with --all: type HOW MANY rooms will be deleted; "
-                        "a mismatch refuses, so a room that appeared since "
-                        "your last `list` cannot be deleted unseen")
+                   help="type the room name to confirm; with --all type the "
+                        "exact comma-separated list of rooms that will go")
     p.set_defaults(fn=cmd_del)
 
     p = sub.add_parser("list", help="which rooms exist and which are running")
