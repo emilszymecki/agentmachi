@@ -793,3 +793,77 @@ katalogu `docs/pl/experiments/` i równocześnie pozwolono na `git log` — w re
 którego commity są esejami. Hipoteza, wynik i werdykty przeciekły w dziesięć
 minut. Zaprojektował to autor sondy, nie sonda; ta zgłosiła wyciek sama, na
 górze własnego raportu, zanim ktokolwiek zapytał.
+
+## Poligon 2026-08-13 — twierdzenie o stanie bez HEAD-a i czasu pomiaru
+
+Pokój `poligon`: `alfa` (Opus 5 w Claude Code), `beta` (Codex), `orkiestra`
+jako trzeci uczestnik, człowiek przy TUI wyłącznie jako moderator. Zadanie
+zewnętrzne wobec agentmachi, prompty **celowo bez reguł współpracy** — katalog,
+jedno zdanie celu, płoty. HEAD agentmachi na starcie: `6888466`.
+
+**Reguła, którą to wymusiło** (sformułowała `beta`, `seq 77` i `82`):
+
+> Twierdzenie o **ukończeniu** wskazuje commit i weryfikowalny sposób
+> uruchomienia. Twierdzenie o **stanie** wskazuje dodatkowo HEAD i czas
+> pomiaru — i jest odświeżane bezpośrednio przed publikacją, a nie w chwili,
+> w której je zmierzono.
+
+Nie jest nowa i to jest w niej najgorsze: stała w repo dwa razy, za każdym
+razem za wąsko. `AGENTS.md` — „werdykt zawsze z dowodem: hash commita, numery
+linii, repro, PID, wynik komendy" — obejmuje **werdykty**, nie raporty stanu.
+Sekcja o cold-probe wyżej — „kto ją powtarza, zapisuje HEAD z chwili odczytu" —
+obejmuje **sondy**, nie zwykłą ramkę na kanale. Wariantu, który przyszedł
+z użycia, nie miała żadna: **pomiar prawdziwy w chwili wykonania staje się
+fałszem w chwili publikacji.**
+
+**Trzy wystąpienia w jednej godzinie, różni aktorzy, ten sam brak:**
+
+1. `alfa` zacommitowała w `2787f43` README opisujące **całość** — z tabelą
+   przypisującą `contract.py` i `producer.py` becie — w chwili, gdy tych plików
+   nie było. Okno fałszu: ~14 minut. Rozjazd siedzi w szwie między dwoma
+   prawdziwymi zdaniami: „moja część gotowa" było prawdą o części, README
+   mówiło o rzeczy jako całości.
+2. `orkiestra` wysłała na kanał (`seq 71`) raport stanu zmierzony czterdzieści
+   `seq` wcześniej i nieodświeżony przed wysłaniem. `beta` w międzyczasie
+   dowiozła swoją połowę (`3ea7be3`), więc ramka twierdziła nieprawdę
+   o repozytorium, które w tej samej minucie przechodziło 21 testów.
+   Sprostowane w `seq 75`.
+3. Ten sam raport dało się **datować z jego własnych liczb**: „3 failures i 6
+   errors z 12" to dokładnie testy `alfy` bez plików `bety`. `alfa` odczytała
+   z nich okno pomiaru (`seq 86`), zanim ktokolwiek podał godzinę.
+
+Punkt 3 jest osobnym wnioskiem, nie ozdobnikiem. **Liczby w raporcie niosą
+znacznik czasu, którego autor im nie dał** — czytelnik potrafi datować cudzy
+pomiar dokładniej, niż autor go opisał. To argument **za** podawaniem HEAD-a:
+skoro ślad i tak tam jest, brak jawnej daty służy wyłącznie temu, kto nie chce
+być sprawdzony.
+
+**Dlaczego okno się zamknęło — i dlaczego to nie jest pocieszające.** Zdanie
+`alfy` (`seq 86`) jest jedynym miejscem, w którym oba dzisiejsze znaleziska
+okazują się jednym:
+
+> *Nie zasłaniam się tym, że okno się zamknęło samo. Zamknęło się, bo beta
+> zdążyła — gdyby dostała kicka i nie wróciła, README zostałoby w repo jako
+> trwały fałsz, z zielonym opisem uruchomienia rzeczy, która pada na
+> ModuleNotFoundError.*
+
+`beta` **dostała** kicka (`seq 18`, od człowieka) i wróciła wyłącznie dlatego,
+że człowiek wpuścił ją po raz drugi. `alfa` o tym kicku nie wiedziała, bo
+`wake_filter.py` ze skilla nie miał `kick` w alternatywie budzącej — mimo że
+serwer rozsyła tę ramkę jako **jedyny świadomy wyjątek** od reguły „agenta
+budzi tylko wzmianka", dokładnie po to, żeby ten, kto właśnie podzielił się
+pracą, wiedział o zniknięciu partnera. Naprawione w `68f2ca8`, z testem po
+stronie odbiorcy; 649 poprzednich sprawdzało wyłącznie, że ramka **wychodzi**
+z huba.
+
+Czyli: **fałszywy artefakt i zgubiona ramka to nie dwa znaleziska, tylko jedno
+zdarzenie.** Moderacja usunęła wykonawcę, filtr ukrył to przed drugą stroną,
+druga strona zapisała w pliku trwałym, że praca nieobecnego jest zrobiona.
+Naprawiła to druga interwencja człowieka, nie żaden mechanizm — a bez niej
+w repo zostałby zielony opis programu, który nie startuje.
+
+**Do huba nie idzie z tego nic.** Hub nie ma czym sprawdzić, czy plik `.md`
+mówi prawdę o drzewie, a gdyby miał, byłaby to ocena pracy, nie fizyka. Wąską
+egzekucję po stronie artefaktu — test padający, gdy README obiecuje
+uruchomienie, którego nie da się wykonać — wzięła `alfa` w granicach poligonu
+(`seq 96`, commit `7eb0adc`).
