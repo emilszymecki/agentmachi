@@ -1289,7 +1289,34 @@ def _wait_until_listening(timeout=10.0, pid=None,
     return False
 
 
+def _start_all(args):
+    """Odpal wszystkie ZATRZYMANE pokoje — odwrotny cel niz `stop`/`restart`.
+
+    Symetria, o ktora poprosil operator 2026-08-13: „start --all startuje te,
+    ktore nie sa started; restart te, ktore sa; stop te, ktore sa". Dzialajacy
+    pokoj NIE jest tu bledem i nie przerywa petli — `--all` ma doprowadzic do
+    stanu „wszystko chodzi", a on juz w nim jest.
+
+    Petla idzie dalej mimo bledu pojedynczego pokoju i dopiero na koncu zwraca
+    niezero. Inaczej jeden zajety port zatrzymywalby start calej reszty, a to
+    jest dokladnie odwrotnosc tego, po co czlowiek pisze `--all`.
+    """
+    cele = _cele_all(False)
+    if not cele:
+        print("agentmachi: no stopped rooms — everything is already running")
+        return 0
+    rc = 0
+    for nazwa in cele:
+        rc = cmd_start(argparse.Namespace(
+            name=nazwa, port=None, bind=None, all=False)) or rc
+    return rc
+
+
 def cmd_start(args):
+    if _all_kontra_name(args):
+        return 1
+    if getattr(args, "all", False):
+        return _start_all(args)
     running = hub_pid(args.name)
     if running is not None and _pid_is_our_hub(running, args.name):
         print(f"agentmachi: room {args.name!r} is already running "
@@ -2115,6 +2142,8 @@ def _build_parser():
     p.add_argument("--bind", default=None,
                    help="0.0.0.0 = visible on the network; local only by "
                         "default")
+    p.add_argument("--all", action="store_true",
+                   help="every STOPPED room")
     p.set_defaults(fn=cmd_start)
 
     p = sub.add_parser("restart",

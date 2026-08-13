@@ -2745,3 +2745,51 @@ def test_stop_all_bez_potwierdzenia_bo_jest_odwracalny(tmp_path, monkeypatch,
     assert rc == 0, "brak dzialajacych pokoi to nie jest blad"
     assert cli.hub_dir("a").exists() and cli.hub_dir("b").exists(), \
         "stop nie ma prawa niczego skasowac"
+
+
+def test_start_all_bierze_ZATRZYMANE_i_nie_rusza_dzialajacych(
+        tmp_path, monkeypatch, capsys):
+    """Domkniecie symetrii, o ktora poprosil operator 2026-08-13: „start --all
+    startuje te, ktore nie sa started; restart te, ktore sa; stop te, ktore sa".
+
+    Celem `start --all` sa wiec pokoje ZATRZYMANE — dokladnie odwrotnie niz
+    przy `stop`/`restart`. Dzialajacy pokoj nie jest bledem i nie przerywa
+    petli: zostaje pominiety, bo `--all` ma doprowadzic do stanu „wszystko
+    chodzi", a on juz w nim jest.
+
+    Nie odpalamy tu prawdziwych procesow — sprawdzamy WYBOR CELOW, bo to
+    w nim siedzi cala logika `--all`. Uruchamianie jest juz pokryte testami
+    pojedynczego `start`."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("stoi_a", 8961)
+    cli.ensure_hub("stoi_b", 8962)
+    cli.ensure_hub("chodzi", 8963)
+    (cli.hub_dir("chodzi") / "hub.pid").write_text(str(os.getpid()))
+
+    assert cli._cele_all(False) == ["stoi_a", "stoi_b"]
+    assert cli._cele_all(True) == ["chodzi"]
+
+    # UWAGA O SAMYM TESCIE, bo pierwsza wersja byla zla i przechodzila obok
+    # celu: podmiana `cli.cmd_start` NIE nadaje sie do wejscia przez `main`,
+    # bo parser powstaje wewnatrz `main` i `set_defaults(fn=cmd_start)` bierze
+    # AKTUALNA globalna funkcje — czyli lapie sie na wlasna atrape, zanim
+    # dojdzie do `--all`. Atrapa dostawala wtedy domyslny `--name` i test
+    # mierzyl sam siebie.
+    odpalone = []
+    monkeypatch.setattr(cli, "cmd_start",
+                        lambda a: odpalone.append(a.name) or 0)
+    rc = cli._start_all(argparse.Namespace(name=cli.DEFAULT_HUB, all=True))
+    assert rc == 0
+    assert odpalone == ["stoi_a", "stoi_b"], \
+        "start --all ma wziac zatrzymane i pominac dzialajacy"
+
+
+def test_start_all_gdy_wszystko_juz_chodzi_NIE_jest_bledem(
+        tmp_path, monkeypatch, capsys):
+    """Cel `--all` to stan koncowy, nie liczba wykonanych operacji. Skoro
+    wszystko juz chodzi, komenda osiagnela swoj cel zerowym nakladem."""
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path))
+    cli.ensure_hub("chodzi", 8964)
+    (cli.hub_dir("chodzi") / "hub.pid").write_text(str(os.getpid()))
+    assert cli.main(["start", "--all"]) == 0
+    assert "no stopped rooms" in capsys.readouterr().out
