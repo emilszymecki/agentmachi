@@ -911,10 +911,51 @@ Trzy rzeczy, które ta runda mówi o sposobie pracy, nie o filtrze:
    deklarowaniu zachowań, tylko popełniony przez autora tamtej reguły.
 3. **Zbudowałem filtr parsujący format, którego docstring zabrania
    parsować.** Załatana została jedna szczelina, klasa błędu została.
-   **Otwarte:** czy `wake_filter.py` nie powinien jechać na `listen --json`,
-   gdzie `from` i `type` są polami, a nie znakami w tekście. Zapisane jako
-   otwarte, bo trzymanie tego wyłącznie w logu pokoju byłoby złamaniem
-   reguły z sekcji wyżej w tym samym dniu, w którym powstała.
+   **Zamknięte tego samego dnia, `1725877`** — patrz niżej.
 
 Żadne z dwóch znalezisk nie wyszło z czytania kodu. Oba wyszły z postawienia
 huba i wysłania wiadomości.
+
+### Domknięcie: klasa błędu zamiast trzeciej łatki
+
+Punkt 3 wyżej stał jako otwarty przez kilkadziesiąt `seq` i tyle wystarczyło,
+żeby doszedł **trzeci** defekt tej samej klasy: agent obudził się na WŁASNEJ
+ramce wracającej w backlogu po reconnekcie. `chat/server.py` tłumi echo po
+nicku wyłącznie na live push, a backlog jest niefiltrowany **z rozmysłu**
+(„filtr tutaj = amnezja agentów tylnymi drzwiami"), więc replay od kursora
+oddaje także twoje własne wiadomości. Hub działa poprawnie; filtr nie miał jak
+tego odróżnić inaczej niż przez zgadywanie prefiksu.
+
+Trzy defekty w jeden dzień z jednego korzenia to próg, po którym łatanie
+przestaje być tańsze od przebudowy. `wake_filter.py` jedzie od `1725877` na
+`listen --json`: `json.loads` na linii i predykaty po polach `type`/`from`/
+`text`, linia wychodzi niezmieniona, więc drugi renderer nie powstaje. Kształt
+zaproponował Codex, defekt trzeci znalazł drugi Opus — na sobie.
+
+**Wszystkie trzy znikają strukturalnie, a nie przez poprawkę:** jedna ramka to
+jedna linia, `from` to pole, `type` to pole.
+
+Zweryfikowane na żywym pokoju, w obie strony i na dwóch niezależnych
+odbiornikach, nie w suicie: ramka o **17 liniach tekstu** (1040 B) dała
+**jedno** wybudzenie zamiast siedemnastu. To ta sama własność, która rano
+zmieniła jedną wiadomość uczestnika o nicku `server` w N wybudzeń u każdego.
+
+Dwie rzeczy warte zapamiętania poza samym filtrem:
+
+- **Bezpieczeństwo migracji było trudniejsze od migracji.** Stary potok dostaje
+  po zmianie ramki w formacie czytelnym — filtr **pada głośno** (kod 3,
+  komunikat na stdout **oraz** stderr, bez cytowania niezaufanej linii).
+  Stdout jest konieczny, bo harness Claude Code powiadamia z linii stdout,
+  a stderr ląduje w pliku, którego nikt nie czyta w porze awarii. Cisza byłaby
+  tu najgorszym skutkiem: agent nie wie, że oślepł, a `listen` po lewej stronie
+  potoku nie dostanie `SIGPIPE`, dopóki nie zapisze kolejnej ramki.
+- **Propozycja „pierwsza niesparsowana linia = błąd" była zbyt prosta** i dobrze,
+  że sprawdziliśmy ją o kod, a nie o intuicję. Klient wypisuje na stderr
+  **siedem** rodzajów diagnostyki (`[hub] [kick] [nick] [read] [reconnect]
+  [resync] [warning]`), potok łączy je przez `2>&1`, a są to linie, o których
+  agent ma się dowiadywać najpilniej. Filtr rozróżnia więc trzy rodzaje
+  wejścia, nie dwa.
+
+**Stare testy były zielone przy wszystkich trzech defektach**, bo każdy karmił
+filtr linią, którą sam wymyślił. Blok przepisano w całości — to świadome
+złamanie działającego kontraktu i powód stoi w komentarzu nad nim.
