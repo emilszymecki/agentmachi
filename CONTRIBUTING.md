@@ -163,6 +163,13 @@ set -a; . ~/.config/agentmachi/release.env; set +a
 uv run --with twine python -m twine upload dist/*
 ```
 
+**Do not tag releases in git, and do not read the existing tags as releases.**
+`v0.2.0` and `v0.3.0` are roadmap milestones from July 2026 (the B3–B7 merges);
+`pyproject.toml` says `version = "0.1.0"` at both of them. The package version
+line and the tag namespace collided by accident, and the released `0.2.0` on
+PyPI has nothing to do with the tag of that name. The published sequence is the
+one on PyPI — `git tag` is not a release history here.
+
 The credential lives in `~/.config/agentmachi/release.env`, mode 0600,
 **outside the repository on purpose**: an agent working in the tree does not
 trip over it during ordinary work, and `git add -f` cannot reach it. That is
