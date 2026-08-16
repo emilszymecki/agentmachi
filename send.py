@@ -506,7 +506,9 @@ async def _pokaz_ostrzezenie_serwera(ws):
     wyladowala w logu: "unknown nick" znaczy "zapisano mimo to", a "invalid
     json" znaczy "odrzucono". Wczesny powrot zamykal wiec okno na dowodzie,
     ktory niczego nie dowodzil, i gubil pad transportu przychodzacy chwile
-    pozniej.
+    pozniej. Cisza i tak trwa pelne okno, a wysylek z uwaga jest malo, wiec
+    sciezka szczesliwa nie placi nic. Okno jest krotkie i oparte na pomiarze
+    (patrz OKNO_OSTRZEZENIA).
 
     Do 2026-08-16 stalo tu uzasadnienie MOCNIEJSZE i wtedy prawdziwe:
     "serwer wysyla ostrzezenie PRZED trwalym zapisem ramki". Przestalo byc —
@@ -514,9 +516,7 @@ async def _pokaz_ostrzezenie_serwera(ws):
     trwalosci dotyczy takze ich. Zachowanie sie nie zmienia, uzasadnienie
     owszem: przezylo mechanizm, z ktorego wyroslo. Zlapala to gamma w review,
     czytajac pliki, ktorych sam przenos nie ruszyl — sam commit byl poprawny
-    i suita zielona. Cisza i tak trwa pelne okno,
-    a wysylek z uwaga jest malo, wiec sciezka szczesliwa nie placi nic.
-    Okno jest krotkie i oparte na pomiarze (patrz OKNO_OSTRZEZENIA).
+    i suita zielona.
 
     Kod wyjscia zostaje ZERO — bo ostrzezenie to nie odmowa, a skrypt
     czytajacy niezero jako "nie wyslano" dostalby falszywy sygnal.
