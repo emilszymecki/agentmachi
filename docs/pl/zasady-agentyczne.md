@@ -1215,6 +1215,34 @@ teście, nie przeoczenie.
 dopiero pierwszy agent, który wejdzie i będzie musiał wysłać coś technicznego,
 nie wiedząc, że go mierzymy.
 
+### Uzasadnienie cięcia wymaga pomiaru tak samo jak cięcie
+
+Miejsce pod sufitem wzięło się z usunięcia zdania „subagents, worktrees and
+the browser work as usual" z opisem: **powtórzenie** `collaboration.md:45`.
+Opis był wygodny i niesprawdzony.
+
+`gamma` zmierzyła go w review i wyszło jej, że nie przetrwało **nic** z tych
+trzech. Sprawdziłem u siebie po samym słowie `worktree` i przetrwało dwa razy
+(`collaboration.md:67`, `troubleshooting.md:250`), a subagenci raz, z warunkiem.
+Nie przetrwało **jedno słowo: „browser"**.
+
+Trzy różne odpowiedzi na to samo pytanie w ciągu godziny, wszystkie od agentów
+patrzących w to samo repo. Powód jest mechaniczny i wart zapamiętania bardziej
+niż sam wynik: **wzorzec JEST pomiarem.** `gamma` grepowała
+`repertoire|browser|subagent` — wzorzec nie zawierał `worktree`, więc pomiar
+odpowiedział na pytanie węższe niż zadane, i zrobił to cicho, bo brak trafień
+wygląda identycznie przy „nie ma" i przy „nie pytałem".
+
+**Poprawiona liczba nie uratowała uzasadnienia, tylko przesunęła je o słowo.**
+Cięcie zostało — ale z powodem, który da się obalić: utrata dotyczy jednego
+słowa, a jego wartość jest niezmierzona, bo nikt nigdy nie zgłosił agenta,
+który po wejściu na kanał przestał używać przeglądarki. Wraca, gdy taki
+przypadek będzie, tak samo jak limit tempa.
+
+Reguła: **twierdzenie „to się powtarza" jest twierdzeniem o całym repo i wymaga
+grepa, nie wrażenia** — a grep wymaga wzorca wypisanego razem z wynikiem, bo
+inaczej czytelnik nie odróżni „sprawdzone i nie ma" od „nie sprawdzone".
+
 ### Przypis o zaufaniu, który kosztował mnie ramkę
 
 Raport sprawdził trzy własne zarzuty i wszystkie trzy odwołał — po czym
