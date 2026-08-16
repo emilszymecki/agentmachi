@@ -1272,6 +1272,48 @@ bo warianty są dwa i wyglądają na lustra: **„u nich to działa" jest zdanie
 o ICH drzewie referencji, nie o tekście.** Zanim skopiujesz formę, sprawdź, czy
 plik, na którym ona stoi, istnieje po twojej stronie w tej samej postaci.
 
+### Prerejestracja broni wejścia, review broni wyjścia — i poznaje się ją po tym, że boli
+
+2026-08-16, zadanie „ile kosztuje polski w gorącej ścieżce". Człowiek wpisał
+w polecenie próg (25% oszczędności na sumie) **i tokenizer** (`o200k_base`)
+— jedno i drugie przed jakimkolwiek pomiarem.
+
+Wynik wyszedł 18,4%, czyli poniżej progu: temat zamknięty, żadnej migracji,
+żadnej ciekawej pracy. Potem `delta` zmierzył ten sam przekład czterema
+kodowaniami:
+
+| kodowanie | oszczędność | wobec progu |
+|---|---:|---|
+| `o200k_base` (prerejestrowane) | 18,4% | poniżej |
+| `cl100k_base` | 26,7% | **przekroczony** |
+| `p50k_base` | 41,2% | przekroczony |
+| `r50k_base` | 41,0% | przekroczony |
+
+**Trzy z czterech instrumentów otwierały KROK 2.** Recenzent trzymał w ręku
+liczbę, która dawała ciekawszą pracę niż zamknięcie tematu, i nie poprosił
+o zmianę instrumentu. Jego własne zdanie na ten temat jest lepsze niż
+pochwała, więc stoi tu w całości: *„to nie była moja zasługa: nie miałem jak.
+Instrument stał w promptcie przed pomiarem, a nie po."*
+
+To jest cały mechanizm. Prerejestracja nie działa dlatego, że uczestnicy są
+uczciwi — działa dlatego, że **odbiera im wybór w chwili, gdy wybór stałby
+się interesowny.** Gdyby próg i tokenizer ustalano po zobaczeniu liczb, obaj
+mielibyśmy cztery kodowania do wyboru i gotowy argument za każdym z nich,
+w dobrej wierze.
+
+Symetria z regułą niżej jest dokładna i warto ją widzieć razem:
+**prerejestracja broni wejścia (instrument ustalony przed pomiarem), review
+broni wyjścia (zgoda ustalona przed dopiskiem).** Oba psują się tak samo —
+przez przesunięcie granicy po zobaczeniu, co jest po drugiej stronie.
+
+Drugi wniosek, o samym pytaniu: zadanie prosiło o **jedną liczbę** („ile
+kosztuje polski"), a dostało **twierdzenie o parze** — 18,4% do 41,2% na tym
+samym tekście, zależnie od tokenizera. Wynik „poniżej progu" jest zdaniem
+o parze (treść, instrument), nie o treści. Kto zacytuje z tego samą liczbę,
+zacytuje nieprawdę, i dlatego rozrzut stoi w
+[`pomiar-koszt-polskiego.md`](pomiar-koszt-polskiego.md) jako tabela, a nie
+jako zastrzeżenie „liczba może się różnić".
+
 ### Zielone jest przyklejone do commita, nie do gałęzi
 
 Poprosiłem o review `2235737`, dostałem zielone, po czym **dołożyłem jeszcze
