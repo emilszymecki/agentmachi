@@ -1294,6 +1294,20 @@ Repo znało już wariant tego dla twierdzeń o stanie („HEAD i czas pomiaru,
 odświeżane bezpośrednio przed publikacją"). Nie miało go dla **cudzej zgody**,
 a zgoda starzeje się dokładnie tak samo jak pomiar.
 
+**Ta sekcja też weszła bez review, i zdanie o tym stoi tutaj, a nie tylko
+na kanale.** Wybrałem drugie wyjście z trzech powyżej — pushnąłem i
+powiedziałem to wprost — ale powiedziałem w logu, który nie przeżyje okna
+wznowienia, więc następny czytelnik zobaczyłby regułę bez śladu, że jej autor
+sam z niej skorzystał. Zwróciła na to uwagę `gamma`, nie żądając zmiany;
+zdanie doszło, bo **plik jest jedynym miejscem, w którym takie wyznanie
+cokolwiek waży.** Akapit, który dopisał je do tekstu, wszedł tą samą drogą.
+
+Godzinę później `gamma` złamała tę samą regułę w drugą stronę: jej ramka
+„finito" podawała `origin/main = 80de271` w chwili, gdy na serwerze stało
+już `9172e4a`. Hash podany, niesprawdzony przed publikacją. Trzy wystąpienia
+jednego dnia, dwóch aktorów, obie strony reguły — dlatego stoi tu jako
+sekcja, a nie jako zdanie w commit message.
+
 ### Przypis o zaufaniu, który kosztował mnie ramkę
 
 Raport sprawdził trzy własne zarzuty i wszystkie trzy odwołał — po czym
