@@ -186,12 +186,63 @@ zgubioną sekcję, zjedzony blok kodu, utracony link i rozjechany nacisk — nie
 wyklucza akapitu przetłumaczonego zwięźlej niż oryginał. Autor przekładu jest
 tu autorem pomiaru, więc ta akurat kontrola należy do kogoś innego.
 
+Wykonał ją `delta` (`seq 921`), miarą, której powyższa ósemka nie ma —
+**liczbą zdań per sekcja**. Nagłówki, bloki i backticki przeżyją zjedzenie
+zdania w środku akapitu; zdania nie:
+
+| plik | zdania PL / EN | stosunek bajtów EN/PL per sekcja |
+|---|---|---|
+| `CLAUDE.md` | 120 / 120, sekcja po sekcji | min 0,996, mediana 1,030 |
+| `AGENTS.md` | 134 / 134, sekcja po sekcji | min 1,010, mediana 1,057 |
+
+Żadna sekcja się nie skurczyła; trzy najniższe plus najgęstsza
+(`Inwarianty kodu`) przeczytane ręcznie, klauzula po klauzuli, z historiami
+dowodowymi w nawiasach włącznie. **Werdykt kontroli: 18,4% nie jest zawyżone
+utratą treści.**
+
+Co i ta kontrola zostawia otwarte, nazwane przez samego kontrolera: zdanie
+przetłumaczone wiernie co do liczby, a płycej co do sensu, przejdzie przez
+wszystkie trzy miary.
+
 ## Ograniczenia, nazwane wprost
 
-1. **`o200k_base` to tokenizer strony Codexa.** Dokładnego tokenizera Claude
-   nie mamy. Kierunek (polski droższy w tokenach) jest wspólny dla
-   tokenizerów BPE trenowanych głównie na angielskim, ale **konkretna liczba
-   18,4% może się różnić** i nie wolno jej cytować jako liczby dla Claude.
+1. **Wybór tokenizera przesuwa wynik PRZEZ GRANICĘ DECYZJI.** To jest
+   najpoważniejsze ograniczenie tego pomiaru i nie wolno go czytać jako
+   zastrzeżenia grzecznościowego.
+
+   Pierwsza wersja tej pozycji mówiła, że „kierunek jest wspólny dla
+   tokenizerów BPE trenowanych głównie na angielskim, ale konkretna liczba
+   może się różnić". Kierunek był przesłanką z zewnątrz podaną jak fakt,
+   a „może się różnić" nie mówiło o ile. `delta` zmierzył jedno i drugie na
+   tym samym przekładzie (`seq 921`); przeliczone niezależnie i zgodne co do
+   cyfry:
+
+   | kodowanie | PL tok | EN tok | oszczędność | wobec progu 25% |
+   |---|---:|---:|---:|---|
+   | `o200k_base` (prerejestrowane) | 10737 | 8766 | **18,4%** | poniżej |
+   | `cl100k_base` | 11969 | 8768 | **26,7%** | **przekroczony** |
+   | `p50k_base` | 16113 | 9469 | 41,2% | przekroczony |
+   | `r50k_base` | 16205 | 9567 | 41,0% | przekroczony |
+
+   **Kierunek trzyma 4/4** — przesłanka jest potwierdzona i przestaje być
+   przesłanką. Ale **próg 25% leży wewnątrz rozrzutu**: na `cl100k_base`
+   to samo zadanie, ten sam przekład i ta sama treść dają werdykt
+   PRZECIWNY.
+
+   Cała różnica siedzi po stronie polskiej. Liczby EN dla dwóch nowoczesnych
+   kodowań są praktycznie identyczne (8766 vs 8768), a polski drożeje o 11%
+   przy przejściu na starsze `cl100k_base`. Im nowsze kodowanie, tym mniejsza
+   kara za polski — i to jest zjawisko warte odnotowania samo w sobie.
+
+   **Werdykt zostaje przy `o200k_base` i nie jest to wygodny wybór, tylko
+   wymuszony.** Kodowanie było prerejestrowane w poleceniu, przed pomiarem,
+   i jest najnowsze z czwórki, czyli najbliższym dostępnym analogiem
+   nowoczesnego tokenizera. Zmiana instrumentu po zobaczeniu wyniku byłaby
+   dokładnie tym, przed czym broni prerejestracja.
+
+   Wniosek praktyczny dla każdego, kto ten pomiar powtórzy: **liczby 18,4%
+   nie wolno cytować jako liczby dla Claude**, a wynik „poniżej progu" jest
+   twierdzeniem o parze (treść, tokenizer), nie o samej treści.
 2. **Zbiór zdefiniowało polecenie, nie pomiar.** Czy „gorąca ścieżka" to
    właśnie te czternaście pozycji, jest założeniem — i jest to największe
    ryzyko tego wyniku, większe niż wybór tokenizera. Docstringi i komentarze
