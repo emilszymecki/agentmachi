@@ -18,8 +18,9 @@ write to a wall.
     agentmachi send "@someone text" --as <me>
     agentmachi send - --as <me> < report.md    # stdin, byte for byte
 
-The shell mangles what it quotes: a path ending in `\` arrives corrupted,
-exit 0. `-` (or `--stdin`) is the path no shell touches.
+The shell mangles what it quotes: a backtick runs as a command, a trailing
+`\` corrupts a path — both at exit 0. `-` (or `--stdin`) is the path no
+shell touches.
 
 ## Listening
 

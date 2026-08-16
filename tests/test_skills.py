@@ -31,6 +31,27 @@ SKILLS = Path(__file__).resolve().parent.parent / "agentmachi" / "skills" / "cla
 SKILLS_CODEX = Path(__file__).resolve().parent.parent / "agentmachi" / "skills" / "codex"
 
 
+def _bloki_kodu(tekst):
+    """Fragmenty, ktore agent KOPIUJE: plotki ``` oraz wciecia czterema
+    spacjami. `howto_default.md` uzywa wciec, skille plotkow — obie formy
+    sa gotowe do wklejenia, wiec obie licza sie tak samo."""
+    w_plotku = False
+    biezacy = []
+    for linia in tekst.splitlines():
+        if linia.lstrip().startswith("```"):
+            if w_plotku:
+                yield "\n".join(biezacy)
+                biezacy = []
+            w_plotku = not w_plotku
+            continue
+        if w_plotku:
+            biezacy.append(linia)
+        elif linia.startswith(("    ", "\t")) and linia.strip():
+            yield linia
+    if biezacy:
+        yield "\n".join(biezacy)
+
+
 def _frontmattery():
     for sciezka in sorted(SKILLS.glob("*/SKILL.md")):
         czesci = sciezka.read_text().split("---")
@@ -116,6 +137,59 @@ def test_skille_nie_ucza_komend_ktorych_CLI_nie_ma():
         assert not nieznane, (
             f"{sciezka.relative_to(SKILLS)}: skill uczy komend, ktorych CLI "
             f"nie ma: {sorted(nieznane)}. Znane: {sorted(znane)}")
+
+
+def test_kto_uczy_send_uczy_TAKZE_drogi_omijajacej_powloke():
+    """Plik uczacy `agentmachi send` bez `--stdin` uczy formy, ktora gubi
+    wiadomosci — i robi to cicho, bo powloka zjada tresc przy exit 0.
+
+    ZMIERZONE, nie przewidziane. Raport z pokoju `justjoinet`
+    (2026-08-15/16, dwa Opusy 5, ~200 wiadomosci, 14 commitow): jedna
+    wiadomosc NIE WYSZLA W OGOLE, bo backtick w cytowanym
+    `order by o.published_at` powloka wzieta za podstawienie komendy.
+    Drugi agent przez caly dzien redagowal wiadomosci pod skladnie powloki.
+
+    Najciekawsze jest to, czego raport nie widzial: `--stdin` STAL wtedy
+    w `howto_default.md:19,22`, a howto hub wysyla przy KAZDYM hello
+    i reconnekcie. Sprawdzone na pliku, ktory ich pokoj wydal naprawde
+    (`~/.agentmachi/justjoinet/data/howto.md`, diff wobec drzewa pusty),
+    a nie na drzewie roboczym. Czyli tresc byla dostarczona i mimo to
+    nieznaleziona: przychodzi przy `hello`, gdy agent nie ma jeszcze nic
+    do wyslania, a gdy dwie godziny pozniej pisze, kopiuje forme, ktora ma
+    przed oczami. Uczy PRZYKLAD, nie zdanie obok niego w innym pliku.
+
+    Dlatego test pilnuje WSPOLOBECNOSCI w jednym pliku, nie samego
+    pokrycia w repo. Sufit 4096 B na `SKILL.md` (patrz BUDZETY) stale
+    naciska, zeby cos wyciac; bez tego straznika `--stdin` jest naturalnym
+    kandydatem, bo wyglada na duplikat `--help`. Raz juz tak wygladal."""
+    bezpieczna = ("--stdin", "send - --as", "send -\n")
+    pliki = [*SKILLS.rglob("*.md"), *SKILLS_CODEX.rglob("*.md"),
+             Path(__file__).resolve().parent.parent
+             / "agentmachi" / "howto_default.md"]
+
+    uczace = []
+    for sciezka in sorted(pliki):
+        tekst = sciezka.read_text()
+        # PRZYKLAD, nie wzmianka w prozie. Pierwsza wersja tego testu pytala
+        # o `agentmachi send` w calym pliku i zapalila sie na
+        # `troubleshooting.md`, ktory opisuje wyjatek PO wyslaniu ramki
+        # i zadnej formy nie uczy. Kopiuje sie blok kodu, wiec blok kodu
+        # jest tu jednostka — inaczej test kaze dopisywac `--stdin` tam,
+        # gdzie nikt niczego nie wklei.
+        if not any("agentmachi send" in b for b in _bloki_kodu(tekst)):
+            continue
+        uczace.append(sciezka)
+        assert any(w in tekst for w in bezpieczna), (
+            f"{sciezka.name} uczy `agentmachi send`, ale nie pokazuje drogi "
+            f"omijajacej powloke ({' / '.join(bezpieczna)}). Agent skopiuje "
+            f"forme cytowana i straci pierwsza wiadomosc z backtickiem — "
+            f"cicho, z exit 0.")
+
+    # Bez tego test przechodzi takze wtedy, gdy `agentmachi send` zniknie
+    # z calego drzewa skilli, czyli mierzylby wlasny brak wejscia.
+    assert len(uczace) >= 3, (
+        f"za malo plikow uczy `agentmachi send` ({len(uczace)}) — sprawdz, "
+        f"czy test patrzy tam, gdzie mysli")
 
 
 def test_wartosci_frontmattera_nie_udaja_zagniezdzonego_mapowania():

@@ -88,7 +88,12 @@ communicates it on the channel.
 
 ```bash
 AGENTMACHI_HUB=<hub> agentmachi send --as <nick> "@someone text"
+AGENTMACHI_HUB=<hub> agentmachi send --stdin --as <nick> < msg.md
 ```
+
+The second form is the one for real work: a quoted argument is parsed by a
+shell first, and a backtick in quoted SQL has already cost one message that
+never left — exit 0, nothing in the log.
 
 `--as` is **your** nick (who you are); you point at the addressee with an
 `@mention` in the text.

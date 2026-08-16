@@ -1158,3 +1158,67 @@ jej niepodpierania jest podwójny.
 Review, które temu wynikowi daje wagę, było **przez kontrolowane zepsucie**:
 w klonie wyłączono kontrolę spójności i padły dokładnie cztery testy, które
 miały paść, i żaden inny. Test, który nigdy nie sfailował, nie dowodzi niczego.
+
+## Dokumentacja dostarczona w złej chwili jest nieodróżnialna od braku
+
+Pokój `justjoinet`, 2026-08-15/16: dwa Opusy 5 w Claude Code przepracowały
+dobę na wspólnym repo, rozmawiając wyłącznie przez agentmachi — około 200
+wiadomości, 14 commitów. Na koniec napisały dla nas raport
+(`just_join_et/agentmachi_fix.md`), którego główne zdanie brzmi: flaga
+`--stdin` **nie jest opisana w żadnym pliku skilla — istnieje wyłącznie
+w `--help`**.
+
+Pierwsza połowa jest prawdziwa. Druga jest fałszem i to fałsz o rzeczy,
+którą hub wkłada im do ręki:
+
+    ~/.agentmachi/justjoinet/data/howto.md:19   agentmachi send - --as <me> < report.md
+    ~/.agentmachi/justjoinet/data/howto.md:22   `-` (or `--stdin`) is the path no shell touches
+
+Sprawdzone na pliku, który ich pokój wydał NAPRAWDĘ, nie na drzewie roboczym —
+`.howto-wydany` trzyma hash treści, więc pokój mógł serwować starszą wersję.
+Nie serwował: `diff` wobec `agentmachi/howto_default.md` jest pusty. A howto
+idzie do agenta przy **każdym `hello` i każdym reconnekcie**.
+
+Koszt tego, czego nie znaleźli, jest zmierzony w ich własnym raporcie: jedna
+wiadomość nie wyszła w ogóle (backtick w cytowanym `order by o.published_at`
+poszedł jako podstawienie komendy), a drugi agent przez cały dzień redagował
+wiadomości pod składnię powłoki — pisząc „dolar-słowo" słowami i omijając
+apostrofy.
+
+**Mechanizm, i to jest cała wartość tego wpisu.** Howto przychodzi przy
+`hello`, czyli w jedynej chwili, w której agent nie ma jeszcze nic do
+wysłania. Gdy dwie godziny później pisze wiadomość pełną backticków, nie
+wraca do howto — sięga po formę, którą ma przed oczami. Jedyną formą przed
+oczami było `send "@ktoś tekst" --as <nick>` z `SKILL.md`. **Uczy przykład,
+z którego się kopiuje, a nie zdanie leżące obok niego w innym pliku.**
+„Udokumentowane" i „znalezione w chwili, gdy było potrzebne" to dwie różne
+własności i tylko druga cokolwiek chroni.
+
+Drugi trop, słabszy, ale zgodny: howto uzasadniało `--stdin` **ścieżką
+kończącą się backslashem**, a awaria przyszła z backticka w SQL-u. Kto czyta
+o backslashu, nie rozpoznaje w tym swojego przypadku. Raport nazywa ten
+kształt na własnym przykładzie („przykład jednego przypadku użycia czyta się
+jak pełna forma komendy") i **nie przykłada go do tekstu, który dostał** —
+diagnoza trafna i niezastosowana do siebie.
+
+Naprawa poszła za mechanizmem, nie za diagnozą z raportu: obie komendy
+wylądowały w **tym samym bloku, z którego agent kopiuje** (`SKILL.md`,
+sekcja wejścia), a przykład w howto objął backtick obok backslasha. Miejsce
+pod sufitem 4096 B wzięło się z dwóch powtórzeń, nie z imperatywów —
+ostrzeżenia o `~/.codex/skills` (pełne w `references/codex.md`) i zdania
+o subagentach, które powtarzało `collaboration.md` **z uciętym warunkiem**,
+że subagenta poprzedza deklaracja na kanale. Progu nie ruszono; wariant
+Codexa zszedł na 6 B pod sufitem i to jest znany koszt zapisany przy samym
+teście, nie przeoczenie.
+
+**Czego to NIE dowodzi:** że naprawa działa. Nie ma pomiaru — sprawdzi ją
+dopiero pierwszy agent, który wejdzie i będzie musiał wysłać coś technicznego,
+nie wiedząc, że go mierzymy.
+
+### Przypis o zaufaniu, który kosztował mnie ramkę
+
+Raport sprawdził trzy własne zarzuty i wszystkie trzy odwołał — po czym
+`orkiestra` powtórzyła jego czwarte zdanie na kanale (`seq 763`) bez
+sprawdzenia, bo dokument był rzetelny wszędzie indziej. **Staranność
+w sąsiednich akapitach nie jest dowodem na akapit obok.** Zdanie, które
+przeszło niesprawdzone, było akurat tym jedynym, które przewracało diagnozę.

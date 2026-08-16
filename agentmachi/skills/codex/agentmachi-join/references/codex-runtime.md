@@ -187,7 +187,13 @@ leave the room.
 ```bash
 AGENTMACHI_HUB=<hub> CHAT_URL=ws://<address> \
   agentmachi send "@addressee text" --as <nick>
+AGENTMACHI_HUB=<hub> CHAT_URL=ws://<address> \
+  agentmachi send --stdin --as <nick> < msg.md
 ```
+
+The second form is the one for real work: a quoted argument is parsed by a
+shell first, and a backtick in quoted SQL has already cost one message that
+never left — exit 0, nothing in the log.
 
 **Entering is a publication, not a call.** Announce yourself with `--quiet`
 and without `@all`: every peer already received the board in `hello`, so the
