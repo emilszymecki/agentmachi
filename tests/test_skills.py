@@ -228,8 +228,16 @@ def test_ANTYPRZYKLAD_w_bloku_jest_oznaczony_W_BLOKU():
     zepsute = {"grep -m1": "listen konczy sie o wiadomosc za pozno"}
     znaczniki = ("BROKEN", "ZLE", "WRONG", "do not", "Do not", "never", "Never")
 
+    # Ten sam zasieg co `test_kto_uczy_send...` — z howto wlacznie. Rozjazd
+    # miedzy blizniaczymi straznikami zglosila gamma jako niegrozny dzis
+    # (howto ma `grep -m1` wylacznie w prozie) i nie prosila o zmiane. Zmiana
+    # i tak idzie, bo ta roznica nie byla decyzja, tylko przypadkiem pisania:
+    # gdyby ktos wstawil do howto blok, jeden straznik by go zobaczyl, a drugi
+    # nie, i nikt by nie wiedzial dlaczego.
     sprawdzone = 0
-    for sciezka in sorted([*SKILLS.rglob("*.md"), *SKILLS_CODEX.rglob("*.md")]):
+    for sciezka in sorted([*SKILLS.rglob("*.md"), *SKILLS_CODEX.rglob("*.md"),
+                           Path(__file__).resolve().parent.parent
+                           / "agentmachi" / "howto_default.md"]):
         for blok in _bloki_kodu(sciezka.read_text()):
             for linia in blok.splitlines():
                 for forma, powod in zepsute.items():
