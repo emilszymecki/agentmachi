@@ -2979,6 +2979,63 @@ def test_nadawca_dowiaduje_sie_o_nieznanym_nicku(srv):
     asyncio.run(srv(scenario))
 
 
+def test_ostrzezenia_mowia_co_sie_stalo_z_ramka_a_nie_tylko_co_jest_nie_tak(srv):
+    """ZNALEZIONE UZYCIEM NA CUDZYM PROJEKCIE, nie czytaniem kodu.
+
+    Zrodlo: `agentmachi_fix.md` z pokoju `justjoinet`, 2026-08-15/16. Dwa
+    Claude Code (Opus 5) przepracowaly tam dzien rozmawiajac wylacznie przez
+    kanal i OBA zapisaly w pamieci projektu, ze `$nieznana-grupa` zjada cala
+    wiadomosc. To nieprawda: ramka idzie do logu, dociera do wzmianek `@nick`
+    i je budzi — sprawdzili to sami dopiero nastepnego dnia, `read --from-seq`.
+
+    Zrodlem ich bledu bylo JEDYNE zdanie, jakie hub im pokazal:
+    `unknown group: <nazwa>`. Objaw bez skutku. Wzieli objaw za skutek —
+    i narzedzie im w tym pomoglo, bo mowilo tylko o tym, co jest nie tak,
+    a milczalo o tym, co sie stalo.
+
+    Blizniacze ostrzezenie o nieznanym NICKU nauczylo sie tego juz
+    2026-07-31 (S16, agent1) i mowi wprost, ze ramka poszla do logu i do
+    podlaczonych ludzi. Ostrzezenie o grupie zostalo piec linii wyzej ze
+    starym tekstem. To asymetria, nie decyzja — dokladnie ten sam ksztalt,
+    ktory wtedy naprawiono dla nickow.
+
+    Test NIE pilnuje slow. Pilnuje klasy: kazde ostrzezenie o wzmiance,
+    ktora poszla w prozne, ma powiedziec, co sie stalo z ramka — a jego
+    obietnica jest sprawdzana INNA DROGA niz on sam (log serwera i realny
+    odbiorca), zeby nie dalo sie jej spelnic samym napisaniem zdania.
+    """
+    async def scenario(server):
+        h, _ = await hello("emil", "te", role="human")
+        b, _ = await hello("beta", "tb")
+        a, _ = await hello("alfa", "ta")
+        # jedna ramka, oba rodzaje pudla naraz, plus jeden ADRESAT REALNY
+        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
+                                 "text": "@beta @nikt-taki hej $upiory"}))
+        ostrzezenia = [await recv(a), await recv(a)]
+        assert all(o["type"] == "error" for o in ostrzezenia), ostrzezenia
+        teksty = {o["text"] for o in ostrzezenia}
+        o_grupie = next(t for t in teksty if "upiory" in t)
+        o_nicku = next(t for t in teksty if "nikt-taki" in t)
+
+        # Sedno. Jezyk wolno zmieniac, obietnicy nie: oba maja powiedziec,
+        # gdzie ramka trafila. Samo nazwanie winowajcy to za malo — wlasnie
+        # to bylo tekstem, ktory wprowadzil w blad dwoch Opusow.
+        for t in (o_grupie, o_nicku):
+            assert "log" in t.lower(), f"ostrzezenie milczy o losie ramki: {t!r}"
+        assert o_grupie.strip() != "unknown group: upiory", \
+            "goly komunikat o winie wrocil — to jest naprawiany defekt"
+
+        # ...a teraz to samo sprawdzone bez czytania tekstu ostrzezen.
+        assert [e for e in server.log.replay()
+                if e.get("type") == "chat" and "$upiory" in e.get("text", "")], \
+            "ostrzezenie obiecuje log, ktorego nie ma"
+        assert (await recv(b))["text"] == "@beta @nikt-taki hej $upiory"
+        assert (await recv(h))["text"] == "@beta @nikt-taki hej $upiory"
+        for ws in (a, b, h):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
 def test_wzmianka_do_rozlaczonego_uczestnika_nie_jest_bledem(srv):
     """Rozlaczony to nie nieznany. Agent spi wiekszosc czasu — ostrzezenie
     przy kazdej wzmiance do spiacego zamienialoby sygnal w szum i uczylo
