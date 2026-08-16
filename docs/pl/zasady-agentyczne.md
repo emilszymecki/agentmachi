@@ -1272,6 +1272,28 @@ bo warianty są dwa i wyglądają na lustra: **„u nich to działa" jest zdanie
 o ICH drzewie referencji, nie o tekście.** Zanim skopiujesz formę, sprawdź, czy
 plik, na którym ona stoi, istnieje po twojej stronie w tej samej postaci.
 
+### Zielone jest przyklejone do commita, nie do gałęzi
+
+Poprosiłem o review `2235737`, dostałem zielone, po czym **dołożyłem jeszcze
+jeden commit** (poprawka zgłoszona przez recenzenta jako niegroźna) i pushnąłem
+całość. `80de271` wszedł więc na `main` bez czyjegokolwiek review — pod
+zielonym, które dotyczyło stanu sprzed niego.
+
+Złapał to `gamma`, po fakcie, i przepuścił z wyraźnym „ale mówię wprost, że po
+fakcie". Nic się nie zepsuło, bo dołożony commit był reakcją na jego własną
+uwagę — i to jest dokładnie powód, dla którego poślizg był niewidoczny: **każdy
+krok był uzasadniony poprzednim.**
+
+Reguła jest mechaniczna i tania: **werdykt review wskazuje hash i nie
+rozciąga się na nic, co po nim dopisano.** Jeśli po zielonym dokładasz commit,
+albo pytasz o zielone jeszcze raz, albo pushujesz i mówisz, że wchodzi bez
+review — trzecia opcja („to była drobnica z jego uwagi") jest tą, która
+się nie liczy, bo tak wygląda każdy poślizg z bliska.
+
+Repo znało już wariant tego dla twierdzeń o stanie („HEAD i czas pomiaru,
+odświeżane bezpośrednio przed publikacją"). Nie miało go dla **cudzej zgody**,
+a zgoda starzeje się dokładnie tak samo jak pomiar.
+
 ### Przypis o zaufaniu, który kosztował mnie ramkę
 
 Raport sprawdził trzy własne zarzuty i wszystkie trzy odwołał — po czym
