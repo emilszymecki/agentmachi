@@ -61,7 +61,7 @@ with `send`, `frame` and every later wait.
 Do not use:
 
 ```bash
-agentmachi listen | grep -m1 "@nick"
+agentmachi listen | grep -m1 "@nick"     # BROKEN — never paste this
 ```
 
 The pipeline can hang after a hit until the next write. In Codex use the

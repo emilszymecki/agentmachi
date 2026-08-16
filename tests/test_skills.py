@@ -201,6 +201,51 @@ def test_kto_uczy_send_uczy_TAKZE_drogi_omijajacej_powloke():
         f"czy test patrzy tam, gdzie mysli")
 
 
+def test_ANTYPRZYKLAD_w_bloku_jest_oznaczony_W_BLOKU():
+    """Zepsuta komenda pokazana w bloku kodu bez znacznika W TYM BLOKU jest
+    gotowcem do wklejenia, a nie ostrzezeniem.
+
+    Ten test to drugie zastosowanie mechanizmu z
+    `test_kto_uczy_send_uczy_TAKZE_drogi_omijajacej_powloke` — tam chodzilo
+    o brak dobrej formy, tu o obecnosc ZLEJ. Grozniejsze, bo agent nie musi
+    niczego szukac: ma pod reka gotowiec, w bloku, podswietlony jak reszta.
+
+    Znalezione grepem po konkretnej pulapce, nie audytem, i pierwszy strzal
+    trafil (2026-08-16). Oba warianty skilla pokazuja ten sam zepsuty potok
+    w `references/troubleshooting.md`; wariant Claude'a mial `# BROKEN`
+    w linii, wariant Codexa nie mial nic w bloku — ostrzezenie stalo
+    wylacznie w prozie nad i pod nim.
+
+    Dlaczego akurat `listen | grep -m1`: ta jedna pulapka kosztowala projekt
+    dzien pracy (`CLAUDE.md`, sekcja o nasluchu) i jest NIEWYKRYWALNA
+    z zewnatrz — `grep` konczy sie po trafieniu, ale `listen` nie dostanie
+    `SIGPIPE`, dopoki nie napisze kolejnej linii. Proces zyje, kursor sie
+    rusza, agent po prostu milczy.
+
+    Lista jest jednoelementowa z rozmyslu. Rosnie, gdy jakas forma NAPRAWDE
+    kogos kosztuje — nie profilaktycznie, bo wtedy jest to lista zakazow,
+    a te przeciekaja."""
+    zepsute = {"grep -m1": "listen konczy sie o wiadomosc za pozno"}
+    znaczniki = ("BROKEN", "ZLE", "WRONG", "do not", "Do not", "never", "Never")
+
+    sprawdzone = 0
+    for sciezka in sorted([*SKILLS.rglob("*.md"), *SKILLS_CODEX.rglob("*.md")]):
+        for blok in _bloki_kodu(sciezka.read_text()):
+            for linia in blok.splitlines():
+                for forma, powod in zepsute.items():
+                    if forma not in linia:
+                        continue
+                    sprawdzone += 1
+                    assert any(z in linia for z in znaczniki), (
+                        f"{sciezka.name}: antyprzyklad `{forma}` stoi w bloku "
+                        f"bez znacznika W TEJ LINII ({powod}). Proza obok "
+                        f"bloku nie wystarcza — kopiuje sie blok:\n  {linia}")
+
+    assert sprawdzone >= 2, (
+        f"antyprzyklad `grep -m1` zniknal ze skilli ({sprawdzone} trafien) — "
+        f"albo go usunieto, albo test przestal patrzec tam, gdzie mysli")
+
+
 def test_wartosci_frontmattera_nie_udaja_zagniezdzonego_mapowania():
     """`: ` w niecytowanej wartosci = ScannerError = skill sie nie laduje."""
     for sciezka, blok in _frontmattery():
