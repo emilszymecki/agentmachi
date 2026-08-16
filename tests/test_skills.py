@@ -176,10 +176,19 @@ def test_kto_uczy_send_uczy_TAKZE_drogi_omijajacej_powloke():
         # i zadnej formy nie uczy. Kopiuje sie blok kodu, wiec blok kodu
         # jest tu jednostka — inaczej test kaze dopisywac `--stdin` tam,
         # gdzie nikt niczego nie wklei.
-        if not any("agentmachi send" in b for b in _bloki_kodu(tekst)):
+        bloki = list(_bloki_kodu(tekst))
+        if not any("agentmachi send" in b for b in bloki):
             continue
         uczace.append(sciezka)
-        assert any(w in tekst for w in bezpieczna), (
+        # ASERCJA MUSI MIERZYC TE SAMA JEDNOSTKE CO WYKRYWANIE. Pierwsza
+        # wersja wykrywala po bloku, a sprawdzala po CALYM PLIKU — wiec plik
+        # mogl uczyc formy cytowanej w bloku i zaliczyc straznika wzmianka
+        # w prozie dwiescie linii dalej. Czyli dokladnie defekt, ktorego ten
+        # test pilnuje, ocalaly w srodku samego testu. Zlapala to gamma
+        # w review 2026-08-16 i podala JEDYNY plik, ktory tamtedy przechodzil:
+        # wariant Codexa mial `--stdin` w prozie kroku 4, a w bloku wylacznie
+        # forme cytowana.
+        assert any(w in b for b in bloki for w in bezpieczna), (
             f"{sciezka.name} uczy `agentmachi send`, ale nie pokazuje drogi "
             f"omijajacej powloke ({' / '.join(bezpieczna)}). Agent skopiuje "
             f"forme cytowana i straci pierwsza wiadomosc z backtickiem — "
