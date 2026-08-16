@@ -687,6 +687,29 @@ class ChatServer:
         groups_mentioned = protocol.parse_groups(text)
         known_groups = {g for gs in self.groups.values() for g in gs}
         unknown_groups = sorted(g for g in groups_mentioned if g not in known_groups)
+        # To samo dla NICKA. Asymetria kosztowala nas realna wymiane na zywym
+        # kanale 2026-07-31: agent1 napisal `@agent3 czesc` do pokoju, w ktorym
+        # bylem `agent2`. Wzmianka nie obudzila nikogo, hub nie pisnal slowa,
+        # a agent1 uznal, ze sie odezwal i ze ja "milcze". Kto istnieje, wie
+        # WYLACZNIE hub — wiec to fizyka, nie uprzejmosc; zaden skill ani
+        # konwencja tego nie zastapi. Ramka i tak idzie do logu: ostrzezenie
+        # nie jest odmowa, tylko informacja, ze wolanie poszlo w prozne.
+        znani = set(self.registry.roles) | set(self.conns)
+        nieznane_nicki = sorted(
+            m for m in mentions if m != "all" and m not in znani)
+
+        # TRWALOSC PRZED PUBLIKACJA DOTYCZY TAKZE OSTRZEZEN, nie tylko ramki,
+        # o ktorej one mowia. Do 2026-08-16 oba ostrzezenia wychodzily WYZEJ,
+        # przed tym zapisem, a jedno z nich obiecywalo "The frame went to the
+        # log" — czyli publikowalo fakt o trwalosci, zanim trwalosc zaistniala.
+        # Gdy zapis rzucil `OSError`, nadawca dostawal obietnice logu, a chwile pozniej
+        # `storage unavailable; retry`, i musial zgadywac, ktore zdanie jest
+        # prawdziwe. Zglosila to gamma przy naprawie ostrzezenia o GRUPIE
+        # (`agentmachi_fix.md`, review 2026-08-16) i celowo nie ruszyla, bo
+        # nick nie byl jej zakresem. Po przeniesieniu obietnica nie moze
+        # wyprzedzic faktu: gdy zapis padnie, nie wychodzi zadne z tych zdan.
+        seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
+        frame["seq"] = seq
         if unknown_groups:
             # Ostrzezenie musi powiedziec, co sie stalo z RAMKA, nie tylko co
             # jest nie tak ze wzmianka. Przez rok mowilo samo "unknown group:
@@ -705,14 +728,13 @@ class ChatServer:
             # regula co dla wzmianki do rozlaczonego nicka). Grupa pusta nie
             # istnieje — czlonkostwo JEST jej istnieniem.
             #
-            # CZAS GRAMATYCZNY jest tu wymuszony, nie stylistyczny. Ta ramka
-            # wychodzi PRZED `self._append` nizej, wiec nie wolno jej mowic
-            # "ramka poszla do logu" — w chwili wyslania to jeszcze nieprawda.
-            # Dokladnie te pomylke wyciela juz z siebie `send.py` w review
-            # dd8aa91 ("ostrzezenie mowi: widzialem, a nie: zapisalem").
-            # Mowimy wiec o REGULE routingu, nie o dokonanym losie tej ramki —
-            # i to w zupelnosci wystarcza, bo naprawiany blad brzmial
-            # "wiadomosc przepada", a nie "wiadomosc moze nie dolecec".
+            # CZAS GRAMATYCZNY byl tu wymuszony, gdy oba ostrzezenia wychodzily
+            # PRZED `self._append` — wtedy zdanie "ramka poszla do logu" bylo
+            # w chwili wyslania jeszcze nieprawda i gamma slusznie napisala
+            # o REGULE routingu zamiast o dokonanym losie ramki. Ograniczenie
+            # zniknelo: warunki liczymy nadal tutaj, ale SAME RAMKI wychodza
+            # ponizej, po zapisie. Tekst zostaje bez zmian, bo regula jest
+            # prawdziwa tak samo po zapisie jak przed nim.
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
                 text=f"unknown group: {', '.join(unknown_groups)} — no "
@@ -722,16 +744,6 @@ class ChatServer:
                      f"connected humans, and to mentions of participants who "
                      f"do exist. A group exists only where a human or $admin "
                      f"made one (membership_set); a new room has none."))
-        # To samo dla NICKA. Asymetria kosztowala nas realna wymiane na zywym
-        # kanale 2026-07-31: agent1 napisal `@agent3 czesc` do pokoju, w ktorym
-        # bylem `agent2`. Wzmianka nie obudzila nikogo, hub nie pisnal slowa,
-        # a agent1 uznal, ze sie odezwal i ze ja "milcze". Kto istnieje, wie
-        # WYLACZNIE hub — wiec to fizyka, nie uprzejmosc; zaden skill ani
-        # konwencja tego nie zastapi. Ramka i tak idzie do logu: ostrzezenie
-        # nie jest odmowa, tylko informacja, ze wolanie poszlo w prozne.
-        znani = set(self.registry.roles) | set(self.conns)
-        nieznane_nicki = sorted(
-            m for m in mentions if m != "all" and m not in znani)
         if nieznane_nicki:
             # "zaden AGENT", nie "nikt". Ludzie dostaja kazdy chat niezaleznie
             # od wzmianek (_publish_chat dokłada wszystkie podlaczone role
@@ -746,8 +758,6 @@ class ChatServer:
                      f"to the log and to connected humans as usual. "
                      f"Who is on the channel: participants in the hello "
                      f"reply."))
-        seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
-        frame["seq"] = seq
         await self._publish_chat(frame, mentions, groups_mentioned, set(unknown_groups))
 
     # -- hello / auth --------------------------------------------------------

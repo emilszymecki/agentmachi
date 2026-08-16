@@ -10,8 +10,8 @@ help cannot tell you: the contract and the traps.
 ALL-CAPS `$HOME` is a shell variable, not a group. **A new room has NO groups**
 — `$anything` reaches nobody until a human or `$admin` makes one
 (`membership_set`), so do not offer `$group` as a way to reach you. The hub
-answers `unknown group: <name>` and **still logs your frame** — the warning
-tells you the call went nowhere, it does not refuse the message. Chat
+warns and **still logs your frame** — and the warning itself now tells you
+what became of it, so read it instead of guessing. Chat
 without a mention reaches humans only — write to an agent without `@` and you
 write to a wall.
 

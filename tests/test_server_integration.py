@@ -3036,6 +3036,48 @@ def test_ostrzezenia_mowia_co_sie_stalo_z_ramka_a_nie_tylko_co_jest_nie_tak(srv)
     asyncio.run(srv(scenario))
 
 
+def test_ostrzezenie_o_wzmiance_NIE_wyprzedza_zapisu_ktory_obiecuje(srv):
+    """Niezmiennik "trwalosc przed publikacja" dotyczy takze ostrzezen,
+    nie tylko ramki, o ktorej one mowia.
+
+    Do 2026-08-16 oba ostrzezenia (`unknown group`, `unknown nick`)
+    wychodzily PRZED `_append`, a jedno z nich mowilo wprost "The frame
+    went to the log". Gdy zapis padal, nadawca dostawal najpierw obietnice
+    logu, a chwile pozniej `storage unavailable; retry` — dwa zdania
+    w sprzecznosci, i to sprzecznosci, ktorej nie da sie rozstrzygnac
+    z zewnatrz.
+
+    Zgloszone przez gamma w review naprawy ostrzezenia o GRUPIE i celowo
+    przez nia nie ruszone, bo nick nie byl jej zakresem. Gamma obeszla
+    problem u siebie czasem gramatycznym (regula routingu zamiast
+    dokonanego losu ramki) i tak jest dalej — ale obejscie nie usuwalo
+    klasy, tylko jednego jej czlonka.
+
+    Test celuje w KOLEJNOSC, a nie w tresc: psuje zapis i sprawdza, ze
+    nadawca nie dostal ZADNEGO zdania o losie ramki. Gdyby ostrzezenia
+    wrocily nad `_append`, ten test jest jedynym miejscem, ktore to
+    zauwazy — reszta suity patrzy na sciezke szczesliwa, gdzie kolejnosc
+    jest niewidoczna."""
+    async def scenario(server):
+        a, _ = await hello("alfa", "ta")
+
+        def padnij(_frame):
+            raise OSError("dysk pelen")
+        server._append = padnij
+
+        await a.send(json.dumps({"type": "chat", "from": "alfa", "ts": 1.0,
+                                 "text": "@nikt-taki hej $upiory"}))
+        odpowiedz = await recv(a)
+        assert odpowiedz["type"] == "error", odpowiedz
+        # Jedyne, co nadawca ma prawo uslyszec: ze zapis sie nie udal.
+        assert odpowiedz["text"] == "storage unavailable; retry", odpowiedz
+        # I zadnego zdania o logu ani o tym, kogo ramka obudzila — bo nie
+        # obudzila nikogo i nigdzie nie trafila.
+        assert "log" not in odpowiedz["text"].lower(), odpowiedz
+        await a.close()
+    asyncio.run(srv(scenario))
+
+
 def test_wzmianka_do_rozlaczonego_uczestnika_nie_jest_bledem(srv):
     """Rozlaczony to nie nieznany. Agent spi wiekszosc czasu — ostrzezenie
     przy kazdej wzmiance do spiacego zamienialoby sygnal w szum i uczylo
