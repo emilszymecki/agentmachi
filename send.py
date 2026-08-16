@@ -501,10 +501,20 @@ async def _pokaz_ostrzezenie_serwera(ws):
     Okno trwa DO KONCA niezaleznie od tego, co przyjdzie — takze po
     ostrzezeniu. Kiedys konczylo sie na pierwszym `error` i to bylo zle
     z tego samego powodu, dla ktorego zamkniety socket nie jest cisza:
-    serwer wysyla ostrzezenie PRZED trwalym zapisem ramki (`_handle_chat`),
-    wiec ostrzezenie mowi "widzialem", a nie "zapisalem". Wczesny powrot
-    zamykal wiec okno na dowodzie, ktory niczego nie dowodzil, i gubil pad
-    transportu przychodzacy chwile pozniej. Cisza i tak trwa pelne okno,
+    ramka `error` NIE ODROZNIA ostrzezenia od odmowy. Oba maja ten sam typ
+    i tylko tresc w srodku, wiec klient nie umie z niej orzec, czy ramka
+    wyladowala w logu: "unknown nick" znaczy "zapisano mimo to", a "invalid
+    json" znaczy "odrzucono". Wczesny powrot zamykal wiec okno na dowodzie,
+    ktory niczego nie dowodzil, i gubil pad transportu przychodzacy chwile
+    pozniej.
+
+    Do 2026-08-16 stalo tu uzasadnienie MOCNIEJSZE i wtedy prawdziwe:
+    "serwer wysyla ostrzezenie PRZED trwalym zapisem ramki". Przestalo byc —
+    `ee3f784` przenioslo oba ostrzezenia pod `_append`, bo niezmiennik
+    trwalosci dotyczy takze ich. Zachowanie sie nie zmienia, uzasadnienie
+    owszem: przezylo mechanizm, z ktorego wyroslo. Zlapala to gamma w review,
+    czytajac pliki, ktorych sam przenos nie ruszyl — sam commit byl poprawny
+    i suita zielona. Cisza i tak trwa pelne okno,
     a wysylek z uwaga jest malo, wiec sciezka szczesliwa nie placi nic.
     Okno jest krotkie i oparte na pomiarze (patrz OKNO_OSTRZEZENIA).
 
@@ -567,10 +577,13 @@ async def _pokaz_ostrzezenie_serwera(ws):
         if isinstance(ramka, dict) and ramka.get("type") == "error":
             print(f"hub: {ramka.get('text', '(no text)')}", file=sys.stderr)
             ostrzezenie = ramka
-            # NIE wracamy tu od razu, choc pierwsza wersja wracala. Serwer
-            # wysyla ostrzezenie PRZED trwalym appendem (chat/server.py, gałąź
-            # unknown nick/group leci wczesniej niz `_append`), wiec
-            # ostrzezenie NIE JEST dowodem, ze ramka wyladowala w logu.
+            # NIE wracamy tu od razu, choc pierwsza wersja wracala. `error`
+            # NIE ODROZNIA ostrzezenia od odmowy — typ jest ten sam, rozni je
+            # wylacznie tresc — wiec ta ramka NIE JEST dowodem, ze frame
+            # wyladowal w logu. (Od `ee3f784` ostrzezenia o wzmiankach wychodza
+            # PO `_append`, wiec akurat one dowodem sa; klient tego nie ugra,
+            # bo nie umie ich odroznic od "invalid json" bez parsowania tresci
+            # huba, a to jest kontrakt, ktorego nie mamy.)
             # Wczesny powrot znaczyl "widzialem uwage, konczymy sukcesem"
             # i gubil pad transportu, ktory przyszedl chwile pozniej — czyli
             # dokladnie ta sama luka, ktora zamyka galaz ConnectionClosed

@@ -2334,8 +2334,9 @@ def test_zamkniecie_socketu_PO_CUDZEJ_ramce_tez_daje_UNKNOWN(capsys):
 def test_zamkniecie_PO_PRAWDZIWYM_ostrzezeniu_tez_daje_UNKNOWN(capsys):
     """Druga galaz tej samej luki, przeoczona w 84e69ee.
 
-    Serwer wysyla ostrzezenie PRZED trwalym appendem, wiec ostrzezenie
-    mowi "widzialem", a nie "zapisalem". Kod wracal na nim od razu — czyli
+    Ramka `error` nie odroznia ostrzezenia od odmowy: typ jest ten sam,
+    rozni je wylacznie tresc, wiec klient nie umie z niej orzec, czy ramka
+    trafila do logu. Kod wracal na niej od razu — czyli
     zamykal okno na dowodzie, ktory niczego nie dowodzil, i gubil pad
     transportu przychodzacy chwile pozniej. Sekwencja error -> close
     konczyla sie ZEREM. Teraz okno trwa do konca."""

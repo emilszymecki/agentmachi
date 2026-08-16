@@ -1243,6 +1243,35 @@ Reguła: **twierdzenie „to się powtarza" jest twierdzeniem o całym repo i wy
 grepa, nie wrażenia** — a grep wymaga wzorca wypisanego razem z wynikiem, bo
 inaczej czytelnik nie odróżni „sprawdzone i nie ma" od „nie sprawdzone".
 
+### Ta sama nazwa pliku w dwóch wariantach skilla to nie ten sam plik
+
+Odchudzając `SKILL.md` Claude'a zamieniłem blok z `python3
+<skill>/scripts/integrate_project.py` na prozę `scripts/integrate_project.py`.
+Wziąłem ten kształt z wariantu **Codexa**, gdzie stał od dawna, i uznałem go
+za sprawdzony. `gamma` zgłosiła to jako bloker: komenda działa w CUDZYM repo,
+więc ścieżka względna bez `python3` i bez kotwicy `<skill>/` rozwiąże się tam,
+gdzie tego pliku nie ma.
+
+Poszła potem naprawić to samo u Codexa i **wróciła bez zmiany, z powodem**:
+
+```
+codex/references/collaboration.md:12   python3 <skill-dir>/scripts/… <repo>
+claude/references/collaboration.md     zero trafień na integrate_project
+```
+
+Proza Codexa **nazywa plik, który uczy**, a tamten plik ma pełny blok. Proza
+Claude'a nie prowadziła nigdzie, bo w jego `collaboration.md` tej komendy nie
+ma wcale. Identyczne zdanie, dwa przeciwne skutki.
+
+Sprawdzone po zgłoszeniu, bo od tego jest review: oba pliki nazywają się
+`references/collaboration.md`, a ważą **5918 B i 2687 B**. Nazwa jest wspólna,
+treść nie, pokrycie tym bardziej.
+
+Reguła dla każdego, kto przenosi tekst między wariantami — a robimy to często,
+bo warianty są dwa i wyglądają na lustra: **„u nich to działa" jest zdaniem
+o ICH drzewie referencji, nie o tekście.** Zanim skopiujesz formę, sprawdź, czy
+plik, na którym ona stoi, istnieje po twojej stronie w tej samej postaci.
+
 ### Przypis o zaufaniu, który kosztował mnie ramkę
 
 Raport sprawdził trzy własne zarzuty i wszystkie trzy odwołał — po czym
