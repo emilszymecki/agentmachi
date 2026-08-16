@@ -1212,6 +1212,48 @@ def test_send_pokazuje_ostrzezenie_serwera_bez_nasluchu(tmp_path, monkeypatch, c
     assert "chat" in typy
 
 
+def test_ostrzezenie_o_grupie_dociera_do_nadawcy_W_CALOSCI(tmp_path, monkeypatch,
+                                                           capsys):
+    """Druga polowa tej samej drogi co
+    `test_ostrzezenia_mowia_co_sie_stalo_z_ramka...` w testach serwera.
+
+    Serwer moze mowic prawde do sciany. Ostrzezenie o `$nieznanej grupie`
+    urosło z czterech slow do zdania, ktore dopiero od `— no participant`
+    W DOL prostuje mylne "wiadomosc przepada" — wiec pytanie nie brzmi
+    "czy hub to wyslal", tylko "czy nadawca to widzi". Klient wypisuje
+    `ramka['text']` w calosci (`send.py`), lecz zaden test tego nie
+    trzymal: skrocenie do pierwszej linii przeszloby na zielono i skasowalo
+    dokladnie te czesc, dla ktorej ta poprawka powstala.
+
+    Trzy niezalezne fakty naraz, bo tylko razem znacza "ostrzezenie, nie
+    odmowa": tresc dociera cala, ramka `chat` jest w logu, a ramki `error`
+    w logu NIE MA (decyzja z `test_send_pokazuje_ostrzezenie_serwera...`)."""
+    from chat.server import ChatServer
+    port = _free_port()
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            await send.send_once("agent1", "$upiory zbiorka")
+            return [f.get("type") for f in srv.log.replay()]
+        finally:
+            await srv.stop()
+
+    typy = asyncio.run(scenario())
+    err = capsys.readouterr().err
+    assert "hub:" in err and "upiory" in err, err
+    # Zmienil sie JEZYK komunikatu, nie kontrakt: nadawca ma sie dowiedziec,
+    # co stalo sie z RAMKA, a nie tylko co jest nie tak ze wzmianka.
+    assert "log" in err.lower(), f"ogon komunikatu nie dotarl do nadawcy: {err!r}"
+    assert "chat" in typy          # ramka MIMO TO doszla
+    assert "error" not in typy     # ostrzezenie zyje tylko na zywo
+
+
 def test_send_bez_ostrzezenia_nie_placi_pelnego_okna(tmp_path, monkeypatch):
     """Cisza jest sciezka SZCZESLIWA, wiec kazda zwykla wysylka placi pelne
     okno. Pierwsza wersja miala 1.0 s i spowalniala wszystko; okno jest

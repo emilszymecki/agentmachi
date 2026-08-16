@@ -688,9 +688,40 @@ class ChatServer:
         known_groups = {g for gs in self.groups.values() for g in gs}
         unknown_groups = sorted(g for g in groups_mentioned if g not in known_groups)
         if unknown_groups:
+            # Ostrzezenie musi powiedziec, co sie stalo z RAMKA, nie tylko co
+            # jest nie tak ze wzmianka. Przez rok mowilo samo "unknown group:
+            # X" i to wystarczylo, zeby dwa Claude Code (Opus 5) po dniu pracy
+            # przez kanal zapisaly w pamieci swojego projektu, ze `$nieznana`
+            # zjada cala wiadomosc (`agentmachi_fix.md`, pokoj `justjoinet`,
+            # 2026-08-15/16). Ramka szla do logu i budzila wzmianki `@nick`
+            # przez caly ten czas — objaw wziety za skutek, bo hub pokazal
+            # wylacznie objaw. `howto_default.md` mowil prawde ("still logs
+            # your frame"), ale w miejscu, do ktorego nie zaglada sie
+            # z komunikatem bledu przed oczami.
+            #
+            # "no participant has that group" jest doslowne, nie retoryczne:
+            # `known_groups` liczy sie z CALEGO rejestru, wiec grupa, ktorej
+            # czlonkowie tylko spia, jest znana i nie trafia tutaj (ta sama
+            # regula co dla wzmianki do rozlaczonego nicka). Grupa pusta nie
+            # istnieje — czlonkostwo JEST jej istnieniem.
+            #
+            # CZAS GRAMATYCZNY jest tu wymuszony, nie stylistyczny. Ta ramka
+            # wychodzi PRZED `self._append` nizej, wiec nie wolno jej mowic
+            # "ramka poszla do logu" — w chwili wyslania to jeszcze nieprawda.
+            # Dokladnie te pomylke wyciela juz z siebie `send.py` w review
+            # dd8aa91 ("ostrzezenie mowi: widzialem, a nie: zapisalem").
+            # Mowimy wiec o REGULE routingu, nie o dokonanym losie tej ramki —
+            # i to w zupelnosci wystarcza, bo naprawiany blad brzmial
+            # "wiadomosc przepada", a nie "wiadomosc moze nie dolecec".
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
-                text=f"unknown group: {', '.join(unknown_groups)}"))
+                text=f"unknown group: {', '.join(unknown_groups)} — no "
+                     f"participant has that group, so NO AGENT wakes up "
+                     f"through it. This is a warning, NOT a rejection: the "
+                     f"frame is routed like any other chat — into the log, to "
+                     f"connected humans, and to mentions of participants who "
+                     f"do exist. A group exists only where a human or $admin "
+                     f"made one (membership_set); a new room has none."))
         # To samo dla NICKA. Asymetria kosztowala nas realna wymiane na zywym
         # kanale 2026-07-31: agent1 napisal `@agent3 czesc` do pokoju, w ktorym
         # bylem `agent2`. Wzmianka nie obudzila nikogo, hub nie pisnal slowa,
