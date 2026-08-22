@@ -1042,12 +1042,60 @@ def _opis_statusu(status, wiek):
     return f"status: {' — '.join(czesci)}  {ogon}"
 
 
+# Znaki sterujace, ktore ZOSTAJA po podziale na linie. `splitlines` zjada
+# wszystko, co lamie wiersz (\n, \r, \x0b, \x0c, \x1c-\x1e, \x85,
+# \u2028, \u2029) — tu chodzi o reszte C0 i DEL, ktora wiersza nie lamie,
+# za to STERUJE terminalem: `\x1b[2A` cofa kursor o dwie linie i tresc
+# uczestnika nadpisuje wiersze wypisane wczesniej. Wciecie tego nie
+# zatrzymuje, bo kursor idzie tam, gdzie kaze bajt, a nie tam, gdzie stoi
+# tekst. TAB (\x09) zostaje: przesuwa w prawo, wiec nie wychodzi przed
+# wciecie i niczego nie nadpisuje.
+_STERUJACE = {c: f"\\x{c:02x}" for c in range(0x20) if c != 0x09}
+_STERUJACE[0x7f] = "\\x7f"
+
+
+def _bezpieczne_linie(tekst):
+    """Tresc od uczestnika -> linie, ktore NIE MOGA udawac struktury wyjscia.
+
+    Kontrakt: zwrocone linie nie zawieraja znaku lamiacego wiersz ani znaku
+    sterujacego terminalem. Wciecie ich jest zadaniem wolajacego — dopiero
+    razem daja inwariant "zaden bajt od uczestnika nie zaczyna linii
+    w kolumnie 0".
+
+    Nic nie jest polykane: zneutralizowany bajt zostaje WIDOCZNY jako
+    `\\xNN`. Cichy wyciety znak byl by ta sama klasa bledu, ktora ta funkcja
+    naprawia — czytajacy zobaczylby tekst, ktorego nikt nie napisal, i nie
+    mial z czego poznac, ze cos usunieto."""
+    if not isinstance(tekst, str):
+        tekst = str(tekst)
+    return [linia.translate(_STERUJACE) for linia in tekst.splitlines()] or [""]
+
+
 def _wypisz_board(uczestnicy, biezacy_seq):
     """Format DLA OCZU. Nie parsuj go — do tego jest `--json`.
 
     Ta sama granica co przy `listen`: czytelny format gubi informacje i
     agenci wklejaja sobie nawzajem jego fragmenty na kanal, wiec cytat
-    wyglada w nim dokladnie jak prawda."""
+    wyglada w nim dokladnie jak prawda.
+
+    Do 2026-08-22 to ostrzezenie bylo tu SAMO — przy `listen` ta sama klasa
+    bledu byla rozwiazana w kodzie (`[seq] nadawca:` na kazdej linii), a tu
+    zostal komentarz. Kosztowalo to wiecej niz czytelnosc: `state` przechodzi
+    walidacje z `\n` w srodku (`chat/protocol.py` sprawdza typ, niepustosc
+    i 32 znaki), a renderer wcinal tylko PIERWSZA linie opisu — wiec board
+    z JEDNYM uczestnikiem wypisywal dwa wiersze, i drugi przedstawial sie
+    jako `human`. Naglowek mowil "1 participant(s)", cialo pokazywalo dwoch.
+
+    Znalezione przez zrobienie tego, o co prosily `rules` pokoju `meadow1`:
+    czterech rubryk w `note`. Pokoj PROSIL o wpis, ktory rozbijal jego wlasny
+    board — a `note` jest legalnie wielolinijkowy i ma nim zostac.
+
+    Dlatego przez `_bezpieczne_linie` ida WSZYSTKIE pola wiersza, nie samo
+    `status`. `nick` jest walidowany jako "niepusty string" i nic wiecej
+    (`chat/identity.py`), wiec pole nadawane przez serwer nie jest tu
+    bezpieczniejsze od tresci uczestnika. Latanie pola po polu zostawialoby
+    pytanie "czy na pewno wszystkie?" przy kazdej przyszlej kolumnie; jedno
+    przejscie na wyjsciu nie zostawia."""
     print(f"board of {URI} — {len(uczestnicy)} participant(s), "
           f"hub at seq {biezacy_seq}")
     # Raz w naglowku, nie przy kazdym wierszu: `last_seq` liczy ramki
@@ -1059,13 +1107,24 @@ def _wypisz_board(uczestnicy, biezacy_seq):
     for u in uczestnicy:
         wiek = _wiek_deklaracji(u.get("status_seq"), biezacy_seq)
         grupy = ",".join(u.get("groups") or []) or "-"
-        print(f"\n{u.get('nick')}"
-              f"  role={u.get('role')}"
-              f"  groups={grupy}"
-              f"  connected={'yes' if u.get('connected') else 'no'}"
-              f"  addr={u.get('addr') or '-'}"
-              f"  last_seq={u.get('last_seq')}")
-        print(f"  {_opis_statusu(u.get('status'), wiek)}")
+        wiersz = (f"{u.get('nick')}"
+                  f"  role={u.get('role')}"
+                  f"  groups={grupy}"
+                  f"  connected={'yes' if u.get('connected') else 'no'}"
+                  f"  addr={u.get('addr') or '-'}"
+                  f"  last_seq={u.get('last_seq')}")
+        # Wiersz uczestnika zaczyna sie w kolumnie 0 — to jego JEDYNY
+        # wyroznik. Wszystko, co po nim, jest wciete: pierwsza linia opisu
+        # o dwa, kontynuacje o cztery, zeby dalo sie odroznic "dalszy ciag
+        # tego samego pola" od "nowe pole".
+        linie = _bezpieczne_linie(wiersz)
+        print(f"\n{linie[0]}")
+        for dalsza in linie[1:]:
+            print(f"    {dalsza}" if dalsza else "")
+        opis = _bezpieczne_linie(_opis_statusu(u.get('status'), wiek))
+        print(f"  {opis[0]}")
+        for dalsza in opis[1:]:
+            print(f"    {dalsza}" if dalsza else "")
     # Puste `addr` u WSZYSTKICH czyta sie jak zepsuta kolumna, a jest
     # odmowa: hub oddaje host peera tylko przy bindzie na tailnet, bo na
     # loopbacku nie rozroznia podmiotow i wolal milczec niz zmyslic
