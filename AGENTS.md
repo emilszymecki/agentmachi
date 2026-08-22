@@ -243,9 +243,9 @@ nie publikujesz paczki „na próbę" i nie robisz testowego pusha. Przy granicy
 `trust-only` sprawdzenie przez wykonanie **jest** skutkiem: nie ma czemu cię
 odrzucić.
 
-Tabela opisuje **stan zmierzony 2026-08-10** (wiersz PyPI: 2026-08-13), nie
-stan docelowy ani politykę. Sprawdź sam, zamiast jej wierzyć — po to jest
-ostatnia kolumna.
+Tabela opisuje **stan zmierzony 2026-08-10, wszystkie trzy wiersze
+potwierdzone probe'ami 2026-08-22**, nie stan docelowy ani politykę.
+Sprawdź sam, zamiast jej wierzyć — po to jest ostatnia kolumna.
 
 | Granica | Egzekwowanie | Typ | Probe |
 |---|---|---|---|
@@ -253,7 +253,7 @@ ostatnia kolumna.
 | Push do `main` | **Nic.** Brak classic branch protection (`404 Branch not protected`) i brak rulesetów (`[]`). Token `gh` ma scope `repo`. | **trust-only** | `gh api "repos/{owner}/{repo}/branches/main/protection"`; `gh api "repos/{owner}/{repo}/rules/branches/main"`; `gh auth status 2>&1 \| grep -i scopes` |
 | Plik tokenów huba | Kod pisze 0600 (`_write_0600`, `agentmachi/cli.py:69`), pilnuje tego test (`tests/test_cli.py:43`), katalogi huba są 0700. Przed wyciekiem do gita: wzorce `*.tokens.json` i `tokens.json` w `.gitignore`. | **trust-only wobec agenta**, gated wobec przypadku | `test -r ~/.agentmachi/<hub>/tokens.json` (nigdy `cat`); `git check-ignore -v hub.tokens.json` |
 
-Pięć rzeczy, których tabela nie powie skrótem:
+Cztery rzeczy, których tabela nie powie skrótem:
 
 - **Brak płotu na `main` to od 2026-08-13 decyzja, nie zaniedbanie.** Zostaje
   `trust-only`, a powód jest o kosztach: agent poukłada gałęzie szybciej, niż
@@ -263,16 +263,14 @@ Pięć rzeczy, których tabela nie powie skrótem:
   wystąpi, kosztuje `git revert`, nie dane — i wtedy decyzja wraca.
 - **Credential do PyPI dostał 2026-08-13 wskazane MIEJSCE, a nie płot.** Leży
   **poza katalogiem projektu** (ścieżka wyżej), żeby agent w drzewie nie
-  potykał się o niego i żeby `git add -f` tam nie sięgnął. Ochroną to nie jest: cokolwiek chodzi jako operator, przeczyta ten
-  plik. Wydanie jest nieodwracalne — wersji z indeksu się nie cofa.
+  potykał się o niego i żeby `git add -f` tam nie sięgnął. Przeczytasz go
+  mimo to — chodzisz jako operator. Wydanie jest nieodwracalne: wersji
+  z indeksu się nie cofa.
 - **Wynik `gh api` to stan serwera, nie własność repozytorium.** Ustawienia na
   GitHubie zmienia się poza gitem i żaden plik tutaj o tym nie napisze —
   dlatego w tabeli stoi probe z datą, a nie werdykt. Odczyt jest read-only;
   push testowy przy niechronionej gałęzi byłby po prostu pushem.
-- **0600 nie jest płotem dla ciebie.** Chodzisz jako ten sam użytkownik
-  systemowy co operator, więc uprawnienia pliku zatrzymują innych użytkowników
-  systemu, nie ciebie. `.gitignore` jest płotem wobec `git add -A` i przestaje
-  nim być przy `git add -f`.
-- **Samych wzorców w `.gitignore` nie pilnuje żaden test** — sprawdzone.
+- **`.gitignore` jest płotem wobec `git add -A` i przestaje nim być przy
+  `git add -f`** — a samych wzorców nie pilnuje żaden test, sprawdzone.
   Historia gita jest czysta (`hub.tokens.json` nigdy w niej nie był), ale
   utrzymuje to konwencja `git add` po jawnych ścieżkach, nie mechanizm.
