@@ -270,6 +270,9 @@ Cztery rzeczy, których tabela nie powie skrótem:
   GitHubie zmienia się poza gitem i żaden plik tutaj o tym nie napisze —
   dlatego w tabeli stoi probe z datą, a nie werdykt. Odczyt jest read-only;
   push testowy przy niechronionej gałęzi byłby po prostu pushem.
+  `{owner}/{repo}` rozwija się z `origin`: w worktree `gh` odsyła do
+  `gh auth login`, choć token jest dobry. Sztywna nazwa gorsza: w forku
+  probe odpowie o upstreamie i nie powie o tym.
 - **`.gitignore` jest płotem wobec `git add -A` i przestaje nim być przy
   `git add -f`** — a samych wzorców nie pilnuje żaden test, sprawdzone.
   Historia gita jest czysta (`hub.tokens.json` nigdy w niej nie był), ale
