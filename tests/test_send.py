@@ -2382,6 +2382,19 @@ def test_board_neutralizuje_znaki_odwracajace_kierunek_pisma(capsys):
     assert "\\u202e" in out, "bajt ma byc pokazany, nie po cichu wyciety"
 
 
+def test_bezpieczne_linie_lapie_TAKZE_lamiace_ktore_nie_sa_backslash_n():
+    """`\\r` NADPISUJE wciecie, wiec jest pelnoprawnym wstrzykiem wiersza.
+
+    Klasa zgloszona przez agent2 w adwersarialnej weryfikacji c9c7371 —
+    autor fixu jej nie zglosil, a jego PoC by jej nie pokazalo. Fix trzyma
+    ja tylko dlatego, ze uzyto `str.splitlines()`, a nie `split("\\n")`.
+    Ten test przypina TEN WYBOR: roznica miedzy nimi jest niewidoczna,
+    dopoki ktos nie wysle ktoregos z tych znakow."""
+    for znak in ("\r", "\x0b", "\x0c", "\x85", "\u2028", "\u2029"):
+        assert send.bezpieczne_linie(f"a{znak}b") == ["a", "b"], \
+            f"{znak!r} nie zostal potraktowany jako lamiacy wiersz"
+
+
 def test_bezpieczne_linie_NIE_udaje_ze_lapie_homoglify(capsys):
     """Granica kontraktu, spisana jako test, zeby nikt jej nie przekroczyl
     w dobrej wierze.
@@ -2394,6 +2407,10 @@ def test_bezpieczne_linie_NIE_udaje_ze_lapie_homoglify(capsys):
     Gdyby ktos kiedys dolozyl tu ZWSP, ten test padnie i kaze mu najpierw
     odpowiedziec na pytanie o `chat/identity.py`."""
     assert send.bezpieczne_linie("be​ta") == ["be​ta"]
+    # U+FEFF (BOM/ZWNBSP) tak samo — znalezione przez agent2 obok
+    # ZWSP. Ta sama granica i ten sam powod: niewidoczny znak
+    # w NICKU to pytanie o tozsamosc, nie o render.
+    assert send.bezpieczne_linie("\ufeffhuman") == ["\ufeffhuman"]
 
 
 def test_board_chroni_TAKZE_pola_od_serwera_nie_tylko_status(capsys):

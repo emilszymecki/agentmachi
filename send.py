@@ -1082,6 +1082,13 @@ def bezpieczne_linie(tekst):
     razem daja inwariant "zaden bajt od uczestnika nie zaczyna linii
     w kolumnie 0".
 
+    `splitlines()`, nie `split("\\n")` — i to jest wybor, nie skrot.
+    `split("\\n")` przepuscilby `\\r` (wraca do kolumny 0 i NADPISUJE
+    wciecie, wiec jest pelnoprawnym wstrzykiem wiersza), a takze `\\x0b`,
+    `\\x85` i U+2028. Roznica jest niewidoczna, dopoki ktos nie wysle
+    ktoregos z nich — zmierzone przez agent2 w adwersarialnej weryfikacji
+    c9c7371, na klasie, ktorej autor fixu nie zglosil.
+
     Nic nie jest polykane: zneutralizowany bajt zostaje WIDOCZNY jako
     `\\xNN`. Cichy wyciety znak byl by ta sama klasa bledu, ktora ta funkcja
     naprawia — czytajacy zobaczylby tekst, ktorego nikt nie napisal, i nie
