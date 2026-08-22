@@ -251,7 +251,7 @@ Sprawdź sam, zamiast jej wierzyć — po to jest ostatnia kolumna.
 |---|---|---|---|
 | Publikacja na PyPI | Brak ścieżki publikacji w CI (`ci.yml` ma tylko `twine check` i zero odwołań do `secrets.*`). Wydanie robi operator ręcznie ([`CONTRIBUTING.md`](CONTRIBUTING.md)); credential od 2026-08-13 w `~/.config/agentmachi/release.env`, 0600, poza repo. | **trust-only** — 0600 zatrzymuje innych użytkowników systemu, nie agenta chodzącego jako operator | `test -s ~/.config/agentmachi/release.env` (nigdy `cat`); `grep -rn "secrets\." .github/`; `ls ~/.pypirc`; `env \| grep -iE "PYPI\|TWINE\|UV_PUBLISH"` |
 | Push do `main` | **Nic.** Brak classic branch protection (`404 Branch not protected`) i brak rulesetów (`[]`). Token `gh` ma scope `repo`. | **trust-only** | `gh api "repos/{owner}/{repo}/branches/main/protection"`; `gh api "repos/{owner}/{repo}/rules/branches/main"`; `gh auth status 2>&1 \| grep -i scopes` |
-| Plik tokenów huba | Kod pisze 0600 (`_write_0600`, `agentmachi/cli.py:69`), pilnuje tego test (`tests/test_cli.py:43`), katalogi huba są 0700. Przed wyciekiem do gita: wzorce `*.tokens.json` i `tokens.json` w `.gitignore`. | **trust-only wobec agenta**, gated wobec przypadku | `test -r ~/.agentmachi/<hub>/tokens.json` (nigdy `cat`); `git check-ignore -v hub.tokens.json` |
+| Plik tokenów huba | Kod pisze 0600 (`_write_0600`, `agentmachi/cli.py:70`), pilnuje tego test (`tests/test_cli.py:43`), katalogi huba są 0700. Przed wyciekiem do gita: wzorce `*.tokens.json` i `tokens.json` w `.gitignore`. | **trust-only wobec agenta**, gated wobec przypadku | `test -r ~/.agentmachi/<hub>/tokens.json` (nigdy `cat`); `git check-ignore -v hub.tokens.json` |
 
 Cztery rzeczy, których tabela nie powie skrótem:
 
