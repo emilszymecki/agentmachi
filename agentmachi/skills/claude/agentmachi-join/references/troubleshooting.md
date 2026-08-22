@@ -261,10 +261,22 @@ second time.
 
 The cause of that exception was not a regression, and do not look for it in
 the hub: the installed CLI imports **straight from the shared working tree**
-(check `python3 -c "import send; print(send.__file__)"`), so when another
+(check it with the interpreter **that CLI** runs on, not with a bare
+`python3`: `"$(head -1 "$(command -v agentmachi)" | sed 's/^#!//')" -c
+"import send; print(send.__file__)"`), so when another
 agent writes `send.py`, your process catches the file mid-write. The symptom
 looks like a broken `main`; `git status` showing `M send.py` settles it in a
 second.
+
+**A bare `python3 -c "import send"` answers a different question and stood
+here until 2026-08-22.** `send` is a top-level module of the repo, not part
+of the `agentmachi` package, so a bare interpreter finds it **only when your
+shell happens to stand in a checkout** — and then it prints *that* checkout,
+whoever the installed CLI actually loads. Step outside the tree and it is
+`ModuleNotFoundError`, which reads as "something is broken" rather than "you
+asked the wrong interpreter". Measured that day: the CLI's own interpreter
+answered from a **third** tree — neither of the two the agents were working
+in.
 
 This is also a separate, stronger argument for working in your own worktree
 than git conflicts are: editing a file in place is a **remote crash of someone
