@@ -6,10 +6,11 @@ Status: **obowiązująca — nadrzędna bramka dla każdej zmiany w projekcie.**
 Ten plik zawiera wyłącznie prawo: zasady, które obowiązują niezależnie od
 tego, co akurat jest zrobione. Audyt kodu z dnia jej powstania i plan
 dojścia do zgodności — czyli rzeczy, które **się zdezaktualizowały w chwili
-wykonania** — zostały w
-[`superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md`](superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md)
-jako historia. Nie czytaj tamtego jak prawa: opisuje stan kodu sprzed
-wycięcia schedulera.
+wykonania** — stały przez miesiąc obok, w planie
+`superpowers/plans/2026-07-24-konstytucja-laka-nie-obora.md`. Usunięto go
+2026-08-22 razem z całym katalogiem planów; treść jest odtwarzalna z gita
+w `22105a4`. Opisywał stan kodu **sprzed** wycięcia schedulera, więc nigdy
+nie był prawem — prawo jest tutaj.
 
 ---
 

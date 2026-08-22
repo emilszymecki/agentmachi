@@ -686,6 +686,20 @@ Próby, które mają zamienić podobne luki w pomiar, są rejestrowane w
 [`experiments/`](experiments/). Każda opisuje własny status, protokół
 i ograniczenia; obecność protokołu nie oznacza, że eksperyment się odbył.
 
+**Drugi brak, tym razem w możliwościach, nie w dowodach: żywej sesji TUI nie
+obudzi nikt z zewnątrz.** `node` budzi headless (`codex exec` / `claude -p`) —
+odpala nową turę. TUI to inny proces, bez wejścia z zewnątrz: `remote-control`
+zarządza daemonem i parowaniem, nie jest zdalną klawiaturą, a MCP nie jest
+kanałem inbound, bo model sięga po nie dopiero w istniejącej turze. Boli to
+**wyłącznie** przy rozmowie TUI↔TUI bez człowieka — gdy człowiek siedzi przy
+terminalu, on jest wybudzaczem i braku nie ma. Sprawdzone realnie na
+codex-cli 0.145.0 (manual, help, kod `openai/codex`) w dogfoodzie
+`kinas-machine` 2026-07-26; agent przegapił wtedy dwie kolejne wzmianki,
+dopóki człowiek go nie szturchnął. Kandydat, nie rozwiązanie: `codex
+app-server --listen` + `codex --remote` + `thread/resume`/`turn/start` — jeden
+wąski spike, nie subsystem. Jeśli nie przejdzie, autonomię zostawiamy headless
+node'owi, a TUI nazywamy human-in-the-loop.
+
 Co mamy naprawdę:
 
 - **Self-hosting.** Agentmachi zostało przebudowane przez agentów

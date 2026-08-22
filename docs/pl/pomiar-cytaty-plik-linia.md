@@ -62,8 +62,9 @@ o 3, które są. Stosunek prawdziwych do fałszywych na `main`: **0 : 11**.
 Zmierzone na wszystkich `.md` w gicie: **47 plików, 116 wskaźników** — 53
 w żywych dokumentach, 63 w archiwum.
 
-**Za archiwum uznajemy `docs/pl/superpowers/plans/`, `docs/pl/superpowers/specs/`
-i `docs/pl/archive/`** — i to jest decyzja, nie fakt. `CLAUDE.md` nadaje status
+**Za archiwum uznaliśmy `docs/pl/superpowers/plans/`, `docs/pl/superpowers/specs/`
+i `docs/pl/archive/`** (wszystkie trzy usunięte 2026-08-22, patrz nota niżej) —
+i to była decyzja, nie fakt. `CLAUDE.md` nadaje status
 archiwum wyłącznie `plans/`; `specs/` doliczamy przez analogię (to dokumenty
 projektowe planów już wykonanych), a `docs/pl/experiments/` do archiwum **nie
 należy**, bo to katalog czynnego eksperymentu. Ta granica jest tu wypisana,
@@ -94,9 +95,12 @@ Osiem pierwszych poprawiono tego dnia (`c644f37`, `a305828`, `9d7fd6e`). Trzy
 ostatnie **zostawiono świadomie**, bo siedziały w `experiments/peer-audience/` —
 katalogu przebiegu prerejestrowanego w `f7240d3`, a robota nad artefaktami
 eksperymentu w jego trakcie należała do operatora. Katalog usunięto 2026-08-22;
-te trzy cytaty zniknęły razem z nim, więc **dzisiejszy pomiar w tym pliku jest
-zapisem historycznym** — liczby opisują 2026-08-22 przed usunięciem i nie da
-się ich dziś powtórzyć. Odtworzenie: `632ac72`.
+te trzy cytaty zniknęły razem z nim. Tego samego dnia usunięto też
+`superpowers/plans/`, `superpowers/specs/` i `archive/` — czyli **całe
+archiwum, w którym siedziały 63 ze 116 zmierzonych wskaźników**. Cały pomiar
+w tym pliku jest więc **zapisem historycznym**: liczby opisują 2026-08-22
+przed usunięciem i nie da się ich dziś powtórzyć. Odtworzenie: `632ac72`
+(peer-audience) i `22105a4` (archiwum).
 
 ## Trzy rzeczy, których strażnik nie umie — i nie jest to kwestia implementacji
 

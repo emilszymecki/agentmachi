@@ -67,11 +67,11 @@ Kolejność, nie sugestia:
    zostawiać w ledgerze** — ledger jest pamięcią jednej maszyny. Złapane
    2026-08-10 przez świeżego agenta: ten punkt obiecywał plik, którego połowa
    czytelników nie może mieć.
-3. `docs/pl/superpowers/plans/` — **archiwum, nie lista zadań.** Wszystkie
-   plany są wykonane; otwarte checkboxy to ślad procesu, nie dług. Zajrzyj
-   tam, gdy chcesz wiedzieć **dlaczego** coś wygląda tak, jak wygląda —
-   indeks i statusy w [`plans/README.md`](docs/pl/superpowers/plans/README.md).
-   Co jest zrobione, mówi kod i ledger z punktu 2.
+3. `docs/pl/konstytucja.md` (prawo) i `docs/pl/zasady-agentyczne.md` (czego
+   się nauczyliśmy) — tam szukaj, **dlaczego** coś wygląda tak, jak wygląda.
+   Plany i specs z lipca/sierpnia usunięto 2026-08-22 (odtwarzalne z gita
+   w `22105a4`): opisywały stan sprzed wykonania, więc dezaktualizowały się
+   w chwili, gdy ktoś je wykonał. Co jest zrobione, mówi kod i punkt 2.
 4. Suita: `uv run --quiet --with pytest --with websockets --with textual
    python -m pytest tests/ -q` (pytest nie jest zainstalowany
    systemowo). Zielona suita to warunek wejścia, nie cel.
