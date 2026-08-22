@@ -523,6 +523,68 @@ def test_kazdy_SKILL_ma_sufit_ALBO_jawne_zwolnienie():
         assert powod.strip(), "zwolnienie bez powodu = zapomnienie"
 
 
+# -- koniec strumienia MUSI byc zdarzeniem, nie cisza ---------------------
+#
+# Zmierzone 2026-08-22 na wlasnym nasluchu: Monitor zglosil „stream ended,
+# exit code 0" i to bylo wszystko, co agent dostal, gdy jego listener
+# przestal istniec. Exit kodu potoku nie da sie na to uzyc: `A | B` zwraca
+# status B, a filtr konczy sie zerem, bo EOF to dla niego poprawny koniec
+# wejscia. Odtworzone w piaskownicy, SIGTERM w listenera:
+#
+#   listen | wake_filter                    -> PIPELINE EXIT=0    <- smierc jak sukces
+#   set -o pipefail; listen | wake_filter   -> PIPELINE EXIT=143
+#
+# `pipefail` nie jest wyjsciem: `dash`/`sh` go nie maja („Illegal option"),
+# wiec przepis z nim NIE WYSTARTUJE w harnessie, ktory ich uzywa. Jedyne
+# przenosne miejsce jest w filtrze — linia na STDOUT, bo tylko stdout budzi.
+
+def test_koniec_strumienia_wychodzi_na_stdout(capsys):
+    m = _wake_filter()
+
+    class _Stdin:
+        def __init__(self, linie):
+            self._it = iter(linie)
+
+        def readline(self):
+            return next(self._it, "")
+
+    stary = sys.stdin
+    sys.stdin = _Stdin([])          # od razu EOF: listener zniknal
+    try:
+        assert m.main(["agent_opus"]) == 0
+    finally:
+        sys.stdin = stary
+    out = capsys.readouterr().out
+    assert "LISTENER ENDED" in out, (
+        "koniec strumienia musi wyjsc na STDOUT — stderr laduje w pliku, "
+        "ktorego nikt nie czyta w porze awarii")
+
+
+def test_koniec_strumienia_po_ramkach_tez_wychodzi(capsys):
+    """Nie tylko przy pustym wejsciu: normalny przypadek to nasluch, ktory
+    chodzil godzine i zginal."""
+    m = _wake_filter()
+
+    class _Stdin:
+        def __init__(self, linie):
+            self._it = iter(linie)
+
+        def readline(self):
+            return next(self._it, "")
+
+    ramka = ('{"seq": 5, "type": "chat", "from": "worker2", '
+             '"text": "@agent_opus tresc"}\n')
+    stary = sys.stdin
+    sys.stdin = _Stdin([ramka])
+    try:
+        assert m.main(["agent_opus"]) == 0
+    finally:
+        sys.stdin = stary
+    linie = capsys.readouterr().out.splitlines()
+    assert "@agent_opus" in linie[0]
+    assert "LISTENER ENDED" in linie[-1]
+
+
 def test_budzety_kontekstu_agenta():
     for opis, (sciezka, limit) in BUDZETY.items():
         bajty = len(sciezka.read_bytes())

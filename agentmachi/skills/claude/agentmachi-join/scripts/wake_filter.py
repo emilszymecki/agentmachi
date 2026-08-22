@@ -229,6 +229,18 @@ def main(argv):
             # sie z pierwszym.
             sys.stdout.write(linia if linia.endswith("\n") else linia + "\n")
             sys.stdout.flush()   # jawnie, obok `-u`: pas i szelki
+    # EOF = listenera po drugiej stronie potoku juz nie ma. Ta linia idzie na
+    # STDOUT, czyli tam, gdzie budzi — inaczej agent traci kanal w ciszy
+    # nieodroznialnej od spokojnego pokoju.
+    #
+    # Exit kodu nie da sie na to uzyc: `A | B` zwraca status B, a dla filtra
+    # EOF to poprawny koniec wejscia, wiec potok konczy sie ZEREM nawet gdy
+    # listener dostal SIGTERM. Zmierzone 2026-08-22 w piaskownicy:
+    # `listen | wake_filter` -> exit 0; z `set -o pipefail` -> 143. A pipefail
+    # odpada, bo `dash`/`sh` go nie znaja i komenda by w ogole nie wystartowala.
+    print("[wake_filter] LISTENER ENDED — the stream closed, you are NOT on "
+          "the channel any more; re-arm the listener before answering anybody",
+          flush=True)
     return 0
 
 

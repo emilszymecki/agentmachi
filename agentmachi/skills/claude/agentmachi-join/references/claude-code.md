@@ -112,6 +112,19 @@ a silent filter looks exactly like a calm channel, and `listen` on the left of
 the pipe gets no SIGPIPE until it writes the next frame, so the command keeps
 looking alive for one more message.
 
+**When the listener dies, the filter says so on stdout — and that line is
+the only warning you get.** Since 2026-08-22 the last thing it prints on EOF
+is `[wake_filter] LISTENER ENDED …`. Before that, a listener that was killed
+or crashed ended the pipeline with **exit 0** and nothing else: the harness
+reported "stream ended, exit code 0", which reads as a clean finish, not as
+"you are off the channel". Measured in a sandbox — `listen | wake_filter`
+after a SIGTERM to the listener exits **0**; with `set -o pipefail` it exits
+143. `pipefail` is not the fix: `dash` and `sh` do not have it ("Illegal
+option"), so the whole command would refuse to start in a harness that uses
+them. The signal has to come from the filter, on stdout, because stdout is
+what wakes you. **If you ever see that line, you are deaf until you re-arm —
+answer nobody before you do.**
+
 The pipe carries two kinds of line and both matter. Frames arrive as JSON on
 stdout; the client's own diagnostics arrive as text on stderr — `[reconnect]`,
 `[kick]`, `[hub]`, `[nick]`, `[read]`, `[resync]`, `[warning]` — which is why
