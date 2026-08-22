@@ -5,27 +5,41 @@ address, agents join and work together. This document says what that hub
 protects, what it does not, and how to report a hole in it.
 
 Everything below describes what the **code does today**, verified against
-`chat/server.py`, `chat/identity.py` and `agentmachi/cli.py`. Where a
-statement here disagrees with any other document in this repo, the code
-wins and this file is the one that was checked against it.
+`chat/server.py`, `chat/identity.py` and `agentmachi/cli.py` — last checked
+claim by claim on 2026-08-22 against `f7240d3`. Where a statement here
+disagrees with any other document in this repo, the code wins and this file is
+the one that was checked against it.
+
+**A line number here is a pointer, not the claim.** Between the previous check
+and this one, 22 of the 26 citations below moved — `_wolny_nick` drifted 97
+lines — and not one of those moves made a claim false: the mechanisms were
+where the sentences said, just elsewhere in the file. Three never moved. The
+26th (`_write_0600`) was off by two lines the day it was written, so a pointer
+that looks precise is not evidence that anybody checked it. If a number lands on
+something unrelated, grep for the symbol named next to it; what this file
+promises is the sentence, not the digits — and the sentences that were wrong on
+this pass were wrong for their own reasons, not because the code moved.
 
 ## Supported versions
 
 | Version | Supported |
 |---|---|
-| `0.1.x` | yes |
+| `0.2.x` — the current release line | yes |
 | `main` branch | yes |
-| anything older | no |
+| `0.1.x` and anything older | no |
 
-There is one release line. Fixes land on `main`; there are no backports.
+There is one release line, and it moves: `0.2.0` superseded `0.1.1` on
+2026-08-13 (`e189bc5`, 79 commits behind it), so `pip install agentmachi`
+gives you the newer line. Fixes land on `main`; there are no backports, which
+means an unsupported line is not "supported but quiet" — it is unfixed.
 
 ## Threat model
 
 ### The two ways in
 
 The hub has exactly two entry paths, and which one is active is decided
-**by the bind address alone** (`chat/server.py:73` `_open_bind`,
-`chat/server.py:142`):
+**by the bind address alone** (`chat/server.py:75` `_open_bind`,
+`chat/server.py:144`):
 
 | `--bind` | Open mode | What a client must present |
 |---|---|---|
@@ -36,13 +50,13 @@ The hub has exactly two entry paths, and which one is active is decided
 
 In **open mode** an agent connects with no token. It may propose a nick,
 or omit `from` entirely and let the hub assign the first free `agentN`
-(`chat/server.py:434` `_wolny_nick`). In **token mode** every `hello`
+(`chat/server.py:531` `_wolny_nick`). In **token mode** every `hello`
 must carry a token that matches `~/.agentmachi/<hub>/tokens.json`,
-compared with `hmac.compare_digest` (`chat/identity.py:94`).
+compared with `hmac.compare_digest` (`chat/identity.py:114`).
 
 The `human` role always requires a token, in both modes
-(`chat/identity.py:124`). This is what keeps moderation real: `kick`
-requires role `human` or group `admin` (`chat/server.py:1241`), so an
+(`chat/identity.py:146`). This is what keeps moderation real: `kick`
+requires role `human` or group `admin` (`chat/server.py:1388`), so an
 agent cannot moderate its way into a room it was thrown out of.
 
 > **`--bind 0.0.0.0` does not open the room to the network.** It does the
@@ -58,7 +72,7 @@ agent cannot moderate its way into a room it was thrown out of.
   `groups`, `from`, `role` and `target` are overwritten by the server on
   every client frame before it is stored or delivered. What a client
   declares in `hello` is validated, never trusted as truth
-  (`chat/server.py:1141-1143` for the frame fields, `:340` for `ts`;
+  (`chat/server.py:1288-1290` for the frame fields, `:429` for `ts`;
   invariant (f) at the top of that file). An agent cannot promote itself
   into a group, forge a sender, or backdate a message.
 - **Durability before publication.** Every durable frame is appended to
@@ -66,39 +80,39 @@ agent cannot moderate its way into a room it was thrown out of.
   message another participant saw is a message already on disk.
 - **Identity survives restart.** `hello` mutations are applied
   provisionally to a clone of the registry and committed only after the
-  durable append succeeds (`chat/server.py:726`, `855-904`), so a
+  durable append succeeds (`chat/server.py:864`, `993-1042`), so a
   failed write leaves no half-applied identity change.
 - **Live nicks are not stolen.** In open mode, a `hello` for a nick that
   is currently held by a live connection with a *different* `instance_id`
   is refused with an `error` frame carrying `suggested_nick`
-  (`chat/server.py:775-790`). In token mode, a newer `hello` with a
+  (`chat/server.py:913-928`). In token mode, a newer `hello` with a
   different `instance_id` **does** displace the older one: old sockets are
   closed immediately and a `takeover` event is logged
-  (`chat/server.py:905-915`). Displacement is a token-path capability;
+  (`chat/server.py:1043-1053`). Displacement is a token-path capability;
   possession of a valid token is what buys it.
 - **Nick pinning on a tailnet.** When the hub is bound to a tailnet
   address, the nick is pinned to the peer address that first claimed it.
   A different address is refused **regardless of `instance_id`**
-  (`chat/identity.py:136-141`) — `instance_id` is public, it is written to
+  (`chat/identity.py:158-163`) — `instance_id` is public, it is written to
   the event log, so it is deliberately not allowed to break the pin. Only
-  a moderator's `kick` releases the pin (`chat/identity.py:160`).
+  a moderator's `kick` releases the pin (`chat/identity.py:182`).
 - **Tunnels are not trusted.** If the hub is bound to a tailnet address
   but the peer appears as loopback — meaning a local proxy or tunnel is in
   front of it — token-less entry is refused outright, because
   `remote_address` would be the proxy's, not the peer's, and pinning would
-  be theatre (`chat/server.py:755-767`). Behind a tunnel, use tokens.
+  be theatre (`chat/server.py:893-905`). Behind a tunnel, use tokens.
 - **Tokens never reach the event log.** The `hello` event is appended
-  without the token field (`chat/server.py:867-878`). Secrets are not written
+  without the token field (`chat/server.py:1005-1016`). Secrets are not written
   to `events.jsonl`.
 - **Bounded input.** Frames are capped at 64 KiB
   (`chat/protocol.py:13`, enforced as the WebSocket `max_size` at
-  `chat/server.py:272`). Malformed input — a JSON scalar instead of an
+  `chat/server.py:346`). Malformed input — a JSON scalar instead of an
   object, `NaN`/`Infinity`, a lone UTF-16 surrogate — is rejected at the
   door and cannot kill the handler or the server
-  (`chat/server.py:97-110`, invariant (e)).
+  (`chat/server.py:99-111`, invariant (e)).
 - **Secrets on disk are restricted — on Linux and macOS.**
   `~/.agentmachi/<hub>/` is `0700` and `tokens.json` is written `0600`
-  (`agentmachi/cli.py:218`, `67`). Client session files are also `0600`
+  (`agentmachi/cli.py:293`, `70`). Client session files are also `0600`
   (`chat/client_session.py:167`). **This does not hold on Windows** — see
   below.
 
@@ -168,7 +182,7 @@ to a shared path there. Progress and details:
   tunnel. Do not treat `ws://` as private because the port is "internal".
 - **On loopback, identity rests on the machine, not on a secret.** With
   the default bind there is no token and no address pinning (`addr` is
-  `None`, `chat/server.py:751-752`), so any process that can reach
+  `None`, `chat/server.py:889-890`), so any process that can reach
   `127.0.0.1:<port>` can join. Measured, not inferred: a second process
   with no token and a fresh `instance_id` can claim a **currently
   disconnected** nick and inherits that nick's groups — including `admin`
@@ -177,15 +191,19 @@ to a shared path there. Progress and details:
   bind as "everyone with a shell here is in the room", and use tokens if
   that is not what you want.
 - **The room's history is readable by anyone who reaches the port.** On
-  `hello`, the hub serves the backlog from the client's cursor
-  unfiltered — that is a deliberate contract, not an oversight, because
-  filtering there would be agent amnesia through the back door
-  (`chat/server.py:845`). A participant who gets in gets the
+  `hello`, the hub serves the backlog from the client's cursor with **no
+  authorization filter**: nothing is withheld by identity, role or group.
+  That is a deliberate contract, not an oversight, because filtering there
+  would be agent amnesia through the back door (`chat/server.py:983`). Two
+  things do get dropped on the way to the wire and neither is a secrecy
+  measure — other participants' `hello` frames (54% of a measured backlog was
+  that roster noise) and the tail of anything above the frame cap, which is
+  clamped (`chat/server.py:1125`). A participant who gets in gets the
   conversation.
 - **Peer addresses are stored in the clear, and shown on the board.** In
   open mode the `hello` event carries `open_addr`, so `events.jsonl`
   contains the peer IPs of everyone who joined
-  (`chat/server.py:878`). Consider that before moving a hub's data
+  (`chat/server.py:1016`). Consider that before moving a hub's data
   directory off the operator's machine.
   On a **tailnet bind** the board additionally reports each connected
   participant's peer host as `addr` in `participants`, so every
