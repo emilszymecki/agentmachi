@@ -236,9 +236,31 @@ def main(argv=None):
     # FAZA 2 — zapis albo podglad. Tu juz nic nie moze byc odrzucone.
     zmiany = len(plan)
     for nazwa, sciezka, stary, nowy in plan:
+        # `--remove` na pliku, ktorego CALA tresc byla naszym blokiem, zostawial
+        # plik 0-BAJTOWY. Instalator, ktorego obietnica brzmi "odwracalny",
+        # zostawial wiec slad w cudzym drzewie — widoczny dopiero jako
+        # `?? AGENTS.md` w `git status`. Zlapane 2026-08-13 na cudzym repo
+        # produkcyjnym, po wpieciu i wycofaniu kontraktu.
+        #
+        # Reguly nie da sie oprzec na "czy to my utworzylismy ten plik":
+        # miedzy wywolaniami nie ma zadnego stanu. Opiera sie na TRESCI —
+        # jesli po usunieciu bloku nie zostaje nic, nie ma czego trzymac.
+        # Granica jest waska celowo: jedna wlasna linia czlowieka wystarczy,
+        # zeby plik przezyl, bo kasowanie w cudzym repo musi byc wezsze niz
+        # zapis.
+        kasujemy = args.remove and not nowy.strip()
         if args.apply:
-            _zapisz_atomowo(sciezka, nowy)
-            print(f"[written] {sciezka}")
+            if kasujemy:
+                sciezka.unlink()
+                print(f"[removed] {sciezka}")
+            else:
+                _zapisz_atomowo(sciezka, nowy)
+                print(f"[written] {sciezka}")
+        elif kasujemy:
+            # Diff do pustego pliku czyta sie jak "wyczyszcze zawartosc",
+            # a nie jak "usune plik". Podglad ma zapowiadac to, co `--apply`
+            # naprawde zrobi.
+            print(f"[remove file] {nazwa} — nothing but our block is in it")
         else:
             print(diff(nazwa, stary, nowy) or f"[change] {nazwa}")
 

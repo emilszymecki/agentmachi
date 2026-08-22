@@ -3,6 +3,7 @@
 Kontrakty, ktore pilnujemy: podglad domyslnie, zero nadpisania cudzej tresci,
 idempotencja, aktualizacja bloku w miejscu i czyste usuniecie.
 """
+import difflib
 import sys
 from pathlib import Path
 
@@ -372,3 +373,49 @@ def test_nowy_plik_dostaje_prawa_jak_zwykly_zapis(tmp_path):
     ip.main([str(tmp_path), "--apply"])
     oczekiwany = 0o666 & ~biezacy
     assert _stat.S_IMODE((tmp_path / "AGENTS.md").stat().st_mode) == oczekiwany
+
+
+# --- kopia dla drugiego harnessu -------------------------------------------
+#
+# Instalator istnieje DWA razy: raz dla Claude Code, raz dla Codeksa. Skille
+# instaluja sie jako samodzielne katalogi (`agentmachi install-skills`), wiec
+# to musza byc dwa pliki, a nie symlink — symlink nie przezywa Windowsa,
+# na ktorym mierzylismy agentow.
+
+SKRYPTY = [
+    Path(__file__).resolve().parent.parent / "agentmachi" / "skills" / harness
+    / "agentmachi-join" / "scripts" / "integrate_project.py"
+    for harness in ("claude", "codex")
+]
+
+
+def test_obie_kopie_instalatora_sa_IDENTYCZNE():
+    """Wszystko powyzej testuje kopie `claude` — patrz `sys.path.insert` na
+    gorze pliku. Kopia `codex` dostaje to pokrycie WYLACZNIE przez
+    identycznosc, wiec identycznosc jest tu kontraktem, a nie stylem.
+
+    Dlatego asercja jest bajtowa, choc `test_skills.py` odradza takie dla
+    tresci skilli — tamto dotyczy prozy `.md`, ktora ma przezyc redakcje.
+    Tu redakcji nie ma: to ten sam program dwa razy.
+
+    Dowod, ze plot jest potrzebny, a nie ostrozny. `e29819a` ("instalator
+    kontraktu przestaje zostawiac pusty plik po --remove") wszedl tylko do
+    kopii `claude`. Zmierzone 2026-08-23 na czystym repo, wariantem `codex`:
+    `--apply` a potem `--remove --apply` zostawialo AGENTS.md i CLAUDE.md
+    po 0 BAJTOW, widoczne jako `?? AGENTS.md` w `git status` CUDZEGO repo —
+    dokladnie ta awaria, ktora tamten commit opisuje jako naprawiona.
+    Suita byla wtedy zielona (708 passed, exit 0) i nie mogla tego zlapac:
+    import na gorze tego pliku siega tylko do `claude`.
+
+    Gdy rozjazd stanie sie kiedys CELOWY, ten test sie KASUJE razem
+    z uzasadnieniem — nie obchodzi sie go kopiowaniem asercji do drugiej
+    kopii, bo wtedy plot znowu bedzie pilnowal jednej strony."""
+    claude, codex = (sciezka.read_bytes() for sciezka in SKRYPTY)
+    assert claude == codex, (
+        "kopie instalatora sie rozjechaly — cala reszta tego pliku testuje "
+        f"wylacznie {SKRYPTY[0]}, wiec {SKRYPTY[1]} jest teraz NIETESTOWANA:\n"
+        + "".join(difflib.unified_diff(
+            claude.decode().splitlines(keepends=True),
+            codex.decode().splitlines(keepends=True),
+            fromfile="claude", tofile="codex"))
+    )
