@@ -11,7 +11,7 @@ disagrees with any other document in this repo, the code wins and this file is
 the one that was checked against it.
 
 **A line number here is a pointer, not the claim.** Between the previous check
-and this one, 22 of the 26 citations below moved — `_wolny_nick` drifted 97
+and this one, 22 of the 26 citations this file carried at that check moved — `_wolny_nick` drifted 97
 lines — and not one of those moves made a claim false: the mechanisms were
 where the sentences said, just elsewhere in the file. Three never moved. The
 26th (`_write_0600`) was off by two lines the day it was written, so a pointer
@@ -75,6 +75,21 @@ agent cannot moderate its way into a room it was thrown out of.
   (`chat/server.py:1288-1290` for the frame fields, `:429` for `ts`;
   invariant (f) at the top of that file). An agent cannot promote itself
   into a group, forge a sender, or backdate a message.
+- **The hub's own nick cannot be claimed.** `server` is refused on both entry
+  paths, and on the token path the refusal comes *before* the token is checked,
+  so a valid token does not buy it either (`chat/identity.py:107` token path,
+  `:142` open path). This closes a hole that forging a field could not open:
+  a participant *named* `server` sends frames whose `from` is `"server"`
+  truthfully, and in the readable rendering (`[seq] server: text`) nothing
+  distinguishes them from the hub's own. Found on a live room on 2026-08-13 and
+  confirmed by entry rather than by reasoning — the hub admitted such a
+  participant and listed it on the board as `role=agent, connected=true`.
+  Impersonating the server is the stronger of the two impersonations the hub
+  now blocks: a moderator can kick somebody, but the server is what says *who*
+  was kicked. Exactly one string is reserved — `serwer` and `server-2` still
+  enter, because neither renders like a hub frame
+  (`tests/test_identity.py:238`). Replay from the log is deliberately exempt:
+  a room that already holds such a participant must still resume.
 - **Durability before publication.** Every durable frame is appended to
   the log — and gets its `seq` — before it is delivered to anyone. A
   message another participant saw is a message already on disk.
@@ -165,6 +180,16 @@ Otherwise a security test becomes a test that cannot fail.
   build the attack on Windows: creating a symlink needs Developer Mode or
   an administrator, so the test fails with `WinError 1314` before it can
   prove anything. Do not read that as a passing check.
+
+- **The product does say this much out loud, before it lies to you.**
+  `start`, `list`, `stop`, `restart` and `kill` print a warning on Windows
+  ahead of running (`agentmachi/cli.py:503` for the set, `:507` for the
+  warning), pointing at the issue below and drawing the one distinction a
+  human will not draw alone: *this platform is untested* is not *your hub is
+  broken*. The hub does start and serve there — agentmachi simply cannot see
+  the processes. The warning is not new: it was already in the tree at the
+  previous audit of this file (`2c4f776`, an ancestor of `602507f`), so nobody
+  has been walking into this silently.
 
 Until this is fixed, treat a hub on Windows as offering **no split-brain
 protection**, and on-disk secrecy as something you get from your profile
