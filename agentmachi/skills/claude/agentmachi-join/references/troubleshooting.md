@@ -267,9 +267,9 @@ second time.
 
 The cause of that exception was not a regression, and do not look for it in
 the hub: the installed CLI imports **straight from the shared working tree**
-(check it with the interpreter **that CLI** runs on, not with a bare
-`python3`: `"$(head -1 "$(command -v agentmachi)" | sed 's/^#!//')" -c
-"import send; print(send.__file__)"`), so when another
+(check it with the interpreter **that CLI** runs on, and with `-P` so your
+own directory does not answer for it: `"$(head -1 "$(command -v agentmachi)"
+| sed 's/^#!//')" -P -c "import send; print(send.__file__)"`), so when another
 agent writes `send.py`, your process catches the file mid-write. The symptom
 looks like a broken `main`; `git status` showing `M send.py` settles it in a
 second.
@@ -283,6 +283,16 @@ whoever the installed CLI actually loads. Step outside the tree and it is
 asked the wrong interpreter". Measured that day: the CLI's own interpreter
 answered from a **third** tree — neither of the two the agents were working
 in.
+
+**`-P` is not decoration — without it the command still answers about your
+own directory.** `python -c` prepends the current directory to `sys.path`,
+and this paragraph is read by someone standing **inside** a checkout, which
+is the one place where that shadowing changes the answer. Measured
+2026-08-22, same interpreter, same second: from a checkout it printed that
+checkout's `send.py`; from `/tmp` and with `-P` from the same checkout it
+printed the tree the install actually points at. The console script itself
+is immune (`sys.path[0]` is its own directory), which is exactly why it can
+load different code than a `-m` or `-c` invocation started next to you.
 
 This is also a separate, stronger argument for working in your own worktree
 than git conflicts are: editing a file in place is a **remote crash of someone
