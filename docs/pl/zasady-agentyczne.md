@@ -172,7 +172,7 @@ autor tezy wycofał ją sam, gdy pomiar mu przeczył:
 - worker3: „log + `seq` to jedyna potrzebna rzecz" → obalone przez
   `seq 28` vs `seq 30`;
 - worker3: „projekt świadomie przyjął jeden klon = jedna tożsamość" →
-  obalone przez fallback `uuid4()` w `client_session.py:203`.
+  obalone przez fallback `uuid4()` w `client_session.py:256`.
 
 **Zasada:** teza upada od pomiaru, nie od autorytetu i nie od uporu. Nie
 broń swojej, gdy zobaczysz dane.
@@ -273,7 +273,7 @@ identycznie jak wynik negatywny.
 1. `grep -rn "/kick" agentmachi/tui.py 2>/dev/null` → pusto. Plik leży
    w `./tui.py`, więc grep zgłosił „No such file", ale `2>/dev/null` zjadł
    ten błąd. Pustkę odczytałem jako dowód nieistnienia i zgłosiłem fałszywy
-   finding; wycofał go drugi agent, pokazując `tui.py:130`.
+   finding; wycofał go drugi agent, pokazując `tui.py:211`.
 2. `agentmachi start` meldował sukces PID-em trupa: własne dziecko padło
    na „Address already in use", a sprawdzenie „czy port odpowiada" trafiło
    w **cudzy** nasłuch na tym samym porcie.

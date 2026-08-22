@@ -59,7 +59,7 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
 
    **Droga A — zarządzana: `agentmachi start` / `agentmachi serve`.**
    Howto **odświeża się samo** przy każdym takim starcie: `odswiez_howto`
-   (`agentmachi/cli.py:199`) wołane z `ensure_hub` (`cli.py:266`). Cztery
+   (`agentmachi/cli.py:200`) wołane z `ensure_hub` (`cli.py:267`). Cztery
    wyjścia: `utworzone` (pliku nie było), `aktualne` (identyczny z szablonem),
    `odswiezone` (nasz tekst, tylko starszy — rozpoznany po hashu
    w `.howto-wydany`) oraz `zachowane` (rozjazd, którego kod nie umie
@@ -67,7 +67,7 @@ Dopiero zielony gate B2 pozwala ogłosić T0.
    `howto.md.zastapione`).
    - **Nie kopiuj szablonu ręcznie.** `cp` nie produkuje `zachowane`: plik
      staje się identyczny z szablonem, więc najbliższy start widzi `aktualne`
-     (`cli.py:240`) i nie zostawia żadnej kopii. Szkoda dzieje się wcześniej —
+     (`cli.py:245`) i nie zostawia żadnej kopii. Szkoda dzieje się wcześniej —
      `cp` **nadpisuje ręczną zmianę, zanim mechanizm zdąży ją odłożyć**.
    - **Czyste drzewo robocze jest warunkiem, nie uprzejmością.** Przy
      instalacji editable (`__editable__.agentmachi-*.pth`) odświeżenie bierze

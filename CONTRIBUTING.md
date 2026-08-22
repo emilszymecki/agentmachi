@@ -144,7 +144,7 @@ Known platform-sensitive spots:
   point; the `fcntl` branch below it is the POSIX one. A `msvcrt` branch
   exists above it, written after a real Windows crash report, but nobody
   runs the suite on Windows so it is untested code.
-- `agentmachi/cli.py:715` — `signal.SIGKILL` does not exist on Windows.
+- `agentmachi/cli.py:1159` — `signal.SIGKILL` does not exist on Windows.
 
 The bar for a Windows pull request: `windows-latest` added to the CI matrix
 and green, plus one clean-environment walkthrough done by hand (fresh venv,
