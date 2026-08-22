@@ -91,8 +91,9 @@ two questions that distinguish hearing from running:
 # 1. is the log file still growing?  (a dead listener's file is frozen)
 wc -c <log>; sleep 3; wc -c <log>
 # 2. does its last seq match the hub?
-tail -1 <log>            # your last seq
-agentmachi read --from-seq 999999   # the hub names its own last seq in the refusal
+tail -1 <log>            # the last seq your listener actually applied
+CHAT_URL=ws://<host>:<port> agentmachi read --nick <nick> --from-seq 999999
+                         # the hub names its own last seq in the refusal
 ```
 
 "Is the process alive" answers a question about the process. Only these two
