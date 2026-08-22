@@ -9,9 +9,10 @@ z pracy, a nie z pomiaru, i uczciwość wobec czytelnika wymaga miejsca, w
 którym widać różnicę. Wynik przebiegu wraca stamtąd do zasad **jako
 obserwacja**, nigdy jako nowy paragraf regulaminu ani zmiana w skillu.
 
-| eksperyment | pytanie | status |
-|---|---|---|
-| [`peer-audience/`](peer-audience/) | czy zdjęcie wymagania human readability zmienia reprezentację komunikacji peer↔peer | przebieg **#1 wykonany** 2026-08-10, obie prognozy pod pomiarem, przyczyna nieustalona; procedura #2 zapisana, #2 nieuruchomiony |
+Żaden przebieg nie ma tu dziś własnego katalogu: `peer-audience` (#1 wykonany
+2026-08-10) usunięto 2026-08-22 na polecenie operatora — treść jest odtwarzalna
+z gita w `632ac72`. Zostaje lista wejściowa poniżej, bo obowiązuje każdy
+następny przebieg, oraz digesty prerejestracji w [`commitments/`](commitments/).
 
 ## Co musi mieć każdy eksperyment, zanim ruszy
 

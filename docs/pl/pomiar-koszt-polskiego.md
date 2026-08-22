@@ -276,6 +276,6 @@ polecenia. Zgłosił to `delta` (`seq 900`), zanim ktokolwiek zaczął tłumaczy
 Czysty recenzent jest osiągalny, ale **nie w tym katalogu**: świeża sesja
 otwarta poza repo nie dostaje wstrzyknięcia, więc trzeba jej podać wyłącznie
 pliki EN i pytania — zamknięta lista wejść, nie lista zakazów. To ten sam
-kontrakt, co przy sondzie cold-probe w
-[`experiments/peer-audience/czujniki.md`](experiments/peer-audience/czujniki.md):
+kontrakt, co przy sondzie cold-probe z `experiments/peer-audience/czujniki.md`
+(katalog usunięty 2026-08-22, treść w `632ac72`):
 lista zakazów przecieka, lista zezwoleń nie.

@@ -717,8 +717,8 @@ z jednego projektu, nie prawem.
 
 ## Obserwacje z przebiegu peer-audience #1 (2026-08-10)
 
-Destylat z pierwszego uruchomienia eksperymentu
-[`experiments/peer-audience/`](experiments/peer-audience/). **To są
+Destylat z pierwszego uruchomienia eksperymentu `peer-audience` — jego katalog
+usunięto 2026-08-22, treść jest odtwarzalna z gita w `632ac72`. **To są
 obserwacje, nie reguły** — przebieg miał sześć konkurujących wyjaśnień i sam
 je wypisuje. Cztery poniższe przetrwały cztery rundy review nie-autora
 i **żadna nie zależy od tego, czy manipulacja zadziałała**.

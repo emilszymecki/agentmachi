@@ -91,10 +91,12 @@ Siedem pozostałych ląduje na linii niepustej, w poprawnym pliku, i **żadna
 heurystyka „linia istnieje i coś na niej jest" nie odróżni ich od trafienia.**
 
 Osiem pierwszych poprawiono tego dnia (`c644f37`, `a305828`, `9d7fd6e`). Trzy
-ostatnie **zostawiono świadomie**: `experiments/peer-audience/` to katalog
-przebiegu prerejestrowanego w `f7240d3`, a robota nad artefaktami
-eksperymentu w jego trakcie należy do operatora albo do chwili po zamknięciu
-przebiegu.
+ostatnie **zostawiono świadomie**, bo siedziały w `experiments/peer-audience/` —
+katalogu przebiegu prerejestrowanego w `f7240d3`, a robota nad artefaktami
+eksperymentu w jego trakcie należała do operatora. Katalog usunięto 2026-08-22;
+te trzy cytaty zniknęły razem z nim, więc **dzisiejszy pomiar w tym pliku jest
+zapisem historycznym** — liczby opisują 2026-08-22 przed usunięciem i nie da
+się ich dziś powtórzyć. Odtworzenie: `632ac72`.
 
 ## Trzy rzeczy, których strażnik nie umie — i nie jest to kwestia implementacji
 
