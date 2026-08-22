@@ -2358,6 +2358,44 @@ def test_board_wcina_KAZDA_linie_wielolinijkowego_note(capsys):
             f"rubryka {rubryka!r} stoi w kolumnie 0: {linia!r}"
 
 
+def test_board_neutralizuje_znaki_odwracajace_kierunek_pisma(capsys):
+    """Trzecia postac tej samej choroby — i pierwsza wersja fixu jej NIE lapala.
+
+    U+202E (RIGHT-TO-LEFT OVERRIDE) nie lamie wiersza i nie jest C0, wiec
+    przechodzil przez `splitlines()` i przez tabele C0. Zmienia KOLEJNOSC
+    wyswietlania tego, co po nim stoi, sam nie zajmujac miejsca: nick
+    `beta<RLO>tnega=elor` widac w terminalu jako `betarole=agent`. Struktura
+    wiersza jest nienaruszona, a wyglada na inna, niz jest.
+
+    Ten test istnieje, bo docstring `bezpieczne_linie` twierdzil "tresc
+    uczestnika nie steruje wyjsciem", zanim to bylo prawda. Twierdzenie
+    sfalsyfikowal jego wlasny autor godzine po napisaniu — i to jest tansze
+    niz czekanie, az zrobi to ktos, kto na nim polegal."""
+    rlo = "‮"
+    send._wypisz_board([{"nick": "beta" + rlo + "tnega=elor", "role": "agent",
+                         "groups": [], "connected": True, "addr": None,
+                         "last_seq": 15, "status": {"state": "idle"},
+                         "status_seq": 30}], 31)
+    out = capsys.readouterr().out
+    assert rlo not in out, \
+        "surowy U+202E doszedl na wyjscie — nick udaje inna role"
+    assert "\\u202e" in out, "bajt ma byc pokazany, nie po cichu wyciety"
+
+
+def test_bezpieczne_linie_NIE_udaje_ze_lapie_homoglify(capsys):
+    """Granica kontraktu, spisana jako test, zeby nikt jej nie przekroczyl
+    w dobrej wierze.
+
+    ZWSP (U+200B) przechodzi CELOWO: `be<ZWSP>ta` wyglada jak `beta`, ale to
+    podszycie pod CUDZY NICK, nie psucie wiersza. Renderer tego nie
+    rozstrzygnie — rozstrzyga sie to przy nadawaniu nicka, inaczej kazdy
+    widok powtarzalby te sama normalizacje i kazdy zrobilby ja inaczej.
+
+    Gdyby ktos kiedys dolozyl tu ZWSP, ten test padnie i kaze mu najpierw
+    odpowiedziec na pytanie o `chat/identity.py`."""
+    assert send.bezpieczne_linie("be​ta") == ["be​ta"]
+
+
 def test_board_chroni_TAKZE_pola_od_serwera_nie_tylko_status(capsys):
     """`nick` nie jest tu bezpieczniejszy od tresci uczestnika.
 

@@ -1052,13 +1052,33 @@ def _opis_statusu(status, wiek):
 # wciecie i niczego nie nadpisuje.
 _STERUJACE = {c: f"\\x{c:02x}" for c in range(0x20) if c != 0x09}
 _STERUJACE[0x7f] = "\\x7f"
+# Bidi. Te znaki NIE lamia wiersza i NIE sa C0 — zmieniaja KOLEJNOSC, w jakiej
+# terminal wyswietla to, co po nich stoi, same nie zajmujac miejsca. Nick
+# `beta\u202etnega=elor` wyswietla sie jako `betarole=agent`: struktura
+# wiersza jest nienaruszona, a wyglada na inna, niz jest. To ta sama choroba
+# co `\n` (tresc uczestnika udaje pola od serwera), tylko bez lamania linii —
+# i dlatego pierwsza wersja tego fixu jej NIE lapala, choc jej docstring
+# twierdzil, ze tresc uczestnika nie steruje wyjsciem. Sfalsyfikowane tu
+# samo, godzine po napisaniu.
+#
+# GRANICA, ktora te tabela swiadomie ma: bierzemy override/embedding/isolate,
+# czyli znaki sterujace UKLADEM. Nie bierzemy ZWSP (U+200B) ani homoglifow —
+# `be\u200bta` wyglada jak `beta` i jest podszyciem pod CUDZY NICK, a nie
+# psuciem wiersza. Tego nie da sie naprawic w rendererze: rozstrzyga sie to
+# przy NADAWANIU nicka (`chat/identity.py`), inaczej kazdy widok musialby
+# powtarzac te sama normalizacje i kazdy zrobilby ja troche inaczej.
+for _znak in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069":
+    _STERUJACE[ord(_znak)] = f"\\u{ord(_znak):04x}"
 
 
 def bezpieczne_linie(tekst):
     """Tresc od uczestnika -> linie, ktore NIE MOGA udawac struktury wyjscia.
 
-    Kontrakt: zwrocone linie nie zawieraja znaku lamiacego wiersz ani znaku
-    sterujacego terminalem. Wciecie ich jest zadaniem wolajacego — dopiero
+    Kontrakt: zwrocone linie nie zawieraja znaku lamiacego wiersz, znaku
+    sterujacego terminalem ani znaku sterujacego kierunkiem pisma. Czego
+    kontrakt NIE obejmuje i obejmowac nie moze: znakow niewidzialnych
+    (ZWSP) i homoglifow — to podszycie pod cudzy nick, rozstrzygane przy
+    jego nadawaniu, nie przy wyswietlaniu. Wciecie ich jest zadaniem wolajacego — dopiero
     razem daja inwariant "zaden bajt od uczestnika nie zaczyna linii
     w kolumnie 0".
 
