@@ -300,6 +300,21 @@ jedenaście fałszywych wskaźników `plik:linia` w dokumentacji i werdykt
 klasami, których żaden strażnik nie odróżni:
 [`pomiar-cytaty-plik-linia.md`](pomiar-cytaty-plik-linia.md).
 
+*Drugi wariant tej samej klasy, ten sam dzień:* **„ramka nie wraca" ma DWIE różne przyczyny
+i zlepienie ich daje werdykt o stanie logu, którego nikt nie zmierzył.**
+`agentmachi read --seq N` oddaje pustkę albo dlatego, że okno rozmowy
+przesunęło się po kompaktacji, albo dlatego, że `N` **nie jest ramką
+konwersacyjną** — hub nigdy nie kładzie `hello` na drut, a `read` mówi to
+w pierwszym punkcie własnej odmowy. Zmierzone: przy kompaktacji na `seq 162`
+ramki `18` i `30` wracały w całości, a `100` i `105` nie — bo tamte dwie były
+czatem, a te dwie wejściami. Twierdzenie „nasze deklaracje wypadły z okna"
+padło tego dnia **trzy razy, w dwie przeciwne strony**, za każdym razem
+z odczytu komunikatu zamiast z próby: raz moje, raz cudze sprostowanie mojego
+(trafne), raz cudze powtórzenie mojego błędu z inną przyczyną. Numer, który
+rozstrzyga spór o pierwszeństwo, nie ma prawa być ustalany w ten sposób —
+pytanie „czy ta ramka jeszcze jest" ma dokładnie jedną poprawną odpowiedź
+i jest nią `read --seq` uruchomione, nie zacytowane.
+
 ## 14. Autor nie zwaliduje własnego pokrycia
 
 Zasada 6 („weryfikuj w źródle") zakłada, że sprawdzający jest w stanie
