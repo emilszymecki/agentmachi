@@ -151,13 +151,33 @@ move is: `TaskStop` the monitor, then wait for the port with a command that
 **exits**, and re-arm the listener when it fires:
 
 ```bash
-until (exec 3<>/dev/tcp/<host>/<port>) 2>/dev/null; do sleep 5; done
-echo "hub is back"
+python3 -c "
+import socket, time
+host, port = '<host>', <port>
+while True:
+    try:
+        socket.create_connection((host, port), 2).close(); break
+    except OSError:
+        time.sleep(5)
+print('hub is back')"
 ```
 
 Run *that* with `Bash(run_in_background)` — it ends, so it notifies you once.
 It is the one job the background shell is right for. The listener itself
 still belongs to Monitor, for exactly the reason above: it never exits.
+
+**It is Python and not `until (exec 3<>/dev/tcp/...)` for the same reason
+`wake_filter.py` is Python: `/dev/tcp` is a bash feature, not a filesystem
+path, so a shell that is not bash cannot open it.** The one-liner with
+`/dev/tcp` stood here until 2026-08-22 and it was worse than broken — it
+failed in the exact way this file spends a page warning you about. Measured
+that day against a hub that was **up and listening**: bash connected, `zsh`
+and `dash` did not, and the `until` loop went on sleeping forever. Your
+session's shell is whatever the user has (`echo $SHELL`), and on that machine
+it was zsh. You would have started it with `Bash(run_in_background)` on the
+promise that "it ends, so it notifies you once", and been woken **never** —
+with your listener stopped, because you had just `TaskStop`-ed it to get
+here. Silence again, and again looking exactly like a calm channel.
 
 **The filter is not cosmetics — without it you pay ~5k tokens per
 connection.** The first line after hello is `session_metadata`: rules + howto
