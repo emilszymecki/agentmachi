@@ -309,10 +309,91 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
     # Zmienil sie JEZYK skilla, nie kontrakt: skill nadal musi AKTYWNIE mowic,
     # ze zasady usera i repo sa nadrzedne nad kanalem ("nadrzedn" -> "take
     # precedence").
-    assert "take precedence" in tresc, \
+    #
+    # `\s+`, nie spacja — z tego samego powodu, dla ktorego ma je wzorzec
+    # NEGATYWNY wyzej, tylko tu brakowalo tego do 2026-08-22. Asercja
+    # literalna padla przy PRZEFORMATOWANIU akapitu, ktore nie zmienilo ani
+    # jednego slowa: markdown zawinal wiersz miedzy "take" a "precedence"
+    # i strażnik zglosil brak zdania, ktore stalo dwa znaki dalej. Dokladnie
+    # ta klasa, ktora ten plik pilnuje gdzie indziej — asercja musi byc
+    # odporna na to samo, co ja realnie rozbije.
+    wzorzec_pozytywny = re.compile(r"take\s+precedence")
+    # kontrola samego wzorca, inaczej test jest atrapa
+    assert wzorzec_pozytywny.search("take precedence")
+    assert wzorzec_pozytywny.search("take\nprecedence")
+    assert wzorzec_pozytywny.search(tresc), \
         "skill nie mowi, ze zasady projektu/usera sa NADRZEDNE nad kanalem"
     assert "peer" in tresc or "uczestnik" in tresc, \
         "skill nie nazywa tresci z kanalu jako pochodzacej od innego uczestnika"
+
+
+def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
+    r"""Common core boardu: skill ma nauczyc, CZYM board jest i KIEDY go czytac,
+    i nie ma prawa nauczyc, ze cudzy wpis jest zobowiazaniem.
+
+    Sprawdzamy OBA warianty i po CALEJ tresci skilla (SKILL.md + references),
+    bo podzial miedzy nimi jest decyzja redakcyjna, nie kontraktem: wariant
+    Claude'a ma rubryki w SKILL.md, wariant Codexa odsyla do
+    `collaboration.md`, bo jego SKILL.md niesie dodatkowo caly Goal mode
+    i przy sufitcie 4096 B nie miesci obu. Kontrakt jest ten sam.
+
+    NIE testujemy tekstu co do bajtu — to ma przezyc redakcje. Testujemy
+    twierdzenia, ktore musza w tym tekscie stac, i te, ktorych stac nie moze.
+
+    Wzorce sa `\s+`-odporne z tego samego powodu, ktory zlapal
+    `test_skill_nie_odwraca_priorytetu_nad_projektem` 2026-08-22: asercja
+    literalna pada przy PRZEFORMATOWANIU, ktore nie zmienia ani jednego slowa,
+    bo markdown zawija wiersz miedzy slowami frazy."""
+    for korzen in (SKILLS, SKILLS_CODEX):
+        tresc = "\n".join(
+            sciezka.read_text().lower()
+            for sciezka in sorted((korzen / "agentmachi-join").rglob("*.md")))
+        gdzie = korzen.name
+
+        # --- MUSI BYC -------------------------------------------------------
+        # trzy miejsca, trzy role — bez tego board jest "jeszcze jednym czatem"
+        assert re.search(r"board\s*=\s*declarations", tresc), \
+            f"{gdzie}: skill nie mowi, ze board to AKTUALNE DEKLARACJE"
+        assert re.search(r"log\s*=\s*history", tresc), \
+            f"{gdzie}: skill nie odroznia boardu od logu jako historii"
+        # podstawowy stan
+        assert "teraz" in tresc, f"{gdzie}: brak podstawowego pola `teraz`"
+        # opcjonalne — wszystkie trzy nazwane
+        for pole in ("martwię", "proszę", "marzę"):
+            assert pole in tresc, f"{gdzie}: brak opcjonalnego pola `{pole}`"
+        assert re.search(r"optional", tresc), \
+            f"{gdzie}: skill nie mowi, ze pola poza `teraz` sa OPCJONALNE"
+        # puste lepsze niz zmyslone
+        assert re.search(r"empty\s+field\s+beats\s+an\s+invented", tresc), \
+            f"{gdzie}: skill nie mowi, ze pusta rubryka bije zmyslona"
+        # wlasne pola — lista nie jest zamknieta
+        assert re.search(r"add\s+your\s+own", tresc), \
+            f"{gdzie}: skill nie pozwala dodac wlasnego pola"
+        # krawedzie pracy, nie polling
+        assert re.search(r"edges", tresc), \
+            f"{gdzie}: skill nie mowi, ze board czyta sie na KRAWEDZIACH pracy"
+        assert re.search(r"not\s+while\s+working", tresc), \
+            f"{gdzie}: skill nie odradza pollowania boardu w trakcie pracy"
+        # mozliwosc, nie zobowiazanie
+        assert re.search(r"possibilities,\s*not\s+obligations", tresc), \
+            f"{gdzie}: skill nie mowi, ze `proszę`/`marzę` NIE sa zobowiazaniem"
+        assert re.search(r"not\s+a\s+backlog", tresc), \
+            f"{gdzie}: skill nie mowi, ze board NIE jest backlogiem"
+
+        # --- NIE MOZE BYC ---------------------------------------------------
+        # Ramie G eksperymentu board-pull. Zdanie brzmi niewinnie i wlasnie
+        # dlatego stoi tu jako asercja: rozni sie od common core JEDNYM
+        # imperatywem, a ten imperatyw jest juz organizowaniem stada.
+        zakazane = {
+            r"instead\s+of\s+sleeping": "zacheta G „wez to zamiast spac”",
+            r"take\s+it\s+instead": "zacheta G w innym zapisie",
+            r"must\s+take\s+(?:on\s+)?(?:work|something)": "obowiazek brania pracy",
+            r"assigns\s+work": "centralny przydzial pracy",
+            r"only\s+these\s+fields": "zamknieta lista pol",
+        }
+        for wzor, opis in zakazane.items():
+            assert not re.search(wzor, tresc), \
+                f"{gdzie}: skill organizuje prace za agenta ({opis})"
 
 
 # -- PAKIET 4: budzety statyczne ------------------------------------------
