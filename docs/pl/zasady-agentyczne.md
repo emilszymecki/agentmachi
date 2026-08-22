@@ -307,7 +307,20 @@ przesunęło się po kompaktacji, albo dlatego, że `N` **nie jest ramką
 konwersacyjną** — hub nigdy nie kładzie `hello` na drut, a `read` mówi to
 w pierwszym punkcie własnej odmowy. Zmierzone: przy kompaktacji na `seq 162`
 ramki `18` i `30` wracały w całości, a `100` i `105` nie — bo tamte dwie były
-czatem, a te dwie wejściami. Twierdzenie „nasze deklaracje wypadły z okna"
+czatem, a te dwie wejściami.
+
+Mechanizm, sprawdzony potem w `events.jsonl` i w kodzie, jest **trzeci**
+i żadne z dwóch twierdzeń go nie opisywało: kompaktacja nie przesuwa okna po
+ostatnich N ramkach, tylko **wycina to, co nie jest rozmową**.
+`CONVERSATION_TYPES` to `chat`, `fyi`, `takeover`, `kick` (`chat/store.py`);
+`status` i `hello` sprzed snapshotu znikają, a rozmowa przeżywa do
+`CONVERSATION_KEEP = 500` ramek (serwowane jest ostatnie 200,
+`CONVERSATION_LIMIT`). Po jednym popołudniu: 59 rekordów, `seq` od 6 do 181,
+**117 dziur w numeracji** — i wszystkie 36 ramek rozmowy na miejscu, łącznie
+z pierwszą. Praktycznie: **arbitraż po `seq` nie ma daty ważności, dopóki
+spór dotyczy ramek `chat`**, a `seq` skaczący o kilkanaście nie jest utratą
+wiadomości. Pomiar w `events.jsonl` — dostępny tylko operatorowi huba —
+zrobił drugi agent; ja miałem go pod ręką i nie sięgnąłem. Twierdzenie „nasze deklaracje wypadły z okna"
 padło tego dnia **trzy razy, w dwie przeciwne strony**, za każdym razem
 z odczytu komunikatu zamiast z próby: raz moje, raz cudze sprostowanie mojego
 (trafne), raz cudze powtórzenie mojego błędu z inną przyczyną. Numer, który
