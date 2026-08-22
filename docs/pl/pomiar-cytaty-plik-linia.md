@@ -32,6 +32,31 @@ mądrzejszy".
 `docs/pl/konstytucja.md` każe w takiej sytuacji zapisać obserwację zamiast
 budować. To jest ta obserwacja.
 
+### Liczba rozstrzygająca: na dzisiejszym `main` byłoby 0 trafień na 11 alarmów
+
+Zmierzone niezależnie przez oboje autorów, dwoma instrumentami, z tym samym
+wynikiem co do sztuki — i **odtwarzalne u każdego, kto sklonuje repo**, bo
+nazwy plików rozwiązujemy przez `git ls-files`, a nie chodzeniem po drzewie:
+
+    wskaźników w żywych docs (oba końce zakresów)   79
+    alarmów „pusta linia / poza plikiem"            11
+      9  ←  ten plik
+      2  ←  experiments/peer-audience/czujniki.md  (zapis historyczny)
+      0  ←  wszystko inne
+
+Liczba 79 obejmuje ten plik i zmienia się przy każdym dopisaniu do niego
+akapitu — liczba alarmów nie. Kto ją odtwarza, dostanie inną wartość w lewej
+kolumnie i tę samą w prawej.
+
+**Wszystkie jedenaście są fałszywe.** Dziewięć na dokumencie, który tłumaczy,
+dlaczego strażnika nie napisaliśmy; dwa na zapisie tego, co agent czytał
+w przebiegu #1.
+
+A trzy defekty, które NAPRAWDĘ zostały dziś w repo (`experiments/README.md`
+×2, `rules-pokoju.md` ×1), w tym wyniku **nie występują** — trafiają w linie
+niepuste. Jeden przebieg pokazuje więc 11 rzeczy, których nie ma, i milczy
+o 3, które są. Stosunek prawdziwych do fałszywych na `main`: **0 : 11**.
+
 ## Dane
 
 Zmierzone na wszystkich `.md` w gicie: **47 plików, 116 wskaźników** — 53
@@ -96,8 +121,8 @@ w CI zapaliłby się na dokumencie, który tłumaczy, dlaczego go nie ma.
 
 Do tego **archiwum**: `superpowers/plans/` i `specs/` to zapis stanu sprzed
 miesiąca, a nie dług. Plan B7 cytuje `server.py:591` („wejście jako human
-wymaga tokenu") i `server.py:503` (`ChatServer._handler`); dziś pierwsza
-z tych linii to zdanie z cudzego docstringa, druga komentarz o aktualizowaniu
+wymaga tokenu") i `server.py:503` (`ChatServer._handler`); w `chat/server.py`
+pierwsza z tych linii to dziś zdanie z cudzego docstringa, druga komentarz o aktualizowaniu
 statusu, a `_handler` stoi w 791. Oba są **ślepe** dla strażnika na pustkę i oba są
 poprawnym zapisem stanu z 23 lipca. Strażnik krzyczący na archiwum jest
 bezużyteczny z konstrukcji.
@@ -105,6 +130,32 @@ bezużyteczny z konstrukcji.
 Każda z tych czterech granic to **ludzka decyzja zaszyta w konfiguracji
 testu**. Bramka z `CLAUDE.md` mówi, czym to jest: podejmowaniem decyzji za
 agenta zamiast dawania mu brakującej możliwości.
+
+## Strażnik chodziłby po czystym klonie, a agent pracuje w swoim drzewie
+
+To wyszło na końcu i nie zależy od tego, jak dobry byłby strażnik.
+
+Te same dwa cytaty z planu B7 — `server.py:591` i `:503` — u jednego z autorów
+rozwiązały się na `chat/server.py` (linie niepuste, zwykłe zgnicie), a u
+drugiego **wypadły poza koniec pliku**. Nie z powodu wzorca: w drzewie roboczym
+leży `./server.py`, 37-linijkowy plik-scratch, który wyciekł do repo przez
+`git add -A` w B6, został z niego usunięty (`4f55c9e`) i wpisany do
+`.gitignore:49` — ale nikt go fizycznie nie skasował. Goła nazwa `server.py`
+w cytacie trafiła u jednej strony na niego.
+
+Wynik pomiaru zależał więc od **nieskomitowanego śmiecia w cudzym katalogu**.
+Nie „mógł zależeć" — zależał, i różnica była cicha.
+
+Strażnik w CI chodzi po czystym klonie, gdzie tego pliku nie ma. Jego werdykt
+rozjeżdżałby się z tym, co widzi agent u siebie, i to bez żadnego sygnału:
+zielone CI przy cytacie, który u człowieka w drzewie prowadzi donikąd, albo
+czerwone przy takim, który lokalnie trafia.
+
+To ta sama wada, którą `CLAUDE.md` zarzuca ledgerowi — **wiedza zależna od
+stanu jednej maszyny nie jest wiedzą repozytorium.** Instrument pomiarowy też
+jej podlega, i stąd reguła, którą warto wynieść poza tę sprawę: *nazwy plików
+rozwiązuj przez `git ls-files`, nie przez chodzenie po drzewie.* Trzy z sześciu
+dzisiejszych wpadek instrumentu znikają od tej jednej zmiany.
 
 ## Przesłanka, która nie przetrwała — i dlaczego to ważne
 
