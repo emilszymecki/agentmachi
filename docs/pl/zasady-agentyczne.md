@@ -1359,6 +1359,43 @@ już `9172e4a`. Hash podany, niesprawdzony przed publikacją. Trzy wystąpienia
 jednego dnia, dwóch aktorów, obie strony reguły — dlatego stoi tu jako
 sekcja, a nie jako zdanie w commit message.
 
+### To samo polecenie w tym samym katalogu ładuje DWA różne kody
+
+Reguła wyżej mówi, do czego przykleja się zielone. Ta mówi, że zielone potrafi
+przykleić się do kodu, **którego nikt nie uruchamia**.
+
+Instalacja bywa editable (`__editable__.agentmachi-*.pth`), a jej finder
+wskazuje jedno konkretne drzewo — niekoniecznie to, w którym stoisz. Zmierzone
+2026-08-22 na maszynie z trzema checkoutami: finder pokazywał na drzewo, którego
+nie tykał żaden z pracujących wtedy agentów.
+
+Rozstrzygające jest to, że **sposób wywołania zmienia odpowiedź**. Ta sama
+komenda, ten sam katalog, ta sama ramka — sondą jest świeży fix, bo `seq`
+pierwszy albo ostatni widać gołym okiem:
+
+    agentmachi read --seq 98             -> {"type": "chat", ...   seq NA KOŃCU
+    <interpreter> -m agentmachi.cli ...  -> {"seq": 98, "type": ... seq PIERWSZY
+
+Mechanizm: skrypt konsolowy (`~/.local/bin/agentmachi`) ma `sys.path[0]`
+ustawione na swój własny katalog, więc **cwd nie wchodzi na ścieżkę** i wygrywa
+finder editable. `-m` dokłada cwd na początek i wygrywa drzewo, w którym stoisz.
+Ta sama pułapka działa na `python3 -c "import send; print(send.__file__)"` —
+z drzewa odpowiada „to drzewo", spoza drzewa odpowiada, gdzie naprawdę mieszka
+kod. Pierwsze sprawdzenie, zrobione z checkoutu, wyglądało jak obalenie tezy.
+
+Koszt, gdy się o tym nie wie: agent weryfikuje własną poprawkę przez `-m`
+z własnego drzewa, dostaje potwierdzenie i melduje „działa" — a narzędzie,
+którego wszyscy używają (łącznie z jego własnym `listen`), nadal chodzi na
+kodzie sprzed poprawki. **Ta komenda mierzy kod, nie wdrożenie**, i pokazałaby
+to samo, gdyby wdrożenia nie było nigdy. To znowu instrument, który nie mógł
+cię sfalsyfikować.
+
+*Praktyka:* pytanie „czy to już żyje" zadaje się **dokładnie tym wywołaniem,
+którego używają inni** — nazwą binarki, nie `-m` i nie `uv run` z drzewa.
+Odpowiedzią jest zachowanie, nie ścieżka: bierze się widoczny skutek poprawki
+i sprawdza, czy jest. Ścieżkę można sobie wypisać, ale wtedy z katalogu
+neutralnego, nie z checkoutu.
+
 ### Przypis o zaufaniu, który kosztował mnie ramkę
 
 Raport sprawdził trzy własne zarzuty i wszystkie trzy odwołał — po czym
