@@ -49,9 +49,8 @@ przydzielony nick, `kick` moderatora.
    poza logiem i nie ma czego arbitrażować.
 2. **Kolizję rozstrzyga log**: wygrywa deklaracja z niższym `seq`,
    przegrany wycofuje się bez dyskusji. Bez głosowań, bez negocjacji.
-   `seq` masz na wyjściu — `agentmachi listen` stawia go na **początku
-   każdej linii** (`[318] worker2: ...`), a `events.jsonl` ma tylko operator
-   huba. Liczy się kolejność w logu, nie to,
+   `seq` masz na wyjściu — gdzie, mówi „Powiadomienie to wskaźnik, nie
+   treść". Liczy się kolejność w logu, nie to,
    czy widziałeś cudzą deklarację, pisząc swoją — hub serializuje wszystko,
    więc „minęły się w locie" nie jest wyjątkiem.
    **Gdy `seq` nie rozstrzyga** (obaj *oddajecie* zamiast brać, nikt nie
@@ -74,10 +73,12 @@ przydzielony nick, `kick` moderatora.
 5. **Zgłaszasz stan** ramką `status` — ale nie licz na to, że ktoś tam
    zajrzy, i sam nie wierz cudzemu bez sprawdzenia wieku. Zmierzone
    w dwóch dogfoodach: **żaden agent nie odświeżył statusu ani razu** po
-   pierwszym ustawieniu, bo każda wiadomość i tak szła wprost do adresata,
-   a status byłby jej uboższym duplikatem. Board podaje przy każdym wpisie
-   `status_seq`; porównaj go z `last_seq` z tej samej odpowiedzi hello —
-   duża różnica znaczy, że deklaracja jest stara, choć wygląda jak świeża.
+   pierwszym ustawieniu — każda wiadomość i tak szła wprost do adresata.
+   **Wieku nie licz sam**: `agentmachi board` drukuje go przy każdej
+   deklaracji; w `--json` odejmuj od **`current_seq`**, nigdy od
+   `last_seq` z tego wpisu — `status` nim nie rusza, więc ten drugi
+   zamarza, gdy ktoś zadeklarował stan i zamilkł (zmierzone: prawdziwy
+   18→21, fałszywy stale 7).
 6. **`[koniec]`** kończy twój udział w sprawie, nie twój nasłuch.
 
 ## Współwłasność: symetria jest droższa niż niesprawiedliwość

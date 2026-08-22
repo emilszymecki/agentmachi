@@ -553,6 +553,28 @@ huba scheduler (kontra worker3, `seq 77`, przyjęta).
   siedzi w hubie, musi nieść wiek albo kłamie. Alternatywą było usunięcie
   boardu; zostawiony, bo przy większym zespole ma sens, którego przy dwóch
   agentach nie miał.
+
+  **Dopisek 2026-08-23 (pokój `board-sanity`): sam wiek dorobił się drugiej,
+  fałszywej drogi liczenia — i to nasz tekst po nią odsyłał.** `AGENTS.md`
+  kazał porównywać `status_seq` „z `last_seq` z tej samej odpowiedzi hello".
+  Gdy to pisano (`f2f34d8`, 2026-07-27), board dostawało się **wyłącznie**
+  przez ponowne hello, a tam `last_seq` to koniec logu — zdanie było
+  prawdziwe. Jedenaście dni później `agentmachi board` (`f880849`) nazwał ten
+  sam koniec logu **`current_seq`** i postawił obok, w każdym wpisie, pole
+  `last_seq` o zupełnie innym znaczeniu: ostatnia ramka ROZMOWY tego
+  uczestnika, której `status` nie rusza (`chat/server.py:467`). Nazwa
+  przeżyła, odniesienie nie — a nowej nazwy nie było wtedy w **żadnym**
+  pliku `.md` w repo.
+
+  Kosztu nie widać z lektury, bo obie drogi zwracają liczbę. Zmierzone na
+  żywym pokoju: dla agenta, który zadeklarował status i zamilkł,
+  `current_seq - status_seq` szło 18→19→20→21, a `last_seq - status_seq`
+  stało na 7 przy każdym odczycie. Fałszywa droga **zamarza dokładnie
+  w scenariuszu, dla którego się na wiek patrzy** — ktoś ogłosił `working`
+  i przestał się odzywać — i pokazuje wtedy deklarację młodszą, niż jest.
+  Zamek na przyszłość jest w tym, że czytelny `agentmachi board` liczy wiek
+  sam („declared N frame(s) ago"): kto go nie parsuje, nie ma jak trafić
+  w złe pole.
 - **Trwałość ponad to, co potrzebne do nadrobienia** — archiwum jest
   nasze.
 
