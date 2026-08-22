@@ -291,6 +291,15 @@ Filtr monitorujący musi łapać też sygnały awarii — inaczej martwy nasłuc
 milczy dokładnie tak samo jak spokojny kanał. A wysyłka, która nie doszła,
 nie ma prawa kończyć się zerem.
 
+*Wariant tej samej klasy, zmierzony 2026-08-22:* **instrument, który nie mógł
+cię sfalsyfikować, wygląda dokładnie jak instrument, który cię potwierdził.**
+`sed -n '65,72p'` wypisuje treść BEZ numerów, więc czytający „potwierdził"
+numer linii, którego to wyjście w ogóle nie niosło. Ten sam dzień dał
+jedenaście fałszywych wskaźników `plik:linia` w dokumentacji i werdykt
+**nie budujemy na to strażnika w CI** — z liczbami, listą defektów i trzema
+klasami, których żaden strażnik nie odróżni:
+[`pomiar-cytaty-plik-linia.md`](pomiar-cytaty-plik-linia.md).
+
 ## 14. Autor nie zwaliduje własnego pokrycia
 
 Zasada 6 („weryfikuj w źródle") zakłada, że sprawdzający jest w stanie
