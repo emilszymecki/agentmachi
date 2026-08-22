@@ -206,7 +206,31 @@ def _print_json(data):
 
     Wielolinijkowa tresc zostaje w polu `text` (zaescapowana przez json),
     wiec jedna linia stdout = dokladnie jedna ramka. `ensure_ascii=False`
-    jak wszedzie w tym repo — inaczej kazdy nie-ASCII puchnie 3x."""
+    jak wszedzie w tym repo — inaczej kazdy nie-ASCII puchnie 3x.
+
+    `seq` idzie PIERWSZY, i to jest ten sam warunek co prefiks na kazdej
+    linii w `_print_event`, tylko przeniesiony na format, ktory ma jedna
+    linie na ramke. Serwer sklada ramke `make_frame` ({type, from, ts,
+    **fields}) i dopiero potem robi `frame["seq"] = seq`
+    (`chat/server.py:711-712`), a `json.dumps` zachowuje kolejnosc
+    wstawiania — bez przestawienia `seq` lezy na samym koncu, ZA trescia.
+
+    Zmierzone na zywym pokoju meadow2, 2026-08-22, 8 ramek konwersacyjnych:
+    `"seq"` zaczynal sie na 95.1-99.8% dlugosci linii (ogon za nim: 9-10
+    bajtow), a harness obcinal notyfikacje na 500 znakach — trzy razy, co
+    do znaku. **7 ramek z 8 obudzilo odbiorce bez wlasnego numeru.** Numer
+    jest jedynym wejsciem do `agentmachi read --seq`, czyli do tresci,
+    ktora wlasnie zostala obcieta: mechanizm ratunkowy ginal razem z tym,
+    przed czym ratuje. Obaj agenci w pokoju trafili na to niezaleznie, tego
+    samego dnia.
+
+    Kolejnosc kluczy nie jest czescia protokolu (JSON-owy obiekt jest
+    nieuporzadkowany, `json.loads` po drugiej stronie nie widzi roznicy),
+    wiec to zmiana WYLACZNIE w reprezentacji na stdout — drut, log i
+    serwer zostaja nietkniete. Ramka bez `seq` wychodzi bez niego: `seq`
+    niepewny jest gorszy niz widocznie nieobecny."""
+    if isinstance(data, dict) and "seq" in data:
+        data = {"seq": data["seq"], **data}
     print(json.dumps(data, ensure_ascii=False), flush=True)
 
 

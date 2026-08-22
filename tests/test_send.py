@@ -200,6 +200,64 @@ def test_json_daje_jedna_parsowalna_ramke_na_linie(capsys):
     assert ramka["text"] == "pierwsza\ndruga"
 
 
+# -- `seq` musi PRZEZYC obciecie notyfikacji -----------------------------
+#
+# `_print_event` ma wskaznik na poczatku KAZDEJ linii i docstring tlumaczy
+# dlaczego: filtr trafia w linie ze srodka, wiec `seq` musi lezec tam, gdzie
+# filtr trafil. Migracja na `--json` (2026-08-13) zabrala ten warunek ze soba
+# i go zgubila: w `--json` cala ramka jest JEDNA linia, a `seq` dokleja sie
+# na jej KONCU, bo serwer robi `frame["seq"] = seq` PO zlozeniu ramki
+# (`chat/server.py:711-712`) i `json.dumps` zachowuje kolejnosc wstawiania.
+#
+# Zmierzone na zywym pokoju meadow2, 2026-08-22, 8 ramek konwersacyjnych:
+# `"seq"` zaczyna sie na 95.1-99.8% dlugosci linii, a ogon za nim ma 9-10
+# bajtow. Harness obcial notyfikacje na 500 znakach — trzy razy, co do
+# znaku. Skutek: 7 ramek z 8 obudzilo odbiorce BEZ wlasnego numeru, a
+# `agentmachi read --seq <seq>` jest jedyna droga do tresci, ktora zostala
+# obcieta. Mechanizm ratunkowy ginal razem z tym, przed czym ratuje.
+#
+# Test nie zna progu zadnego harnessu i nie ma go znac: sprawdza, ze `seq`
+# lezy na POCZATKU linii, wiec przezywa obciecie o dowolnej dlugosci.
+
+def _ramka_z_drutu(text, **extra):
+    """Ramka DOKLADNIE w kolejnosci, w ktorej sklada ja serwer: najpierw
+    `make_frame` ({type, from, ts, **fields} — `chat/protocol.py:293`),
+    potem `frame["seq"] = seq` (`chat/server.py:712`), czyli `seq` na koncu.
+
+    Ten helper istnieje, bo pierwsza wersja tych testow podawala `seq` przed
+    `text` w literale i przechodzila na NIENAPRAWIONYM kodzie — mierzyla
+    kolejnosc, ktora sama sobie ustawila. Kolejnosc wejscia jest tu calym
+    przedmiotem pomiaru, wiec nie wolno jej zapisywac recznie."""
+    ramka = {"type": "chat", "from": "alice", "ts": 1.5, "text": text}
+    ramka.update(extra)
+    ramka["seq"] = 42
+    return ramka
+
+
+def test_json_stawia_seq_na_poczatku_linii(capsys):
+    send._print_json(_ramka_z_drutu("x" * 5000))
+    linia = capsys.readouterr().out.splitlines()[0]
+    assert linia.index('"seq"') < linia.index('"text"')
+    # 500 znakow = obciecie zmierzone na zywym harnessie 2026-08-22
+    assert '"seq": 42' in linia[:500]
+
+
+def test_json_bez_seq_nie_udaje_ze_go_ma(capsys):
+    """Ramka bez `seq` (diagnostyka, ramka serwerowa) ma wyjsc bez niego —
+    `seq` NIEPEWNY jest gorszy niz widocznie nieobecny (por.
+    `test_brak_seq_jest_WIDOCZNY_a_nie_zgadywany`)."""
+    send._print_json({"type": "error", "from": "server", "text": "x" * 5000})
+    ramka = json.loads(capsys.readouterr().out.splitlines()[0])
+    assert "seq" not in ramka
+
+
+def test_json_zachowuje_wszystkie_pola_mimo_przestawienia(capsys):
+    """Przestawienie kluczy nie jest okazja do zgubienia ktoregos."""
+    wejscie = _ramka_z_drutu("t", generation=3, groups=["a"])
+    send._print_json(dict(wejscie))
+    assert json.loads(capsys.readouterr().out.splitlines()[0]) == wejscie
+
+
 def test_json_nie_escapuje_nie_ascii(capsys):
     send._print_json({"type": "chat", "seq": 1, "from": "a",
                       "text": "zażółć gęślą jaźń"})
