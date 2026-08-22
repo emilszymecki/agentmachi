@@ -28,7 +28,7 @@ from textual.widgets import Label, RichLog, Static, TextArea
 
 from chat import protocol
 from chat.client_session import ListenerLockHeld, Session, SessionError
-from send import MAX_HUB_FRAME, hub_id_from_url
+from send import MAX_HUB_FRAME, bezpieczna_jedna_linia, hub_id_from_url
 
 # CLI agentmachi ustawia CHAT_PORT i AGENTMACHI_TOKENS; gołe `python3
 # tui.py` w repo zachowuje stare defaulty (hub.tokens.json + 8766)
@@ -725,8 +725,16 @@ class AgentmachiApp(App):
             # sie na nim nie pomylil — to ta sama roznica co przy `note`
             # gubionym ze statusu, tego samego dnia.
             groups = ",".join(participant.groups) or "—"
-            lines.append(f"● {nick}", style="bold")
-            lines.append(f"  role={participant.role}  groups={groups}")
+            # Tresc uczestnika nie sklada tego panelu — patrz
+            # `send.bezpieczna_jedna_linia`. Wpis to tu JEDNA linia (`●` na
+            # poczatku jest jego jedynym wyroznikiem), wiec kazde lamanie od
+            # uczestnika bylo falszywym wpisem, a `\x1b[2A` kasowal wpis
+            # prawdziwy. Czytelnikiem jest MODERATOR i to on decyduje o kicku,
+            # patrzac tutaj. `nick` nie jest bezpieczniejszy od reszty:
+            # `chat/identity.py` przyjmuje kazdy niepusty string.
+            lines.append(f"● {bezpieczna_jedna_linia(nick)}", style="bold")
+            lines.append(f"  role={bezpieczna_jedna_linia(participant.role)}"
+                         f"  groups={bezpieczna_jedna_linia(groups)}")
             # "cicho od N" odroznia siedzacego cicho od tego, kto oglochl.
             # `connected` mowi tylko, ze gniazdo jest otwarte — a proces
             # potrafi zyc godzinami, nie dostarczajac modelowi ani jednej
@@ -740,9 +748,11 @@ class AgentmachiApp(App):
                 style = {"idle": "green", "working": "yellow",
                          "blocked": "bold red", "review": "cyan"}.get(
                     participant.status, "")
-                note = f" ({participant.status_note})" \
+                note = f" ({bezpieczna_jedna_linia(participant.status_note)})" \
                     if participant.status_note else ""
-                lines.append(f"  {participant.status}{note}", style=style)
+                lines.append(
+                    f"  {bezpieczna_jedna_linia(participant.status)}{note}",
+                    style=style)
                 # Wiek deklaracji. Bez tego board KLAMIE zamiast milczec:
                 # po dogfoodzie kinas-machine pokazywal "worker1: idle"
                 # (pracowal bez przerwy) i "worker2: working, buduje polowe

@@ -922,3 +922,76 @@ def test_takeover_i_nieznany_typ_nie_gina_po_cichu(tmp_path):
     log = " ".join(f"{a} {b}" for a, b in app.history)
     assert "wyparlo" in log, "takeover zniknal bez sladu"
     assert "cos-nowego" in log, "nieznany typ ramki zniknal bez sladu"
+
+
+# --- panel uczestnikow: tresc uczestnika NIE MOZE udawac wpisu -----------
+#
+# Ta sama klasa co w `send._wypisz_board` (naprawiona 2026-08-22), ale
+# czytelnikiem jest tu MODERATOR — a to on decyduje o kicku, patrzac w ten
+# panel. rich.Text NIE neutralizuje `\n`: `Text.append("a\nb")` renderuje sie
+# w dwoch wierszach. Zmierzone, nie zalozone.
+
+def test_panel_uczestnikow_NIE_daje_sie_rozbic_nickiem(tmp_path):
+    """Nick z `\\n` dokladal falszywy wpis do panelu moderatora.
+
+    `chat/identity.py` przyjmuje kazdy niepusty string jako nick i nic
+    wiecej nie sprawdza (linie 56, 105, 140), wiec wektor nie wymaga nawet
+    ramki `status` — wystarczy wejsc pod taka nazwa.
+
+    Asercja jest o STRUKTURZE, nie o tresci: tresc ma zostac widoczna,
+    ma tylko przestac zaczynac wiersz."""
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.apply_hub_frame({
+                "type": "participants_snapshot",
+                "participants": [
+                    {"nick": "beta\n● Emil  role=human", "role": "agent",
+                     "groups": [], "connected": True}]})
+            rendered = str(app.query_one("#participants").render())
+            wpisy = [l for l in rendered.splitlines() if l.startswith("●")]
+            assert len(wpisy) == 1, (
+                f"jeden uczestnik, a panel pokazuje {len(wpisy)} wpisow: "
+                f"{wpisy!r}")
+            assert "● Emil  role=human" not in rendered.splitlines(), \
+                "tresc uczestnika wyprodukowala wpis wygladajacy na cudzy"
+            assert "Emil" in rendered, \
+                "neutralizacja nie moze polykac tresci — czytajacy ma " \
+                "zobaczyc, pod jaka nazwa ktos wszedl"
+    asyncio.run(scenario())
+
+
+def test_panel_uczestnikow_neutralizuje_sterujace_w_statusie(tmp_path):
+    """`\\x1b[2A` cofa kursor i NADPISUJE wiersze wypisane wczesniej.
+
+    Nie doklada falszywego wpisu — kasuje prawdziwy, wiec moderator traci
+    z panelu kogos, kto tam jest. Wciecie ani podzial na linie tego nie
+    lapia: kursor idzie tam, gdzie kaze bajt."""
+    p = _write_tokens(tmp_path, {
+        "Emil": {"token": "tok-e", "role": "human", "groups": []},
+    })
+    identity, roster = load_human_identity(p)
+    app = tui.AgentmachiApp(_StubQuietAdapter(identity), roster)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.apply_hub_frame({
+                "type": "participants_snapshot",
+                "participants": [
+                    {"nick": "beta", "role": "agent", "groups": [],
+                     "connected": True,
+                     "status": {"state": "working",
+                                "subject": "audyt\x1b[2A"}}]})
+            rendered = str(app.query_one("#participants").render())
+            assert "\x1b" not in rendered, \
+                "surowy ESC doszedl do panelu moderatora"
+            assert "\\x1b" in rendered, \
+                "bajt ma byc pokazany, nie po cichu wyciety"
+    asyncio.run(scenario())

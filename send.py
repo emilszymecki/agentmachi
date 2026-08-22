@@ -1054,7 +1054,7 @@ _STERUJACE = {c: f"\\x{c:02x}" for c in range(0x20) if c != 0x09}
 _STERUJACE[0x7f] = "\\x7f"
 
 
-def _bezpieczne_linie(tekst):
+def bezpieczne_linie(tekst):
     """Tresc od uczestnika -> linie, ktore NIE MOGA udawac struktury wyjscia.
 
     Kontrakt: zwrocone linie nie zawieraja znaku lamiacego wiersz ani znaku
@@ -1069,6 +1069,21 @@ def _bezpieczne_linie(tekst):
     if not isinstance(tekst, str):
         tekst = str(tekst)
     return [linia.translate(_STERUJACE) for linia in tekst.splitlines()] or [""]
+
+
+def bezpieczna_jedna_linia(tekst):
+    """Jak `bezpieczne_linie`, ale wynikiem jest JEDNA linia.
+
+    Dla widokow, w ktorych podzial wiersza nie jest legalny dla NIKOGO —
+    panel uczestnikow w TUI sklada caly wpis w jedna linie, wiec kazde
+    lamanie od uczestnika jest tam falszywym wpisem, a nie kontynuacja.
+    Board ma odwrotny kontrakt (wielolinijkowy `note` jest tam legalny
+    i ma zostac czytelny), dlatego sa dwie funkcje, a nie flaga: to dwa
+    rozne twierdzenia o wyjsciu, nie dwa tryby jednego.
+
+    Miejsce lamania zostaje WIDOCZNE jako `\\n` — czytajacy ma poznac, ze
+    autor cos tam zlamal, zamiast dostac dwa zdania sklejone w jedno."""
+    return "\\n".join(bezpieczne_linie(tekst))
 
 
 def _wypisz_board(uczestnicy, biezacy_seq):
@@ -1117,11 +1132,11 @@ def _wypisz_board(uczestnicy, biezacy_seq):
         # wyroznik. Wszystko, co po nim, jest wciete: pierwsza linia opisu
         # o dwa, kontynuacje o cztery, zeby dalo sie odroznic "dalszy ciag
         # tego samego pola" od "nowe pole".
-        linie = _bezpieczne_linie(wiersz)
+        linie = bezpieczne_linie(wiersz)
         print(f"\n{linie[0]}")
         for dalsza in linie[1:]:
             print(f"    {dalsza}" if dalsza else "")
-        opis = _bezpieczne_linie(_opis_statusu(u.get('status'), wiek))
+        opis = bezpieczne_linie(_opis_statusu(u.get('status'), wiek))
         print(f"  {opis[0]}")
         for dalsza in opis[1:]:
             print(f"    {dalsza}" if dalsza else "")

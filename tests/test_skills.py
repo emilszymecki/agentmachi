@@ -365,8 +365,21 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
 # STAN NA WIECZÓR 2026-08-10, tego samego dnia: luz przy CLAUDE.md jest
 # WYCZERPANY — 16161/16384 B, zostały 223 B z ~800. Zmierzył to świeży agent
 # spoza sesji; test milczał, bo milczenie zielonego testu wygląda tak samo
-# przy 223 B luzu i przy 800. Wniosek o samym mechanizmie, wart więcej niż
-# ta liczba: **sufit bajtowy nie odróżnia sprostowania od dopisku.** Kto
+# przy 223 B luzu i przy 800.
+#
+# Ta liczba jest DATOWANA i taka zostaje — nie aktualizujemy jej, bo każda
+# jej wersja starzeje się przy pierwszym commicie dotykającym pliku, i to
+# NIEWIDOCZNIE: suita zostaje zielona. Zmierzone 2026-08-22 — jeden commit
+# (4b87c07, trzy linie do CLAUDE.md) zjadł dwie trzecie tego, co zdanie wyżej
+# nazywa „zostało". Kto chce znać luz TERAZ, ma na to jedną komendę i ona
+# nie zgnije:
+#
+#   python3 -c "import pathlib; [print(f'{p.name}: {p.stat().st_size}/{s}')
+#     for p, s in [(pathlib.Path(f), s) for f, s in
+#     [('CLAUDE.md', 16384), ('AGENTS.md', 17408)]]]"
+#
+# Wniosek o samym mechanizmie, wart więcej niż każda z tych liczb:
+# **sufit bajtowy nie odróżnia sprostowania od dopisku.** Kto
 # jutro znajdzie w CLAUDE.md nieprawdę, i tak będzie musiał najpierw coś
 # wyciąć — czyli dokładnie to, przed czym luz miał chronić. To jest przyjęty
 # koszt tego narzędzia, nie jego usterka: taniej niż brak zamka, którym ten
