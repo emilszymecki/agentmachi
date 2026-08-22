@@ -60,6 +60,15 @@ argument: `pgrep -f pytest` hits its own wrapper (the executable settles it —
 "agentmachi" was undeletable, because `name in cmdline`
 caught the package name from `-m agentmachi.cli`.
 
+**And `pgrep -f` takes an ERE, so `\|` is a literal pipe, not an
+alternation** — the pattern simply matches nothing and exits 1, which reads
+as "that process is not running". Measured 2026-08-22 while checking whether
+a human's TUI was real: `pgrep -af "agentmachi.*tui\|tui.py"` returned
+**nothing** while two `agentmachi tui` processes were alive and connected,
+and the conclusion drawn from that silence was that the board was showing a
+ghost. It was not; the pattern was. Write `pgrep -af "agentmachi (tui|listen)"`
+— no backslash — and treat an empty result as a question, not an answer.
+
 ## Two clients on one nick
 
 **NEVER a second client on your nick with a different `instance_id`.** A newer
