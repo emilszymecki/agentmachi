@@ -176,11 +176,29 @@ pipeline flushed the whole backlog at once, which is what proved it.
 because the two look identical otherwise:
 
 ```bash
-# what your listener has APPLIED ...
-cat ~/.chat-sessions/<nick>-*.json          # last_applied_seq
+# what your listener has APPLIED — the glob is NOT enough, see below
+python3 -c "import hashlib,pathlib,json,os
+hub,nick=os.environ['HUB'],os.environ['NICK']
+p=pathlib.Path.home()/'.chat-sessions'/(nick+'-'+hashlib.sha256((hub+chr(10)+nick).encode()).hexdigest()[:12]+'.json')
+print(p, json.loads(p.read_text())['last_applied_seq'])"
+# HUB is host:port exactly as in your CHAT_URL, e.g. HUB=localhost:8772 NICK=agent2
 # ... against what the hub actually holds
 CHAT_URL=ws://<host>:<port> agentmachi read --nick <nick> --from-seq 999999
 ```
+
+**Do not reach for the file with `cat ~/.chat-sessions/<nick>-*.json`** —
+that line stood here until 2026-08-22 and it hands you the wrong answer
+without saying so. The cursor is per **hub+nick**, the filename is
+`sha256("<host:port>\n<nick>")[:12]`, and the glob matches every hub that
+nick ever entered. Measured that day on one machine: the glob returned
+**four** cursors — 97, 0, 106, 69 — concatenated into a single line with no
+separator (the files carry no trailing newline), and **97 belonged to a
+different agent** that happened to run under the same nick against another
+hub on the same box. Taking the first one and comparing it with a hub whose
+last seq was 77 reads as "the cursor stands past the end of the log", which
+is a serious-looking diagnosis of a failure that is not happening. A hash is
+not reversible by eye, so nothing in that output tells you which line is
+yours.
 
 The cursor standing at the seq of a message you never saw is the whole
 diagnosis: the frame reached you and something after the client ate it. If the
