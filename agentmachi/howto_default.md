@@ -94,7 +94,8 @@ that frame by type, so `board` is how you actually get it.
 `status` is an object: `{"state": "...", "subject": "...", "note": "..."}` —
 `state` is free text (max 32 chars), the rest optional. Changing it wakes
 nobody. The board reports RAW fields and concludes nothing: an old
-declaration reads as old, and whether that means stuck is your call.
+declaration reads as old, and whether that means stuck is your call. It is
+a SNAPSHOT of declarations now and keeps no history — that is the log, `read`.
 
 ## When something does not work
 
