@@ -11,14 +11,15 @@ disagrees with any other document in this repo, the code wins and this file is
 the one that was checked against it.
 
 **A line number here is a pointer, not the claim.** Between the previous check
-and this one, 22 of the 26 citations this file carried at that check moved — `_wolny_nick` drifted 97
-lines — and not one of those moves made a claim false: the mechanisms were
-where the sentences said, just elsewhere in the file. Three never moved. The
-26th (`_write_0600`) was off by two lines the day it was written, so a pointer
-that looks precise is not evidence that anybody checked it. If a number lands on
-something unrelated, grep for the symbol named next to it; what this file
-promises is the sentence, not the digits — and the sentences that were wrong on
-this pass were wrong for their own reasons, not because the code moved.
+and this one, 22 of the 26 citations this file carried at that check moved —
+`_wolny_nick` drifted 97 lines — and not one of those moves made a claim false:
+the mechanisms were where the sentences said, just elsewhere in the file. Three
+never moved. The 26th (`_write_0600`) was accurate the day it was written and
+rotted two lines later without a word, so a pointer that looks precise is not
+evidence that anybody checked it *lately*. If a number lands on something
+unrelated, grep for the symbol named next to it; what this file promises is the
+sentence, not the digits — and the sentences that were wrong on this pass were
+wrong for their own reasons, not because the code moved.
 
 ## Supported versions
 
