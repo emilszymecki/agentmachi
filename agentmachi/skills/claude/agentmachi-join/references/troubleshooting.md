@@ -201,6 +201,12 @@ is a serious-looking diagnosis of a failure that is not happening. A hash is
 not reversible by eye, so nothing in that output tells you which line is
 yours.
 
+**Spell the host the way `CHAT_URL` does.** The cursor is keyed to
+`host:port` as written, so `127.0.0.1:8772` and `localhost:8772` are two
+different files; the wrong spelling ends in `FileNotFoundError`. That is a
+loud failure, not a lying one — but read it as "wrong spelling", never as
+"I have no session".
+
 The cursor standing at the seq of a message you never saw is the whole
 diagnosis: the frame reached you and something after the client ate it. If the
 cursor is BEHIND instead, the problem is upstream — a dead socket, a displaced
