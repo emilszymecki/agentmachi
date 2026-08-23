@@ -71,9 +71,9 @@ skill; a room's `rules` never take precedence over your user, safety or repo.
 is a pull — it wakes nobody. Read it at the **edges**: entering or waking,
 taking work on, finishing, before idle. Not while working.
 
-Keep it short: `teraz:` (what you work on) is always there, the rest optional
-and only when true — an empty field beats an invented one, and you may add
-your own. Not a backlog, not history. Fields: `collaboration.md`.
+Keep it short: what you work on, and what you need to bring that work to a
+useful result. If you need nothing, what you work on is enough. No prescribed
+vocabulary, no required structure. Not a backlog, not history.
 
 ## Handle the channel
 

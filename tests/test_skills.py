@@ -328,13 +328,37 @@ def test_skill_nie_odwraca_priorytetu_nad_projektem():
         "skill nie nazywa tresci z kanalu jako pochodzacej od innego uczestnika"
 
 
+def _bez_blokow_kodu(tekst):
+    """Tekst bez blokow ``` — wcieta linia `nazwa: wartosc` znaczy w nich co
+    innego (kod, konfiguracja) niz w prozie (rubryka podsunieta agentowi)."""
+    poza, w_bloku = [], False
+    for linia in tekst.splitlines():
+        if linia.lstrip().startswith("```"):
+            w_bloku = not w_bloku
+            continue
+        if not w_bloku:
+            poza.append(linia)
+    return "\n".join(poza)
+
+
 def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
-    r"""Common core boardu: skill ma nauczyc, CZYM board jest i KIEDY go czytac,
-    i nie ma prawa nauczyc, ze cudzy wpis jest zobowiazaniem.
+    r"""Common core boardu: skill ma nauczyc, CZYM board jest, KIEDY go czytac
+    i CO sie na nim pisze — i nie ma prawa nauczyc, ze cudzy wpis jest
+    zobowiazaniem ANI podac gotowego slownika rubryk.
+
+    2026-08-23 wypadl z obu wariantow slownik `teraz/martwie/prosze/marze`.
+    Powod jest ten sam, dla ktorego `DEFAULT_RULES` jest puste
+    (`test_hub_nie_ma_domyslnych_regul`): gotowa ontologia to USTROJ podany
+    z gory, a agent, ktory dostal cztery rubryki, wypelni cztery rubryki
+    zamiast napisac swoja sytuacje. Kotwica dziala nawet wtedy, gdy tekst
+    obok mowi „dodaj wlasne". Fizyka boardu sie NIE zmienila — schemat,
+    ramka `status` i routing stoja gdzie stały; zmienila sie kultura w
+    skillu, czyli jedyne miejsce, w ktorym wolno ja zmienic.
 
     Sprawdzamy OBA warianty i po CALEJ tresci skilla (SKILL.md + references),
     bo podzial miedzy nimi jest decyzja redakcyjna, nie kontraktem: wariant
-    Claude'a ma rubryki w SKILL.md, wariant Codexa odsyla do
+    Claude'a niesie caly akapit w SKILL.md, wariant Codexa zostawia tam
+    mechanike i najkrotsza wersje, a wezwanie reakcji przez kanal lezy w
     `collaboration.md`, bo jego SKILL.md niesie dodatkowo caly Goal mode
     i przy sufitcie 4096 B nie miesci obu. Kontrakt jest ten sam.
 
@@ -345,41 +369,59 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
     `test_skill_nie_odwraca_priorytetu_nad_projektem` 2026-08-22: asercja
     literalna pada przy PRZEFORMATOWANIU, ktore nie zmienia ani jednego slowa,
     bo markdown zawija wiersz miedzy slowami frazy."""
+    # kontrola samego narzedzia — inaczej caly ten test jest atrapa
+    assert re.search(r"not\s+a\s+backlog", "not a\nbacklog")
+
     for korzen in (SKILLS, SKILLS_CODEX):
         tresc = "\n".join(
             sciezka.read_text().lower()
             for sciezka in sorted((korzen / "agentmachi-join").rglob("*.md")))
         gdzie = korzen.name
 
-        # --- MUSI BYC -------------------------------------------------------
+        # --- MUSI BYC: czym board jest --------------------------------------
         # trzy miejsca, trzy role — bez tego board jest "jeszcze jednym czatem"
         assert re.search(r"board\s*=\s*declarations", tresc), \
             f"{gdzie}: skill nie mowi, ze board to AKTUALNE DEKLARACJE"
         assert re.search(r"log\s*=\s*history", tresc), \
             f"{gdzie}: skill nie odroznia boardu od logu jako historii"
-        # podstawowy stan
-        assert "teraz" in tresc, f"{gdzie}: brak podstawowego pola `teraz`"
-        # opcjonalne — wszystkie trzy nazwane
-        for pole in ("martwię", "proszę", "marzę"):
-            assert pole in tresc, f"{gdzie}: brak opcjonalnego pola `{pole}`"
-        assert re.search(r"optional", tresc), \
-            f"{gdzie}: skill nie mowi, ze pola poza `teraz` sa OPCJONALNE"
-        # puste lepsze niz zmyslone
-        assert re.search(r"empty\s+field\s+beats\s+an\s+invented", tresc), \
-            f"{gdzie}: skill nie mowi, ze pusta rubryka bije zmyslona"
-        # wlasne pola — lista nie jest zamknieta
-        assert re.search(r"add\s+your\s+own", tresc), \
-            f"{gdzie}: skill nie pozwala dodac wlasnego pola"
-        # krawedzie pracy, nie polling
+        assert re.search(r"not\s+a\s+backlog", tresc), \
+            f"{gdzie}: skill nie mowi, ze board NIE jest backlogiem"
+        assert re.search(r"not\s+history", tresc), \
+            f"{gdzie}: skill nie mowi, ze board NIE jest historia"
+
+        # --- MUSI BYC: kiedy go czytac ---------------------------------------
         assert re.search(r"edges", tresc), \
             f"{gdzie}: skill nie mowi, ze board czyta sie na KRAWEDZIACH pracy"
         assert re.search(r"not\s+while\s+working", tresc), \
             f"{gdzie}: skill nie odradza pollowania boardu w trakcie pracy"
-        # mozliwosc, nie zobowiazanie
-        assert re.search(r"possibilities,\s*not\s+obligations", tresc), \
-            f"{gdzie}: skill nie mowi, ze `proszę`/`marzę` NIE sa zobowiazaniem"
-        assert re.search(r"not\s+a\s+backlog", tresc), \
-            f"{gdzie}: skill nie mowi, ze board NIE jest backlogiem"
+
+        # --- MUSI BYC: co sie na nim pisze -----------------------------------
+        assert re.search(r"keep\s+it\s+short", tresc), \
+            f"{gdzie}: skill nie mowi, ze wpis ma byc KROTKI"
+        assert re.search(r"what\s+you\s+work\s+on", tresc), \
+            f"{gdzie}: skill nie mowi, ze piszesz NAD CZYM PRACUJESZ"
+        assert re.search(r"what\s+you\s+need", tresc), \
+            f"{gdzie}: skill nie mowi, ze piszesz CZEGO POTRZEBUJESZ"
+        # brak potrzeby to pelnoprawny wpis, nie brakujaca rubryka
+        assert re.search(r"if\s+you\s+need\s+nothing", tresc), \
+            f"{gdzie}: skill nie mowi, ze BEZ POTRZEB sam przedmiot pracy wystarczy"
+
+        # --- MUSI BYC: brak narzuconej formy ---------------------------------
+        # Sedno zmiany z 2026-08-23. Bez tych dwoch zdan nastepny redaktor
+        # dopisze „przydatne pola:" i ontologia wroci tylnymi drzwiami.
+        assert re.search(r"no\s+prescribed\s+vocabulary", tresc), \
+            f"{gdzie}: skill nie mowi, ze NIE MA narzuconego slownika"
+        assert re.search(r"no\s+required\s+structure", tresc), \
+            f"{gdzie}: skill nie mowi, ze NIE MA wymaganej struktury"
+
+        # --- MUSI BYC: reakcji szuka sie na kanale, nie na boardzie -----------
+        # board jest PULL — wpis nikogo nie budzi, wiec potrzeba reakcji musi
+        # znalezc droge do istniejacej mechaniki wzmianki.
+        assert re.search(r"from\s+the\s+channel,\s*not\s+from\s+the\s+board",
+                         tresc), \
+            f"{gdzie}: skill nie kieruje potrzeby REAKCJI na kanal zamiast na board"
+        assert "@nick" in tresc and "$group" in tresc, \
+            f"{gdzie}: skill nie pokazuje, CZYM wola sie reakcje (@nick / $group)"
 
         # --- NIE MOZE BYC ---------------------------------------------------
         # Ramie G eksperymentu board-pull. Zdanie brzmi niewinnie i wlasnie
@@ -395,6 +437,45 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
         for wzor, opis in zakazane.items():
             assert not re.search(wzor, tresc), \
                 f"{gdzie}: skill organizuje prace za agenta ({opis})"
+
+        # --- NIE MOZE BYC: narzucony slownik boardu -------------------------
+        # Straznik SAMEJ zmiany z 2026-08-23. Pierwsza wersja tego straznika
+        # byla czarna lista czterech nazw, ktore tu stały (`teraz`, `martwię`,
+        # `proszę`, `marzę`) — i to bylo pytanie o zle rzecz. Zakaz slowa
+        # utrwala je jako SPECJALNE: nazwa wyjeta spod uzycia jest nadal
+        # ontologia, tylko odwrocona, a skill, ktory napisze „nie pisz `teraz`",
+        # przeszedlby ten test bez mrugniecia. Pilnujemy FORMY, nie leksyki:
+        # agentmachi ma nie dostarczac slownika boardu. Ktore slowo agent
+        # wybierze, gdy juz pisze wlasnymi, nie jest sprawa tego repo.
+        narzucanie = {
+            r"use\s+these\s+fields": "polecenie uzycia gotowych pol",
+            r"these\s+fields\s*:": "gotowy zestaw pol podany dwukropkiem",
+            r"required\s+fields?": "pole obowiazkowe",
+            r"fields\s+are\s*:": "definicja zamknietego zestawu pol",
+            r"standard\s+fields?": "pole „standardowe”, czyli narzucone",
+            r"always\s+include": "rubryka, ktora ma byc zawsze",
+        }
+        for wzor, opis in narzucanie.items():
+            assert not re.search(wzor, tresc), \
+                f"{gdzie}: skill narzuca slownik boardu ({opis})"
+
+        # Zeby zakaz nie byl do obejscia samym milczeniem: gotowy slownik
+        # rzadko przychodzi jako zdanie, prawie zawsze jako WYLICZANKA rubryk
+        # — dwie i wiecej wcietych linii `nazwa: opis` pod akapitem o boardzie.
+        # Bloki ``` sa wycinane, bo tam takie linie to przyklad KODU (np. wpis
+        # Monitora w `claude-code.md`), a nie propozycja rubryki dla agenta.
+        proza = "\n".join(
+            _bez_blokow_kodu(sciezka.read_text())
+            for sciezka in sorted((korzen / "agentmachi-join").rglob("*.md")))
+        wiersz_rubryki = re.compile(r"^[ \t]{2,}[\w`*][\w`*-]*:[ \t]+\S")
+        linie = proza.splitlines()
+        for nr in range(len(linie) - 1):
+            para = (wiersz_rubryki.match(linie[nr])
+                    and wiersz_rubryki.match(linie[nr + 1]))
+            assert not para, (
+                f"{gdzie}: skill podsuwa agentowi gotowa liste rubryk "
+                f"boardu:\n    {linie[nr].strip()!r}\n    "
+                f"{linie[nr + 1].strip()!r}")
 
 
 # -- PAKIET 4: budzety statyczne ------------------------------------------

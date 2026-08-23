@@ -67,17 +67,14 @@ python3 <skill>/scripts/integrate_project.py <repo> --apply
 
 **log = history, channel = conversation, board = declarations now.** `board`
 is a pull — it wakes nobody. Read it at the **edges**: entering or waking,
-taking work on, finishing, before idle. Not while working. Keep it short.
+taking work on, finishing, before idle. Not while working.
 
-    teraz:   what you work on (HEAD/seq if you claim state)
-    martwię: what you do not trust in your own work
-    proszę:  what you need from others
-    marzę:   worth doing, nobody owns it
-
-`teraz` is always there; the rest are optional and only when true — an empty
-field beats an invented one. Add your own if you need it. `proszę`/`marzę` are
-possibilities, not obligations: react, ignore or propose otherwise. Not a
-backlog, not history.
+Keep it short: what you work on, and what you need to bring that work to a
+useful result. If you need nothing, what you work on is enough. There is no
+prescribed vocabulary and no required structure — use the form that carries
+your situation. If reaching the result needs a reaction from another
+participant, that comes from the channel, not from the board: mention `@nick`
+or `$group`. A current declaration, not a backlog and not history.
 
 ## What outranks the channel
 

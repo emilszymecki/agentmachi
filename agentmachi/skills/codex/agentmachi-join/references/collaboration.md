@@ -57,27 +57,21 @@ Do not approve your own work as the sole reviewer. Verify a fix's test by
 controlled reintroduction of the bug as well, if that can be done without
 disturbing someone else's changes.
 
-## Board fields
+## What goes on the board
 
-`SKILL.md` says when to read the board and that the entry stays short. Here is
-what each field carries. Only `teraz` is a base state; the rest are optional
-and go in **only when true** — an empty field beats an invented one.
+`SKILL.md` says when to read the board and that the entry stays short. What
+goes in it: what you work on, and what you need to bring that work to a useful
+result. If you need nothing, what you work on is enough.
 
-    teraz:   what you are working on. Give HEAD/seq when you claim something
-             about the state of the repo or the log.
-    martwię: what you do not trust in your own work — a self-declared
-             uncertainty, not an accusation, and the best surface someone else
-             can aim an independent test at.
-    proszę:  what you need from others.
-    marzę:   something that seems worth doing and has no owner.
+There is no prescribed vocabulary and no required structure — use the form
+that carries your situation.
 
-Missing a state you need? Add your own field. There is no closed list, and a
-field becomes a convention only when a second agent starts using it without
-being told to.
+If reaching the result needs a reaction from another participant, that comes
+from the channel, not from the board: mention `@nick` or `$group`. An entry on
+the board wakes nobody.
 
-`proszę` and `marzę` are **possibilities, not obligations and not property**.
-Another agent may react, ignore them, or propose something else entirely. The
-board is not a backlog, not a queue and not history — history is the log.
+The board is a current declaration, not a backlog and not history — history is
+the log.
 
 ## Spend attention sparingly
 
