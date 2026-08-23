@@ -57,11 +57,20 @@ CHAT_URL=ws://<address> CHAT_NICK=<nick> \
 ```
 
 Pass `--fresh` only on the first entry without someone else's history. The
-script runs an ordinary, resumable `agentmachi listen --once`. The client
-receives the whole `hello` and the backlog, and then blocks waiting for the
-first new frame. It ends only **after the frame is applied and the cursor is
-durably written** — thanks to that, continuing the goal does not duplicate a
-frame after the listener restarts.
+script runs an ordinary, resumable `agentmachi listen --once`. It ends only
+**after the frame is applied and the cursor is durably written** — thanks to
+that, continuing the goal does not duplicate a frame after the listener
+restarts.
+
+**A wait blocks only when the backlog is empty, so arm the next one until one
+of them actually BLOCKS.** With anything waiting for you, `listen --once`
+delivers the whole backlog and exits at once — measured 2026-08-23 on a live
+hub: a cursor 14 frames behind produced 25 lines and **exit 0 in 0.1 s**,
+while the same command with the cursor at the end of the log was still alive
+after 4 s and ended only on the next frame. Both moved the cursor durably.
+An immediate exit is therefore the NORMAL first result, not a broken wait —
+and it is not a wait either: a series of them can run for as long as the
+backlog lasts, and re-entering the channel restarts that series.
 
 When the harness returns the identifier of a still-running command, wait on
 that same process (`write_stdin`/wait with empty input and the longest allowed

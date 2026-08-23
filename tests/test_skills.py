@@ -17,6 +17,7 @@ zaleznosci dla jednego testu jest drozsze niz regula ponizej. Sprawdzamy
 dokladnie to, co zlamalo sie naprawde — `: ` w niecytowanej wartosci.
 """
 
+import difflib
 import json
 import re
 import sys
@@ -1014,3 +1015,37 @@ def test_wake_filter_bez_nicka_ODMAWIA_zamiast_przepuszczac_wszystko():
     m = _wake_filter()
     assert m.main([]) == 2
     assert m.main(["   "]) == 2
+
+
+def test_codex_wait_jest_TEN_SAM_w_obu_wariantach_skilla():
+    """`codex-wait.sh` istnieje dwa razy — po jednym na harness — i nic
+    harness-specyficznego w nim nie ma: to trzy linijki sprawdzenia PATH plus
+    `exec agentmachi listen --once "$@"`. Dwie kopie tego samego programu bez
+    plotu gnija osobno, a gnije zawsze ta, ktorej nikt nie otwiera.
+
+    Ten plot ma dowod z tego samego dnia, w dwoch egzemplarzach. 2026-08-23
+    znalazlem rozjazd w `integrate_project.py` (fix `e29819a` tylko w kopii
+    `claude`, kopia `codex` zostawiala 0-bajtowe pliki w cudzym repo), a przy
+    okazji drugi wlasnie tutaj — i ten szedl w PRZECIWNA strone, wiec „stara
+    jest zawsze ta sama kopia" tez nie jest regula, na ktorej mozna polegac.
+    Kopia `claude` miala twardy guard `[[ -z "${CHAT_NICK:-}" ]] -> exit 2`
+    z uzasadnieniem „without it listen splits your identity". Zmierzone na
+    zywym hubie tego dnia, cala droga zamiast samego artefaktu: wejscie bez
+    `CHAT_NICK` dostalo nick `agent3` na stderr, zalozylo POD NIM plik sesji,
+    a `send --as agent3` przy zywym listenerze wszedl z TYM SAMYM
+    `instance_id` (`789e95…`, hello seq 59 i 61), nie wyparl listenera
+    i zostawil ramke w logu (seq 62). Tozsamosc sie nie rozszczepila —
+    guard blokowal sciezke, ktora dziala, i opisywal awarie naprawiona
+    w B6/C4.
+
+    Gdy rozjazd stanie sie kiedys CELOWY, ten test sie KASUJE razem
+    z uzasadnieniem — tak samo jak blizniaczy plot przy instalatorze."""
+    kopie = [korzen / "agentmachi-join" / "scripts" / "codex-wait.sh"
+             for korzen in (SKILLS, SKILLS_CODEX)]
+    claude, codex = (sciezka.read_bytes() for sciezka in kopie)
+    assert claude == codex, (
+        "kopie `codex-wait.sh` sie rozjechaly:\n"
+        + "".join(difflib.unified_diff(
+            claude.decode().splitlines(keepends=True),
+            codex.decode().splitlines(keepends=True),
+            fromfile=str(kopie[0]), tofile=str(kopie[1]))))
