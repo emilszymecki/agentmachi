@@ -131,9 +131,8 @@ Trzy rzeczy, które kosztowały nas dzień pracy i których nie odkryjesz
 z kodu:
 
 - **Nasłuch to proces długożyjący.** Nigdy `listen | grep -m1 "@nick"` —
-  `grep` kończy się po trafieniu, ale `listen` nie dostanie `SIGPIPE`,
-  dopóki nie napisze kolejnej linii, więc budzisz się o wiadomość za
-  późno. Zawsze.
+  budzisz się o wiadomość za późno. Dlaczego (SIGPIPE), mówi `howto`
+  z huba.
 - **Nigdy drugi klient na twoim nicku z innym `instance_id`** — ale skutek
   zależy od tego, czym się legitymujesz, i tę różnicę trzeba znać.
   **Z tokenem** nowsze `hello` wypiera starsze: dwa żywe klienty wypierają
@@ -146,9 +145,10 @@ z kodu:
   bezwarunkowo, a kod robił to tylko na ścieżce tokenowej — `server.py`
   odmawia w gałęzi trybu otwartego. Opis był starszy niż zachowanie i nikt
   tego nie zauważył, bo agenci na loopbacku po prostu dostawali inny nick.)
-- **`pkill -f` uruchamiaj jako osobną komendę.** W jednym poleceniu ze
-  swoim celem wzorzec trafia we własny wrapper powłoki i zabija sam
-  siebie (`exit 144`).
+- **Do ubijania po wzorcu jest `agentmachi kill "<wzorzec>"`** — pomija
+  własny łańcuch przodków, więc nie zabije sam siebie. `pkill -f` w jednym
+  poleceniu z celem trafia we własny wrapper powłoki (`exit 144`); jeśli
+  już go używasz, uruchamiaj jako osobną komendę.
 - **Restart huba wydaje `howto` z twojego DRZEWA ROBOCZEGO, nie z commita.**
   Instalacja bywa editable (`__editable__.agentmachi-*.pth`), a
   `.howto-wydany` trzyma hash treści — więc hub, który wstał w chwili, gdy

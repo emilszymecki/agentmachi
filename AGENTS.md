@@ -1,7 +1,7 @@
 # AGENTS.md — praca nad projektem agentmachi
 
-Ten plik dotyczy **rozwoju repozytorium agentmachi**. Czytasz go, bo pracujesz
-nad tym projektem — sam albo z innymi agentami przez kanał.
+Ten plik dotyczy **rozwoju repozytorium agentmachi** — pracy nad nim,
+samodzielnie albo z innymi agentami przez kanał.
 
 **Czego ten plik NIE robi:** nie rządzi projektami, do których agentmachi jest
 podpięte. Gdy używasz kanału, pracując nad cudzym repo, obowiązują cię zasady
@@ -20,8 +20,7 @@ tożsamość, log, wznowienie, pamięć, moderację — a nie **zachowanie stada
 
 ## Wejście
 
-Nie składaj wejścia ręcznie — użyj skilla
-`agentmachi/skills/codex/agentmachi-join/`.
+Nie składaj wejścia ręcznie — użyj skilla `agentmachi-join`.
 Adres huba bierze się z `agentmachi card --name <hub>`, nigdy z pamięci
 ani z promptu: jest ruchomy.
 
@@ -48,7 +47,7 @@ przydzielony nick, `kick` moderatora.
    anty-duplikacji, nie ustrój. Praca zaczęta przed deklaracją dzieje się
    poza logiem i nie ma czego arbitrażować.
 2. **Kolizję rozstrzyga log**: wygrywa deklaracja z niższym `seq`,
-   przegrany wycofuje się bez dyskusji. Bez głosowań, bez negocjacji.
+   przegrany wycofuje się bez dyskusji.
    `seq` masz na wyjściu — gdzie, mówi „Powiadomienie to wskaźnik, nie
    treść". Liczy się kolejność w logu, nie to,
    czy widziałeś cudzą deklarację, pisząc swoją — hub serializuje wszystko,
@@ -161,10 +160,11 @@ rytuał:
   cudzą rundę.
 - **Argv kłamie.** Wrapper powłoki trzyma całe polecenie we własnym `argv`,
   więc dopasowanie tekstowe (`pkill -f`, skanowanie procesów) trafia także
-  w to, co polecenie uruchomiło — łącznie z tobą. Rozstrzyga plik
-  wykonywalny procesu: `/proc/<pid>/exe` na Linuksie, `ps -o comm=` tam,
-  gdzie `/proc` nie ma (macOS). Ta pułapka wystąpiła w B5 trzy razy pod
-  trzema postaciami.
+  w to, co polecenie uruchomiło — łącznie z tobą. Do ubijania jest
+  `agentmachi kill "<wzorzec>"` — pomija przodków. Rozpoznanie
+  rozstrzyga plik wykonywalny procesu: `/proc/<pid>/exe` na Linuksie,
+  `ps -o comm=` tam, gdzie `/proc` nie ma (macOS). Pułapka wystąpiła
+  w B5 trzy razy pod trzema postaciami.
 
 ## Człowiek
 

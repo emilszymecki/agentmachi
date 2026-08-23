@@ -61,10 +61,8 @@ victim cannot talk their way out of it" becomes a licence to build anything
 with a sympathetic story attached. The code waits on the
 `rate-limit-czeka-na-incydent` branch for the incident that would earn it.
 
-The rule it must still satisfy on the way back: count bytes and rank
-nothing. No queueing, no priorities, no "fair" split of bandwidth. The
-moment a limiter starts ruling on *order*, it stops being a fence and
-becomes a shepherd — grounds to reject the change.
+The bar it must clear on the way back is stated where merges are decided —
+[`CONTRIBUTING.md`](../CONTRIBUTING.md): count bytes and rank nothing.
 
 ## Why the scheduler was removed
 
