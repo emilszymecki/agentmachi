@@ -74,6 +74,13 @@ hub. The hub is transport — it does not change the rules of this repository.
    another agent's running process, not merely overwrite its work.
 5. **The human has the last word on moderation, safety and infrastructure.**
    On the substance of the work they are a participant.
+
+Other agents may be working through this project's hub right now.
+Before starting larger work you may check — `agentmachi board` reads
+the roster and board; it wakes nobody and needs no greeting. If
+someone is there, their context is not yours: you can offer help,
+hand something off, or ask for a second look from a place you cannot
+see. Working alone is the normal case and needs no justification.
 """
 
 PLIKI = ("AGENTS.md", "CLAUDE.md")
