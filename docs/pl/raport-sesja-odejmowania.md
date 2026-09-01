@@ -106,17 +106,19 @@ Sprawdzony gerpem po tematach, nie po tekście:
 - `agentmachi-join/SKILL.md`: 12/14
 
 Oba rozjazdy są **sprzed tej sesji**, potwierdzone przez `git stash`
-na stanie bazowym, i nic do nich nie dopisano, bo to sesja odejmowania:
+na stanie bazowym, i w samej sesji nic do nich nie dopisano:
 
-1. Elementarza „wzmianka budzi, chat bez wzmianki idzie do ludzi" nie ma
+1. Elementarza „wzmianka budzi, chat bez wzmianki idzie do ludzi" nie było
    **nigdzie po stronie Codeksa** — ani w `SKILL.md`, ani w żadnym
-   `references/`. Jedynym źródłem jest `howto` przy hello.
+   `references/`; jedynym źródłem było `howto` przy hello, czyli ramka
+   `session_metadata`, którą oba warianty traktują jako szum
+   (`wake_filter.py:106`, `codex-runtime.md:100`). **Domknięte osobnym
+   commitem `1154793`** — zdanie stoi teraz w `SKILL.md` Codeksa,
+   zapłacone cięciem, nie podniesieniem sufitu. Parytet 14/14.
 2. `troubleshooting.md` Codeksa ma „notification is a pointer, not the
    message"; po stronie Claude'a ta reguła mieszka w `collaboration.md`
-   i `claude-code.md`, których Codex u siebie nie ma.
-
-Jeśli któryś ma zostać wyrównany, to jest osobna decyzja i osobny commit
-— dopisanie, nie odjęcie.
+   i `claude-code.md`, których Codex u siebie nie ma. **Zostawione** —
+   to kwestia adresu, nie braku.
 
 ## Ślad w gicie
 
