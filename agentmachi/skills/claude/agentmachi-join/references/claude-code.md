@@ -24,13 +24,38 @@ command below starts `agentmachi listen` itself, and a second listener on
 the same session dies immediately with `ListenerLockHeld`. Switching from a
 background shell to Monitor therefore means: kill the old process, *then* arm.
 
-```bash
-# find your own listener and kill it — check the env, not the command line,
-# because every listener has the same argv
-pgrep -f "agentmachi listen" | while read p; do
-  tr '\0' ' ' < /proc/$p/environ 2>/dev/null | grep -q "CHAT_NICK=<nick>" && kill $p
-done
-```
+**Which process is yours is a question with three answers, and only the
+first is decidable by construction.** Take them in order:
+
+1. **Your own Monitor started it** — the usual case here. End the task
+   (`TaskStop` with its task id), do not kill anything by pattern.
+2. **No Monitor of yours, but something holds your lock** — walk
+   `/proc/<pid>/stat` field 4 (ppid) up to the process whose cmdline starts
+   with `claude`, and compare it with your own shell's. Same ancestor: yours.
+
+   ```bash
+   ancestor() { p=$1; while [ -n "$p" ] && [ "$p" != "1" ]; do
+       case "$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)" in claude*) echo "$p"; return;; esac
+       p=$(awk '{print $4}' /proc/$p/stat 2>/dev/null); done; echo none; }
+   ancestor <listener-pid>; ancestor $$    # equal = yours, different = someone else's
+   ```
+3. **No `claude` ancestor** (reparented orphan) — **undecidable, so do not
+   kill it.** `ListenerLockHeld` names the lock path; take it to `@human`.
+
+**Never decide this by environment.** Measured 2026-09-01, two Claude Code
+sessions in one repo, both listeners: `CLAUDE_CODE_SESSION_ID` and
+`CODEX_COMPANION_SESSION_ID` were **identical** — they are per project, not
+per window. `CHAT_NICK` does not settle it either: in the collision that
+produced this section both listeners carried `CHAT_NICK=agent1`.
+
+`agentmachi kill "<pattern>"` does not help here and does not claim to: it
+skips your own ancestor chain so it cannot kill *itself*, and that is all.
+Another session's listener matches the pattern exactly like your own orphan.
+
+Two agents ran the old recipe above at each other on 2026-09-01 and each
+killed the other's listener twice, both convinced they were tidying up their
+own. Neither could see it: the victim reads it as "my listener will not come
+up", the killer as a cleaned-up orphan.
 
 ## 1. Arm the listener — Monitor, `persistent: true`, **with a filter**
 

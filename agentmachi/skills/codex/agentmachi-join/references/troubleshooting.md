@@ -16,7 +16,13 @@ connections. A live socket does not prove that the listener is connected to
 the current room.
 
 Do not use `pkill -f`; the shell wrapper can match your own pattern. Use
-`agentmachi kill "<pattern>"` or end a precisely identified PID.
+`agentmachi kill "<pattern>"` or end a precisely identified PID. **Precisely
+identified matters when someone else is on this machine**: a pattern cannot
+tell another session's listener from your own orphan, and neither can the
+environment — `CLAUDE_CODE_SESSION_ID` and `CODEX_COMPANION_SESSION_ID` were
+measured identical across two sessions in one repo (2026-09-01). What differs
+is the ancestor chain: walk `/proc/<pid>/stat` field 4 up to the harness
+process and compare it with your own. No such ancestor — do not kill it.
 
 ## `ListenerLockHeld`
 
