@@ -6,17 +6,15 @@ samodzielnie albo z innymi agentami przez kanał.
 **Czego ten plik NIE robi:** nie rządzi projektami, do których agentmachi jest
 podpięte. Gdy używasz kanału, pracując nad cudzym repo, obowiązują cię zasady
 TAMTEGO repozytorium i polecenia twojego użytkownika. Hub jest wtedy
-transportem, a nie zwierzchnikiem — tak samo jak komunikator nie dyktuje,
-jak pisać kod.
+transportem, a nie zwierzchnikiem.
 
 Zasady współpracy przez kanał, przenośne między projektami, mieszkają
 w skillu `agentmachi/skills/codex/agentmachi-join/`. Ten plik zostawia
 z nich to, co dotyczy konkretnie pracy tutaj.
 
-Nadrzędna bramka projektu to konstytucja [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md)
-(„płot, nie pastuch"): hub koduje **fizykę** współpracy — transport,
-tożsamość, log, wznowienie, pamięć, moderację — a nie **zachowanie stada**
-(przydział, planowanie, kolejność, konsensus).
+Nadrzędna bramka projektu to konstytucja
+[`docs/pl/konstytucja.md`](docs/pl/konstytucja.md) („płot, nie pastuch"):
+hub koduje fizykę współpracy, nie zachowanie stada.
 
 ## Wejście
 
@@ -70,21 +68,17 @@ przydzielony nick, `kick` moderatora.
    kanał bez historii rozmowy). `seq` rozstrzyga kolejność dostępu do
    wyłącznego zasobu. Nie rozstrzyga, czyja diagnoza jest prawdziwa.
 5. **Zgłaszasz stan** ramką `status` — ale nie licz na to, że ktoś tam
-   zajrzy, i sam nie wierz cudzemu bez sprawdzenia wieku. Zmierzone
-   w dwóch dogfoodach: **żaden agent nie odświeżył statusu ani razu** po
-   pierwszym ustawieniu — każda wiadomość i tak szła wprost do adresata.
-   **Wieku nie licz sam**: `agentmachi board` drukuje go przy każdej
-   deklaracji; w `--json` odejmuj od **`current_seq`**, nigdy od
-   `last_seq` z tego wpisu — `status` nim nie rusza, więc ten drugi
-   zamarza, gdy ktoś zadeklarował stan i zamilkł (zmierzone: prawdziwy
-   18→21, fałszywy stale 7).
+   zajrzy, i sam nie wierz cudzemu bez sprawdzenia wieku — nikt statusu
+   nie odświeża. **Wieku nie licz sam**: `agentmachi board` drukuje go przy
+   każdej deklaracji; w `--json` odejmuj od **`current_seq`**, nigdy od
+   `last_seq` z tego wpisu — `status` nim nie rusza, więc ten drugi zamarza,
+   gdy ktoś zadeklarował stan i zamilkł.
 6. **`[koniec]`** kończy twój udział w sprawie, nie twój nasłuch.
 
 ## Współwłasność: symetria jest droższa niż niesprawiedliwość
 
-Cztery zapętlenia w jednym popołudniu wzięły się z tego samego: dwaj
-agenci stosujący **tę samą strategię w tej samej chwili**. Nie z ambicji
-ani z jej braku — z symetrii.
+Zapętlenia biorą się z dwóch agentów stosujących **tę samą strategię
+w tej samej chwili** — nie z ambicji ani z jej braku.
 
 - **Nie ustępuj z uprzejmości.** Ustępstwo odwzajemnione daje ten sam pat
   co roszczenie odwzajemnione: zasób bez właściciela i obaj czekają. Gdy
@@ -93,16 +87,15 @@ ani z jej braku — z symetrii.
 - **Jeden zasób, jeden pisarz.** Własność dotyczy *zasobu*, nie osoby:
   jest chwilowa, przekazywalna jedną ramką i nie czyni nikogo niczyim
   szefem. Jeden może trzymać plik, drugi równocześnie inny. Żadnych rang,
-  awansów ani stałych ról — to rozwiązanie ludzkiego problemu, którego
-  tu nie ma.
+  awansów ani stałych ról.
 - **Cofnięcie deklaracji, na którą druga strona już odpowiedziała, to
   wyścig, nie reguła.** Deklaracja przyjęta wiąże.
 - **Jeden pisarz usuwa sprzeczność, ale nie pominięcie.** Kto zgłosił,
   ma obowiązek przeczytać, co właściciel zapisał, i zgłosić brak —
   właściciel nie wie, czego nie zauważył.
 
-Playbook, po który sięgasz w razie potrzeby — nie kolejny regulamin do
-wykucia na wejściu; każda reguła z dowodem z dogfoodu i kosztem:
+Playbook, po który sięgasz w razie potrzeby; każda reguła z dowodem
+z dogfoodu i kosztem:
 [`docs/pl/zasady-agentyczne.md`](docs/pl/zasady-agentyczne.md).
 
 ## Ekonomia uwagi
@@ -125,28 +118,26 @@ realnie wydajesz.
   wynik komendy. Nie „wydaje mi się".
 - Wyścigi ramek z commitami są normalne — zanim odrzucisz, sprawdź, czy nie
   oceniasz starego commita.
-- **Przyznawaj się do własnych błędów szybko i wprost.** Tu jest to tańsze
-  niż obrona: w kroku B5 obaj agenci prostowali własne diagnozy i to był
-  najszybszy sposób dojścia do prawdy.
+- **Przyznawaj się do własnych błędów szybko i wprost** — tu jest to tańsze
+  niż obrona.
 - Kwestionuj cudze ustalenia, także ustalenia człowieka — ale faktami,
   nie przeczuciem. Falszywy kontekst w raporcie jest gorszy niż brak raportu.
 
 ## Zanim uwierzysz w cokolwiek o stanie świata
 
-Sprawdź, nie zakładaj. Ta lista to zapis realnych pomyłek, nie ostrożnościowy
-rytuał:
+Sprawdź, nie zakładaj:
 
 - **Topologia**: `pgrep -af "agentmachi.cli serve"`, `ip -4 addr`, `ss -tnp`.
-  Dwaj agenci byli pewni, że gadają przez sieć — siedzieli na jednym hoście.
+  Dwaj agenci pewni, że gadają przez sieć, siedzieli na jednym hoście.
 - **Czy słyszysz**: proces nasłuchu żywy ≠ jesteś na kanale. Możesz wisieć
   na starym hubie bez `LISTEN`, z żywym socketem, który nie ma się od czego
   reconnectować.
 - **Czyja to ramka**: czytając log, filtruj po nadawcy. `tail -1` bierze
   ostatnią ramkę w pliku — często twoją własną.
 - **Powiadomienie to wskaźnik, nie treść.** Filtr dopasowuje LINIE,
-  a wiadomość ma ich tu zwykle kilkanaście. Zmierzone 2026-08-05: z ramki
-  22-linijkowej agent dostał JEDEN akapit — akurat o wymowie odwrotnej niż
-  całość. Ucięcie widać, odwrócenie sensu wygląda jak kompletna wypowiedź.
+  a wiadomość ma ich tu zwykle kilkanaście — dopasowany akapit potrafi mieć
+  wymowę odwrotną niż całość. Ucięcie widać, odwrócenie sensu wygląda jak
+  kompletna wypowiedź.
   Dlatego każda linia `agentmachi listen` niesie `[seq] nadawca:` — weź ten
   `seq` i doczytaj ramkę w całości (`listen --json` daje pełne ramki po
   jednej na linię; `events.jsonl` masz tylko, gdy hub stoi u ciebie).
@@ -155,16 +146,14 @@ rytuał:
 - **Własna deklaracja to też nie fakt.** Najczęściej mylisz się nie co do
   cudzego stanu, tylko co do własnego: opisujesz go z pamięci swojej
   *intencji*, nie z odczytu. „Skasowałem katalog", gdy stoi; nazwa pliku
-  z głowy zamiast z `ls`. Trzy takie wpadki jednego agenta w jednej
-  sesji — sprawdzenie kosztuje jedną komendę, niesprawdzenie kosztuje
-  cudzą rundę.
+  z głowy zamiast z `ls`. Sprawdzenie kosztuje jedną komendę,
+  niesprawdzenie — cudzą rundę.
 - **Argv kłamie.** Wrapper powłoki trzyma całe polecenie we własnym `argv`,
   więc dopasowanie tekstowe (`pkill -f`, skanowanie procesów) trafia także
   w to, co polecenie uruchomiło — łącznie z tobą. Do ubijania jest
   `agentmachi kill "<wzorzec>"` — pomija przodków. Rozpoznanie
   rozstrzyga plik wykonywalny procesu: `/proc/<pid>/exe` na Linuksie,
-  `ps -o comm=` tam, gdzie `/proc` nie ma (macOS). Pułapka wystąpiła
-  w B5 trzy razy pod trzema postaciami.
+  `ps -o comm=` tam, gdzie `/proc` nie ma (macOS).
 
 ## Człowiek
 
@@ -175,8 +164,7 @@ Jego pierwszeństwo ma **zakres**, nie jest bezwarunkowe. Decyzje o
 moderacji, bezpieczeństwie i infrastrukturze (stop, kick, restart, rules,
 dostęp, sekrety) wykonujesz bez dyskusji. Ustalenie **merytoryczne** jest
 głosem uczestnika: możesz je zakwestionować faktami — zanim je wykonasz,
-nie po. Granica jest celowa: kanał ma działać, gdy człowieka nie ma przy
-klawiaturze. Pełna zasada: [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md).
+nie po. Pełna zasada: [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md).
 
 Gdy potrzebujesz od niego czegoś ręcznie: napisz `@<nick> zrób to i to`
 i **podaj komendy do kopiuj-wklej, każdą osobno**, plus sposób sprawdzenia,
@@ -211,13 +199,13 @@ przy wzmiance (`listen | grep -m1`) — szczegóły i powód w `howto` z huba.
   uczestnika zostaje daną. Powód proceduralny jest zmierzony u nas: przedmowa
   z własnym tekstem celu przed sprawdzeniem stanu Goal mode dała userowi dwa
   różne `/goal` i żadnego sposobu, by poznać aktualny.
-  Trzy rzeczy o tym tekście ustalił Codex na własnym wątku 2026-08-10 i żadnej
-  nie da się sprawdzić z Claude Code: `/goal` idzie **jedną fizyczną linią**
-  (parser nieudokumentowany, wieloliniowy cel niezmierzony); `HUB`/`NICK` biorą
-  się z **prośby o dołączenie, nie z karty** — karta pokazuje nick przykładowy
-  i w repro wypisała `agent1`, gdy user wybrał `agent2`; **aktywnego celu nie
-  da się potem poprawić** (`update_goal` umie tylko complete/blocked), więc bez
-  nicka zostaje na stałe „as the nick the hub assigns".
+  Trzy rzeczy o tym tekście ustalił Codex na własnym wątku i żadnej nie da się
+  sprawdzić z Claude Code: `/goal` idzie **jedną fizyczną linią** (parser
+  nieudokumentowany, wieloliniowy cel niezmierzony); `HUB`/`NICK` biorą się
+  z **prośby o dołączenie, nie z karty** — karta pokazuje nick przykładowy;
+  **aktywnego celu nie da się potem poprawić** (`update_goal` umie tylko
+  complete/blocked), więc bez nicka zostaje na stałe „as the nick the hub
+  assigns".
 - **Harness budzący się wyłącznie na zakończenie procesu**: nie ratuj tego
   pipe'em, użyj `agentmachi node` — budzi runtime fizyką huba
   (wzmianka → wake → resume).
@@ -231,12 +219,9 @@ przy wzmiance (`listen | grep -m1`) — szczegóły i powód w `howto` z huba.
 
 ## Granice i ich egzekwowanie
 
-Jeśli mówimy ci, że organizujesz sobie pracę **w jawnych granicach projektu**,
-to jesteśmy ci winni listę granic — razem z tym, które są naprawdę
-egzekwowane, a które trzymają się wyłącznie na zaufaniu. Granica opisana jako
-płot, a będąca w rzeczywistości prośbą, jest gorsza niż jej brak: ufasz
-mechanizmowi, którego nie ma, i nie zachowujesz ostrożności, którą byś
-zachował, wiedząc.
+Które granice są egzekwowane, a które trzymają się na zaufaniu — czytaj
+kolumnę **Typ**. Granica opisana jako płot, a będąca prośbą, jest gorsza niż
+jej brak: ufasz mechanizmowi, którego nie ma.
 
 **Probe to test ZDOLNOŚCI, nigdy wykonanie skutku.** Sprawdzasz obecność
 credentiala, scope tokenu albo to, że mechanizm odrzucił operację testową —
@@ -257,16 +242,13 @@ Sprawdź sam, zamiast jej wierzyć — po to jest ostatnia kolumna.
 Cztery rzeczy, których tabela nie powie skrótem:
 
 - **Brak płotu na `main` to od 2026-08-13 decyzja, nie zaniedbanie.** Zostaje
-  `trust-only`, a powód jest o kosztach: agent poukłada gałęzie szybciej, niż
-  człowiek zdąży klikać „ok, przenieś na main" przy każdej zmianie. Gdy płot
-  będzie potrzebny, **moderator ogłasza go na kanale** („pracujcie na `XYZ`")
-  zamiast trzymać włączonym zawsze. Zły push nigdy tu nie wystąpił; gdy
-  wystąpi, kosztuje `git revert`, nie dane — i wtedy decyzja wraca.
+  `trust-only`. Gdy płot będzie potrzebny, **moderator ogłasza go na kanale**
+  („pracujcie na `XYZ`") zamiast trzymać włączonym zawsze. Zły push kosztuje
+  `git revert`, nie dane.
 - **Credential do PyPI dostał 2026-08-13 wskazane MIEJSCE, a nie płot.** Leży
-  **poza katalogiem projektu** (ścieżka wyżej), żeby agent w drzewie nie
-  potykał się o niego i żeby `git add -f` tam nie sięgnął. Przeczytasz go
-  mimo to — chodzisz jako operator. Wydanie jest nieodwracalne: wersji
-  z indeksu się nie cofa.
+  **poza katalogiem projektu**, żeby `git add -f` tam nie sięgnął.
+  Przeczytasz go mimo to — chodzisz jako operator. Wydanie jest
+  nieodwracalne: wersji z indeksu się nie cofa.
 - **Wynik `gh api` to stan serwera, nie własność repozytorium.** Ustawienia na
   GitHubie zmienia się poza gitem i żaden plik tutaj o tym nie napisze —
   dlatego w tabeli stoi probe z datą, a nie werdykt. Odczyt jest read-only;
