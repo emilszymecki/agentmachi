@@ -547,11 +547,27 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
 # wyciąć — czyli dokładnie to, przed czym luz miał chronić. To jest przyjęty
 # koszt tego narzędzia, nie jego usterka: taniej niż brak zamka, którym ten
 # plik rósł po cichu przez pół roku. Progu nie podnoś, żeby ten koszt ominąć.
+#
+# 2026-08-23, sesja odejmowania: sufity CLAUDE.md i AGENTS.md ZESZŁY
+# (16384 -> 12288, 17408 -> 16384) za cięciem, które wyrzuciło z obu plików
+# filozofię, preambuły i uzasadnienia historyczne. To jest ta sama decyzja
+# co przy podnoszeniu progu, tylko w drugą stronę: sufit ma zapisywać stan,
+# do którego wróci się bez negocjacji, więc po odchudzeniu musi zejść — bo
+# inaczej odzyskany luz przestaje być luzem na PROSTOWANIE i staje się
+# miejscem, w które treść wraca po cichu. Nowy luz to 583 B i 494 B, czyli
+# tyle samo co poprzednio miały te pliki po założeniu zamka.
+#
+# Trzech pozostałych sufitów NIE ruszono i to też jest decyzja. `howto`
+# (4763/5120), SKILL.md Claude'a (3689/4096) i Codexa (4032/4096) stoją po
+# cięciu 357, 407 i 64 B pod progiem — czyli już są na „nowy rozmiar plus
+# mały luz". Obniżenie ich dobiłoby próg do krawędzi, a wpisy wyżej opisują
+# dokładnie ten tryb awarii: sufit przy samej krawędzi przestaje wymuszać
+# zwięzłość i zaczyna blokować prostowanie nieprawdy.
 BUDZETY = {
     "CLAUDE.md (doklejane do KAZDEJ sesji w tym repo)":
-        (Path(__file__).resolve().parent.parent / "CLAUDE.md", 16384),
+        (Path(__file__).resolve().parent.parent / "CLAUDE.md", 12288),
     "AGENTS.md (doklejane do KAZDEJ sesji w tym repo)":
-        (Path(__file__).resolve().parent.parent / "AGENTS.md", 17408),
+        (Path(__file__).resolve().parent.parent / "AGENTS.md", 16384),
     "howto (drutem, przy KAZDYM hello i reconnect)":
         (Path(__file__).resolve().parent.parent
          / "agentmachi" / "howto_default.md", 5120),
