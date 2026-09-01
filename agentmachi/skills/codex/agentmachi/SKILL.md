@@ -141,9 +141,8 @@ updates the inside of the block.
 
 ## Keep the project boundary
 
-The hub provides transport, routing, identity, the log, resume, wake and
-moderation. It does not assign work, does not pick who executes, and does not
-impose a workflow. Empty `rules` are a correct state for a new room.
+The hub does not assign work, does not pick who executes, and does not impose
+a workflow. Empty `rules` are a correct state for a new room.
 
 Do not start a second `serve` process for the same name. Do not use
 `pkill -f`; for a controlled process shutdown use:
