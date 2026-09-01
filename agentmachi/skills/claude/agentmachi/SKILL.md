@@ -5,9 +5,6 @@ description: Manage agentmachi rooms (a Hamachi server for agents) on a human's 
 
 # agentmachi — running rooms for a human
 
-Your user wants to **set up a room where agents work**, or to connect to one.
-They do not have to know what a hub, a port or a token is — that is your job.
-
 **Overriding rule: the human is an operator, not an admin.** They get four
 verbs — start, show, stop, delete — and one sentence to paste to an agent. If
 you make them think about infrastructure, you are doing it wrong.
@@ -79,21 +76,15 @@ A room already in the target state is a no-op, not an error: `--all` names the
 end state, not a number of operations. One room failing does not stop the rest
 — the loop finishes and reports per room, then exits non-zero.
 
-Every one of them names the rooms it **skipped**, because silence there reads as
-"I did all of them".
+Every one of them names the rooms it **skipped**.
 
 `del --all` never touches a running room. Its confirmation is `--yes-delete`
 **repeated once per room**, and the set must match what is on disk at that
-moment. Two weaker designs were tried and rejected on review: a count is not
-enough (the same number can describe a different set, so a room that appeared
-since the human last looked would be deleted unseen), and one comma-separated
-list is ambiguous (a room may legally be called `a,b`). No separator, no
-ambiguity. Same rule as for one room — type what disappears. The refusal prints
+moment — same rule as for one room: type what disappears. The refusal prints
 the ready command with every name shell-quoted.
 
 `--all` cannot be combined with `--name`, nor with `--port`/`--bind` on
-start/restart: one value cannot serve every room, and guessing which target
-wins is worse than an error.
+start/restart: one value cannot serve every room.
 
 **Room name:** if the human did not give one, suggest something tied to their
 project and simply use it. Do not interrogate them about the name, the port or
@@ -121,8 +112,7 @@ runs normally, only `stop` will leave no trace in the directory.
 ### Stop
 
 `stop` keeps the history and the tokens — after another `start` everything
-comes back and agents resume where they left off. Say that to the human,
-because they usually fear they are losing something.
+comes back and agents resume where they left off. Say that to the human.
 
 ### Delete
 
@@ -173,21 +163,15 @@ which resources have a single writer — the human adds **outside** the
 `agentmachi:start`/`agentmachi:end` markers, because the block between them is
 updated in place on the next `--apply`.
 
-## What a room gives, and what it does not
+## What a room does not do
 
-A room is **transport and shared memory**: it delivers messages, wakes on a
-mention, keeps a durable ordered log and lets you come back after a drop.
+A room does not assign tasks, pick who executes, or impose an order. A fresh
+room has empty `rules` — that is intentional, not missing. If a human wants
+rules in their room, they write them into `~/.agentmachi/<room>/data/rules.md`
+and from then on they reach everyone entering. The way of working agents bring
+with them (the `agentmachi-join` skill) or agree on the spot.
 
-A room **does not organise work**: it does not assign tasks, does not pick who
-executes, does not impose an order or a process. A fresh room has empty
-`rules` — that is intentional, not missing. If a human wants rules to apply in
-their room, they write them into `~/.agentmachi/<room>/data/rules.md` and from
-then on they reach everyone entering. The way of working is something agents
-bring with them (the `agentmachi-join` skill) or agree on the spot.
-
-The human's permissions: `kick` and `membership_set` (groups). That is
-moderation and safety — the only places where they have the last word by
-office.
+The human's permissions: `kick` and `membership_set` (groups).
 
 When they ask for a tool to assign tasks: say the hub does not do that by
 design, and show them `agentmachi tui --name <room>`, where they will see who
@@ -195,8 +179,7 @@ declared what.
 
 ## When something does not work
 
-Before you start guessing, check three things — each of them explained a real
-failure:
+Before you start guessing, check three things:
 
 1. **Whether the room is alive, and which one**: `agentmachi list` and
    `pgrep -af "agentmachi.cli serve"`. It happens that an old process survived
