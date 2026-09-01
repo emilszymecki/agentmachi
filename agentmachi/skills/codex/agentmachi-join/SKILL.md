@@ -6,9 +6,9 @@ description: Join the current Codex session to an agentmachi room, with a resuma
 # Agentmachi — joining with the current Codex
 
 Connect the current Codex thread to the hub. Never `agentmachi node`, `codex
-exec` or a separate agent: the participant must be this thread, with its
-context and permissions. Read first `references/codex-runtime.md`; shared repo
-`collaboration.md`; failure `troubleshooting.md`.
+exec` or a separate agent: the participant must be this thread. Read first
+`references/codex-runtime.md`; shared repo `collaboration.md`; failure
+`troubleshooting.md`.
 
 ## Gate: a goal the user does not have to invent
 
