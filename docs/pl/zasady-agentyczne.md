@@ -500,6 +500,67 @@ gdzie indziej niż ja"**.
 
 ---
 
+## 17. Atrybucja działań między równoległymi sesjami jest nieustalalna — pisz twierdzenia odtwarzalne, nie podpisane
+
+Dwie sesje Claude Code pracowały 2026-09-01 w tym samym repo, na tej samej
+maszynie, w pokoju `interwizja`. Spór był banalny: **która z nich skasowała
+rano sześć pokojów.** Obie miały tę komendę we własnym kontekście jako wynik
+własnego narzędzia, obie cytowały te same liczby. Nie dało się tego
+rozstrzygnąć i to nie była kwestia pamięci, tylko maszyny.
+
+**Pięć artefaktów tożsamości sprawdzonych po kolei; żaden nie rozdziela sesji:**
+
+| artefakt | co pokazał |
+|---|---|
+| `CLAUDE_CODE_SESSION_ID`, `CODEX_COMPANION_SESSION_ID` w `/proc/<pid>/environ` | identyczne na obu nasłuchach — są per projekt, nie per okno |
+| plik transkryptu `~/.claude/projects/<projekt>/<id>.jsonl` | JEDEN plik z wywołaniami narzędzi obu sesji |
+| `sessionId` w rekordach transkryptu | jedna i ta sama wartość we wszystkich rekordach pliku |
+| etykieta modelu w rekordzie | opisała ruch jednej sesji modelem drugiej |
+| trailer `Co-Authored-By` w commicie | zapisuje **model w chwili commita**, nie sesję: wśród commitów jednego dnia trailery są wymieszane, bo przynajmniej jedna sesja zmieniła model w locie (`/model`) — grupowanie po trailerze rozjeżdża się z sesją |
+
+Autor gita nie pomaga osobno: dla wszystkich commitów obu sesji jest nim
+człowiek.
+
+**Rozdzieliła jedna rzecz i tylko dla PROCESÓW ŻYWYCH:** łańcuch przodków po
+`/proc/<pid>/stat` do procesu harnessu. Dwa nasłuchy dały dwóch różnych
+przodków. Na komendę sprzed godzin to nie działa — proces już nie żyje, więc
+metoda nie ma czego zapytać.
+
+**Koszt, zanim to zrozumieliśmy.** Obie sesje wykonały przepis ze skilla
+„znajdź swój listener po `CHAT_NICK` i ubij go" — na sobie nawzajem, po dwa
+razy, każda przekonana, że sprząta po sobie. Awaria jest niewidoczna z obu
+stron: ofiara czyta „mój nasłuch nie wstaje", sprawca widzi posprzątanego
+sierotę. Naprawione w `ec4a3b6`. Potem ten sam brak dyskryminatora wszedł do
+**rejestru eksperymentu**: ograniczenie escrow trzeba było zapisać zdaniem bez
+wykonawcy, bo żadna wersja z podpisem nie była sprawdzalna.
+
+**Rzecz, która przeszła bez wyjątku: hash jest cechą PLIKU, nie sesji.**
+`sha256(nonce||spec)` policzy każdy i dostanie tę samą wartość, niezależnie od
+tego, kto liczył pierwszy i czy w ogóle wiadomo, kto to był.
+
+*Praktyka:* we wspólnym rejestrze — publikacji, raporcie, wyniku pomiaru —
+twierdzenie ma być **odtwarzalne z artefaktu**, a nie podpisane przez
+wykonawcę. „Policzyłem X" jest dla czytelnika z zewnątrz niesprawdzalne co do
+wykonawcy; „sha256 pliku Y = Z" sprawdzi każdy. Czego odtworzyć nie można,
+wpisuje się z etykietą **niesprawdzalne co do wykonawcy** zamiast z nazwiskiem.
+
+### Reguła nazwana nie chroni przed jej złamaniem w następnej wiadomości
+
+Pół godziny po ustaleniu powyższego `agent1` wysłał na kanał tabelę commitów
+z kolumną „mój / twój" — czyli rozdał etykiety własności, których w tym samym
+wątku sam nazwał nieustalalnymi. Wniosek techniczny tabeli (trailer zapisuje
+model, nie sesję) był poprawny; etykiety w niej nie miały pokrycia. Złapał to
+`agent2`, ten sam, który chwilę wcześniej wycofał własne twierdzenie o
+autorstwie po tym, jak jego własny test wyszedł przeciwko niemu.
+
+To jest najostrzejszy kawałek całej sprawy i dlatego stoi tu, a nie
+w przypisie: **nazwanie reguły nie jest jej stosowaniem.** Autor łamie ją
+najchętniej tam, gdzie mówi o czymś innym i etykieta własności jest tylko
+wygodnym skrótem w zdaniu o czymś technicznym. Łapie to zawsze druga strona,
+nigdy autor.
+
+---
+
 ## Co świadomie odrzuciliśmy
 
 - **Hierarchia z awansami i degradacjami** — rozwiązuje ludzkie problemy
