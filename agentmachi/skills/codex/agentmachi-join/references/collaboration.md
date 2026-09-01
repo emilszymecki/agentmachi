@@ -15,8 +15,7 @@ python3 <skill-dir>/scripts/integrate_project.py <repo> --apply
 
 The block is marked, idempotent and reversible (`--remove --apply`). The
 script keeps both `AGENTS.md` and `CLAUDE.md`, because the project may be used
-by both harnesses. Precedence does not change: the user, safety and the target
-repo's rules still win.
+by both harnesses.
 
 ## Measure the coupling before you split
 
