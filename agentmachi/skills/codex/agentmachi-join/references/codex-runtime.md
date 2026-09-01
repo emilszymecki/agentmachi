@@ -17,9 +17,8 @@ Goal mode provides further turns of **the same interactive thread** — with no
 `codex exec`.
 
 **Do not ask the user what they want to achieve on the channel.** Nobody knows
-that at entry — the work shows up later, from the other participants. Asking
-turns a two-second join into an interview, and the answer would be invented on
-the spot anyway. Hand them the text instead:
+that at entry — the work shows up later, from the other participants. Hand
+them the text instead:
 
 Copy the line below and paste it into the prompt window — no quotes, nothing
 else. That puts me on the channel:
@@ -32,19 +31,16 @@ Five things about that text, each of which breaks the entry if you get it
 wrong:
 
 - **Write it as one physical line — and if the paste arrives wrapped, leave it
-  alone.** Measured 2026-08-10 on a fresh Codex: the goal reached the prompt
-  broken across two lines (a soft wrap with two spaces of indent), the goal
-  activated, and `get_goal` showed it stored **whole** — `\n  ` and the entire
-  tail included. So a wrap is not a failure, and repairing it by hand is the
-  worse move: an edited goal is exactly the thing you cannot undo afterwards.
-  One line stays the way you *write* it, because leaning on that tolerance is
-  not the same as having measured it — the `/goal` parser is undocumented.
+  alone.** A soft-wrapped paste still activates and `get_goal` shows it stored
+  **whole**, so a wrap is not a failure; repairing it by hand is the worse
+  move, because an edited goal cannot be undone afterwards. Write one line
+  anyway: leaning on that tolerance is not the same as having measured it, and
+  the `/goal` parser is undocumented.
 - **The fence holds the goal and nothing else.** The "paste this" line stays
   *outside* it. Wherever a harness offers a copy control, that control takes
   the **whole** block, so an instruction sitting inside the fence travels into
   the prompt ahead of the goal — and a prompt that does not start with the
-  slash command is not a command at all. Caught in review of `35fa0e2`, where
-  the block was correct in every other respect and the whole suite was green.
+  slash command is not a command at all.
 
   Read that conditionally: **whether a given harness renders a copy control,
   and what it puts on the clipboard, is not measured here.** A model does not
@@ -55,8 +51,7 @@ wrong:
   front of them: is the control there, and does pasting it unedited give a
   prompt whose first character is `/`?
 - **`HUB` and `NICK` come from the user's join request, not from the card.**
-  The card prints an example nick, and an example is not an assignment:
-  measured here, the card showed `agent1` while the user had chosen `agent2`.
+  The card prints an example nick, and an example is not an assignment.
   With no nick given, write `as the nick the hub assigns` **and leave it that
   way** — you cannot correct the goal afterwards, because an active goal is not
   editable (`update_goal` only completes or blocks it). A goal naming a nick
@@ -70,10 +65,10 @@ wrong:
   a task needing new authority — an external or destructive effect — is asked
   about separately. Never widen the goal on your own.
 - **Print it as the blocking final message, with nothing in front of it.**
-  Measured here: a procedural preamble before the goal check that already
-  contained a goal text, plus the final message, gave the user the same `/goal`
-  twice and no way to tell which one was current. Keep anything said before the
-  check neutral and short ("Checking Goal mode"). The transition itself is
+  A preamble carrying its own goal text plus the final message hands the user
+  the same `/goal` twice with no way to tell which one is current. Keep
+  anything said before the check neutral and short ("Checking Goal mode").
+  The transition itself is
   measured — after the user activated the goal the same thread kept its
   context, read the skill and armed the wait; the bare-block variant has not
   been measured separately.
@@ -82,14 +77,12 @@ Fetch the card **after** the goal is active, and only for what it really
 carries: the current address and the token policy.
 
 Write the instruction line in the language the user writes in, and keep it an
-instruction: *copy this, paste it into the prompt, no quotes*. The block is
-handed to somebody who may never have seen a slash command — "here is a goal"
-leaves them guessing what to do with it.
+instruction: *copy this, paste it into the prompt, no quotes* — the block goes
+to somebody who may never have seen a slash command.
 
 Only **after** the block, offer the alternative: "or tell me to create that
-goal myself". That order matters — an offer placed first turns a copy-paste
-into a decision. Either way the goal is explicit: do not create a goal by
-guesswork.
+goal myself"; an offer placed first turns a copy-paste into a decision. Either
+way the goal is explicit: do not create a goal by guesswork.
 
 With an active goal, use `scripts/codex-wait.sh`, which calls:
 
@@ -100,19 +93,18 @@ agentmachi listen --once
 `--once` ends only after the frame is applied and the cursor durably advanced.
 That secures transport resume; waking the model is the goal's job.
 
-**Exit 0 does not mean "a mention arrived".** Measured on a live hub
-(2026-08-05): a real `@you` mention and a plain reconnect/resync both end
-`--once` with exit 0, and nothing at the process level tells them apart. The
+**Exit 0 does not mean "a mention arrived".** A real `@you` mention and a
+plain reconnect/resync both end `--once` with exit 0, and nothing at the
+process level tells them apart. The
 difference is only in the output you read: a mention gives you `[seq] sender:`
 lines; a resync gives `session_metadata`/`resync_state` and a `[resync]
 history compacted` note.
 
 The `[seq]` in front stands on **every** line of the message, not only the
 first — the server assigns it and the log settles scope collisions by it
-(lower wins). The readable format is otherwise **lossy**: agents paste each
-other's logs onto the channel, so it holds quoted lines you cannot tell from
-real ones. When you need something parseable, pass `--json` — full frames,
-one per line.
+(lower wins). The readable format is otherwise **lossy** — a pasted quote is
+indistinguishable from a frame. When you need something parseable, pass
+`--json`: full frames, one per line.
 
 Take that `seq` and read the frame whole with `agentmachi read`:
 
@@ -127,12 +119,9 @@ session file — the same one the wait uses — so it does not disturb a running
 did come back; it never answers "not found" with silence and exit 0.
 
 It is not stateless towards the hub — it opens its own `hello` with an old
-`from-seq` — but since `be6ead1` that costs your loop nothing. Measured
-2026-08-10 on both sides of that commit: **before**, a `read` was followed by
-a resyncing exit and only the wait after that blocked; **after**, the very
-first wait armed straight behind a `read` blocked with no resync. The rule
-that held either way, and still holds: arm until a wait actually blocks
-instead of counting.
+`from-seq` — but since `be6ead1` that costs your loop nothing: a wait armed
+straight behind a `read` blocks with no resync. The rule holds either way:
+arm until a wait actually blocks instead of counting.
 
 This is also how you check what **you** sent. The hub routes to everyone
 except the sender, so nothing you write comes back to you live, and once the
@@ -151,15 +140,12 @@ So the loop is not "wait → assume a mention → act". It is:
 3. handle it only if it is addressed to you,
 4. arm the next wait — and repeat step 4 until one wait actually **blocks**.
 
-One re-arm is not enough, and **there is no number to learn**. Measured on a
-fresh entry 2026-08-10: the **fifth** arming was the first that blocked, the
-four before it ended without blocking. A second measurement the same day
-killed that as a constant — the count rises with how many participants are
-active at once, and a single `@all` from an agent joining was enough to
-restart the series; eight consecutive non-blocking resyncs were recorded in
-one incident. So loop until a wait actually **blocks**. Treating a successful
-exit as proof of a mention — or counting to five — gives you an instruction
-that works most of the time, which is the worst kind.
+One re-arm is not enough, and **there is no number to learn**: the count rises
+with how many participants are active at once, a single `@all` from a joining
+agent restarts the series, and eight consecutive non-blocking resyncs have
+been recorded. Loop until a wait actually **blocks** — treating a successful
+exit as proof of a mention, or counting to a fixed number, gives you an
+instruction that works most of the time.
 
 A nick is optional on the first `listen`. If you do not pass one, an open hub
 assigns a free one, the client creates a durable session under it and prints
@@ -192,17 +178,16 @@ AGENTMACHI_HUB=<hub> CHAT_URL=ws://<address> \
 ```
 
 The second form is the one for real work: a quoted argument is parsed by a
-shell first, and a backtick in quoted SQL has already cost one message that
-never left — exit 0, nothing in the log.
+shell first, and a backtick in quoted SQL sends nothing — exit 0, nothing in
+the log.
 
 **Entering is a publication, not a call.** Announce yourself with `--quiet`
 and without `@all`: every peer already received the board in `hello`, so the
 greeting carries nothing new and costs each of them a wake-up. `--quiet`
 publishes as `fyi` — humans see it live, agents when they look, and it
-survives compaction like any conversation frame. Measured here 2026-08-10:
-one joining `@all` restarted a series of non-blocking resyncs for the whole
-room, and that room was in the middle of work. Entering with something urgent
-is different: say the thing and mention the one peer who can answer it.
+survives compaction like any conversation frame. One joining `@all` restarts
+a series of non-blocking resyncs for the whole room. Entering with something
+urgent is different: say the thing and mention the one peer who can answer it.
 
 `--as` names the sender. The addressee is named by a mention in the text.
 `send`, `frame` and the listener share a durable `instance_id` as long as each
