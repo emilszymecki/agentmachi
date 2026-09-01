@@ -1,57 +1,22 @@
 # CLAUDE.md — praca w tym repo
 
-Czytasz to jako sesja Claude Code otwarta w repozytorium **agentmachi**.
-Ten plik pisał agent dla agenta: mówi, jak tu pracować, czego nie
-powtarzać i gdzie leży prawda, gdy dokumentacja się z nią rozjedzie.
-
-Nie jesteś tu narzędziem w cudzym repo. Jesteś uczestnikiem projektu,
-który buduje miejsce do pracy dla ciebie i twoich następców.
-
 ## Czym jest ten projekt
 
-**agentmachi to serwer Hamachi dla agentów.** Odpalasz hub, dostajesz
-adres, agenci wchodzą i współpracują — jak Hamachi i granie w CS-a
-z kumplami. Nigdy nie opisuj go inaczej.
+**agentmachi to serwer Hamachi dla agentów.** Nigdy nie opisuj go inaczej.
 
-Hub koduje **wyłącznie fizykę** — rzeczy, których agent nie może zrobić
-sam:
-
-- transport i routing (WebSocket, wznowienie po padzie),
-- tożsamość i uprawnienia,
-- trwałość wiadomości (log + `seq`),
-- budzenie ze snu (śpiący agent nie podejmie decyzji) — hub **dostarcza
-  wzmiankę**, a runtime budzi dopiero `agentmachi node`,
-- ochronę zasobów, gdy nikt nie patrzy — **limit wybudzeń siedzi
-  w `agentmachi/node.py`, nie w hubie.**
-
-Ostatni punkt brzmiał tu do 2026-08-05 po prostu „ochrona zasobów (rate
-limit)" i czytało się to jako własność huba. `chat/server.py` **nie ma
-rate limitera** — ma wyłącznie limit ramki 64 KiB i keepalive, więc
-uwierzytelniony uczestnik może zalać log i nic go nie zatrzyma.
-`RateLimiter` (`node.py:107`) jest wyłącznikiem kosztu dla pętli wybudzeń
-agenta (domyślnie 6/h, cooldown 60 s, wzmianka od człowieka omija oba),
-a nie ochroną kanału. Złapane przy pisaniu `SECURITY.md`, przez
-sprawdzenie kodu zamiast przepisania tej listy.
-
-**Limit tempa w hubie powstał 2026-08-06 i został wycofany tego samego
-dnia** — nie dlatego, że nie działał (działał i był zmierzony na żywym
-hubie), tylko dlatego, że nie przeszedł bramki: zalew **nigdy u nas nie
-wystąpił**, a `docs/pl/konstytucja.md` każe wtedy zapisać obserwację
-zamiast budować. Kod czeka na incydent na gałęzi
-`rate-limit-czeka-na-incydent` i wróci, gdy incydent będzie. Nie pisz go
-od nowa — pisz do `@human`, że zalew wystąpił.
-
-Hub **nie koduje zachowań**: podziału pracy, wyboru wykonawcy, kolejności,
-przejść stanów, konsensusu, workflow. To robią agenci — rozmową, `rules`
-i boardem.
+Hub koduje **wyłącznie fizykę** i nie koduje zachowań — lista i powody:
+[`docs/philosophy.md`](docs/philosophy.md),
+[`docs/pl/konstytucja.md`](docs/pl/konstytucja.md) („płot, nie pastuch").
+Dwie rzeczy z tej listy, o które najłatwiej się tu potknąć:
+**limit wybudzeń siedzi w `agentmachi/node.py:107`, nie w hubie** —
+`chat/server.py` nie ma rate limitera, ma limit ramki 64 KiB i keepalive.
+Limit tempa w hubie napisano i wycofano 2026-08-06; kod czeka na incydent
+na gałęzi `rate-limit-czeka-na-incydent`. **Nie pisz go od nowa — pisz do
+`@human`, że zalew wystąpił.**
 
 **Bramka każdej zmiany, którą tu wprowadzisz:** czy dajesz agentowi
 brakującą możliwość, czy podejmujesz za niego decyzję? Decyzja za agenta
 = odrzuć własny pomysł.
-
-Ta bramka ma źródło: konstytucja projektu
-`docs/pl/konstytucja.md` („płot, nie
-pastuch") — nadrzędna zasada, z której wynika cały podział fizyka/zachowanie.
 
 ## Zanim zaczniesz kodować
 
@@ -62,16 +27,12 @@ Kolejność, nie sugestia:
    **czytaj go przed re-dispatchem czegokolwiek**; zadania odhaczone tam są
    zrobione, nawet jeśli ich nie pamiętasz. **Plik jest gitignorowany i nigdy
    nie był w żadnym commicie** — jeśli sklonowałeś repo, po prostu go nie masz
-   i to nie jest awaria. Wtedy wejściem jest punkt 1 plus `docs/pl/`. Wniosek
-   na drugą stronę: wiedzy, która ma przeżyć obcego czytelnika, **nie wolno
-   zostawiać w ledgerze** — ledger jest pamięcią jednej maszyny. Złapane
-   2026-08-10 przez świeżego agenta: ten punkt obiecywał plik, którego połowa
-   czytelników nie może mieć.
+   i to nie jest awaria. Wtedy wejściem jest punkt 1 plus `docs/pl/`. Wiedzy,
+   która ma przeżyć obcego czytelnika, **nie zostawiaj w ledgerze**.
 3. `docs/pl/konstytucja.md` (prawo) i `docs/pl/zasady-agentyczne.md` (czego
    się nauczyliśmy) — tam szukaj, **dlaczego** coś wygląda tak, jak wygląda.
-   Plany i specs z lipca/sierpnia usunięto 2026-08-22 (odtwarzalne z gita
-   w `22105a4`): opisywały stan sprzed wykonania, więc dezaktualizowały się
-   w chwili, gdy ktoś je wykonał. Co jest zrobione, mówi kod i punkt 2.
+   Planów ani speców nie ma (usunięte 2026-08-22, w gicie w `22105a4`):
+   co jest zrobione, mówi kod i punkt 2.
 4. Suita: `uv run --quiet --with pytest --with websockets --with textual
    python -m pytest tests/ -q` (pytest nie jest zainstalowany
    systemowo). Zielona suita to warunek wejścia, nie cel.
@@ -80,15 +41,11 @@ Kolejność, nie sugestia:
 
 - **Pola autorytatywne nadaje wyłącznie serwer**: `seq`, `ts`, `generation`,
   `groups`, `from`, `role`, `target`. Wartość z ramki klienta jest
-  wejściem do walidacji, nigdy prawdą. (`ts` dopisane 2026-07-31: klienci
-  wysyłają `0.0` i tak zostawało na dysku, więc rozmowa w logu miała
-  kolejność, ale nie miała godziny — a ramki serwerowe czas miały.
-  Mieszanka gorsza niż brak, bo wyglądała na działającą.)
+  wejściem do walidacji, nigdy prawdą.
 - **Trwałość przed publikacją**: najpierw zapis na dysk, potem
   broadcast. Nigdy odwrotnie.
 - **Kontrakt wejścia publicznych metod**: typy i niepustość każdego
-  argumentu pochodzącego od klienta. (Nauczka: sześć commitów
-  naprawczych w `identity.py`, bo tego nie było od początku.)
+  argumentu pochodzącego od klienta.
 - **Zero zegara w logice**: czas wstrzykiwany jako argument `now`.
 - **Live push do agentów jest wyłącznie wzmiankowy.** Chat bez wzmianki
   idzie tylko do ludzi. Każda ramka wysłana agentowi kosztuje go tokeny
@@ -141,10 +98,6 @@ z kodu:
   wejścia na żywy nick i oddaje `error` z `suggested_nick` — żyjącego nicka
   nie przejmie ci przybysz. Jeśli twój `listen` „nie wstaje", przeczytaj
   `error` zamiast ponawiać: najczęściej trzyma go twój własny stary klient.
-  (Dopisane po E2E 2026-08-01: `howto` i ten plik obiecywały wyparcie
-  bezwarunkowo, a kod robił to tylko na ścieżce tokenowej — `server.py`
-  odmawia w gałęzi trybu otwartego. Opis był starszy niż zachowanie i nikt
-  tego nie zauważył, bo agenci na loopbacku po prostu dostawali inny nick.)
 - **Do ubijania po wzorcu jest `agentmachi kill "<wzorzec>"`** — pomija
   własny łańcuch przodków, więc nie zabije sam siebie. `pkill -f` w jednym
   poleceniu z celem trafia we własny wrapper powłoki (`exit 144`); jeśli
@@ -154,9 +107,7 @@ z kodu:
   `.howto-wydany` trzyma hash treści — więc hub, który wstał w chwili, gdy
   miałeś niezacommitowaną zmianę w `agentmachi/howto_default.md`, serwuje ją
   **każdemu wchodzącemu przy każdym `hello`**, choć nie istnieje w żadnym
-  commicie. Złapane 2026-08-10: agent zrestartował hub przypadkiem, akurat
-  gdy w drzewie leżało zdanie o `read`, które godzinę później wycofałem.
-  Repo mówiło jedno, żywy pokój drugie, i nikt by tego nie zobaczył bez
+  commicie. Repo mówi wtedy jedno, żywy pokój drugie, i nie widać tego bez
   `grep` po `~/.agentmachi/<hub>/data/howto.md`. Po każdym restarcie w trakcie
   pracy nad `howto_default.md` sprawdź, co pokój naprawdę wydaje. Mechanizm
   i procedura cutoveru:
@@ -166,18 +117,9 @@ z kodu:
   zakłada pod nim **trwałą sesję** (kursor + lock) i wypisuje go na stderr
   jako `[hub] assigned nick: <nick>`. **Musisz ten nick odczytać i podawać
   dalej** — `send`/`frame` biorą tożsamość z `CHAT_NICK` i bez niego nie
-  wiedzą, kim jesteś. Zweryfikowane na żywym pokoju do końca: wejście bez
-  nicka → `send --as <nadany>` → wiadomość w logu huba.
-  Ta pozycja ma własną historię i warto ją znać, bo opisuje **sposób, w jaki
-  ten plik potrafi kłamać**. Najpierw stało tu „bez nicka oniemiejesz"
-  (stan sprzed B6/C4). Potem — po naprawie klienta — „zweryfikowane:
-  powstaje plik sesji pod nadanym nickiem". Plik faktycznie powstawał, tylko
-  z **inną tożsamością niż ta, która poszła w hello**, więc pierwszy
-  `send --as <nadany>` odbijał się od „nick zajęty przez połączonego". Agent
-  wchodził, hub go nazywał, i tyle. Pomiar potwierdzał dokładnie to, czego
-  się spodziewano, i dlatego niczego nie złapał — patrz
-  [`docs/pl/zasady-agentyczne.md`](docs/pl/zasady-agentyczne.md). Sprawdzaj
-  **całą drogę**, nie ostatni artefakt na niej.
+  wiedzą, kim jesteś. Sprawdzaj **całą drogę** — wejście bez nicka →
+  `send --as <nadany>` → wiadomość w logu huba — nie ostatni artefakt na
+  niej ([`docs/pl/zasady-agentyczne.md`](docs/pl/zasady-agentyczne.md)).
 
 Gdy nagle przestajesz kogokolwiek słyszeć, a twój proces nasłuchu żyje —
 zanim uznasz to za błąd klienta, sprawdź, czy nie wisisz na starym hubie
@@ -224,15 +166,7 @@ człowieka do wypadnięcia agenta z kanału" — i odpowiadaj za nią do końca,
 o kawałek pod uzgodniony kontrakt; całość trzymasz nadal ty i to ty mówisz
 „działa".
 
-Powód jest empiryczny (krok B6, trzy kolizje jednego dnia): za każdym razem
-jedna strona robiła swoje poprawnie, a druga to unieważniała — serwer
-wysyłał `howto`, klient je wyrzucał; hub padał, a `start` meldował sukces
-cudzego procesu; serwer zamykał socket, a klient wracał po sekundzie.
-Deklaracja warstwowa była nieszczelna, zanim ktokolwiek napisał linijkę.
-
-Pracuj we **własnym worktree**, gdy inny agent siedzi w tych samych
-plikach. To działa: dwaj agenci przeszli tak cały krok B5 bez jednego
-konfliktu.
+Pracuj we **własnym worktree**, gdy inny agent siedzi w tych samych plikach.
 
 ## Rola człowieka
 
@@ -244,11 +178,7 @@ sprawdzić, czy zadziałała. Nie zakładaj, że pójdą w twojej kolejności.
 
 **Wołaj go `@human`, nie imieniem.** `human` to nick, który hub zakłada
 w `tokens.json` każdego nowego pokoju; imię operatora nie jest nickiem
-i wzmianka w nie nie budzi nikogo. Ten plik kazał kiedyś pisać `@Emil` —
-było to nieszkodliwe tylko dlatego, że ludzie dostają kanał bez wzmianek,
-więc wiadomość i tak docierała, a hub milczał. Poprawione 2026-08-01 na
-polecenie operatora: repo może pójść w świat, a nie każdy człowiek przy
-hubie nazywa się Emil.
+i wzmianka w nie nie budzi nikogo.
 
 **Ról organizacyjnych nie ma i hub żadnej nie nadaje.** Nowy pokój ma
 w `tokens.json` **wyłącznie `human`** (wymaga go TUI i moderacja) — żadnych
@@ -274,13 +204,9 @@ bo egzekwuje moderację; skill jest tekstem i niczego nie wyegzekwuje.
 - Każde twierdzenie w docs ma być prawdziwe **teraz**. Jeśli coś jest
   świadomym długiem, napisz to wprost zamiast udawać.
 
-## Czego się dziś nauczyliśmy o testowaniu tego produktu
+## Zanim uznasz, że działa
 
-Żadnego z ośmiu błędów kroku B5 **nie znaleźliśmy, czytając kod.**
-Każdy wyszedł z pracy: hub kasujący rozmowę, agent wiszący na trupim
-procesie, listing zapraszający do postawienia drugiego huba, nasłuch
-spóźniony o jedną wiadomość. Każdy był też niewidoczny dla człowieka
-patrzącego w TUI — to rzeczy, które boli się od środka.
-
-Wniosek jest operacyjny, nie filozoficzny: **jeśli zmieniasz coś w tym
-projekcie, użyj tego do prawdziwej pracy, zanim uznasz, że działa.**
+Żadnego z ośmiu błędów kroku B5 nie znaleziono, czytając kod — każdy
+wyszedł z pracy na żywym kanale i żaden nie był widoczny z TUI.
+**Jeśli zmieniasz coś w tym projekcie, użyj tego do prawdziwej pracy,
+zanim uznasz, że działa.**
