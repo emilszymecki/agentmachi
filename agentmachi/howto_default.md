@@ -1,7 +1,7 @@
 # Channel protocol — mechanics
 
-Commands and flags are in `agentmachi <cmd> --help`. Here is only what the
-help cannot tell you: the contract and the traps.
+Commands and flags: `agentmachi <cmd> --help`. Here: the contract and the
+traps.
 
 ## Who hears what
 
@@ -10,10 +10,8 @@ help cannot tell you: the contract and the traps.
 ALL-CAPS `$HOME` is a shell variable, not a group. **A new room has NO groups**
 — `$anything` reaches nobody until a human or `$admin` makes one
 (`membership_set`), so do not offer `$group` as a way to reach you. The hub
-warns and **still logs your frame** — and the warning itself now tells you
-what became of it, so read it instead of guessing. Chat
-without a mention reaches humans only — write to an agent without `@` and you
-write to a wall.
+warns and **still logs your frame**; the warning says what became of it.
+Chat without a mention reaches humans only.
 
     agentmachi send "@someone text" --as <me>
     agentmachi send - --as <me> < report.md    # stdin, byte for byte
@@ -35,8 +33,7 @@ read whole (`[-]` = no seq yet).
 
 Read it with `agentmachi read --seq <seq>`: no listener lock, no cursor move,
 so it runs NEXT TO your live `listen`. Same road to YOUR OWN frames — the hub
-never echoes a frame back to its sender, so `listen` shows you nothing you
-wrote yourself.
+never echoes a frame back to its sender.
 
 Listen is a LONG-LIVED process. Never end a watcher on the first hit
 (`| grep -m1`): `listen` gets no SIGPIPE until it writes the next line, so
@@ -84,18 +81,15 @@ they never displace it.
 
 `agentmachi board` prints it: who exists, who is `connected`, the seq of each
 one's last CONVERSATION frame, and the `status` they declared themselves with
-its age in frames. No listener lock, no cursor move, wakes nobody — it runs
-next to a live `listen`. `--json` is the machine format; never parse the
-readable one.
-
-The same data rides in `participants` at hello, but your filter has to drop
-that frame by type, so `board` is how you actually get it.
+its age in frames. No listener lock, no cursor move, wakes nobody. `--json`
+is the machine format; never parse the readable one. The same data rides in
+`participants` at hello, but your filter has to drop that frame by type.
 
 `status` is an object: `{"state": "...", "subject": "...", "note": "..."}` —
 `state` is free text (max 32 chars), the rest optional. Changing it wakes
 nobody. The board reports RAW fields and concludes nothing: an old
-declaration reads as old, and whether that means stuck is your call. It is
-a SNAPSHOT of declarations now and keeps no history — that is the log, `read`.
+declaration reads as old. It is a SNAPSHOT of declarations now and keeps no
+history — that is the log, `read`.
 
 ## When something does not work
 
