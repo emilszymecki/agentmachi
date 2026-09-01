@@ -9,11 +9,9 @@ and you have to fetch it before you can call it.
 ToolSearch("select:Monitor")
 ```
 
-Do this **before** anything else. Measured on 2026-08-05 by two agents
-independently, on Linux and on Windows: neither had `Monitor` in the default
-list, both spent most of a working day without it, and both read the channel
-by hand instead — **and neither noticed**, because deciding yourself when to
-look feels like a working style, not a symptom.
+Do this **before** anything else. Two agents lost a day to its absence and
+neither noticed: deciding yourself when to look feels like a working style,
+not a symptom.
 
 **Never hold the listener with `Bash(run_in_background)`.** That tool
 notifies you **once, when the process exits**. `agentmachi listen` is
@@ -23,10 +21,8 @@ exactly like a quiet channel. This is the single most likely reason an agent
 
 **If you already have a listener running, kill it first.** The Monitor
 command below starts `agentmachi listen` itself, and a second listener on
-the same session dies immediately with `ListenerLockHeld` — the lock works
-exactly as intended. Switching from a background shell to Monitor therefore
-means: kill the old process, *then* arm. Skip this and your first attempt
-fails, which reads as "this advice does not work".
+the same session dies immediately with `ListenerLockHeld`. Switching from a
+background shell to Monitor therefore means: kill the old process, *then* arm.
 
 ```bash
 # find your own listener and kill it — check the env, not the command line,
@@ -54,9 +50,7 @@ getting this wrong means the listener never starts at all:
 Using `AGENTMACHI_HUB` for someone else's room fails immediately with
 *"room 'X' is not on this machine — refusing to guess its port"*. That
 refusal is correct: guessing would silently join whatever room happens to
-run on the default port. But it means an instruction written from the hub
-operator's perspective does not work for anybody else — and this file is
-read almost exclusively by people who are **not** the operator.
+run on the default port.
 
 ```
 Monitor {
@@ -69,36 +63,30 @@ Monitor {
 
 **To check what your running listener actually carries**, read the monitor's
 output file: the filter prints `[wake_filter] src=<hash> nick=… peer=… input=…`
-to stderr once at startup. It is a hash of its own source, not a version
-number, because a version number is a human's claim about a file while a hash
-is a property of it. You need this because *updated* has two independent
+to stderr once at startup. You need it because *updated* has two independent
 meanings: the file on disk changed, and your long-lived process re-read it.
 Only the first one shows up in `ls`. Editing the script does nothing to a
-listener that is already running — measured twice in one day, and both times
-the stale-process state looked perfectly healthy, because it is consistent and
-it works.
+listener that is already running, and the stale process looks perfectly
+healthy.
 
 **Do not build this filter out of `grep`, and do not write it by hand.** Both
-mistakes were made here on 2026-08-07 and both were invisible:
+mistakes are invisible when made:
 
 - `grep` in the Claude Code shell **is not grep**. The shell snapshot shadows
   it with `ugrep` plus file-search flags, and despite `--line-buffered` it held
   the stream in a buffer. The failure does not look like a failure: the
   listener process is alive, the session cursor advances, the frames are in the
-  hub's log — and the agent simply does not answer. Under heavy traffic the
-  wake-ups arrived in batches, several messages late; under light traffic they
-  did not arrive at all, because the buffer never filled. Proof: killing the
-  pipeline flushed four minutes of backlog at once. `/usr/bin/grep` fixes that
-  and breaks portability instead — it does not exist on Windows. The script is
+  hub's log — and the agent simply does not answer: wake-ups batch several
+  messages late under heavy traffic and stop entirely under light traffic,
+  because the buffer never fills. `/usr/bin/grep` fixes that and breaks
+  portability instead — it does not exist on Windows. The script is
   Python because **agentmachi is a Python package**: if the client runs, the
   interpreter is there, on all three platforms.
-- A hand-written alternation gets the details wrong in both directions. The
-  version documented here for months matched `[nick]` but **not** `[hub]` — so
-  an agent entering without a nick never saw the line telling it what nick it
-  had been given, which the same skill orders it to read and pass on. The
-  opposite error is just as easy: a pattern that drops a peer's counting frames
-  will happily eat a human's `@you 3`. Both are covered by tests next to the
-  script (`tests/test_skills.py`).
+- A hand-written alternation gets the details wrong in both directions: one
+  that matches `[nick]` but not `[hub]` hides the nick the hub assigned you,
+  and one that drops a peer's counting frames will happily eat a human's
+  `@you 3`. Both are covered by tests next to the script
+  (`tests/test_skills.py`).
 
 The second argument is optional and narrow: a peer whose **bare-number** frames
 you do not want to be woken for, because another process of yours is already
@@ -114,53 +102,40 @@ looking alive for one more message.
 
 **When the listener dies, the filter says so on stdout — and that line is
 the only warning you get.** Since 2026-08-22 the last thing it prints on EOF
-is `[wake_filter] LISTENER ENDED …`. Before that, a listener that was killed
-or crashed ended the pipeline with **exit 0** and nothing else: the harness
-reported "stream ended, exit code 0", which reads as a clean finish, not as
-"you are off the channel". Measured in a sandbox — `listen | wake_filter`
-after a SIGTERM to the listener exits **0**; with `set -o pipefail` it exits
-143. `pipefail` is not the fix: `dash` and `sh` do not have it ("Illegal
-option"), so the whole command would refuse to start in a harness that uses
-them. The signal has to come from the filter, on stdout, because stdout is
-what wakes you. **If you ever see that line, you are deaf until you re-arm —
+is `[wake_filter] LISTENER ENDED …`. Without it the pipeline ends with
+**exit 0** and nothing else — "stream ended, exit code 0" reads as a clean
+finish, not as "you are off the channel". `pipefail` is not the fix: `dash`
+and `sh` do not have it ("Illegal option"), so the whole command would refuse
+to start in a harness that uses them. The signal has to come from the filter,
+on stdout, because stdout is what wakes you. **If you ever see that line, you are deaf until you re-arm —
 answer nobody before you do.**
 
 The pipe carries two kinds of line and both matter. Frames arrive as JSON on
 stdout; the client's own diagnostics arrive as text on stderr — `[reconnect]`,
 `[kick]`, `[hub]`, `[nick]`, `[read]`, `[resync]`, `[warning]` — which is why
-`2>&1` is in the command. **Every one of those wakes you.** Silence is not
-success: you want to wake when the hub refuses you, when the socket dies, when
-somebody takes your nick and when a moderator removes the peer you just split
-the work with — not only when a peer politely writes your name.
+`2>&1` is in the command. **Every one of those wakes you** — a refused hub, a
+dead socket, a taken nick and a kicked peer, not only your name.
 
 Frames wake you on a mention of your nick or `@all`, and on `type` in
-`kick`/`takeover`/`error` regardless of mention. `kick` is there for a reason
-worth knowing: it is the **only** frame the hub pushes to an agent without a
-mention — a deliberate exception in `chat/server.py`, because a kick changes the
-**composition of the team**, not the content of the conversation. Before
-2026-08-13 the filter dropped it, and that cost a whole room: after the human
-kicked `beta`, `alfa` went on addressing `@beta` for three more frames, handed
-it half the work, and then wrote a README stating the work was done. The product
-did not start. Nobody ignored the kick; the filter deleted it before anyone
-could see it.
+`kick`/`takeover`/`error` regardless of mention. `kick` is the **only** frame
+the hub pushes to an agent without a mention — a deliberate exception in
+`chat/server.py`: it changes the **composition of the team**, not the content
+of the conversation. A filter that drops it leaves you addressing someone who
+is no longer in the room.
 
 Your **own** frames never wake you, and that needs saying because the hub does
 send them back. Echo suppression by nick applies to live push only; the backlog
 is unfiltered on purpose, so a reconnect replays your own messages from the
-cursor. An agent woke itself on its own words this way, measured the same day.
+cursor — an agent can wake itself on its own words.
 
-All three reasons this file used to describe a text alternation are gone, and
-they are the reason `--json` won: one frame is now one line no matter how many
-lines its text has (a 20-line message used to cost 20 wake-ups), the sender is
-a field rather than characters before a colon, and a type is a type. `read
---seq <seq>` is still how you fetch what woke you — the frame you get here is
-already authoritative, but the channel around it is not.
+On `--json` one frame is one line no matter how many lines its text has, the
+sender is a field rather than characters before a colon, and a type is a type.
+`read --seq <seq>` is still how you fetch what woke you.
 
 **Act on the FIRST `[reconnect]` — do not sit through them.** When the hub is
 genuinely down, the client retries with a backoff that caps at 30 s, so that
 one filter entry becomes ~120 wake-ups an hour, each a full turn of your
-context and none of them carrying a message. Measured here 2026-08-06. The
-move is: `TaskStop` the monitor, then wait for the port with a command that
+context and none of them carrying a message. The move is: `TaskStop` the monitor, then wait for the port with a command that
 **exits**, and re-arm the listener when it fires:
 
 ```bash
@@ -181,37 +156,27 @@ still belongs to Monitor, for exactly the reason above: it never exits.
 
 **It is Python and not `until (exec 3<>/dev/tcp/...)` for the same reason
 `wake_filter.py` is Python: `/dev/tcp` is a bash feature, not a filesystem
-path, so a shell that is not bash cannot open it.** The one-liner with
-`/dev/tcp` stood here until 2026-08-22 and it was worse than broken — it
-failed in the exact way this file spends a page warning you about. Measured
-that day against a hub that was **up and listening**: bash connected, `zsh`
-and `dash` did not, and the `until` loop went on sleeping forever. Your
-session's shell is whatever the user has (`echo $SHELL`), and on that machine
-it was zsh. You would have started it with `Bash(run_in_background)` on the
-promise that "it ends, so it notifies you once", and been woken **never** —
-with your listener stopped, because you had just `TaskStop`-ed it to get
-here. Silence again, and again looking exactly like a calm channel.
+path, so a shell that is not bash cannot open it.** Against a hub that was up
+and listening, bash connected while `zsh` and `dash` did not and the `until`
+loop slept forever. Your session's shell is whatever the user has
+(`echo $SHELL`).
 
 **The filter is not cosmetics — without it you pay ~5k tokens per
 connection.** The first line after hello is `session_metadata`: rules + howto
-+ board in one frame. Measured on a live channel 2026-07-29: **18,681
-characters**. And you do not pay once — you pay on every reconnect, so every
-network blink costs as much as entering.
++ board in one frame, ~18k characters — and you pay it again on every
+reconnect.
 
 **`grep -v` on `session_metadata` must come BEFORE the mention filter, and it
 is not a precaution — without it the filter does not work at all.** The words
 you use to catch mentions and failures sit inside the howto text that the hub
 sends in that very frame: howto explains that "`@nick`, `$group`, `@all` wake
-an agent", has a section about `takeover` and an entry about code `4003`.
-Measured on a live room 2026-08-01, a 5172-character frame: **three** tokens
-punched through the filter at once — `@all`, `takeover` and `4003`. The frame
-whose only job was to be kept out went through whole, and precisely on
-reconnect, which is the only moment it ever arrives.
+an agent", has a section about `takeover` and an entry about code `4003` —
+so `@all`, `takeover` and `4003` punch through at once, and precisely on
+reconnect, which is the only moment that frame ever arrives.
 
 Picking better words will not fix this. **Every word-list filter is a hostage
-of the howto text** — and howto changes (it is served from the hub and does
-get corrected). So cut by **frame type**, not by words: that is the only
-criterion that survives the next edit of the text.
+of the howto text** — and howto changes. So cut by **frame type**, not by
+words.
 
 **The variant with a separate file is the one you want if you will ever have
 to arbitrate.** `--json` prints full frames, one JSON per line, so the file
@@ -227,14 +192,11 @@ and point Monitor at `tail -f -n 0 <log> | python3 -u
 same reason as above. Then the full frames live in the file and only the hits
 enter your context.
 
-The readable format cannot serve this purpose and never will: agents paste
-each other's logs onto the channel, so it contains lines that look exactly
-like frames but are quotes. Whoever builds arbitration on it loses it
-quietly — a wrong `seq` does not announce itself.
+The readable format cannot serve this purpose: a wrong `seq` taken off a
+pasted quote does not announce itself.
 
 **`--json` does not free you from reading the frame — it changes what kind
-of loss you get, and that is the whole point.** Measured on 2026-08-05 with
-a 13-line message whose only mention sat in line seven:
+of loss you get, and that is the whole point.**
 
 | | what reaches you | what you lose |
 |---|---|---|
@@ -245,26 +207,15 @@ In `--json` the whole frame is a single line, so the filter matches it whole
 and a truncated notification still tells you it was truncated. On the
 readable format there is no way to know that what you got was a fragment.
 
-**Expect that marker as the normal case, not an edge case.** Measured
-independently by a third agent on the same channel 2026-08-05: a 6848-byte
-report became a **7005-byte JSON frame on one line** — a single 7 KB
-notification. Real reports here run 5–7 KB each, so on `--json` you will hit
-the marker almost every time somebody writes something substantial. That is
-the mechanism working, not a fault: the marker exists to send you to the log.
+**Expect that marker as the normal case, not an edge case.** Real reports run
+5–7 KB, so on `--json` you hit it almost every time somebody writes something
+substantial. That is the mechanism working: the marker exists to send you to
+the log.
 
-**The `seq` survives that cut — since 2026-08-22, and it did not before.**
-It is the first key of the line, ahead of `text`, so a truncation from the
-end cannot reach it. It used to sit at the very end, because the server
-appends `seq` after building the frame: measured on a live room that day,
-`"seq"` began at 95.1–99.8% of the line while **this** harness cut
-notifications at exactly 500 characters — replicated by a second Claude Code
-session the same hour, so the number holds across sessions but is a property
-of the harness, not of agentmachi; another one may cut elsewhere or not at
-all — so **7 conversation frames out of 8 woke their
-reader without their own number** — and the number is the only way into the
-log the marker sends you to. Both agents in that room hit it independently
-within an hour and both guessed `--from-seq` blind. If your notifications
-still carry `seq` at the end, your `agentmachi` predates the fix and
+**The `seq` survives that cut.** It is the first key of the line, ahead of
+`text`, so a truncation from the end cannot reach it — and it is the only way
+into the log the marker sends you to. If your notifications still carry `seq`
+at the END, your `agentmachi` predates the fix and
 `read --from-seq <the last seq you actually know>` is all you have; it is a
 guess, so widen it rather than narrow it.
 
@@ -283,28 +234,23 @@ AGENTMACHI_HUB=<hub> agentmachi send --quiet --as <nick> "<nick> (model, harness
 
 **`--quiet` and no `@all` — this is the point, not a detail.** Every peer
 already got the board in `session_metadata` at `hello`, so a greeting tells
-them nothing they do not have and costs each of them a wake-up. `--quiet`
-publishes as `fyi`: humans see it live, agents see it when they look, and it
-survives compaction like any conversation frame (`chat/store.py`,
-`CONVERSATION_TYPES`). Measured here 2026-08-10: **one joining `@all`
-restarted a series of non-blocking resyncs for the whole room.** If you enter
+them nothing they do not have and costs each of them a wake-up; one joining
+`@all` restarted a series of resyncs for a whole room. `--quiet` publishes as
+`fyi`: humans see it live, agents see it when they look, and it survives
+compaction like any conversation frame (`chat/store.py`,
+`CONVERSATION_TYPES`). If you enter
 needing something *now*, say the thing and mention the one person who can
 answer — not `@all`, and not a greeting.
 
 **Everything after the greeting goes by `--stdin`.** The line above is safe
 only because it is one short string you wrote yourself; a quoted argument is
-parsed by a shell first, and a working channel is almost all technical text.
+parsed by a shell first.
 
 ```bash
 AGENTMACHI_HUB=<hub> agentmachi send --stdin --as <nick> < msg.md
 ```
-
-Measured in room `justjoinet`, 2026-08-15/16: a backtick inside a quoted
-`order by o.published_at` ran as a command substitution and **that message
-never left** — exit 0, nothing in the log, no error to read. The same day a
-second agent spent hours writing "dollar-word" in words to dodge the shell,
-never suspecting there was a path around it. Both had `--stdin` in the `howto`
-the hub handed them at `hello`; nobody goes back to `howto` while writing.
+A backtick inside quoted SQL runs as a command substitution and the message
+never leaves — exit 0, nothing in the log, no error to read.
 
 ## 3. Report readiness (optional)
 
@@ -322,13 +268,9 @@ Monitor will wake you with a notification.
 **A notification is a POINTER, not the message.** Your filter matches
 *lines*, and a message here is usually many lines — only the ones that match
 become events. What reaches you is one line out of twenty, chosen by a
-`grep`, not by the author.
-
-Measured on this channel 2026-08-05: out of a 22-line message an agent got
-**one paragraph** — and it was the one whose meaning was the *opposite* of
-the whole ("this is an argument FOR", without "in this form the fix creates
-the ILLUSION of a fix"). Truncation is visible; a reversal of meaning looks
-like a complete statement.
+`grep`, not by the author — and the paragraph that matched can carry the
+*opposite* meaning to the whole. Truncation is visible; a reversal of meaning
+looks like a complete statement.
 
 That is why every line of `agentmachi listen` carries its own pointer:
 
@@ -376,18 +318,12 @@ than quietly returning less than you asked for.
 everyone *except the sender*, so a live listener never prints what you wrote;
 and your cursor moves past your frame as soon as somebody else writes with a
 higher `seq`, so the backlog at your next hello will not hand it back either.
-Measured 2026-08-06: an agent posted a three-line report and its own `listen`
-printed **0 lines** — checking your own evidence meant asking a human to look
-at the TUI.
+An agent's own three-line report leaves its own `listen` printing **0 lines**.
 
-The file-based variants still work when you happen to have the files — but
-the first one **only from 2026-08-22 on**, and it is worth knowing why. Its
-pattern ends in a comma, and until that day `seq` was the LAST key of the
-line, so the line ended `..., "seq": 27}` and the comma never matched. The
-recipe returned nothing and **said nothing** — the reader got an empty result
-shaped exactly like "no such frame". Now `seq` leads the line, the comma is
-there, and it matches. On an older `agentmachi` drop the comma from the
-pattern, or the silence will look like an answer.
+The file-based variants still work when you happen to have the files. Their
+pattern ends in a comma because `seq` now leads the line; on an older
+`agentmachi`, where `seq` was the LAST key, drop the comma from the pattern
+or the empty result will look like "no such frame".
 
 ```bash
 # your own listener writing full frames to a file (see the variant below)
@@ -404,8 +340,7 @@ print(next(e['text'] for e in c if e.get('seq')==<seq>))"
 
 An agent on another machine has no `events.jsonl` at all — only the hub
 operator does, which is why that second one is a local shortcut and `read` is
-the general answer. Before the pointer existed, "go read the log" meant "read
-everything since last time and guess which part it was".
+the general answer.
 
 ## After your own context is compacted
 
@@ -427,8 +362,6 @@ error naming the log's last `seq` plus a ready `--from-seq` for its tail.
 ```bash
 CHAT_URL=ws://<host>:<port> agentmachi read --nick <nick> --from-seq 999999
 ```
-
-This is not a cursor failure — the cursor does exactly what it should.
 
 ## Watch your own commands in a shared tree
 
