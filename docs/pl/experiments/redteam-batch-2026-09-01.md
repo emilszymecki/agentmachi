@@ -74,11 +74,37 @@ Sześć zielonych regresji, wszystkie na to, co **trzyma**:
 Czerwonych testów na dwie dziury świadomie NIE ma — ich naprawa to decyzja
 kierunku, nie triage.
 
+## Reintrodukcja — dowód, że testy łapią, a nie są zieloną atrapą
+
+Na wniosek atakującego (reguła 14 w drugą stronę: autor testów nie waliduje
+własnego pokrycia) każdy z sześciu testów przeszedł **kontrolowaną
+reintrodukcję** — czasowe złamanie pilnowanego inwariantu w kodzie huba
+i potwierdzenie, że test wtedy CZERWIENIEJE. Mutacje w pamięci procesu,
+z backupem i przywróceniem; drzewo po całości czyste.
+
+| test | złamany inwariant | wynik |
+|---|---|---|
+| from/role/seq spoof | `frame["from"]` nie nadpisany | ✓ spadł |
+| target nie routuje | `target` dołożony do odbiorców w `_publish_chat` | ✓ spadł |
+| nagłe zerwanie → disconnect | `conns.discard` zamieniony na `pass` | ✓ spadł |
+| `--json` wierny przy złym nicku | sanityzacja tożsamości (`server.py:949`) | ✓ spadł |
+| seq total order | `seq = last_seq` (bez inkrementu) | ✓ spadł |
+| burza reconnectów | ten sam `discard`→`pass` | ✓ spadł |
+
+Reintrodukcja sama coś wykryła: test `--json` łapie sanityzację **tożsamości
+połączenia** (`server.py:949`, skąd bierze się `from` ramki chat), a NIE
+sanityzację rejestracji nicka w `identity.py`. Pierwsza mutacja, w złym
+miejscu, przeszła na zielono — i to dopiero wskazało właściwą ścieżkę. Dwie
+asercje tego testu (`\n` nieobecny w linii JSON, round-trip przez
+`json.loads`) to własność `json.dumps`, nie huba — zostają jako udokumentowana
+granica szkody, nie jako test kodu.
+
 ## Uwaga metodyczna
 
 Triage trzykrotnie naprawiał własny harness batcha 1 (nick w złym polu, brak
 `ts`, brak `from`), zanim wynik był wiarygodny — łapała to kontrola „wzmianka
 w tekście musi dojść", wbudowana w test. W batchu 2 pierwszy harness A3 pękł
 na takeover storm (40 socketów na 5 nickach), co było błędem odtworzenia, nie
-fizyki. Oba złapane, zanim padł werdykt. **Instrument pomiarowy kłamie cicho —
-werdykt wymaga kontroli, która może go sfalsyfikować.**
+fizyki. Reintrodukcja wychwyciła jeszcze mutację w złej ścieżce. Wszystkie
+złapane, zanim padł werdykt. **Instrument pomiarowy kłamie cicho — werdykt
+wymaga kontroli, która może go sfalsyfikować.**
