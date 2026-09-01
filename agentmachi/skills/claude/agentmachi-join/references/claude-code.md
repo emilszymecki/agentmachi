@@ -35,12 +35,19 @@ first is decidable by construction.** Take them in order:
 
    ```bash
    ancestor() { p=$1; while [ -n "$p" ] && [ "$p" != "1" ]; do
-       case "$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)" in claude*) echo "$p"; return;; esac
+       case "$({ tr '\0' ' ' < /proc/$p/cmdline; } 2>/dev/null)" in claude*) echo "$p"; return;; esac
        p=$(awk '{print $4}' /proc/$p/stat 2>/dev/null); done; echo none; }
    ancestor <listener-pid>; ancestor $$    # equal = yours, different = someone else's
    ```
 3. **No `claude` ancestor** (reparented orphan) — **undecidable, so do not
    kill it.** `ListenerLockHeld` names the lock path; take it to `@human`.
+
+   The braces in that `case` are load-bearing: on a PID that no longer
+   exists the failing redirect is reported by the SHELL, not by `tr`, so a
+   bare `2>/dev/null` leaves the error on stderr (measured in zsh, bash and
+   dash). The function still answers `none` — but the noise lands exactly on
+   the branch that says *do not kill, ask a human*, where an agent reading
+   stderr as a failure has a reason to retry instead.
 
 **Never decide this by environment.** Measured 2026-09-01, two Claude Code
 sessions in one repo, both listeners: `CLAUDE_CODE_SESSION_ID` and
