@@ -548,7 +548,7 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
 # koszt tego narzędzia, nie jego usterka: taniej niż brak zamka, którym ten
 # plik rósł po cichu przez pół roku. Progu nie podnoś, żeby ten koszt ominąć.
 #
-# 2026-08-23, sesja odejmowania: sufity CLAUDE.md i AGENTS.md ZESZŁY
+# 2026-09-01, sesja odejmowania: sufity CLAUDE.md i AGENTS.md ZESZŁY
 # (16384 -> 12288, 17408 -> 16384) za cięciem, które wyrzuciło z obu plików
 # filozofię, preambuły i uzasadnienia historyczne. To jest ta sama decyzja
 # co przy podnoszeniu progu, tylko w drugą stronę: sufit ma zapisywać stan,

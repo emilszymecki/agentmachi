@@ -1,7 +1,7 @@
 # Sesja odejmowania — raport
 
-**Data:** 2026-08-23. **Zakres:** gorąca ścieżka agentmachi.
-**Baza porównania:** `673e87a` (commit przed pierwszym cięciem).
+**Data:** 2026-09-01. **Zakres:** gorąca ścieżka agentmachi.
+**Baza porównania:** `2042da5` (commit przed pierwszym cięciem).
 **Suita:** 710 passed po każdym z 14 commitów.
 
 Brzytwa: do każdej linii jedno pytanie — czy jej przeczytanie zmienia
@@ -108,9 +108,9 @@ Sprawdzony gerpem po tematach, nie po tekście:
 Oba rozjazdy są **sprzed tej sesji**, potwierdzone przez `git stash`
 na stanie bazowym, i nic do nich nie dopisano, bo to sesja odejmowania:
 
-1. `SKILL.md` Codeksa nie ma elementarza „wzmianka budzi, chat bez
-   wzmianki idzie do ludzi" — bierze to z `howto` przy hello i z
-   `references/codex-runtime.md`.
+1. Elementarza „wzmianka budzi, chat bez wzmianki idzie do ludzi" nie ma
+   **nigdzie po stronie Codeksa** — ani w `SKILL.md`, ani w żadnym
+   `references/`. Jedynym źródłem jest `howto` przy hello.
 2. `troubleshooting.md` Codeksa ma „notification is a pointer, not the
    message"; po stronie Claude'a ta reguła mieszka w `collaboration.md`
    i `claude-code.md`, których Codex u siebie nie ma.
