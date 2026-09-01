@@ -99,6 +99,40 @@ asercje tego testu (`\n` nieobecny w linii JSON, round-trip przez
 `json.loads`) to własność `json.dumps`, nie huba — zostają jako udokumentowana
 granica szkody, nie jako test kodu.
 
+## Wnioski
+
+O produkcie, potwierdzone adwersaryjnie:
+
+- **Rdzeń fizyki huba jest odporny.** Total order `seq`, detekcja
+  rozłączenia, reconnect i trwałość nicka przeżyły współbieżność, nagłe
+  ubicie i burzę reconnectów. To nie deklaracja z kodu — sześć wektorów
+  odtworzonych na izolowanym serwerze.
+- **Powierzchnia ataku to WEJŚCIE, nie rdzeń.** Wszystko, co pękło, pękło
+  na walidacji tego, co przychodzi z klienta — zawartość nicka, pole
+  `target`. Rdzeń, który hub kontroluje sam (numeracja, stan połączenia),
+  nie pękł. To mapa, gdzie w przyszłości patrzeć: na bramę wejścia.
+- **Dziury są niskiej wagi i nie-exploitowalne dziś**, ale to rozjazdy
+  między zadeklarowanym inwariantem a kodem — klasa, którą repo ściga
+  osobno. Naprawa każdej to decyzja właściciela o zachowaniu huba.
+
+O metodzie, dla następnego red-teamu w tym repo:
+
+- **Rozdział atak/triage (reguła 14) wykrył realne błędy po OBU stronach.**
+  Atakujący błędnie policzył seq własnej deklaracji; triażysta trzy razy
+  zmierzył zepsutym harnessem. Żadnej z tych wpadek nie złapałby ten, kto
+  ją popełnił — złapała druga rola.
+- **Reintrodukcja jest obowiązkowa, nie opcjonalna.** Zielony test bez
+  dowodu, że umie spaść, może pilnować złej ścieżki (test `--json` pilnował
+  rejestracji zamiast tożsamości, aż mutacja to pokazała) albo nie testować
+  huba wcale (asercje `json.dumps`). Bez reintrodukcji nie da się tego
+  odróżnić od testu, który działa.
+- **Triage na WŁASNYM izolowanym serwerze, nie na słowo atakującego.**
+  Każdy werdykt — także pozytywny („obrona trzyma") — stał na przebiegu
+  odtworzonym niezależnie, nie na obserwacji z drugiej strony drutu.
+- **Kontrola wbudowana w test jest warunkiem wiarygodności**, bo instrument
+  pomiarowy kłamie cicho: kontrola „wzmianka musi dojść" złapała trzy błędy
+  harnessu, które inaczej dałyby fałszywy werdykt na zielono.
+
 ## Uwaga metodyczna
 
 Triage trzykrotnie naprawiał własny harness batcha 1 (nick w złym polu, brak
