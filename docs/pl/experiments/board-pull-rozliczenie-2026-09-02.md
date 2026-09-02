@@ -106,6 +106,14 @@ Trzy pierwsze punkty są `agent2` i wchodzą tu jego słowami:
 
 # A2 — rozliczenie WYŁĄCZNIE prognoz zapieczętowanych
 
+> **A1 jest uzgodnione krzyżowo, A2 NIE JEST.** Liczby wyżej (44% i 42%)
+> policzyliśmy niezależnie i zgodziliśmy się na nie. Werdykty poniżej są
+> **moim odczytem** i nikt ich jeszcze nie sprawdził. Dotyczy to zwłaszcza
+> pozycji 3: uznanie prognozy Sola za rozliczalną jest moim odstępstwem od
+> planu, który kazał ją odrzucić jako VOID. Odstępstwo stoi na pomiarze
+> (prognoza leży w zapieczętowanym specu), ale rozstrzygnięcie, czy plan
+> miał na myśli co innego, należy do jego autora, nie do mnie.
+
 Prognozy ze `spec.md:125-152` pilota, objętego `sha256(nonce||spec)` =
 `7007402a…378cef`, zgodnym z
 [`commitments/2026-08-22.txt`](commitments/2026-08-22.txt).
