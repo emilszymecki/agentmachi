@@ -29,8 +29,17 @@ def _bez_wyciekow_env():
     Objaw byl mylacy w najgorszy sposob: test_send.py przechodzil URUCHOMIONY
     OSOBNO (34 zielone) i padal w calej suicie. To ta sama klasa co zasada 13
     w docs/zasady-agentyczne.md — komenda, ktora nie trafila tam, gdzie
-    myslisz."""
-    klucze = ("AGENTMACHI_HUB", "AGENTMACHI_TOKENS", "CHAT_PORT", "CHAT_URL")
+    myslisz.
+
+    Ta sama pulapka wrocila 2026-09-02 przy testach `cmd_serve`, ktore
+    skladaja srodowisko dla `chat.server`: `CHAT_TOKENS`/`CHAT_DATA`/
+    `CHAT_BIND` szly do os.environ i przeciekaly do podprocesow
+    tests/test_smoke_proces.py — te celowaly w katalog danych z tmp_path
+    poprzedniego testu. Objaw byl identyczny jak wtedy: OSOBNO zielone,
+    w suicie czerwone. Lista kluczy musi obejmowac WSZYSTKO, co CLI pisze
+    do os.environ wprost, nie tylko to, co akurat zabolalo."""
+    klucze = ("AGENTMACHI_HUB", "AGENTMACHI_TOKENS", "CHAT_PORT", "CHAT_URL",
+              "CHAT_TOKENS", "CHAT_DATA", "CHAT_BIND")
     przed = {k: os.environ.get(k) for k in klucze}
     yield
     for klucz, wartosc in przed.items():
@@ -717,6 +726,129 @@ def test_failed_start_leaves_no_ghost_room(home, monkeypatch, capsys):
     assert rc == 1
     assert not cli.hub_dir("widmo").exists(), "start zostawil pokoj-widmo"
     assert [r["name"] for r in cli.hub_rows()] == []
+
+
+def _dziecko_ktore_padlo_na_bindzie(nazwa):
+    """Fake `_spawn_detached`: dziecko, ktore zdazylo zrobic WSZYSTKO, co robi
+    prawdziwe (zapisac pidfile) — i dopiero potem padlo na bindzie.
+
+    Pidfile jest tu istotny, nie dekoracyjny: zapisuje go `cmd_serve` PRZED
+    bindem, a galaz porazki w `cmd_start` obiecywala w komentarzu, ze przy
+    nieudanym starcie nie powstaje. Powstawal."""
+    def spawn(argv, log_path):
+        pid = 999999                              # PID, ktorego juz nie ma
+        (cli.hub_dir(nazwa) / "hub.pid").write_text(str(pid), encoding="utf-8")
+        with open(log_path, "a") as f:
+            f.write("OSError: could not bind on any address\n")
+        return pid
+    return spawn
+
+
+def test_nieudany_bind_nie_zostawia_adresu_nowego_pokoju(home, monkeypatch):
+    """Adres, pod ktorym nikt nigdy nie sluchal, nie moze przezyc komendy.
+
+    Rozne od `test_failed_start_leaves_no_ghost_room`: tam pokoj jest odrzucany
+    PRZED utworzeniem (port zajety). Tu port jest wolny, `ensure_hub` zapisuje
+    config, i dopiero bind zawodzi — droga, ktora tamten test omija.
+
+    Zmierzone 2026-09-02 na izolowanym AGENTMACHI_HOME:
+    `start --name ghost --bind 192.0.2.1 --port 8999` -> rc=1, a `list` i
+    `card` podawaly potem ws://192.0.2.1:8999 jako adres pokoju."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        _dziecko_ktore_padlo_na_bindzie("ghost"))
+    rc = cli.cmd_start(argparse.Namespace(name="ghost", port=8999,
+                                          bind="192.0.2.1"))
+    assert rc == 1
+    assert not cli.hub_dir("ghost").exists(), \
+        "pokoj przezyl bind, ktory nigdy nie zaszedl"
+    assert [r["name"] for r in cli.hub_rows()] == [], \
+        "`list` podaje adres, pod ktorym nikt nie sluchal"
+
+
+def test_nieudany_bind_nie_zabiera_istniejacemu_pokojowi_adresu(home,
+                                                                monkeypatch):
+    """NAJDROZSZY z trzech: nieudane przepiecie kasowalo DZIALAJACY adres.
+
+    Zmierzone 2026-09-02: pokoj 'realny' stal pod ws://127.0.0.1:8901;
+    `start --port 8902 --bind 192.0.2.1` konczylo sie rc=1, a w configu
+    zostawalo {"port": 8902, "bind": "192.0.2.1"} — NA TRWALE. Stary adres
+    ginal, kursory klientow sa per host:port, a rada z komunikatu ("wybierz
+    inny port") nie miala jak pomoc, bo config juz klamal. To ta sama pulapka
+    bez wyjscia co w `test_explicit_port_overrides_config_of_existing_room`,
+    tylko wejsciem jest bind, nie zajety port."""
+    cli.ensure_hub("realny", 8901)
+    przed = (cli.hub_dir("realny") / "config.json").read_text()
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        _dziecko_ktore_padlo_na_bindzie("realny"))
+    rc = cli.cmd_start(argparse.Namespace(name="realny", port=8902,
+                                          bind="192.0.2.1"))
+    assert rc == 1
+    assert (cli.hub_dir("realny") / "config.json").read_text() == przed, \
+        "nieudany start przepiecial pokoj pod adres, ktory nie wstal"
+    assert cli.hub_port("realny") == 8901 and cli.hub_bind("realny") == "127.0.0.1"
+    assert not (cli.hub_dir("realny") / "hub.pid").exists()
+    assert (cli.hub_dir("realny") / "tokens.json").exists(), \
+        "cofniecie zjadlo dane pokoju, ktorego ta komenda nie stworzyla"
+
+
+def test_serve_nie_zostawia_adresu_gdy_bind_zawiodl(home, monkeypatch, capsys):
+    """Drugie wejscie do tej samej decyzji. `_odmow_zajetego_portu` powstalo,
+    bo strzezone bylo jedno z dwoch wejsc — tu jest tak samo: samodzielny
+    `serve` na adresie nie do zbindowania zostawial pokoj zapisany pod tym
+    adresem, mimo ze `start` juz nie."""
+    import chat.server
+
+    def main_ktory_nie_zbinduje():
+        raise OSError("could not bind on any address out of "
+                      "[('192.0.2.1', 8998)]")
+
+    monkeypatch.setattr(chat.server, "main", main_ktory_nie_zbinduje)
+    rc = cli.cmd_serve(argparse.Namespace(name="serveghost", port=8998,
+                                          bind="192.0.2.1"))
+    assert rc == 1
+    assert "could not bind" in capsys.readouterr().err, \
+        "czlowiek ma dostac powod, nie surowy traceback"
+    assert not cli.hub_dir("serveghost").exists()
+    assert [r["name"] for r in cli.hub_rows()] == []
+
+
+def test_serve_pod_startem_zostawia_log_rodzicowi(home, monkeypatch, capsys):
+    """Dziecko odpalone przez `start` NIE sprzata katalogu — rodzic czyta
+    z niego `serve.log`, zeby powiedziec czlowiekowi POWOD. Gdyby dziecko
+    kasowalo katalog, rodzic drukowalby 'did NOT come up' bez przyczyny."""
+    import chat.server
+    monkeypatch.setenv(cli.SPAWNED_BY_START, "1")
+    monkeypatch.setattr(chat.server, "main",
+                        lambda: (_ for _ in ()).throw(OSError("bind failed")))
+    rc = cli.cmd_serve(argparse.Namespace(name="pod-startem", port=8997,
+                                          bind="192.0.2.1"))
+    assert rc == 1
+    assert cli.hub_dir("pod-startem").exists(), \
+        "dziecko zabralo katalog spod czytajacego rodzica"
+    assert not (cli.hub_dir("pod-startem") / "config.json").exists(), \
+        "adres, ktory nie wstal, zostal na dysku"
+
+
+def test_udany_start_zostawia_adres_i_pidfile(home, monkeypatch):
+    """Kontrola w druga strone: cofanie ma dzialac WYLACZNIE po porazce.
+    Bez tego testu blad w migawce kasowalby pokoj po UDANYM starcie, a suita
+    by tego nie zobaczyla — cofniecie i tak konczy sie 'brak pokoju'."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+
+    def spawn(argv, log_path):
+        (cli.hub_dir("dziala") / "hub.pid").write_text("4243", encoding="utf-8")
+        return 4243
+
+    monkeypatch.setattr(cli, "_spawn_detached", spawn)
+    monkeypatch.setattr(cli, "_wait_until_listening", lambda *a, **kw: True)
+    rc = cli.cmd_start(argparse.Namespace(name="dziala", port=8904,
+                                          bind="127.0.0.1"))
+    assert rc == 0
+    assert cli.hub_port("dziala") == 8904
+    assert (cli.hub_dir("dziala") / "hub.pid").exists()
+    assert [r["name"] for r in cli.hub_rows()] == ["dziala"]
 
 
 def test_explicit_port_overrides_config_of_existing_room(home, monkeypatch,

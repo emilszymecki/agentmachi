@@ -1083,6 +1083,11 @@ def cmd_serve(args):
     # odmawialo kazdemu `serve` bez portu. DEFAULT_PORT wyliczamy tu, bo to
     # domysl KOMENDY, nie decyzja uzytkownika.
     port_jawny = args.port is not None
+    # Drugie wejscie do tej samej decyzji co w `cmd_start`: samodzielny `serve`
+    # na adresie, ktorego nie da sie zbindowac, tez zostawial pokoj zapisany
+    # pod tym adresem. Ta sama klasa co `_odmow_zajetego_portu` — strzezone
+    # bylo jedno z dwoch wejsc.
+    katalog_istnial, config_przed = _migawka_adresu(args.name)
     d, port = ensure_hub(args.name, args.port if port_jawny else DEFAULT_PORT,
                          bind=args.bind, port_jawny=port_jawny)
     bind = hub_bind(args.name, fallback=args.bind)
@@ -1094,7 +1099,18 @@ def cmd_serve(args):
     os.environ["CHAT_PORT"] = str(port)
     os.environ["CHAT_BIND"] = bind
     from chat.server import main as server_main
-    server_main()
+    try:
+        server_main()
+    except OSError as e:
+        # Bind zawiodl — adres nigdy nie zaistnial, wiec nie ma prawa zostac
+        # na dysku. `rmtree` tylko wtedy, gdy nikt nad nami nie czyta naszego
+        # serve.log: pod `start` to rodzic sprzata, i dopiero po odczycie.
+        _cofnij_slad_nieudanego_startu(
+            args.name, katalog_istnial, config_przed, pid=os.getpid(),
+            rmtree=not os.environ.get(SPAWNED_BY_START))
+        print(f"agentmachi: hub {args.name!r} could not bind "
+              f"ws://{bind}:{port} — {e}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -1244,6 +1260,83 @@ def _spawn_detached(argv, log_path):
     return proc.pid
 
 
+# Ustawiane przez `start` dziecku, ktore odpala — przez os.environ, nie przez
+# argument `_spawn_detached`: te funkcje podmienia czternascie cudzych testow
+# sygnatura (argv, log), wiec dolozenie parametru byloby zmiana kontraktu dla
+# calej suity, a nie naprawa tej jednej rzeczy. Mowi dziecku jedno:
+# NIE sprzataj po sobie katalogu, bo rodzic wlasnie czyta z niego serve.log,
+# zeby powiedziec czlowiekowi, dlaczego pokoj nie wstal. Sprzata rodzic —
+# on jeden wie, czy katalog byl jego dzielem, i robi to PO odczycie logu.
+SPAWNED_BY_START = "AGENTMACHI_SPAWNED_BY_START"
+
+
+def _migawka_adresu(name):
+    """Stan adresu pokoju PRZED proba startu: (czy byl katalog, tresc configu).
+
+    Para wystarcza, bo tylko te dwie rzeczy `start` zmienia, zanim wiadomo,
+    czy bind sie uda."""
+    d = hub_dir(name)
+    config = d / "config.json"
+    return d.exists(), (config.read_text(encoding="utf-8")
+                        if config.exists() else None)
+
+
+def _cofnij_slad_nieudanego_startu(name, katalog_istnial, config_przed,
+                                   pid=None, rmtree=True):
+    """Przywroc adres do stanu z `_migawka_adresu`. Wolane, gdy bind NIE zaszedl.
+
+    Doslowna kolejnosc z planu — „bind, potem zapis" — jest nieosiagalna bez
+    nowego mechanizmu w rdzeniu: adres zapisuja DWA procesy przed bindem
+    (`ensure_hub` u rodzica i u dziecka), a ten, ktory binduje, juz nie wraca
+    (`server_main` blokuje do SIGTERM-a). Jedynym istniejacym sygnalem „bind
+    udany" jest READY_MARK w logu, czytany przez rodzica. Dlatego adres jest
+    tu TRWALY DOPIERO PO potwierdzeniu bindu — przez cofniecie, nie przez
+    opoznienie zapisu. Rozni sie to od litery planu jednym oknem: miedzy
+    spawnem a READY_MARK rownolegly `list` widzi pokoj.
+
+    Trzy przypadki zmierzone 2026-09-02 na izolowanym AGENTMACHI_HOME, kazdy
+    konczyl sie adresem, pod ktorym nikt nigdy nie sluchal:
+      1. nowy pokoj, `--bind 192.0.2.1` -> `list` i `card` podawaly
+         ws://192.0.2.1:8999 jako prawde,
+      2. to samo z samodzielnego `serve` (drugie wejscie — ta sama klasa co
+         `_odmow_zajetego_portu`: strzezone bylo jedno z dwoch),
+      3. NAJDROZSZY: pokoj DZIALAJACY pod ws://127.0.0.1:8901 po nieudanym
+         `start --port 8902 --bind 192.0.2.1` zostawal zapisany pod tym
+         drugim adresem NA TRWALE. Stary, dobry adres ginal — a rada z
+         komunikatu bledu ("wybierz inny port") nie miala jak pomoc, bo
+         wskazywala na config, ktory juz klamal.
+
+    Katalogu, ktorego nie stworzylismy, NIE kasujemy. Skasowanie samego
+    `config.json` nie wystarcza i bylo pierwszym, blednym pomyslem: `hub_rows`
+    wpuszcza pokoj do `list` na podstawie `tokens.json`, wiec pokoj bez configu
+    pokazywalby sie pod adresem DOMYSLNYM — widmo pod adresem, o ktory nikt
+    nie prosil, zamiast pod tym, ktory nie wstal."""
+    d = hub_dir(name)
+    pidfile = d / "hub.pid"
+    # Pidfile zapisuje DZIECKO (`cmd_serve`) przed bindem, mimo ze komentarz
+    # w galezi porazki obiecywal, ze przy nieudanym starcie nie powstaje.
+    # Kasujemy tylko wskazujacy na nasze dziecko — cudzego zywego huba ten
+    # kod nie ma prawa tknac.
+    if pidfile.exists():
+        try:
+            czyj = pidfile.read_text(encoding="utf-8").strip()
+        except OSError:
+            czyj = None
+        if pid is None or czyj == str(pid):
+            pidfile.unlink(missing_ok=True)
+    # Adres cofamy ZAWSZE, katalog tylko czasem — te dwa kroki musza byc
+    # rozlaczne. Gdy byly zlaczone (`return` po pominietym rmtree), dziecko
+    # odpalone przez `start` zostawialo config.json pod nieudanym adresem;
+    # zlapal to `test_serve_pod_startem_zostawia_log_rodzicowi`.
+    config = d / "config.json"
+    if config_przed is None:
+        config.unlink(missing_ok=True)
+    else:
+        config.write_text(config_przed, encoding="utf-8")
+    if not katalog_istnial and rmtree:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def _port_accepts(port, bind):
     """Czy cos przyjmuje polaczenia na tym porcie NA TYM INTERFEJSIE.
 
@@ -1355,6 +1448,9 @@ def cmd_start(args):
     # przy nieudanej probie zostawal na trwale przypiety do zajetego portu
     # i rada "wybierz inny port" nie dzialala (pulapka bez wyjscia).
     istnieje = (hub_dir(args.name) / "config.json").exists()
+    # Migawka PRZED czymkolwiek, co pisze na dysk. Od tego miejsca kazde
+    # wyjscie przez blad musi umiec wrocic — patrz _cofnij_slad_nieudanego_startu.
+    katalog_istnial, config_przed = _migawka_adresu(args.name)
     port = args.port if args.port is not None else hub_port(args.name)
     bind = args.bind if args.bind is not None else hub_bind(args.name)
     if _port_accepts(port, bind):
@@ -1415,11 +1511,15 @@ def cmd_start(args):
     argv = [sys.executable, "-m", "agentmachi.cli", "serve",
             "--name", args.name, "--port", str(port), "--bind", bind]
     log_before = log_path.stat().st_size if log_path.exists() else 0
-    pid = _spawn_detached(argv, log_path)
+    os.environ[SPAWNED_BY_START] = "1"
+    try:
+        pid = _spawn_detached(argv, log_path)
+    finally:
+        os.environ.pop(SPAWNED_BY_START, None)
     if not _wait_until_listening(10.0, pid=pid,
                                  log_path=log_path, log_from=log_before):
-        # pidfile NIE powstaje przy nieudanym starcie — martwy plik klamalby
-        # potem `list` i `stop`.
+        # Log czytamy PRZED cofnieciem — cofniecie potrafi zabrac katalog,
+        # w ktorym ten log lezy, a czlowiek ma dostac powod, nie pusto.
         powod = ""
         if log_path.exists():
             with log_path.open(encoding="utf-8") as f:
@@ -1427,8 +1527,14 @@ def cmd_start(args):
                 ogon = f.read().strip().splitlines()
             if ogon:
                 powod = "\n  reason: " + "\n          ".join(ogon[-3:])
+        sciezka_logu = log_path if katalog_istnial else "(none — room removed)"
+        # Adres nie przezywa niepotwierdzonego bindu. Pidfile tez nie: zapisuje
+        # go dziecko PRZED bindem, a stary komentarz w tym miejscu obiecywal,
+        # ze przy nieudanym starcie nie powstaje. Powstawal.
+        _cofnij_slad_nieudanego_startu(args.name, katalog_istnial,
+                                       config_przed, pid=pid)
         print(f"agentmachi: room {args.name!r} did NOT come up.{powod}\n"
-              f"  full log: {log_path}\n"
+              f"  full log: {sciezka_logu}\n"
               f"  is port {port} free:  agentmachi list", file=sys.stderr)
         return 1
     (d / "hub.pid").write_text(str(pid), encoding="utf-8")
