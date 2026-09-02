@@ -193,6 +193,12 @@ werdykt „zrobione" jest **moim słowem**, a plan mówi wprost, że to za mało
 **Wszystkie pozycje `agent2` (B1–B4) są zweryfikowane po mojej stronie**,
 łącznie z domknięciem B2 i trzema naprawami zgłoszonymi z weryfikacji.
 
+**Stan końcowy weryfikacji krzyżowej: pełny poza E1.** `agent2` sprawdził
+wszystkie moje pozycje, łącznie z luźnymi końcami (dziura 1 i reguła 3),
+i przy każdej z nich zgłosił coś, czego sam nie zobaczyłem: dwa werdykty
+A2 do zdjęcia moją własną regułą D1 oraz nienośny człon w paragonie
+reguły 3 (kredytowałem dwa mechanizmy tam, gdzie zadziałał jeden).
+
 **B7 zamknąłem raz przedwcześnie i to jest osobny wpis, nie przypis.**
 Napisałem „zero residuum", bo werdykt „prawdziwa w zakresie, którego nie
 podaje" stoi w `docs/` dokładnie dwa razy i oba to pozycje `agent2` (B1, B2),
