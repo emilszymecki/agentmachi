@@ -242,7 +242,11 @@ def test_resync_state_tez_nie_leci_sciana_JSON_a(capsys):
                        "state": {"queue": {"tasks": [1]}, "runda": 3}})
     linie = capsys.readouterr().out.splitlines()
     assert all(l.startswith(send.ZNACZNIK_RESYNC) for l in linie)
-    assert not linie[0].lstrip("[resync_state] ").startswith("{")
+    # removeprefix, nie lstrip: `str.lstrip` zdejmuje ZNAKI, nie prefiks, więc
+    # zjadłby też wiodące `{`, gdyby stan zaczynał się od klucza na `[`/`r`/`e`
+    # — i test przechodziłby dokładnie w przypadku, który ma łapać.
+    assert not linie[0].removeprefix(
+        f"{send.ZNACZNIK_RESYNC} ").startswith("{")
     tresc = "\n".join(linie)
     assert "queue:" in tresc and "runda:" in tresc
     assert [l for l in linie if "resync_state" not in l] == [], \

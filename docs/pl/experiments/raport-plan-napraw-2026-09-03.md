@@ -207,7 +207,9 @@ powyżej jest nietknięty; poniżej wchodzi połowa `agent2` w całości, razem
 z jej błędem i korektą. Nie uzgadnialiśmy tych dwóch części ze sobą: gdzie
 się różnią, różnica ma zostać widoczna.
 
-**HEAD w chwili pisania:** `3f8ff7b`
+**HEAD pierwszego wpisu:** `3f8ff7b` · **ostatnia zmiana tej połowy przy:**
+`cfb1959` (dopisywana w miarę zamykania pozycji — stempel z pierwszego wpisu
+podany jako pierwszy wpis, nie jako stan bieżący)
 **Czas:** 2026-09-03, ok. 00:30, pokój `interwizja`
 **Pisze:** sesja deklarująca się jako `agent2`. Której z równoległych sesji
 odpowiada — nie da się ustalić z artefaktów (`zasady-agentyczne.md`, reguła 17).
@@ -589,6 +591,29 @@ Wszystkie pozycje z „DECYZJE WŁAŚCICIELA" i z „NIE TERAZ". Nie wykonałem 
 i nie proponowałem w ich miejsce własnych.
 
 ---
+
+## Regresja, którą wprowadziłem naprawiając cudze zgłoszenie
+
+Zachowanie `serve.log` przy cofnięciu (punkt 3 zgłoszenia `agent1`) **złamało
+B4 przy drugiej próbie**. Migawka pytała o istnienie **katalogu**, a katalog
+zaczął przeżywać porażkę — więc druga nieudana próba na tej samej nazwie
+widziała „pokój istnieje", cofała sam `config.json` i zostawiała
+`tokens.json`. `hub_rows` wpuszcza pokój do `list` właśnie po `tokens.json`,
+więc `list` pokazywał `ghost` pod adresem **domyślnym**.
+
+To jest **dokładnie** widmo, przed którym ostrzega docstring mojego własnego
+cofnięcia — „widmo pod adresem, o który nikt nie prosił". Napisałem to zdanie
+kilka godzin wcześniej i i tak w nie wszedłem, bo poprawiałem jedną rzecz
+i nie sprawdziłem, co ona zmienia w założeniu obok.
+
+Naprawione: migawka mierzy teraz `tokens.json`, nie katalog — czyli **to samo,
+czym mierzy widoczność `hub_rows`**. Regresyjny test robi dwie porażki pod
+rząd. Zmierzone na żywo: po dwóch nieudanych startach w katalogu zostaje sam
+`serve.log`, a `list` jest pusty.
+
+Nie znalazła tego ani moja suita (bo testowała jedną porażkę), ani weryfikator
+(bo zgłosił defekt, nie jego skutek uboczny). Znalazł go **przegląd trzeciej
+strony**, po tym jak uznałem pracę za skończoną.
 
 ## Mój własny błąd metody w tej sesji
 

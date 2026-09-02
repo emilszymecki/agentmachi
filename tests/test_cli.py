@@ -796,6 +796,33 @@ def test_nieudany_start_zostawia_LOG_choc_zabiera_pokoj(home, monkeypatch,
         "`full log:` ma wskazywac plik, ktory istnieje"
 
 
+def test_DRUGA_nieudana_proba_na_tej_samej_nazwie_tez_nie_zostawia_pokoju(
+        home, monkeypatch):
+    """Regresja, którą sam wprowadziłem, zachowując `serve.log`.
+
+    Migawka pytała o istnienie KATALOGU. Odkąd katalog przeżywa porażkę
+    (bo zostaje w nim log), druga nieudana próba na tej samej nazwie widziała
+    „pokój istnieje", cofała sam `config.json` i zostawiała `tokens.json` —
+    a `hub_rows` wpuszcza pokój do `list` właśnie po `tokens.json`. `list`
+    pokazywał wtedy pokój pod adresem DOMYŚLNYM: widmo pod adresem, o który
+    nikt nie prosił. Dokładnie to, przed czym ostrzega docstring cofnięcia.
+
+    Dlatego migawka mierzy `tokens.json`, nie katalog."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        _dziecko_ktore_padlo_na_bindzie("ghost"))
+    for port in (8994, 8993):
+        assert cli.cmd_start(argparse.Namespace(name="ghost", port=port,
+                                                bind="192.0.2.1")) == 1
+    assert not (cli.hub_dir("ghost") / "tokens.json").exists(), \
+        "druga porazka zostawila tozsamosci pokoju, ktory nie wstal"
+    assert not (cli.hub_dir("ghost") / "config.json").exists()
+    assert [r["name"] for r in cli.hub_rows()] == [], \
+        "`list` pokazuje pokoj pod adresem DOMYSLNYM, o ktory nikt nie prosil"
+    assert (cli.hub_dir("ghost") / "serve.log").exists(), \
+        "przy okazji zniknal log, ktory ma zostac"
+
+
 def test_wydruk_awarii_nie_odsyla_do_sprawdzianu_ktory_nie_moze_paść(
         home, monkeypatch, capsys):
     """Druga i trzecia rzecz zgloszona przez weryfikatora.

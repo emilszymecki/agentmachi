@@ -1087,7 +1087,7 @@ def cmd_serve(args):
     # na adresie, ktorego nie da sie zbindowac, tez zostawial pokoj zapisany
     # pod tym adresem. Ta sama klasa co `_odmow_zajetego_portu` — strzezone
     # bylo jedno z dwoch wejsc.
-    katalog_istnial, config_przed = _migawka_adresu(args.name)
+    pokoj_istnial, config_przed = _migawka_adresu(args.name)
     d, port = ensure_hub(args.name, args.port if port_jawny else DEFAULT_PORT,
                          bind=args.bind, port_jawny=port_jawny)
     bind = hub_bind(args.name, fallback=args.bind)
@@ -1121,7 +1121,7 @@ def cmd_serve(args):
         # na dysku. `rmtree` tylko wtedy, gdy nikt nad nami nie czyta naszego
         # serve.log: pod `start` to rodzic sprzata, i dopiero po odczycie.
         _cofnij_slad_nieudanego_startu(
-            args.name, katalog_istnial, config_przed, pid=os.getpid(),
+            args.name, pokoj_istnial, config_przed, pid=os.getpid(),
             rmtree=not os.environ.get(SPAWNED_BY_START))
         # B1, GRANICA NAZWANA W CHWILI POTRZEBY, nie w docach: `serve` binduje
         # DOKLADNIE ten port i nie szuka innego. Alokator, ktory omija zywe
@@ -1339,17 +1339,25 @@ SPAWNED_BY_START = "AGENTMACHI_SPAWNED_BY_START"
 
 
 def _migawka_adresu(name):
-    """Stan adresu pokoju PRZED proba startu: (czy byl katalog, tresc configu).
+    """Stan adresu pokoju PRZED proba startu: (czy pokoj byl, tresc configu).
 
-    Para wystarcza, bo tylko te dwie rzeczy `start` zmienia, zanim wiadomo,
-    czy bind sie uda."""
+    „Pokoj byl" mierzymy `tokens.json`, NIE istnieniem katalogu — bo to
+    `tokens.json` decyduje, czy `hub_rows` wpusci pokoj do `list`.
+
+    Pierwsza wersja pytala o katalog i to sie zemscilo dokladnie tak, jak
+    ostrzega komentarz w `_cofnij_slad_nieudanego_startu`. Odkad cofniecie
+    zachowuje `serve.log`, katalog PRZEZYWA porazke — wiec DRUGA nieudana
+    proba na tej samej nazwie widziala „pokoj istnieje", cofala sam config
+    i zostawiala `tokens.json`. `list` pokazywal wtedy `ghost` pod adresem
+    DOMYSLNYM: widmo pod adresem, o ktory nikt nie prosil. Zmierzone
+    2026-09-03, dwie porazki pod rzad na nazwie `ghost`."""
     d = hub_dir(name)
     config = d / "config.json"
-    return d.exists(), (config.read_text(encoding="utf-8")
-                        if config.exists() else None)
+    return (d / "tokens.json").exists(), (config.read_text(encoding="utf-8")
+                                          if config.exists() else None)
 
 
-def _cofnij_slad_nieudanego_startu(name, katalog_istnial, config_przed,
+def _cofnij_slad_nieudanego_startu(name, pokoj_istnial, config_przed,
                                    pid=None, rmtree=True, zachowaj=None):
     """Przywroc adres do stanu z `_migawka_adresu`. Wolane, gdy bind NIE zaszedl.
 
@@ -1401,7 +1409,7 @@ def _cofnij_slad_nieudanego_startu(name, katalog_istnial, config_przed,
         config.unlink(missing_ok=True)
     else:
         config.write_text(config_przed, encoding="utf-8")
-    if not katalog_istnial and rmtree:
+    if not pokoj_istnial and rmtree:
         if not zachowaj:
             shutil.rmtree(d, ignore_errors=True)
             return
@@ -1530,7 +1538,7 @@ def cmd_start(args):
     istnieje = (hub_dir(args.name) / "config.json").exists()
     # Migawka PRZED czymkolwiek, co pisze na dysk. Od tego miejsca kazde
     # wyjscie przez blad musi umiec wrocic — patrz _cofnij_slad_nieudanego_startu.
-    katalog_istnial, config_przed = _migawka_adresu(args.name)
+    pokoj_istnial, config_przed = _migawka_adresu(args.name)
     port = args.port if args.port is not None else hub_port(args.name)
     bind = args.bind if args.bind is not None else hub_bind(args.name)
     if _port_accepts(port, bind):
@@ -1617,11 +1625,11 @@ def cmd_start(args):
         # nie klamie o zadnym adresie, a `hub_rows` wpuszcza pokoj do `list`
         # po `tokens.json` — katalog z samym logiem jest wiec niewidoczny
         # tam, gdzie widocznosc szkodzi, i dostepny tam, gdzie pomaga.
-        zachowaj = {log_path.name} if not katalog_istnial else None
+        zachowaj = {log_path.name} if not pokoj_istnial else None
         # Adres nie przezywa niepotwierdzonego bindu. Pidfile tez nie: zapisuje
         # go dziecko PRZED bindem, a stary komentarz w tym miejscu obiecywal,
         # ze przy nieudanym starcie nie powstaje. Powstawal.
-        _cofnij_slad_nieudanego_startu(args.name, katalog_istnial,
+        _cofnij_slad_nieudanego_startu(args.name, pokoj_istnial,
                                        config_przed, pid=pid, zachowaj=zachowaj)
         # NIE "is port N free: agentmachi list". `list` czyta configi pokojow,
         # wiec o zajetosci PORTU nie umie powiedziec nic — byl to sprawdzian,
