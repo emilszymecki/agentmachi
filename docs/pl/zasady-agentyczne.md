@@ -823,8 +823,27 @@ Próby, które mają zamienić podobne luki w pomiar, są rejestrowane w
 [`experiments/`](experiments/). Każda opisuje własny status, protokół
 i ograniczenia; obecność protokołu nie oznacza, że eksperyment się odbył.
 
-**Drugi brak, tym razem w możliwościach, nie w dowodach: żywej sesji TUI nie
-obudzi nikt z zewnątrz.** `node` budzi headless (`codex exec` / `claude -p`) —
+**Drugi brak, tym razem w możliwościach, nie w dowodach: ~~żywej sesji TUI
+nie obudzi nikt z zewnątrz~~ — żywą sesję TUI budzi HARNESS, i tylko on.**
+Zdanie w starej postaci zostało **sfalsyfikowane pomiarem** 2026-09-02
+([`experiments/spike-tui-budzenie-zywej-sesji-2026-09-02.md`](experiments/spike-tui-budzenie-zywej-sesji-2026-09-02.md),
+droga C, zreplikowana niezależnie). Cztery granice tego, co zmierzono — bez
+żadnej z nich zdanie znaczy więcej, niż wolno:
+
+- **nadawcą musi być proces harnessu.** Gniazdo jest prywatne i wymaga
+  `peerToken`; budzika w czystym Pythonie nie napisano. Zmierzono „harness
+  dosięga żywej sesji", nie „dowolny skrypt dosięga";
+- **kanał nie ma envelope'u.** Treść zewnętrzna ląduje na pozycji komunikatu
+  **harnessu**, nie peera, i model wykonał surowy string co do znaku. Most
+  zbudowany na tym potrzebuje envelope'u od pierwszej linijki, nie jako
+  polerowania;
+- **kanał jest jednokierunkowy.** Budzący nie ma jak się dowiedzieć, czy
+  obudził — echo widać wyłącznie czytając transkrypt celu z dysku;
+- **wynik jest przypięty do wersji.** Pomiar na Claude 2.1.258 i codex
+  0.149.1; akapit niżej opisuje codex 0.145.0. To nie jest ta sama maszyna.
+
+Poniższy opis zostaje jako **stan sprzed pomiaru** — jest nadal prawdziwy
+o tym, czego `node` i MCP nie robią, i o tym, dlaczego brak bolał.
 odpala nową turę. TUI to inny proces, bez wejścia z zewnątrz: `remote-control`
 zarządza daemonem i parowaniem, nie jest zdalną klawiaturą, a MCP nie jest
 kanałem inbound, bo model sięga po nie dopiero w istniejącej turze. Boli to
@@ -854,7 +873,18 @@ Co mamy naprawdę:
   pomiar potwierdza to, czego się oczekiwało. Błędna hipoteza z trafnym
   pomiarem obok wygląda jak wynik.
   ~~Subagent tego nie złapie, bo dziedziczy hipotezę razem z pomiarem.~~
-  **To zdanie stało tu bez pomiaru i 2026-09-02 zostało SFALSYFIKOWANE**
+  **Złapie to NIE-AUTOR — a dziedziczenie hipotezy mu w tym nie
+  przeszkadza.** Rozróżnikiem, na który mamy pomiar, jest autorstwo, nie
+  niezależność kontekstu: w audycie szwów apel do czujności dał 0/4,
+  a struktura „ktoś inny wykonuje" 4/4, i to na obietnicach, które autor
+  właśnie przeczytał. Subagent z briefem zawierającym gotowy werdykt autora
+  też dał 4/4 — czyli to, co miało być barierą, nią nie było.
+  **Czego wciąż NIE wiemy:** czy pracę wykonało nie-autorstwo, czy samo
+  jawne polecenie „zgłoś problemy", którego peer nigdy nie dostaje. Ramię
+  bez dziedziczenia jest prerejestrowane i **nieuruchomione**
+  ([`experiments/e1-subagent-swiezy-kontekst-prereg.md`](experiments/e1-subagent-swiezy-kontekst-prereg.md)).
+  Poniżej zapis falsyfikacji, dla której to zdanie zostało przepisane:
+  **stało tu bez pomiaru i 2026-09-02 zostało SFALSYFIKOWANE**
   ([`experiments/subagent-vs-peer-2026-09-02.md`](experiments/subagent-vs-peer-2026-09-02.md)):
   subagenty dostające brief z gotowym werdyktem autora złapały **4 z 4**
   martwych pól, w tym oba, które przewidywano jako niemożliwe do złapania
