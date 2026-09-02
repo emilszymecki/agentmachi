@@ -230,6 +230,25 @@ def test_znacznik_metadanych_stoi_w_KAZDEJ_linii(capsys):
     assert zostaje == [], f"filtr przepuscil {len(zostaje)} linii howto"
 
 
+def test_resync_state_tez_nie_leci_sciana_JSON_a(capsys):
+    """Domkniecie B2: audyt wymienial DWA nierenderowane bloki w trybie
+    czytelnym — `session_metadata` i `resync_state`. Pierwsza wersja naprawy
+    zrobila jeden i to bylo NIEKOMPLETNE (ocenil weryfikator).
+
+    Znacznik w kazdej linii z tego samego powodu co przy metadanych: filtr
+    agenta tnie po TYPIE ramki, a w trybie czytelnym typ jest wylacznie
+    w znaczniku."""
+    send._print_event({"type": "resync_state",
+                       "state": {"queue": {"tasks": [1]}, "runda": 3}})
+    linie = capsys.readouterr().out.splitlines()
+    assert all(l.startswith(send.ZNACZNIK_RESYNC) for l in linie)
+    assert not linie[0].lstrip("[resync_state] ").startswith("{")
+    tresc = "\n".join(linie)
+    assert "queue:" in tresc and "runda:" in tresc
+    assert [l for l in linie if "resync_state" not in l] == [], \
+        "grep -v resync_state musi sciac calosc, nie tylko naglowek"
+
+
 def test_metadane_nie_ukrywaja_pola_ktorego_nie_znaja(capsys):
     """Format czytelny jest stratny z zalozenia, ale nie ma prawa milczec
     o tym, ze hub przyslal cos nowego — inaczej dodane pole jest niewidoczne

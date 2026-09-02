@@ -168,6 +168,7 @@ def _znacznik_seq(data):
 
 
 ZNACZNIK_METADANYCH = "[session_metadata]"
+ZNACZNIK_RESYNC = "[resync_state]"
 
 
 def _czytelne_metadane(data):
@@ -252,6 +253,22 @@ def _print_event(data):
         for linia in _czytelne_metadane(data):
             print(f"{ZNACZNIK_METADANYCH} {linia}" if linia
                   else ZNACZNIK_METADANYCH, flush=True)
+        return
+    if data.get("type") == "resync_state":
+        # Druga i ostatnia ramka bez `text`, ktora audyt wymienil obok
+        # `session_metadata` jako nierenderowany blok JSON w trybie czytelnym.
+        # Ksztalt `state` jest dowolny (sklada go hub), wiec rozbijamy go na
+        # klucze najwyzszego poziomu — jeden na linie, wartosc zwarta. Nie
+        # `indent=2`: wielolinijkowa wartosc rozjezdza sie ze znacznikiem,
+        # a to znacznik, nie wciecie, niesie tu filtr.
+        stan = data.get("state")
+        pary = (stan.items() if isinstance(stan, dict)
+                else [("state", stan)])
+        print(f"{ZNACZNIK_RESYNC} snapshot of the room state after "
+              f"compaction:", flush=True)
+        for klucz, wartosc in pary:
+            print(f"{ZNACZNIK_RESYNC}   {klucz}: "
+                  f"{json.dumps(wartosc, ensure_ascii=False)}", flush=True)
         return
     text = data.get("text")
     if text is None:
