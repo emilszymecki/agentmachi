@@ -103,9 +103,10 @@ Rerun z losowym tokenem — zweryfikowany przez weryfikatora z artefaktów:
 
 ```
 session_start.stamp   15:14:16.815
-token_generated_at    15:16:54.315      -> 2 min 37,5 s po starcie
 bridge start          15:16:29.723
-bridge deliver        15:16:54.932      -> 24,6 s po uzbrojeniu mostu
+token_generated_at    15:16:54.315      -> 2 min 37,5 s po starcie sesji
+                                           i 24,6 s po uzbrojeniu mostu
+bridge deliver        15:16:54.932      -> 25,2 s po uzbrojeniu mostu
 tui.out               2 wystąpienia tokena: "Stop hook error:" i "●"
 ```
 
