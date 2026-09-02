@@ -851,6 +851,57 @@ def test_udany_start_zostawia_adres_i_pidfile(home, monkeypatch):
     assert [r["name"] for r in cli.hub_rows()] == ["dziala"]
 
 
+def test_nieudany_bind_serve_podaje_droge_wyjscia(home, monkeypatch, capsys):
+    """B1 zamkniete GRANICA, nie naprawa — i granica ma byc w komunikacie.
+
+    `serve` binduje dokladnie podany port i nie szuka innego, wiec nie widzi
+    hubow z INNEGO AGENTMACHI_HOME i moze wybrac port, ktory jeden z nich
+    trzyma. Repo rozstrzygnelo to raz, pomiarem: alokator omijajacy zywe porty
+    ma w docstringu jawny zakaz uzycia poza `start`, bo odpytywanie systemu
+    uzaleznia wynik od tego, co akurat chodzi na maszynie. Doklejony tu
+    alokator wywrocil `test_serve_bez_portu_bierze_domyslny_i_nadal_przesuwa`
+    na PIERWSZYM przebiegu — cudzy test potwierdzil zakaz.
+
+    Po B4 taki `serve` konczy sie glosno i bez sladu. Czlowiekowi brakowalo
+    juz tylko drogi wyjscia, i tego pilnuje ten test."""
+    import chat.server
+    monkeypatch.setattr(chat.server, "main",
+                        lambda: (_ for _ in ()).throw(OSError("in use")))
+    assert cli.cmd_serve(argparse.Namespace(name="x5", port=8940,
+                                            bind="127.0.0.1")) == 1
+    err = capsys.readouterr().err
+    assert "does not look for another one" in err, \
+        "milczenie o tym, ze serve nie szuka portu, to ta granica"
+    assert "--port <other>" in err and "agentmachi start --name x5" in err, \
+        "komunikat ma podac obie drogi wyjscia, nie sam fakt awarii"
+
+
+def test_serve_z_jawnym_portem_NIE_przesuwa_sie_po_cichu(home, monkeypatch):
+    """Kontrola do B1: jawny --port jest DECYZJA czlowieka. Zajety port ma
+    skonczyc sie odmowa bindu, nie cichym wyladowaniem gdzie indziej — inaczej
+    czlowiek wkleja agentom adres, ktorego pokoj nie dostal."""
+    import chat.server
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+    monkeypatch.setattr(chat.server, "main",
+                        lambda: (_ for _ in ()).throw(OSError("in use")))
+    assert cli.cmd_serve(argparse.Namespace(name="x6", port=8940,
+                                            bind="127.0.0.1")) == 1
+    assert not cli.hub_dir("x6").exists()
+
+
+def test_serve_istniejacego_pokoju_nie_rusza_jego_adresu(home, monkeypatch):
+    """Druga kontrola: alokator zywy wolno wolac WYLACZNIE dla pokoju nowego.
+    Kursory klientow sa per host:port, wiec przesuniecie istniejacego znaczy
+    pusty log pod adresem, ktory ludzie juz maja wklejony."""
+    import chat.server
+    cli.ensure_hub("stary", 8931)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+    monkeypatch.setattr(chat.server, "main", lambda: None)
+    assert cli.cmd_serve(argparse.Namespace(name="stary", port=None,
+                                            bind="127.0.0.1")) == 0
+    assert cli.hub_port("stary") == 8931
+
+
 def test_list_ostrzega_gdy_adres_zatrzymanego_pokoju_trzyma_ktos_inny(
         home, monkeypatch, capsys):
     """Znalezisko 4 audytu szwow, zaplacone czterema ramkami w cudzym logu.

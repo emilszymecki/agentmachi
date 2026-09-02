@@ -1123,8 +1123,28 @@ def cmd_serve(args):
         _cofnij_slad_nieudanego_startu(
             args.name, katalog_istnial, config_przed, pid=os.getpid(),
             rmtree=not os.environ.get(SPAWNED_BY_START))
+        # B1, GRANICA NAZWANA W CHWILI POTRZEBY, nie w docach: `serve` binduje
+        # DOKLADNIE ten port i nie szuka innego. Alokator, ktory omija zywe
+        # porty (`_wybierz_port_zywy`), ma w docstringu jawny zakaz uzycia
+        # poza `start`, a `_wybierz_port` nie odpytuje systemu celowo — inaczej
+        # wynik zalezy od tego, co akurat chodzi na maszynie i cudze testy
+        # staja sie flaky (zmierzone 2026-08-06, potwierdzone ponownie dzis:
+        # doklejony alokator wywrocil `test_serve_bez_portu_bierze_domyslny`
+        # na PIERWSZYM przebiegu, bo obok zyla `interwizja`).
+        #
+        # Skutkiem tego zakazu `serve` nie widzi hubow z INNEGO
+        # AGENTMACHI_HOME i moze wybrac port, ktory jeden z nich trzyma. Po
+        # naprawie B4 konczy sie to glosno i bez sladu, wiec czlowiekowi
+        # brakuje tylko jednego: drogi wyjscia. Jest ponizej.
         print(f"agentmachi: hub {args.name!r} could not bind "
-              f"ws://{bind}:{port} — {e}", file=sys.stderr)
+              f"ws://{bind}:{port} — {e}\n"
+              f"  `serve` binds exactly this port and does not look for "
+              f"another one.\n"
+              f"  pick one yourself:     agentmachi serve --name {args.name} "
+              f"--port <other>\n"
+              f"  or let it choose:      agentmachi start --name {args.name}"
+              f"   (skips ports held by live hubs, this HOME's or not)",
+              file=sys.stderr)
         return 1
     return 0
 
