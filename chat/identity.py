@@ -10,8 +10,48 @@ przypisania serwera (patrz server.py).
 """
 
 import hmac
+import unicodedata
 
 _VALID_ROLES = ("agent", "human")
+
+# Kategorie Unicode, ktorych nick miec NIE MOZE. Lista jest po WLASNOSCI,
+# nie po znakach, i to jest cala jej tresc:
+#
+#   Cc  sterujace (\n, \r, \x1b — ANSI przepisuje juz wydrukowany wiersz),
+#   Cf  formatujace (RLO/LRO odwracaja kolejnosc, ZWSP/BOM znikaja bez sladu),
+#   Cs  surogaty, Co prywatne, Cn nieprzypisane — renderuja sie roznie
+#       w kazdym terminalu, wiec nick nie jest tym samym napisem u dwoch osob,
+#   Zl/Zp/Zs  separatory linii, akapitu i spacje — `@nick` konczy sie na
+#       bialym znaku, wiec nick ze spacja jest NIEADRESOWALNY.
+#
+# Czarnej listy KONKRETNYCH znakow tu nie ma i nie bedzie: zakaz znaku
+# utrwala go jako specjalny i przegrywa z pierwszym znakiem, o ktorym autor
+# listy nie pomyslal. Mysnik, podkreslnik i litery spoza ASCII (`ł`, `é`,
+# `日`) przechodza — sa dozwolone celowo i test falsyfikuje to w obie strony.
+_ZLE_KATEGORIE = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp", "Zs"})
+
+
+def sprawdz_ksztalt_nicka(nick):
+    """Podnies AuthError, gdy nick nie jest ADRESOWALNA tozsamoscia.
+
+    Dziura z red-teamu (`redteam-batch-2026-09-01.md`, dziura 2): hub
+    przyjmowal nick ze znakami kontrolnymi, bo jedynym warunkiem bylo
+    „niepusty string". Skutek siega dalej niz kosmetyka renderu: nick jest
+    JEDYNYM sposobem zaadresowania uczestnika (`@nick`), a `board` i TUI
+    ustawiaja go w kolumnach. Nick niosacy `\\n` albo RLO nie jest tozsamoscia
+    — jest sposobem na to, zeby wygladac na kogos innego w kazdym miejscu,
+    ktore te kolumny drukuje.
+
+    Sprawdzamy WLASNOSC („czy da sie to zaadresowac i czy wyglada tak samo
+    u wszystkich"), nie liste znakow — patrz `_ZLE_KATEGORIE`."""
+    for znak in nick:
+        if unicodedata.category(znak) in _ZLE_KATEGORIE:
+            # Znak podajemy jako codepoint, nie doslownie: gdybysmy wkleili
+            # go do komunikatu, ten sam RLO/ANSI przepisalby TEN wydruk.
+            raise AuthError(
+                f"nick contains a character that cannot be addressed or "
+                f"rendered the same way everywhere: U+{ord(znak):04X} "
+                f"(category {unicodedata.category(znak)})")
 
 # Wiazanie, ktorego NIE DA SIE dopasowac do zadnego adresu peera. Uzywane
 # wylacznie przez replay logu SPRZED pola `open_addr` w evencie hello: gdy
@@ -141,6 +181,13 @@ class Registry:
             raise AuthError("invalid nick")
         if nick == NICK_SERWERA:
             raise AuthError(f"{NICK_SERWERA!r} is reserved for the hub itself")
+        # Tylko TA sciezka: w trybie otwartym nick pochodzi WPROST od
+        # wchodzacego, wiec jest wejsciem od klienta i podlega kontraktowi
+        # wejscia. Sciezka tokenowa bierze nick z `tokens.json`, ktory pisze
+        # operator na wlasnej maszynie — tam kontrola nie broni przed
+        # napastnikiem, tylko potrafi zamknac dzialajacy pokoj przy starcie.
+        # Granica jest swiadoma, nie przeoczona.
+        sprawdz_ksztalt_nicka(nick)
         if not isinstance(instance_id, str) or not instance_id:
             raise AuthError(f"bad instance_id for {nick}")
         if self.roles.get(nick) == "human":
