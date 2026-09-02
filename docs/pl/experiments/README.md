@@ -52,7 +52,20 @@ przebiegu #1 poszła źle i została naprawiona dopiero w review:
 
 - **prerejestrację prognoz** z warunkiem falsyfikacji, w commicie
   **wcześniejszym** niż pierwsza ramka w pokoju; timestamp gita jest całym
-  dowodem,
+  dowodem. **Kanał prerejestracją nie jest.** Publikacja przed wynikami
+  wygląda tak samo, ale `events.jsonl` nie wchodzi do repo i po kompaktacji
+  albo skasowaniu pokoju dowód uprzedniości znika. Spike TUI zgłosił to sam
+  na siebie jako wadę przebiegu
+  ([`spike-tui-budzenie-zywej-sesji-2026-09-02.md`](spike-tui-budzenie-zywej-sesji-2026-09-02.md),
+  sekcja „Odstępstwo od standardu"),
+- **hash eksportu logów policzony NA KONIEC przebiegu, przed punktacją** —
+  plik z logiem sam z siebie zamkiem nie jest. Bez tego punktujesz z plików,
+  których tożsamości później nie wykażesz: pokoje się kasuje, a pieczęć
+  złożona po fakcie pilnuje ich dopiero od chwili złożenia.
+  [`commitments/2026-09-02-pieczec-post-hoc.txt`](commitments/2026-09-02-pieczec-post-hoc.txt)
+  jest dokładnie takim spóźnionym zamkiem i tak się przedstawia — powstał,
+  bo cztery pliki, na których stała cała punktacja board-pull, przeleżały
+  przebieg poza jakimkolwiek hashem,
 - **zamrożoną granicę przebiegu, filtr i regex** — inaczej metryka liczona
   „po całym logu" rośnie o ramki, w których się o niej rozmawia,
 - **czujniki z jawnym kontraktem wpisu** i zasadę, że instrument nie zalicza
