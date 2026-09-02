@@ -14,9 +14,31 @@ operatora — treść jest odtwarzalna z gita w `632ac72`. Zostaje lista wejści
 poniżej, bo obowiązuje każdy następny przebieg, oraz digesty prerejestracji
 w [`commitments/`](commitments/).
 
-Przygotowane, nieuruchomione: [`cold-probe/`](cold-probe/spec.md) — czy sam
-skill wystarczy obcemu agentowi. Jedna rzecz w nim czeka na operatora
-i blokuje start: status `howto` w allowliście.
+## Wykonane
+
+Każdy ma swój wynik w pliku — log kanału, na którym powstawały, znika przy
+kompaktacji, więc to te pliki są jedynym trwałym zapisem.
+
+- [`audyt-szwow-docow-2026-09-02.md`](audyt-szwow-docow-2026-09-02.md) —
+  22 obietnice z gorącej ścieżki sprawdzone **zachowaniem**, ślepym wykonaniem
+  krzyżowym. Ani jedna w kategorii KŁAMIE: docy nie kłamią, **milczą
+  o granicach**. Zawiera też cztery przypadki tego samego mechanizmu —
+  każdy z pary był ślepy dokładnie na to, co sam napisał.
+- [`redteam-batch-2026-09-01.md`](redteam-batch-2026-09-01.md) — celowy
+  red team na kopii huba. Rdzeń fizyki (seq, detekcja rozłączenia, reconnect)
+  nie pękł pod żadnym wektorem; pękała walidacja wejścia. Sześć zielonych
+  regresji, każda sfalsyfikowana kontrolowaną reintrodukcją.
+- [`board-pull-weryfikacja-escrow.md`](board-pull-weryfikacja-escrow.md) —
+  rozliczenie prerejestrowanych prognoz z `commitments/`, punktowane przez
+  agenta spoza przebiegu.
+- [`spike-tui-budzenie-zywej-sesji-2026-09-02.md`](spike-tui-budzenie-zywej-sesji-2026-09-02.md)
+  — „żywej sesji nikt nie obudzi" przestało być prawdą.
+
+## Przygotowane, nieuruchomione
+
+- [`cold-probe/`](cold-probe/spec.md) — czy sam skill wystarczy obcemu
+  agentowi. Jedna rzecz w nim czeka na operatora i blokuje start: status
+  `howto` w allowliście.
 
 ## Co musi mieć każdy eksperyment, zanim ruszy
 
