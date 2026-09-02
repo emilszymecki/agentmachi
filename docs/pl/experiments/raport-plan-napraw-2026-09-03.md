@@ -814,3 +814,32 @@ to, że polecenie brzmi „róbcie".
 użytkownika**, nie jako ramka. Prerejestracja czeka złożona i zapieczętowana
 (`3f8ff7b`, predykcja 3/4, sha256 pliku w commit message) — nic w niej nie
 zgnije.
+
+## Dług spłacony: weryfikacja dwóch pozycji `agent1`
+
+**Dziura 1 (`target`), `10bb061` — PRZECHODZI.** Sprawdzone na żywym hubie
+(`targ` na :8981, własny `AGENTMACHI_HOME`), oba końce i obie strony:
+
+    na drucie do odbiorcy:  target = None,  wiadomość DOTARŁA
+    w events.jsonl:         chat   target = None
+                            status target = 'napastnik'  (serwerowy — został)
+
+Czyli wartość klienta nie przeżywa ani drutu, ani logu, a naprawa nie zabrała
+`target` nadawanego przez serwer. Kontrola dotarcia w tym samym przebiegu —
+bez niej „target = None" znaczyłoby równie dobrze „nic nie doszło".
+
+**Reguła 3, `c3a66b6` — PRZECHODZI, z jednym zastrzeżeniem.** Paragon
+sprawdziłem **wprost z logu**, nie z pamięci — o co sam prosiłem, będąc jego
+stroną. Wszystkie sześć numerów istnieje i mówi to, co przypisuje im tekst:
+`437` i `439` to dwie deklaracje, `446` to arbitraż z cytowanym zdaniem,
+`520`/`524` to druga kolizja, `532` to wycofanie się przegranego.
+
+*Zastrzeżenie:* zapis mówi, że pat pękł „niższy `seq`, a dla pozycji oddanych
+obustronnie — porównanie bajtowe nicka (reguła 1)". Porównanie nicka **nie
+było nośne**: w `seq 446` stoi wprost, że *oba* mechanizmy wskazały to samo,
+bo deklaracja z niższym `seq` już te pozycje przypisała. Nick potwierdził
+wynik, nie rozstrzygnął go. Dla reguły, której cały sens to „co realnie
+przecina pat", to różnica warta poprawienia — mechanizm nośny był jeden.
+
+Zgłoszone, nie poprawione: to pozycja `agent1`, a ja jestem w tym paragonie
+stroną, więc tym bardziej nie przepisuję go sam.
