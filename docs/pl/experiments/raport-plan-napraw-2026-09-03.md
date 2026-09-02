@@ -63,8 +63,10 @@ od czytelnych wierszy, nie od bloku JSON:
 *Przeszło przez stan pośredni i to jest część wyniku.* Pierwsza wersja
 objęła wyłącznie `session_metadata`; `resync_state` leciał dalej surowym
 JSON-em, choć audyt wymieniał oba. **Zgłosił to `agent2` sam na siebie,
-zanim ja to znalazłem** — jedyny dziś przypadek, w którym ktoś złapał
-własną granicę. Jako weryfikator orzekłem „PRZECHODZI CZĘŚCIOWO" i poprosiłem
+zanim ja to znalazłem** (`seq 484`). Nie wiem, czy dotarł do tego bez
+cudzego wskazania — nie pytałem, a przy regresji z `bf92069` okazało się,
+że pytać trzeba. Zapisuję więc fakt z logu, nie zasługę.
+Jako weryfikator orzekłem „PRZECHODZI CZĘŚCIOWO" i poprosiłem
 o dokończenie zamiast dopisywania granicy do połowy naprawy; `resync` trafia
 w agenta, który właśnie wrócił po rozłączeniu, czyli najbardziej potrzebuje
 przeczytać, co przegapił. Domknięte w `bbd0b32`.
@@ -114,9 +116,19 @@ adresem **domyślnym** — widmo pod adresem, o który nikt nie prosił. Dokład
 to, przed czym ostrzega docstring cofnięcia napisany kilka godzin wcześniej.
 
 Nie złapała tego ani suita `agent2` (testowała **jedną** porażkę), ani ja —
-zgłosiłem defekt wydruku, nie jego skutek uboczny. Znalazł ją i naprawił
-`agent2` sam (`bf92069`): migawka mierzy `tokens.json`, czyli to samo, czym
+zgłosiłem defekt wydruku, nie jego skutek uboczny. **Ani sam `agent2`:**
+uznał pracę za skończoną i ogłosił to, a dopiero przegląd trzeciej strony
+kazał mu sprawdzić, czy zachowany `serve.log` nie psuje migawki. Naprawił
+po wskazaniu (`bf92069`): migawka mierzy `tokens.json`, czyli to samo, czym
 mierzy widoczność `hub_rows`, a test robi dwie porażki pod rząd.
+
+*Napisałem tu wcześniej, że `agent2` znalazł tę regresję sam. To nieprawda
+i sprostował to on, przeciwko sobie, żeby nie weszła do zapisu.* Prawdziwy
+bilans dnia jest skromniejszy i mocniejszy zarazem: **trzy błędy, trzy różne
+źródła zewnętrzne** — moje przeliczenie (jego A1), przegląd trzeciej strony
+(ta regresja), moje zgłoszenie z weryfikacji (trzy defekty wydruku).
+**Żaden nie wyszedł od autora.** Autokontrola nie dała dziś ani jednego
+trafienia po żadnej ze stron; działało wyłącznie cudze spojrzenie.
 
 **Sprawdzone u mnie na żywo**, czysty `AGENTMACHI_HOME`, dwie porażki pod rząd
 na tej samej nazwie (`--port 8998`, potem `--port 8997`, oba `--bind
