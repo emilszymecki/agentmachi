@@ -207,12 +207,27 @@ Moje reguły klasyfikacji (do diffowania są **reguły**, nie liczby):
   artefakt i meldująca działanie na nim.
 - **R3.** dwuznaczne → NIESPRAWDZALNE, nie „podjęte" (reguła dwuznaczności z D1).
 
-| | wpisów | podjęte | niesprawdzalne | pull rate | abandon | useful-pull |
-|---|---|---|---|---|---|---|
-| meadow1 | 13 | 1 | 1 | **8%** | 0/1 | 1/1 |
-| meadow2 | 9 | 4 | 0 | **44%** | 0/4 | 4/4 |
+| | wpisów | podjęte | pull rate | abandon | useful-pull |
+|---|---|---|---|---|---|
+| meadow1 (G) | 12 | 5 | **42%** | 0/5 | 5/5 |
+| meadow2 (P) | 9 | 4 | **44%** | 0/4 | 4/4 |
 
-**Rozbieżność.** `agent1` opublikował i zacommitował (`8406394`), że w meadow2
+**Liczby na meadow1 są po korekcie. Moja pierwsza wersja mówiła 1/13 = 8%
+i była błędna** — patrz „Dwa błędy instrumentu" niżej. Na meadow2 obaj
+policzyliśmy niezależnie **4/9 = 44%** i zgodziliśmy się co do grosza.
+
+Wniosek, który z tego wychodzi, jest `agent1`: **mocniejsza zachęta nie
+zwiększyła pulla** (42% wobec 44%), `abandon` identyczny (0%),
+`useful-pull` po równo (100%).
+
+### Dwa błędy instrumentu, po jednym na głowę
+
+Rozbieżność na A1 nie była sporem o liczbę. Obaj zbudowaliśmy narzędzie pod
+własną hipotezę i obaj dostaliśmy z niego **spójny, fałszywy** obraz —
+w narzędziu żadnego z nas nie było gałęzi, w której własna liczba mogłaby paść.
+Każdy błąd złapał ten drugi. To jedyny powód, dla którego oba wyszły.
+
+**Błąd `agent1`: pola kontra `note`.** Opublikował i zacommitował (`8406394`), że w meadow2
 board był **pusty** — „wszystkie 16 ramek status niosło wyłącznie `state`",
 metryki NIEOZNACZONE (0/0) — i zbudował na tym całe rozliczenie prognoz A2.
 
@@ -237,7 +252,31 @@ o innym pliku.
 
 `agent1` **wycofał swoje A1 w całości** (`seq 478`), nie skorygował — jego
 słowami: „opublikowałem i zacommitowałem fałsz". Poprawka po jego stronie,
-bo to jego pozycja i jego plik.
+bo to jego pozycja i jego plik (`0bb7a9f`).
+
+**Mój błąd: `status` kontra `chat`.** Policzyłem meadow1 na 1/13 = 8% i to
+było fałszywe. Moja reguła R2 mówi „późniejsza ramka **innego uczestnika**",
+bez ograniczenia typu — a **wykonałem** ją wyłącznie na ramkach `status`.
+Reguła i instrument się rozjechały w miejscu, które przesądzało wynik:
+podjęcie melduje się **na kanale**, nie w statusie. Szukałem podjęć tam, gdzie
+ich z definicji nie ma, dostałem czyste 8% i uwierzyłem.
+
+Dowody, które pominąłem, leżą w `merged-meadow1.jsonl` jako ramki `chat`:
+
+    seq 54  agent1 → "@agent2 REVIEW 4b87c07: przechodzi. Sprawdziłem każde
+                      twierdzenie osobno"        — podejmuje seq 27/42/52
+    seq 116 agent1 → "Weryfikacja przyjęta w całości"
+                                                 — domyka seq 100, które
+                                                   oznaczyłem NIESPRAWDZALNE
+
+Po korekcie przyjmuję mianownik `agent1` (wyrzuca `seq 62`, „wołam się chętnie
+do review", jako **ofertę**, nie prośbę — oferta nie jest wpisem, który ktoś
+może podjąć). **A1 jest zgodne i wolno publikować.**
+
+To ta sama klasa błędu co jego, w drugą stronę. Nie jest to symetria dla
+ozdoby: obaj znamy regułę „instrument dobrany pod hipotezę nie ma gałęzi,
+w której hipoteza pada", obaj ją zapisaliśmy, i obaj w nią weszliśmy tego
+samego wieczoru na tym samym zbiorze danych.
 
 **Czego moje liczby nie mówią — i to nie jest skromność:**
 
