@@ -1,0 +1,321 @@
+# Plan napraw po samobadaniach 0–6 — raport agent2
+
+**HEAD w chwili pisania:** `3f8ff7b`
+**Czas:** 2026-09-03, ok. 00:30, pokój `interwizja`
+**Pisze:** sesja deklarująca się jako `agent2`. Której z równoległych sesji
+odpowiada — nie da się ustalić z artefaktów (`zasady-agentyczne.md`, reguła 17).
+
+To jest **połowa raportu**: pozycje, które wykonałem, plus moje weryfikacje
+cudzych. Zdania o pozycjach `agent1` pochodzą z mojego pomiaru albo są jawnie
+oznaczone jako niezweryfikowane. Nigdzie nie oceniam zdania, które sam
+napisałem.
+
+## Podział i jak został ustalony
+
+Obaj zadeklarowaliśmy podział, kolidując na B1/B3/B4. Rozstrzygnął log:
+moja deklaracja ma `seq 437`, deklaracja `agent1` — `seq 439`. Niższy wziął.
+`agent1` wycofał się bez dyskusji (`seq 444`).
+
+Pozycje, które **obaj oddaliśmy drugiemu** (B5–B7, C1, C2, A2, A3, A4, D1, D2),
+to symetryczne ustępowanie — stan bez właściciela, przed którym ostrzega
+konstytucja. Rozstrzygnęły oba mechanizmy i wskazały to samo: `seq 437`
+przypisał je `agent1`, a tiebreak nickiem (`agent1` < `agent2` bajtowo) też.
+
+| | naprawia | weryfikuje |
+|---|---|---|
+| B1, B2, B3, B4 | agent2 | agent1 |
+| B5, B6, B7, C1, C2, A2, A3, A4, D1, D2 | agent1 | agent2 |
+| A1 | obaj niezależnie | — |
+| E1 | agent1 odpala | agent2 orzeka |
+
+E1 krzyżował się trzykrotnie. Ustąpiłem na merytorycznym argumencie (`seq 446`),
+`agent1` tego ustępstwa nie przyjął i miał rację: wiążąca jest deklaracja
+z niższym `seq`, czyli moja, a ona mówi „ty odpalasz, ja orzekam".
+
+---
+
+## B1 — kolizja portu między katalogami `AGENTMACHI_HOME`
+
+**ZROBIONE jako GRANICA, nie naprawa.** Commit `2ce045f`.
+
+Plan dawał wybór i wymagał uzasadnienia pomiarem. Pomiar: dwa katalogi HOME,
+żywy hub na `DEFAULT_PORT` w pierwszym, cztery drogi:
+
+| droga | wynik |
+|---|---|
+| `start --port <zajęty przez cudzy hub>` | odmowa, rc=1, port nazwany |
+| `start` bez `--port`, pokój nowy | przesunięcie 8766 → 8768, omija ŻYWE porty cudzego HOME |
+| `start`, pokój istniejący | zachowuje swój adres |
+| `serve` bez `--port`, pokój nowy | brał zajęty port, padał na bindzie |
+
+Trzy z czterech poprawne. Czwarta po naprawie B4 kończy się głośno, kodem 1
+i bez śladu — nie kłamstwem i nie widmem.
+
+**Napisałem naprawę i ją wycofałem.** Alokator omijający żywe porty w `serve`
+wywrócił cudzy test `test_serve_bez_portu_bierze_domyslny_i_nadal_przesuwa` na
+**pierwszym** przebiegu: dostał 8769 zamiast 8767, bo obok żyła `interwizja`.
+Repo rozstrzygnęło tę sprawę wcześniej i ma trzy zapisy — docstring
+`_wybierz_port_zywy` zabrania używać go poza `start` wprost, `_wybierz_port`
+podaje powód (wynik zależałby od tego, co akurat chodzi na maszynie),
+`_port_accepts` nazywa to artefaktem izolacji zmierzonym 2026-08-06.
+CLAUDE.md każe przed przepisaniem cudzego testu udowodnić, że stary kontrakt
+był błędny. Kontrakt właśnie udowodnił, że miał rację.
+
+Zamiast tego blok awarii bindu mówi wprost, że `serve` binduje dokładnie ten
+port i nie szuka innego, i podaje obie drogi wyjścia (`--port` albo `start`).
+Granica czytana w chwili potrzeby, nie w pliku, do którego trzeba trafić.
+
+**Zweryfikuje:** agent1. **Niezweryfikowane w chwili pisania.**
+
+## B2 — `listen` w trybie czytelnym zaczynał się od ściany JSON-a
+
+**ZROBIONE.** Commit `fd1225b`.
+
+Zmierzone: pierwsza linia trybu czytelnego to **jedna** linia surowego JSON-a
+na ~18 tys. znaków — rules + board + całe howto, z `—` i `\n` zamiast
+tekstu. Kryterium z planu („prawdziwe dla kogoś, kto czyta od pierwszego
+wiersza") nie było spełnione dla jedynej ramki, którą dostaje **każdy**
+wchodzący, przy **każdym** reconnect.
+
+`session_metadata` renderuje się teraz po ludzku. Znacznik `[session_metadata]`
+powtarza się w KAŻDEJ linii i to warunek działania filtra, nie kosmetyka:
+dokumentowany filtr to `grep -v session_metadata` **przed** filtrem wzmianek,
+bo `@all`, `takeover` i `4003` siedzą w treści howto. Gdyby znacznik stał tylko
+w nagłówku, samo rozbicie na linie zepsułoby filtr.
+
+Zmierzone na żywym hubie: **108 linii przed filtrem, 0 po nim**, tą samą
+niezmienioną komendą z doców.
+
+**Uczciwie o sile dowodu:** reintrodukcja obala **1 z 3** nowych testów, nie 3.
+Dwa pozostałe są kontrolami — pilnują, że nie przesadziłem, i mają przechodzić
+w obie strony.
+
+**Poprawiłem cudzy test** `test_hello_ok_emits_session_metadata_before_backlog`.
+Jego własny komentarz mówi, że broni KOLEJNOŚCI emisji, a nie kształtu linii,
+ale asercja `'"abc"' in lines[0]` wiązała się z kształtem surowego JSON-a —
+`rules_hash` leżał w linii 0 tylko dlatego, że linia 0 była zrzutem całej ramki.
+Kolejność i widoczność skrótu bronione dalej, kształt puszczony.
+
+**Zweryfikuje:** agent1. **Niezweryfikowane w chwili pisania.**
+
+## B3 — `list` podawał adres cudzego huba i nic nie ostrzegał
+
+**ZROBIONE.** Commit `627458d`. Trzy rzeczy, u dwóch jedna przyczyna.
+
+**Główne.** Pokój `t9` nie wstał, a `list` podał `ws://localhost:8767` — adres
+żywej `interwizji`. Cztery ramki stoją w cudzym logu do dziś (`seq 295–298`,
+nick `ktos`). Wiersz zatrzymanego pokoju, pod którego adresem ktoś słucha,
+dostaje teraz `stopped, ADDRESS TAKEN` plus ostrzeżenie mówiące wprost, czego
+z tym adresem **nie** robić. Sieci pytamy wyłącznie o pokoje zatrzymane
+i wyłącznie o ich własny adres.
+
+**Dwa defekty z tego samego wydruku, jedna przyczyna.** Dziecko drukowało kartę
+pokoju do `serve.log` PRZED bindem, a rodzic cytuje ogon tego logu jako
+`reason:`. Stąd i „powód: zdanie zaproszenia", i gotowe do wklejenia
+`join agentmachi 'r2' (ws://localhost:8767) as agent1` dla pokoju, który nie
+wstał, pod adresem cudzego huba. Pod `start` karty nie drukuje już dziecko —
+drukuje ją rodzic, po potwierdzeniu bindu, i robił to zawsze.
+
+**Rozszerzenie zakresu, zgłaszam jako własne.** Podpowiedź „stopped ones you
+can launch" wskazywała pokój z zajętym adresem, czyli komendę, która na pewno
+odmówi — w wydruku, który właśnie ostrzega, że z tym pokojem coś jest nie tak.
+Takie pokoje są teraz pomijane. Jeśli `agent1` uzna to za dopisywanie — idzie
+do raportu jako rozbieżność, nie jako uzgodniona wersja.
+
+**Zweryfikuje:** agent1. **Niezweryfikowane w chwili pisania.**
+
+## B4 — adres zapisywany przed potwierdzeniem bindu
+
+**ZROBIONE.** Commit `f46cfd3`. **ZWERYFIKOWANE przez agent1** (`seq 463`):
+własne worktree `../agents_chat-weryf`, detached na moim commicie, suita 721,
+reintrodukcja (cofnięty mój `cli.py` do `401ed91`, testy zostawione) → 4 czerwone,
+1 zielony, plus dwa przypadki odtworzone na żywo na jego własnym HOME.
+
+Zmierzyłem **trzy** przypadki, nie jeden:
+
+1. nowy pokój, `--bind 192.0.2.1` → `list` i `card` podawały
+   `ws://192.0.2.1:8999` jako prawdę o pokoju,
+2. to samo z samodzielnego `serve` — drugie wejście, ta sama klasa co
+   `_odmow_zajetego_portu`, gdzie strzeżone było jedno z dwóch,
+3. **najdroższy:** pokój działający pod `ws://127.0.0.1:8901` po nieudanym
+   `start --port 8902 --bind 192.0.2.1` zostawał pod tym drugim adresem **na
+   trwałe**. Dobry adres ginął, a rada z komunikatu („wybierz inny port") nie
+   miała jak pomóc, bo config już kłamał.
+
+**Odstępstwo od litery planu — zgłoszone przeze mnie, nie znalezione u mnie.**
+Plan mówi „kolejność: bind, potem zapis". Dosłownie jest to nieosiągalne bez
+nowego mechanizmu w rdzeniu, którego plan zabrania: adres zapisują **dwa**
+procesy przed bindem (`ensure_hub` u rodzica i u dziecka), a ten, który
+binduje, już nie wraca — `server_main` blokuje do SIGTERM-a. Jedynym istniejącym
+sygnałem „bind udany" jest `READY_MARK` czytany przez rodzica. Zrobiłem to więc
+jako **cofnięcie z migawki**, nie opóźnienie zapisu. Skutek ten sam, okno inne:
+między spawnem a `READY_MARK` równoległy `list` widzi pokój.
+
+Kasowanie samego `config.json` nie wystarczało: `hub_rows` wpuszcza pokój do
+`list` na podstawie `tokens.json`, więc pokój bez configu pokazywałby się pod
+adresem **domyślnym** — widmo pod adresem, o który nikt nie prosił.
+
+## B5, B6, B7 — pozycje agent1
+
+**B6 — ZWERYFIKOWANE PRZEZE MNIE, przechodzi.** Nie na słowo: własny izolowany
+`AGENTMACHI_HOME`, hub `b6w` na 8951, dwa `listen` na nicku `probant`, ten sam
+`$HOME`:
+
+    rc drugiego = 1
+    chat.client_session.ListenerLockHeld: another listener for this session is
+      already running (lock: ~/.chat-sessions/probant-cc97617a357c.listener.lock)
+    ramek `error` / `suggested_nick`: 0
+    wystąpień ListenerLockHeld: 2
+
+Poprawione zdanie w `CLAUDE.md` jest prawdziwe co do słowa, łącznie z tym, że
+traceback podaje ścieżkę locka.
+
+**B5 i B7 — NIEZWERYFIKOWANE PRZEZE MNIE w chwili pisania.** Nie zdążyłem;
+to dług, nie werdykt. `agent1` sam wycofał i poprawił część B5 w `cce6124`
+(„moje własne zdanie było prawdziwe w zakresie, którego nie podawało").
+
+## C1, C2 — pozycje agent1
+
+**C1 — ZWERYFIKOWANE, przechodzi.** Sprawdziłem mechanicznie, że każdy SHA
+z nowych wskaźników istnieje w tym repo i że data się zgadza:
+
+    4da1ec1  2026-07-31  fix(takeover): kursor przestaje przeskakiwac ramki…
+    a2f6c85  2026-07-25  docs(rules): zasady agentyczne z dogfoodu…
+
+**C2 — ZWERYFIKOWANE, przechodzi.** Status `NIEODTWARZALNY` stoi w tekście,
+z datą audytu i z rozróżnieniem „nieodtwarzalny nie znaczy fałszywy", czyli
+dokładnie tak, jak plan wymagał — bez łagodzenia i bez wzmacniania.
+
+**Zastrzeżenie, które zgłosiłem przed pracą i które zostaje w mocy:** reguły 17
+w `zasady-agentyczne.md` nie mogę weryfikować przy C2, bo sam ją napisałem.
+Jeśli wpadła w zbiór „nieodtwarzalnych", idzie do raportu jako
+**niezweryfikowana krzyżowo**, nie jako uzgodniona.
+
+## A1 — trzy metryki board-pull
+
+**ROZBIEŻNOŚĆ, rozstrzygnięta pomiarem. Publikacja wstrzymana do zgodności.**
+
+Policzyłem niezależnie, przed przeczytaniem liczb `agent1`. Pieczęć A3
+zweryfikowałem przed liczeniem — wszystkie cztery sha256 się zgadzają.
+
+Moje reguły klasyfikacji (do diffowania są **reguły**, nie liczby):
+
+- **R1.** wpis = każde wystąpienie pola `proszę`/`marzę` o wartości innej niż
+  „nic". Powtórzenie tej samej prośby w kolejnej ramce liczy się jako osobny
+  wpis, bo spec mówi „odsetek **wpisów**".
+- **R2.** podjęty = późniejsza ramka **innego** uczestnika nazywająca ten sam
+  artefakt i meldująca działanie na nim.
+- **R3.** dwuznaczne → NIESPRAWDZALNE, nie „podjęte" (reguła dwuznaczności z D1).
+
+| | wpisów | podjęte | niesprawdzalne | pull rate | abandon | useful-pull |
+|---|---|---|---|---|---|---|
+| meadow1 | 13 | 1 | 1 | **8%** | 0/1 | 1/1 |
+| meadow2 | 9 | 4 | 0 | **44%** | 0/4 | 4/4 |
+
+**Rozbieżność.** `agent1` opublikował i zacommitował (`8406394`), że w meadow2
+board był **pusty** — „wszystkie 16 ramek status niosło wyłącznie `state`",
+metryki NIEOZNACZONE (0/0) — i zbudował na tym całe rozliczenie prognoz A2.
+
+Zmierzone z **jego własnych zapieczętowanych plików**:
+
+    events-meadow2-final.jsonl    0 ramek status  {}
+    merged-meadow2.jsonl         16 ramek status  {…, 'teraz':15, 'martwie':10,
+                                  'prosze':2, 'proszę':4, 'marzę':4, 'marze':2}
+
+Czyli `events` nie ma **żadnej** ramki status — nie da się z niego wyciągnąć
+ani „16", ani „wyłącznie state". `merged` ma 16 i **niesie pola**.
+
+**Mechanizm, i to jest właściwe znalezisko A1: ramiona zakodowały ten sam
+słownik inaczej.** W meadow1 pól nie ma — `teraz:`/`martwie:`/`prosze:` siedzą
+wewnątrz tekstu pola `note` (`note` w 17/17 ramek). W meadow2 to
+**pierwszoklasowe pola ramki** (`note` w 1/16). Kto szuka słownika w `note`,
+widzi meadow2 jako pusty; kto szuka pól, widzi meadow1 jako pusty. Obaj
+dostają spójny, fałszywy obraz drugiego ramienia. Spec ostrzegał przed czymś
+sąsiednim („końcowego `events.jsonl` nie traktujemy za wystarczające źródło
+historii statusów") — wada instrumentu była nazwana przed przebiegiem, tylko
+o innym pliku.
+
+`agent1` **wycofał swoje A1 w całości** (`seq 478`), nie skorygował — jego
+słowami: „opublikowałem i zacommitowałem fałsz". Poprawka po jego stronie,
+bo to jego pozycja i jego plik.
+
+**Czego moje liczby nie mówią — i to nie jest skromność:**
+
+1. n jest małe (13 i 9 wpisów, dwóch uczestników). Różnica 8% vs 44% ma
+   przedział ufności szerszy niż sama różnica.
+2. Ramiona różnią się **nie tylko** ontologią. W meadow1 prawie wszystkie
+   prośby to `agent2` → `agent1` o review, na które `agent1` nie odpowiedział
+   widoczną ramką. W meadow2 prośby szły w **obie** strony. Kierunkowość jest
+   konkurencyjnym wyjaśnieniem całej różnicy i tego przebiegu nie da się od
+   niej odseparować.
+3. `abandon` 0% w obu ramionach może znaczyć „podejmowali tylko to, co
+   dowozili", a nie „board działa".
+4. Mierzymy słownik, który z produktu **usunęliśmy**. To rozliczenie długu,
+   nie przesłanka do przywrócenia pól.
+
+## A2, A3, A4 — pozycje agent1
+
+**A3 — ZWERYFIKOWANE, przechodzi.** Przeliczyłem sha256 wszystkich czterech
+eksportów przed liczeniem A1 — zgadzają się z pieczęcią. Etykieta „pieczęć
+post-hoc" jest w pliku i mówi wprost, czego pieczęć **nie** dowodzi.
+
+**A2 — NIEZWERYFIKOWANE, i częściowo unieważnione.** `agent1` rozliczył
+prognozy przeciw twierdzeniu „P dał zero wpisów", które właśnie upadło.
+Trzeba je przeliczyć po jego poprawce A1. Osobno: `agent1` zmierzył, że
+prognoza Sola **nie jest** VOID — leży w `spec.md:145-152` pod tym samym
+hashem co reszta specu. Plan zakładał, że nie została złożona. **Tego nie
+weryfikowałem.**
+
+**A4 — NIEZWERYFIKOWANE PRZEZE MNIE.** Sekcje w `experiments/README.md` są
+(sprawdziłem obecność, nie treść).
+
+## D1, D2 — pozycje agent1
+
+**NIEZWERYFIKOWANE PRZEZE MNIE.** Sekcje w `README.md` są obecne (ślepe
+wykonanie krzyżowe, reguła dwuznaczności, „nazwij, co kontrola odbiera").
+Reguły dwuznaczności **użyłem** w A1 jako R3, więc działa w praktyce — ale to
+nie jest weryfikacja jej zapisu.
+
+## E1 — ramię B2, subagent bez dziedziczenia
+
+**PREREJESTRACJA ZŁOŻONA przez agent1** (`3f8ff7b`, predykcja 3/4, sha256 pliku
+w treści commita). **Przebieg nie wykonany w chwili pisania.**
+Odpala `agent1`, orzekam ja.
+
+**Ujawnienie, które musi towarzyszyć mojemu przyszłemu orzeczeniu:** sekcja
+„Ramię bez kontroli" w `subagent-vs-peer-2026-09-02.md` jest moja, a prereg
+`agent1` opiera na niej analizę kosztu kontroli („brak narzędzi odbiera całą
+klasę znalezisk"). Czytelnik ma to wiedzieć, zanim uwierzy mojemu werdyktowi.
+
+## Poza zakresem — wykonane zgodnie z planem, czyli nie tknięte
+
+Wszystkie pozycje z „DECYZJE WŁAŚCICIELA" i z „NIE TERAZ". Nie wykonałem ich
+i nie proponowałem w ich miejsce własnych.
+
+---
+
+## Mój własny błąd metody w tej sesji
+
+Przy pomiarach B1 zrobiłem `rm -rf` na katalogu `AGENTMACHI_HOME` **bez**
+`stop` i zostawiłem osieroconego huba na 8768 (PID 199290) — proces żywy
+i nasłuchujący, niewidoczny dla `list`, bo jego katalog już nie istniał.
+To **M1 z audytu szwów**, który współpisałem, powtórzone przeze mnie
+kilkanaście godzin później.
+
+Kosztowało konkretnie: to on zajął 8768 i sprawił, że cudzy test dostał 8769
+zamiast 8767 — czyli wszedł mi w **pomiar**, na którym stała decyzja B1.
+Ubity (`agentmachi kill "serve --name x2"`), potwierdzone `ss`: 0 nasłuchów.
+
+Znajomość reguły nie wystarczyła. Wystarczyłoby `stop --all` przed `rm -rf`.
+
+## Obserwacja poboczna, nie pozycja planu
+
+`docs/pl/raport-sesja-odejmowania.md` linkuje do `philosophy.md` względnie
+z `docs/pl/`, a plik leży w `docs/`. Jedyny martwy link względny w całym
+`docs/` + `CLAUDE.md` + `AGENTS.md` (sprawdzone mechanicznie). Nie naprawiam —
+nie ma za tym liczby z tych sześciu zapisów i nie jest to pozycja planu.
+
+## Stan suity
+
+`731 zielonych` na `2ce045f` (moje cztery pozycje, przed rebase na A1/A2/E1
+`agent1`). Po każdej z moich napraw suita była zielona przed commitem.
