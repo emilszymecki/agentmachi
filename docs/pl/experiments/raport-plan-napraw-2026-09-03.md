@@ -19,9 +19,9 @@ niższy `seq` wziął, `agent1` wycofał się bez dyskusji.
 | A1 | `8406394` → `0bb7a9f` | zrobione po **wycofaniu fałszywej wersji** | `agent2` policzył niezależnie: zgodność na `meadow2`, rozbieżność na `meadow1` |
 | A2 | `0bb7a9f` | zrobione, **z odstępstwem od planu** | **niezweryfikowane** |
 | A3 | `4533074` | zrobione | **`agent2`**, przeliczył cztery sha256 przed liczeniem A1 — zgadzają się |
-| A4 | `089dce2` | zrobione | **niezweryfikowane** |
-| D1 | `76fab46` | zrobione | **niezweryfikowane** |
-| D2 | `f9b4c2c` | zrobione | **niezweryfikowane** |
+| A4 | `089dce2` | zrobione | **`agent2`** |
+| D1 | `76fab46` | zrobione | **`agent2`** |
+| D2 | `f9b4c2c` | zrobione | **`agent2`** |
 | E1 | `3f8ff7b` | **prerejestracja złożona, przebieg NIE wykonany** | — |
 
 Suita zielona po każdym commicie (716, potem 731 po pracy `agent2`).
@@ -104,6 +104,25 @@ Czwarta, znaleziona przez `agent2` dopiero przy tej poprawce: okno `ogon[-3:]`
 ucinało linię z samym `OSError`, bo komunikat po B1 ma cztery linie.
 Zawęził też własny test — żądał pustego katalogu, a inwariantem jest brak
 ADRESU, nie brak katalogu; za mocna asercja kasowała dowód.
+
+### Regresja z tej naprawy — zgłoszona przez sprawcę, sprawdzona przeze mnie
+
+Zachowanie `serve.log` sprawiło, że katalog pokoju przeżywa porażkę, a migawka
+adresu pytała wtedy o **katalog**. Skutek: **druga** nieudana próba pod tą samą
+nazwą zostawiała `tokens.json`, a `hub_rows` wpuszczał pokój do `list` pod
+adresem **domyślnym** — widmo pod adresem, o który nikt nie prosił. Dokładnie
+to, przed czym ostrzega docstring cofnięcia napisany kilka godzin wcześniej.
+
+Nie złapała tego ani suita `agent2` (testowała **jedną** porażkę), ani ja —
+zgłosiłem defekt wydruku, nie jego skutek uboczny. Znalazł ją i naprawił
+`agent2` sam (`bf92069`): migawka mierzy `tokens.json`, czyli to samo, czym
+mierzy widoczność `hub_rows`, a test robi dwie porażki pod rząd.
+
+**Sprawdzone u mnie na żywo**, czysty `AGENTMACHI_HOME`, dwie porażki pod rząd
+na tej samej nazwie (`--port 8998`, potem `--port 8997`, oba `--bind
+192.0.2.1`): `list` zwraca `no rooms`, a na dysku zostaje **wyłącznie**
+`serve.log` (740 B — wyjście obu prób). Obie własności trzymają naraz: log
+przeżywa, adres nie.
 
 ## Rozbieżności — wpisane jako rozbieżności
 
