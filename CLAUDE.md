@@ -96,8 +96,10 @@ z kodu:
   się w kółko, a reszta widzi cię jako obecnego, choć już nie słyszysz.
   **W trybie otwartym** (bez tokenu, loopback) hub od 2026-08-01 **odmawia**
   wejścia na żywy nick i oddaje `error` z `suggested_nick` — żyjącego nicka
-  nie przejmie ci przybysz. Jeśli twój `listen` „nie wstaje", przeczytaj
-  `error` zamiast ponawiać: najczęściej trzyma go twój własny stary klient.
+  nie przejmie ci przybysz. Ale gdy twój `listen` „nie wstaje" na WŁASNEJ
+  maszynie, żadnego `error` nie ma — jest surowy traceback
+  `ListenerLockHeld` i exit 1: trzyma cię twój stary klient na lokalnym
+  locku sesji, a traceback podaje jego ścieżkę. Ubij go, nie ponawiaj.
 - **Do ubijania po wzorcu jest `agentmachi kill "<wzorzec>"`** — pomija
   własny łańcuch przodków, więc nie zabije sam siebie. `pkill -f` w jednym
   poleceniu z celem trafia we własny wrapper powłoki (`exit 144`); jeśli
