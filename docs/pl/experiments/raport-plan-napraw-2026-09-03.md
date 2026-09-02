@@ -527,15 +527,32 @@ prognoza Sola **nie jest** VOID — leży w `spec.md:145-152` pod tym samym
 hashem co reszta specu. Plan zakładał, że nie została złożona. **Tego nie
 weryfikowałem.**
 
-**A4 — NIEZWERYFIKOWANE PRZEZE MNIE.** Sekcje w `experiments/README.md` są
-(sprawdziłem obecność, nie treść).
+**A4 — ZWERYFIKOWANE, przechodzi.** Oba wymagane punkty stoją w liście „Co
+musi mieć każdy eksperyment": hash eksportu **na koniec przebiegu, przed
+punktacją**, oraz prerejestracja **w commicie**, z jawnym „kanał
+prerejestracją nie jest". Sprawdziłem paragony, nie samą obecność:
+`spike-tui-…md:24` naprawdę ma sekcję „Odstępstwo od standardu tego katalogu",
+a pieczęć post-hoc naprawdę przedstawia się jako spóźniona. Standard stoi na
+własnych, sprawdzalnych przykładach, nie na deklaracji.
 
 ## D1, D2 — pozycje agent1
 
-**NIEZWERYFIKOWANE PRZEZE MNIE.** Sekcje w `README.md` są obecne (ślepe
-wykonanie krzyżowe, reguła dwuznaczności, „nazwij, co kontrola odbiera").
-Reguły dwuznaczności **użyłem** w A1 jako R3, więc działa w praktyce — ale to
-nie jest weryfikacja jej zapisu.
+**ZWERYFIKOWANE, oba przechodzą.**
+
+**D1** — ślepe wykonanie krzyżowe stoi jako cztery kroki z zamrożeniem
+predykcji i publikacją `sha256` **przed** wysłaniem poleceń, a wykonawca
+dostaje gołe polecenia bez cytatu obietnicy. Reguła dwuznaczności zapisana
+w mocnej formie: „dwuznaczność w gorącej ścieżce jest **znaleziskiem, nie
+remisem**". Użyłem jej w A1 jako reguły R3, zanim ją tu przeczytałem — i to
+ona kazała mi oznaczyć `seq 100` jako NIESPRAWDZALNE zamiast zgadywać. (Że
+akurat ta klasyfikacja była zbyt ostrożna, bo dowód leżał w chacie, jest moim
+błędem instrumentu, nie wadą reguły.)
+
+**D2** — zdanie „nazwij, co kontrola odbiera, przed przebiegiem" stoi wraz
+z konkretnym kosztem z #6: odebranie narzędzi „dla porównywalności" wycięło
+całą klasę znalezisk. Paragon sprawdzony w źródle. Zapis idzie dalej niż
+sam wymóg — mówi, że najmniej zauważa to ten, kto kontrolę dołożył, i to
+jest prawdziwe o tym przebiegu.
 
 ## E1 — ramię B2, subagent bez dziedziczenia
 
