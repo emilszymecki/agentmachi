@@ -1350,7 +1350,7 @@ def _migawka_adresu(name):
 
 
 def _cofnij_slad_nieudanego_startu(name, katalog_istnial, config_przed,
-                                   pid=None, rmtree=True):
+                                   pid=None, rmtree=True, zachowaj=None):
     """Przywroc adres do stanu z `_migawka_adresu`. Wolane, gdy bind NIE zaszedl.
 
     Doslowna kolejnosc z planu — „bind, potem zapis" — jest nieosiagalna bez
@@ -1402,7 +1402,19 @@ def _cofnij_slad_nieudanego_startu(name, katalog_istnial, config_przed,
     else:
         config.write_text(config_przed, encoding="utf-8")
     if not katalog_istnial and rmtree:
-        shutil.rmtree(d, ignore_errors=True)
+        if not zachowaj:
+            shutil.rmtree(d, ignore_errors=True)
+            return
+        # `zachowaj` trzyma pliki, ktore o adresie NIE mowia nic (dzis: sam
+        # serve.log). Kasujemy reszte, wiec `tokens.json` znika i `hub_rows`
+        # tego katalogu nie pokaze — pokoju nadal nie ma, zostaje diagnostyka.
+        for wpis in d.iterdir():
+            if wpis.name in zachowaj:
+                continue
+            if wpis.is_dir():
+                shutil.rmtree(wpis, ignore_errors=True)
+            else:
+                wpis.unlink(missing_ok=True)
 
 
 def _port_accepts(port, bind):
@@ -1594,16 +1606,35 @@ def cmd_start(args):
                 f.seek(log_before)
                 ogon = f.read().strip().splitlines()
             if ogon:
-                powod = "\n  reason: " + "\n          ".join(ogon[-3:])
-        sciezka_logu = log_path if katalog_istnial else "(none — room removed)"
+                # -5, nie -3: komunikat dziecka o nieudanym bindzie ma teraz
+                # cztery linie (blad + granica + dwie drogi wyjscia), wiec
+                # okno na trzy ucinalo linie z samym `OSError` — czyli
+                # jedyna, ktora mowi, CO sie stalo. Okno musi byc szersze niz
+                # najdluzszy komunikat, ktory ma sie w nim zmiescic.
+                powod = "\n  reason: " + "\n          ".join(ogon[-5:])
+        # Log PRZEZYWA cofniecie, nawet gdy pokoj znika. Zglosil to weryfikator
+        # (agent1): operator zostawal bez powodu i bez logu naraz. `serve.log`
+        # nie klamie o zadnym adresie, a `hub_rows` wpuszcza pokoj do `list`
+        # po `tokens.json` — katalog z samym logiem jest wiec niewidoczny
+        # tam, gdzie widocznosc szkodzi, i dostepny tam, gdzie pomaga.
+        zachowaj = {log_path.name} if not katalog_istnial else None
         # Adres nie przezywa niepotwierdzonego bindu. Pidfile tez nie: zapisuje
         # go dziecko PRZED bindem, a stary komentarz w tym miejscu obiecywal,
         # ze przy nieudanym starcie nie powstaje. Powstawal.
         _cofnij_slad_nieudanego_startu(args.name, katalog_istnial,
-                                       config_przed, pid=pid)
+                                       config_przed, pid=pid, zachowaj=zachowaj)
+        # NIE "is port N free: agentmachi list". `list` czyta configi pokojow,
+        # wiec o zajetosci PORTU nie umie powiedziec nic — byl to sprawdzian,
+        # ktory nie mogl wypasc negatywnie, i odsylal po weryfikacje do
+        # narzedzia potwierdzajacego ten sam bledny adres (znalezisko 4).
+        # Druga poprawka z tego samego zgloszenia: nie doradzamy tu "wybierz
+        # inny PORT", bo przy niebindowalnym BINDZIE port nie jest problemem.
         print(f"agentmachi: room {args.name!r} did NOT come up.{powod}\n"
-              f"  full log: {sciezka_logu}\n"
-              f"  is port {port} free:  agentmachi list", file=sys.stderr)
+              f"  full log: {log_path}\n"
+              f"  who holds {port}:  {_podpowiedz_kto_ma_port(port)}\n"
+              f"  the address it tried: ws://{connect_host(bind)}:{port} — if "
+              f"that host is not on this machine, the port is not the problem",
+              file=sys.stderr)
         return 1
     (d / "hub.pid").write_text(str(pid), encoding="utf-8")
     tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))

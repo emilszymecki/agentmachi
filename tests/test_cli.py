@@ -760,10 +760,63 @@ def test_nieudany_bind_nie_zostawia_adresu_nowego_pokoju(home, monkeypatch):
     rc = cli.cmd_start(argparse.Namespace(name="ghost", port=8999,
                                           bind="192.0.2.1"))
     assert rc == 1
-    assert not cli.hub_dir("ghost").exists(), \
-        "pokoj przezyl bind, ktory nigdy nie zaszedl"
+    # KONTRAKT ZAWEZONY PO ZGLOSZENIU WERYFIKATORA: inwariantem jest brak
+    # ADRESU, nie brak katalogu. Pierwsza wersja tego testu zadala pustego
+    # katalogu i to bylo ZA MOCNE — kasowalo razem z adresem `serve.log`,
+    # czyli jedyny slad przyczyny, i operator zostawal bez powodu i bez logu
+    # naraz. Log o zadnym adresie nie mowi, wiec zostaje.
+    assert not (cli.hub_dir("ghost") / "config.json").exists(), \
+        "adres przezyl bind, ktory nigdy nie zaszedl"
+    assert not (cli.hub_dir("ghost") / "tokens.json").exists()
     assert [r["name"] for r in cli.hub_rows()] == [], \
         "`list` podaje adres, pod ktorym nikt nie sluchal"
+
+
+def test_nieudany_start_zostawia_LOG_choc_zabiera_pokoj(home, monkeypatch,
+                                                        capsys):
+    """Zgloszone przez weryfikatora (agent1) po B4: operator zostawal bez
+    powodu i bez logu naraz, bo cofniecie kasowalo caly katalog.
+
+    `serve.log` o zadnym adresie nie mowi, a `hub_rows` wpuszcza pokoj do
+    `list` po `tokens.json` — katalog z samym logiem jest wiec niewidoczny
+    tam, gdzie widocznosc szkodzi, i dostepny tam, gdzie pomaga."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        _dziecko_ktore_padlo_na_bindzie("ghost"))
+    assert cli.cmd_start(argparse.Namespace(name="ghost", port=8999,
+                                            bind="192.0.2.1")) == 1
+    assert (cli.hub_dir("ghost") / "serve.log").exists(), \
+        "cofniecie zjadlo jedyny slad przyczyny"
+    assert not (cli.hub_dir("ghost") / "config.json").exists()
+    assert not (cli.hub_dir("ghost") / "tokens.json").exists()
+    assert [r["name"] for r in cli.hub_rows()] == [], \
+        "katalog z samym logiem nie moze wygladac na pokoj"
+    err = capsys.readouterr().err
+    assert "(none — room removed)" not in err and "serve.log" in err, \
+        "`full log:` ma wskazywac plik, ktory istnieje"
+
+
+def test_wydruk_awarii_nie_odsyla_do_sprawdzianu_ktory_nie_moze_paść(
+        home, monkeypatch, capsys):
+    """Druga i trzecia rzecz zgloszona przez weryfikatora.
+
+    Stalo: `is port N free:  agentmachi list`. `list` czyta configi pokojow,
+    wiec o zajetosci PORTU nie umie powiedziec nic — sprawdzian nie mogl
+    wypasc negatywnie i odsylal po weryfikacje do narzedzia, ktore ten sam
+    bledny adres potwierdzi (znalezisko 4). Do tego rada brzmiala "wybierz
+    inny PORT" takze wtedy, gdy niebindowalny byl BIND."""
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "_spawn_detached",
+                        _dziecko_ktore_padlo_na_bindzie("ghost"))
+    cli.cmd_start(argparse.Namespace(name="ghost", port=8999,
+                                     bind="192.0.2.1"))
+    err = capsys.readouterr().err
+    assert "agentmachi list" not in err, \
+        "`list` nie umie odpowiedziec o porcie — nie wolno tam odsylac"
+    assert "ss -tlnp" in err or "netstat" in err, \
+        "podpowiedz ma umiec wypasc negatywnie"
+    assert "ws://192.0.2.1:8999" in err, \
+        "przy niebindowalnym bindzie czlowiek ma zobaczyc ADRES, nie sam port"
 
 
 def test_nieudany_bind_nie_zabiera_istniejacemu_pokojowi_adresu(home,
