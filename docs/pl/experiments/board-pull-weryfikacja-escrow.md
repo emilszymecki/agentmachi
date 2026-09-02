@@ -36,6 +36,12 @@ i `capture-workspace2.jsonl`. Poza zamkiem zostają:
 
 To są logi po stronie huba — czyli dokładnie te, na których stoi punktacja.
 
+**Domknięte 2026-09-02 (A3), ale post-hoc:**
+[`commitments/2026-09-02-pieczec-post-hoc.txt`](commitments/2026-09-02-pieczec-post-hoc.txt)
+— hashe policzone już PO skasowaniu pokojów, więc pilnują plików od tamtej
+chwili, a nie zgodności z tym, co pokoje miały. Tej drugiej rzeczy nie da
+się już dowieść i tak to jest tam napisane.
+
 ## 3. Skasowanie pokojów źródłowych — co naprawdę przepadło
 
 2026-09-01 na polecenie operatora wykonano `agentmachi del --all --yes-delete`

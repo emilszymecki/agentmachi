@@ -1,0 +1,66 @@
+PIECZĘĆ POST-HOC — eksporty logów huba z eksperymentu board-pull
+
+CO TO JEST, ŻEBY NIKT TEGO NIE PRZECZYTAŁ MOCNIEJ, NIŻ WARTO
+Hashe policzone 2026-09-02, czyli PO skasowaniu pokojów źródłowych
+(`agentmachi del --all --yes-delete`, 2026-09-01, sześć pokojów,
+w tym meadow1 i meadow2).
+
+Ta pieczęć dowodzi WYŁĄCZNIE, że od 2026-09-02 pliki się nie zmieniły.
+NIE dowodzi, że odpowiadają temu, co pokoje miały w chwili kasowania —
+niezależnego re-eksportu z huba już nie ma i nie będzie.
+
+Poszlaka na to drugie jest, ale jest tylko poszlaką i pochodzi sprzed
+pieczęci: 2026-09-01 liczby ramek konwersacyjnych w tych plikach zgodziły
+się co do jednej z tym, co zgłosił `del` przy kasowaniu (20/20, 37/37) —
+board-pull-weryfikacja-escrow.md, sekcja 3.
+
+    events-meadow1-final.jsonl   32 rekordów   20 ramek konwersacyjnych
+    merged-meadow1.jsonl        124 rekordów   20
+    events-meadow2-final.jsonl   61 rekordów   37
+    merged-meadow2.jsonl        183 rekordów   37
+
+---
+
+EKSPORTY HUBA — zapieczętowane dopiero teraz (na nich stoi punktacja)
+
+~/escrow/agentmachi-board-pull-confirmatory-2026-08-22/
+c06c8d2af07eecc8f201b783f43a0ba628ede778ec87bc29eed55ce909120a1c  events-meadow1-final.jsonl
+5d88b676c3e4efa81105d42ee4f67e668cf53c27b0f442420b2c6231647f6b60  events-meadow2-final.jsonl
+bf294759af22952fd4849f415a5c6e7773eba9052d6c1db82eec83a246b96e44  merged-meadow1.jsonl
+e32b476a536c1661b51b279cc936f7eb67c4983fcc209c9259db435de124931d  merged-meadow2.jsonl
+
+~/escrow/agentmachi-board-pull-2026-08-22/   (pilot; 23 rekordy)
+c0f9383732351b875eace1fb63c638c5c0a3d10a9cb4eeaf92c4eed6bdcf4599  events-P.jsonl
+
+Pilot dopisany świadomie. Plan wymieniał meadow1/2, ale `events-P.jsonl`
+jest dokładnie tym samym rodzajem pliku — eksportem huba, na którym stoi
+punktacja pilota — i był tak samo poza zamkiem.
+
+---
+
+KONTROLA UBOCZNA, KTÓRA WYSZŁA POZYTYWNIE
+
+Te dwa pliki BYŁY zapieczętowane 2026-08-22 (capture-final-sha256.txt).
+Przeliczone 2026-09-02 dają te same hashe:
+
+25ee097a924b422847c550e0f5483f3e36e717ce2a62e261289819ea188ba2be  capture-workspace1.jsonl
+9d1b8003872608db427e577051d12db8cff7b5465395b0730bf19e791bad4a9b  capture-workspace2.jsonl
+
+Czyli katalog escrow przetrwał kasowanie pokojów nietknięty tam, gdzie
+w ogóle dało się to sprawdzić. To nie zastępuje brakującej pieczęci na
+eksportach huba — ale gdyby escrow ktoś ruszał, tu by to wyszło.
+
+---
+
+ODTWORZYSZ
+
+    cd ~/escrow/agentmachi-board-pull-confirmatory-2026-08-22
+    sha256sum events-meadow1-final.jsonl events-meadow2-final.jsonl \
+              merged-meadow1.jsonl merged-meadow2.jsonl \
+              capture-workspace1.jsonl capture-workspace2.jsonl
+    cd ../agentmachi-board-pull-2026-08-22 && sha256sum events-P.jsonl
+
+Zobowiązania na specach (nonce||spec) są osobne i sprzed przebiegu:
+commitments/2026-08-22.txt i commitments/2026-08-22-2.txt.
+
+Pieczęć złożył: agent1, pozycja A3 planu napraw, HEAD cce6124.
