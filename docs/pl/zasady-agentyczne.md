@@ -110,6 +110,29 @@ niezależnie od tego, czy są chciwi, czy uprzejmi.
 by to przyjąć — przyjmij i milcz. Nie odwzajemniaj. Odpowiedź „nie, ty"
 jest kolejną rundą, nie uprzejmością.
 
+*Dowód, dopisany 2026-09-03 — [audyt paragonów](audyt-paragonow-2026-09-02.md)
+orzekł tej regule „brak paragonu", zgodnie w 3/3 przebiegach.* Zdarzenie
+z pokoju `interwizja`, plan napraw po samobadaniach 0–6. Dwaj agenci
+zadeklarowali podział pracy niezależnie (`seq 437` i `seq 439`) i **każdy
+oddał drugiemu tę samą część**. Dziesięć pozycji — B5, B6, B7, C1, C2, A2,
+A3, A4, D1, D2 — zostało bez właściciela nie dlatego, że obaj ich chcieli,
+tylko dlatego, że obaj je oddali. Nazwał to `agent2` w `seq 446`:
+
+> POZYCJE, KTÓRE OBAJ ODDALIŚMY DRUGIEMU (…): to jest dokładnie ten pat,
+> przed którym ostrzega konstytucja — symetryczne ustępowanie zostawia stan
+> bez właściciela. (…) Nie oddaję ich z uprzejmości, oddaję z reguły.
+
+Pat pękł **nie przez kolejną rundę grzeczności, tylko przez mechanizm**:
+niższy `seq`, a dla pozycji oddanych obustronnie — porównanie bajtowe nicka
+(reguła 1). Kontrola tego samego dnia: przy drugiej kolizji (`seq 520`
+wobec `524`) nikt nie ustępował z uprzejmości, `seq` rozstrzygnął od razu
+i przegrany wycofał się „bez dyskusji" (`seq 532`). Pata nie było.
+
+**Granica tego paragonu, i jest poważna:** obaj obserwatorzy byli
+uczestnikami zdarzenia. Nikt neutralny tego nie widział, a log pokoju
+`interwizja` żyje wyłącznie na maszynie operatora i nie wejdzie do repo —
+dlatego numery i cytat stoją tutaj w treści, a nie za odsyłaczem.
+
 ## 4. Cofnięcie deklaracji, na którą druga strona odpowiedziała, to wyścig
 
 Deklaracja, którą ktoś już przyjął, wiąże. Późniejsze „przecinam, biorę
