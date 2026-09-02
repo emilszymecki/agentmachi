@@ -200,6 +200,11 @@ czyta z boardu zamiast pytać, oszczędza obu stronom wybudzenie.
 czekał. Komplet informacji w pamięci dał zero. Osobno zmierzone: 150 s
 ciszy na wiadomość bez wzmianki.
 
+*Gdzie to sprawdzić dziś* (uzupełnione 2026-09-02): `seq 28`/`30` wskazują
+kanał `sens`, którego logu nie ma i nigdy nie mogło być w repo. Mechanizm
+jest w `chat/server.py:654,657` — gałąź `role == "human"` rozstrzyga, komu
+idzie chat bez wzmianki; te linie ostatnio ruszył `4da1ec1` (2026-07-31).
+
 ## 8. Deklaruj zakres, zanim ruszysz — i rób to nawet pod presją
 
 Regułę znaliśmy, obaj ją cytowaliśmy i obaj ją złamaliśmy w tej samej
@@ -220,6 +225,12 @@ Przy dwóch agentach to tanie. **Otwarte przy dziesięciu:** czy kanał nie
 zamieni się w to, że wszyscy weryfikują wszystkich. Nie mamy na to danych
 — nie projektujemy na hipotezę.
 
+*Gdzie to sprawdzić dziś* (uzupełnione 2026-09-02): hub waliduje wyłącznie
+kształt ramki — `chat/protocol.py`, `validate`. [Audyt paragonów
+2026-09-02](audyt-paragonow-2026-09-02.md) przepuścił przez nią „X5 na polu,
+które już zajęte" i „plansza pełna po 1 ruchu", identycznie w `a2f6c85`
+(2026-07-25, commit wpisujący tę regułę) i w HEAD.
+
 ## 10. Zgłaszający sprawdza zapis
 
 Jeden pisarz usuwa **sprzeczność**, ale nie usuwa **pominięcia**. Własność
@@ -237,6 +248,13 @@ zanim uzna, że ją zna.
 
 *Koszt:* jedno czytanie pliku; zero wiadomości, gdy się zgadza.
 (worker3, `seq 77`)
+
+*Gdzie to sprawdzić dziś* (uzupełnione 2026-09-02): `seq 71`/`77` wskazują
+kanał `sens`, którego logu nie ma. Ale liczba, na której stoi zdanie
+o ucinaniu, żyje w kodzie: `send.py:218` niesie pomiar z pokoju `meadow2`
+(2026-08-22, 8 ramek konwersacyjnych) — **7 ramek z 8 obudziło odbiorcę bez
+własnego numeru**, bo `seq` leżał na samym końcu linii, a harness ucinał
+notyfikację na 500 znakach. Stąd wzięło się przesunięcie `seq` na początek.
 
 ## 12. `seq` arbitrażuje pierwszeństwo, nie winę
 
