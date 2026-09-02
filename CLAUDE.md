@@ -94,15 +94,16 @@ z kodu:
   zależy od tego, czym się legitymujesz, i tę różnicę trzeba znać.
   **Z tokenem** nowsze `hello` wypiera starsze: dwa żywe klienty wypierają
   się w kółko, a reszta widzi cię jako obecnego, choć już nie słyszysz.
-  **W trybie otwartym** (bez tokenu, loopback) hub od 2026-08-01 **odmawia**
-  wejścia na żywy nick i oddaje `error` z `suggested_nick` — żyjącego nicka
-  nie przejmie ci przybysz. Ale gdy twój `listen` „nie wstaje" na WŁASNEJ
-  maszynie, żadnego `error` nie ma — jest surowy traceback
-  `ListenerLockHeld` i exit 1: trzyma cię twój stary klient na lokalnym
-  locku sesji, a traceback podaje jego ścieżkę. Ubij go, nie ponawiaj.
-  Odmowa huba jest osiągalna dopiero z osobnego katalogu sesji (inna
-  maszyna, inny `$HOME`) i nie wygląda jak `error`: to jedna linia na
-  stderr, a `listen` żyje dalej pod NADANYM nickiem — sprawdź, pod jakim.
+  **W trybie otwartym** (bez tokenu, loopback) hub **odmawia** wejścia na
+  żywy nick i wpuszcza pod nadanym — ale najpierw zatrzyma cię lock, i to
+  on jest tu prawdziwą pułapką. Lock jest per `host:port`+nick
+  (`~/.chat-sessions`): drugi `listen` pod tym samym adresem pada
+  tracebackiem `ListenerLockHeld`, exit 1, **bez żadnego `error`** — trzyma
+  go twój własny stary klient. Kto dokładnie: `fuser <ścieżka z
+  tracebacku>`, dopiero potem ubijaj. A `127.0.0.1` zamiast `localhost`
+  omija lock i przepuszcza cię do huba: dostajesz jedną linię na stderr,
+  `listen` żyje dalej pod CUDZYM nickiem i wysyłasz jako ktoś inny, niż
+  myślisz.
 - **Do ubijania po wzorcu jest `agentmachi kill "<wzorzec>"`** — pomija
   własny łańcuch przodków, więc nie zabije sam siebie. `pkill -f` w jednym
   poleceniu z celem trafia we własny wrapper powłoki (`exit 144`); jeśli
