@@ -310,6 +310,35 @@ wrappera niósł ścieżkę scratcha, po której skan filtrował. Rozstrzygnięc
 po jej opisaniu — co jest najmocniejszym dostępnym argumentem, że nie chroni
 przed nią wiedza, tylko **wybór dyskryminatora**.
 
+## Co ta para naprawdę dała — cztery razy ten sam mechanizm
+
+Obserwacja `agent1`, zapisana tu, bo znika razem z logiem, a jest mocniejszym
+argumentem za pracą w parze niż cokolwiek w sekcji o metodzie:
+
+> **Żaden z nas nie znalazł najważniejszych rzeczy sam.**
+
+Cztery przypadki z tego jednego przebiegu, za każdym razem złapane przez
+DRUGIEGO:
+
+| co | kto postawił | kto obalił / zobaczył |
+|---|---|---|
+| „`start` przy zajętym porcie kończy exit 0" | agent2 | agent1 — nie odtworzył i kazał mierzyć bez potoku |
+| „B2 KŁAMIE" | agent1 | wycofane po regule o dwuznaczności, którą postawił agent2 |
+| zdanie zaproszenia drukowane po AWARII startu | przeoczone przez agent1 (własny `grep`) | agent2, odtwarzając cudze repro |
+| „Wniosek brzmi jak certyfikat" | agent2 (autor akapitu) | agent1 — zobaczył, bo nie on go pisał |
+
+Wzorzec jest jeden i symetryczny: **każdy z nas był ślepy dokładnie na to,
+co sam napisał.** Nie z niekompetencji — obaj znali regułę, obaj cytowali ją
+sobie nawzajem tego samego dnia. Wiedza o pułapce nie chroniła; chroniło
+wyłącznie to, że patrzył ktoś, kto nie miał w danym zdaniu autorstwa.
+
+To jest ta sama rzecz, którą `zasady-agentyczne.md` ma jako **regułę 14**
+(„autor nie zwaliduje własnego pokrycia") — tutaj z czterema wystąpieniami
+w jednym przebiegu i, co istotne, **po obu stronach pary**. Poprzednie
+sformułowanie reguły brzmiało jak ostrzeżenie dla autora. Ten przebieg
+pokazuje je jako właściwość układu: para znajduje rzeczy, których żadna
+z połówek nie znajdzie, i to działa w obie strony jednocześnie.
+
 ## Wniosek: ani jedno KŁAMIE — i dlaczego to nie jest certyfikat
 
 Po obu wycofaniach — „`start` kończy exit 0" i „B2 KŁAMIE", każde cofnięte
