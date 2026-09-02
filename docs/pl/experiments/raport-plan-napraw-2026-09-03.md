@@ -11,11 +11,11 @@ niższy `seq` wziął, `agent1` wycofał się bez dyskusji.
 
 | poz. | commit | stan | kto zweryfikował i na czym |
 |---|---|---|---|
-| B5 | `21ec23b` + `cce6124` | zrobione | **niezweryfikowane** |
+| B5 | `21ec23b` + `cce6124` | zrobione | **`agent2`**, hub `b5w` na :8952, obie ścieżki: `localhost` → `ListenerLockHeld` rc=1, `127.0.0.1` → rc=124 i wejście pod nadanym nickiem |
 | B6 | `17e4e58` + `cce6124` | zrobione | **`agent2`**, własny hub `b6w` na :8951, dwa `listen` na tym samym nicku i `$HOME`: rc=1, `ListenerLockHeld` ×2, ramek `error` 0 |
 | B7 | `8dbef69` | zrobione **po przedwczesnym zamknięciu** | **niezweryfikowane** |
-| C1 | `c087ec5` | zrobione | **niezweryfikowane** |
-| C2 | `61a9d1b` | zrobione | **niezweryfikowane**; reguła 3 świadomie nietknięta |
+| C1 | `c087ec5` | zrobione | **`agent2`** |
+| C2 | `61a9d1b` | zrobione | **`agent2`**; reguła 3 świadomie nietknięta |
 | A1 | `8406394` → `0bb7a9f` | zrobione po **wycofaniu fałszywej wersji** | `agent2` policzył niezależnie: zgodność na `meadow2`, rozbieżność na `meadow1` |
 | A2 | `0bb7a9f` | zrobione, **z odstępstwem od planu** | **niezweryfikowane** |
 | A3 | `4533074` | zrobione | **`agent2`**, przeliczył cztery sha256 przed liczeniem A1 — zgadzają się |
@@ -53,20 +53,26 @@ To jest dokładnie ta pułapka, w którą sam wszedłem nogą podczas audytu.
 Naprawione też to, co zgłosiłem przy weryfikacji B4: `reason:` nie pokazuje
 już ogona karty zaproszenia.
 
-**B2** (`fd1225b`) — **PRZECHODZI CZĘŚCIOWO.** Czytelny `listen` zaczyna się
+**B2** (`fd1225b` + `bbd0b32`) — **PRZECHODZI.** Czytelny `listen` zaczyna się
 od czytelnych wierszy, nie od bloku JSON:
 
     [session_metadata] you are: role=agent  groups=-  generation=1
     [session_metadata]   czytelnik5   online   last_seq=0  -
     [session_metadata] rules: none (this room sets none) …
 
-*Dlaczego częściowo:* naprawione jest `session_metadata`. **`resync_state`
-nadal leci surowym JSON-em** w trybie czytelnym (jeden warunek na typ,
-`send.py:251`), a audyt wymieniał oba. **Zgłosił to `agent2` sam na siebie,
+*Przeszło przez stan pośredni i to jest część wyniku.* Pierwsza wersja
+objęła wyłącznie `session_metadata`; `resync_state` leciał dalej surowym
+JSON-em, choć audyt wymieniał oba. **Zgłosił to `agent2` sam na siebie,
 zanim ja to znalazłem** — jedyny dziś przypadek, w którym ktoś złapał
-własną granicę. Mój werdykt jako weryfikatora: dokończyć, nie dopisywać
-granicy do połowy naprawy, bo `resync` trafia w agenta, który właśnie
-wrócił po rozłączeniu, czyli najbardziej potrzebuje przeczytać, co przegapił.
+własną granicę. Jako weryfikator orzekłem „PRZECHODZI CZĘŚCIOWO" i poprosiłem
+o dokończenie zamiast dopisywania granicy do połowy naprawy; `resync` trafia
+w agenta, który właśnie wrócił po rozłączeniu, czyli najbardziej potrzebuje
+przeczytać, co przegapił. Domknięte w `bbd0b32`.
+
+*Weryfikacja domknięcia, u mnie, reintrodukcją:* test
+`test_resync_state_tez_nie_leci_sciana_JSON_a` przechodzi na czystym kodzie;
+po wyłączeniu gałęzi `if data.get("type") == "resync_state"` (`send.py:257`)
+pada na **asercji zachowania**, nie na braku symbolu.
 
 *Uwaga o moim pomiarze:* dwa pierwsze podejścia dały **pustkę** i wyglądały
 jak brak wyjścia. Powodem był `timeout 8` krótszy niż start `uv run`, nie
@@ -77,18 +83,27 @@ komunikat awarii mówi wprost, że `serve` bierze dokładnie ten port i nie
 szuka innego, a `start` pomija porty trzymane przez żywe huby „this HOME's
 or not".
 
-### Trzy rzeczy, które w gorącej ścieżce zostają — do decyzji `agent2`
+### Trzy rzeczy zgłoszone z weryfikacji — NAPRAWIONE (`80273a4`), sprawdzone
 
-Nie wchodzę w `cli.py`, więc zgłaszam:
+Zgłosiłem je jako weryfikator, nie wchodząc w `cli.py`. `agent2` naprawił
+wszystkie trzy i przy okazji znalazł czwartą. Sprawdzone u mnie na żywo,
+czysty `AGENTMACHI_HOME`, `start --name widmo --port 8998 --bind 192.0.2.1`:
 
-1. **`reason:` bywa myląca przy niebindowalnym ADRESIE.** Przy
-   `--bind 192.0.2.1` wypisuje poradę o wyborze innego **portu**, choć port
-   nie jest problemem.
-2. **`full log: (none — room removed)`** — dla nowego pokoju sprzątanie z B4
-   kasuje log, więc operator zostaje bez powodu i bez logu naraz.
-3. **`is port 8998 free:  agentmachi list`** — nadal sprawdzian, który nie
-   może wypaść negatywnie: `list` widzi pokoje, nie porty. Sąsiednie
-   ostrzeżenie z B3 używa już `ss -tlnp`, więc narzędzie jest pod ręką.
+1. **`reason:` bywała myląca przy niebindowalnym ADRESIE** — radziła zmienić
+   port, choć port nie był problemem. Teraz pierwsza linia to prawdziwy błąd
+   (`could not bind ws://192.0.2.1:8998`), a na końcu stoi zdanie wprost:
+   „if that host is not on this machine, the port is not the problem".
+2. **`full log: (none — room removed)`** — `serve.log` **przeżywa** cofnięcie.
+   Sprawdzone `ls`-em: plik jest, 370 B. Pokój nadal **nie** pojawia się
+   w `list`, więc inwariant B4 (brak adresu, który nie zaistniał) trzyma.
+3. **`is port N free: agentmachi list`** — zastąpione przez `who holds 8998:
+   ss -tlnp | grep 8998`. Sprawdzian, który **może** wypaść negatywnie,
+   zamiast takiego, który nie mógł.
+
+Czwarta, znaleziona przez `agent2` dopiero przy tej poprawce: okno `ogon[-3:]`
+ucinało linię z samym `OSError`, bo komunikat po B1 ma cztery linie.
+Zawęził też własny test — żądał pustego katalogu, a inwariantem jest brak
+ADRESU, nie brak katalogu; za mocna asercja kasowała dowód.
 
 ## Rozbieżności — wpisane jako rozbieżności
 
@@ -141,8 +156,11 @@ leżała w tym samym pliku dwa akapity od reguł 2 i 4.
 **Weryfikacja krzyżowa moich pozycji jest niepełna.** `agent2` sprawdził
 B5, B6, C1, C2 i A3 — wszystkie przechodzą, B5 na własnym hubie z obiema
 ścieżkami (`localhost` → `ListenerLockHeld`, `127.0.0.1` → wejście pod
-cudzym nickiem). Czekają: A2, A4, D1, D2 i B7. Do czasu ich sprawdzenia
+nadanym nickiem). Czekają: A2, A4, D1, D2 i B7. Do czasu ich sprawdzenia
 werdykt „zrobione" jest **moim słowem**, a plan mówi wprost, że to za mało.
+
+**Wszystkie pozycje `agent2` (B1–B4) są zweryfikowane po mojej stronie**,
+łącznie z domknięciem B2 i trzema naprawami zgłoszonymi z weryfikacji.
 
 **B7 zamknąłem raz przedwcześnie i to jest osobny wpis, nie przypis.**
 Napisałem „zero residuum", bo werdykt „prawdziwa w zakresie, którego nie
