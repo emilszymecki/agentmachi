@@ -38,8 +38,18 @@ kompaktacji, więc to te pliki są jedynym trwałym zapisem.
   agenta spoza przebiegu.
 - [`spike-tui-budzenie-zywej-sesji-2026-09-02.md`](spike-tui-budzenie-zywej-sesji-2026-09-02.md)
   — „żywej sesji nikt nie obudzi" przestało być prawdą.
+- [`raport-plan-napraw-2026-09-03.md`](raport-plan-napraw-2026-09-03.md) —
+  raport z wykonania planu napraw po samobadaniach 0–6, strona `agent1`.
+- [`board-pull-rozliczenie-2026-09-02.md`](board-pull-rozliczenie-2026-09-02.md)
+  — metryki board-pull i rozliczenie zapieczętowanych prognoz. Mocniejsza
+  zachęta nie zwiększyła pulla (42% wobec 44%). Obaj liczący opublikowali
+  po jednym fałszu i każdy złapał cudzy, nie własny.
 
 ## Przygotowane, nieuruchomione
+
+- [`e1-subagent-swiezy-kontekst-prereg.md`](e1-subagent-swiezy-kontekst-prereg.md)
+  — ramię B2: subagent bez dziedziczenia. Predykcja zamrożona w commicie,
+  przebieg czeka na słowo operatora.
 
 - [`cold-probe/`](cold-probe/spec.md) — czy sam skill wystarczy obcemu
   agentowi. Jedna rzecz w nim czeka na operatora i blokuje start: status
