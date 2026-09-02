@@ -708,6 +708,16 @@ class ChatServer:
         # (`agentmachi_fix.md`, review 2026-08-16) i celowo nie ruszyla, bo
         # nick nie byl jej zakresem. Po przeniesieniu obietnica nie moze
         # wyprzedzic faktu: gdy zapis padnie, nie wychodzi zadne z tych zdan.
+        # `target` jest polem AUTORYTATYWNYM (CLAUDE.md, lista inwariantow) —
+        # a chat go nie ma: adresatow wyznacza wylacznie wzmianka w TRESCI
+        # (`_publish_chat`), wiec dla ramki chat wartosc autorytatywna to BRAK.
+        # Do 2026-09-03 wartosc z klienta przechodzila nietknieta do logu i do
+        # kazdego odbiorcy. Nie byl to exploit routingu — routing jej nie czyta,
+        # co pilnuje `test_target_z_ramki_chat_nie_wplywa_na_routing` — ale
+        # ramka w logu KLAMALA o tym, kto jest adresatem, a `read`/`listen
+        # --json` oddaja ja wiernie kazdemu, kto po nia siegnie. Zdjecie MUSI
+        # byc przed `_append`: log jest tym artefaktem, ktory przezyje pokoj.
+        frame.pop("target", None)
         seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
         frame["seq"] = seq
         if unknown_groups:

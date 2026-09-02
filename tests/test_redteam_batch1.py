@@ -5,13 +5,15 @@ HOME. agent1 (atak) zgłosił wektory, agent2 (triage) odtworzył je na
 izolowanym `ChatServer` i potwierdził, CO hub broni. Te testy pilnują tego,
 co się obroniło — żeby przyszła zmiana nie odsłoniła tego po cichu.
 
-CO NIE JEST tu testem, a jest w raporcie (`docs/pl/experiments/`): dwie
-DZIURY, których naprawa to zmiana zachowania huba i decyzja właściciela, nie
-mechaniczna oczywistość — `target` z ramki chat przechodzi do logu
-niezmieniony (nie exploit: routing go ignoruje, patrz niżej), oraz hub
-przyjmuje nick ze znakami kontrolnymi (celowo dozwala myślnik/unicode w
-nicku, `protocol.py:264`). Czerwony test na te dwie przesądzałby kierunek
-naprawy za człowieka; tu stoją wyłącznie zielone regresje na obronę.
+Raport wymieniał DWIE DZIURY, które świadomie zostawiono bez czerwonego
+testu, bo ich naprawa przesądzałaby kierunek za właściciela. **2026-09-03
+właściciel zwolnił obie do naprawy** i pierwsza z nich jest już zamknięta:
+`target` z ramki chat nie dociera ani do logu, ani do odbiorcy
+(`test_target_z_ramki_chat_nie_dociera_ani_do_logu_ani_do_odbiorcy`) — to
+było dowiezienie inwariantu, który `CLAUDE.md` już deklarował, nie nowy
+mechanizm. Druga — hub przyjmuje nick ze znakami kontrolnymi
+(`protocol.py:264` celowo dozwala myślnik i unicode) — jest w robocie
+u drugiego agenta i tutaj jej nie ma.
 
 Wzorzec repo: sync + asyncio.run + _free_port, bez pytest-asyncio.
 """
@@ -111,6 +113,57 @@ def test_target_z_ramki_chat_nie_wplywa_na_routing():
         assert got and "przez-mention" in got.get("text", ""), \
             "kontrola: wzmianka w tekście NIE dotarła — harness zepsuty, " \
             "wynik wyżej nieważny"
+    _run(scenario)
+
+
+def test_target_z_ramki_chat_nie_dociera_ani_do_logu_ani_do_odbiorcy():
+    r"""`target` podany przez klienta na ramce chat ZNIKA — z logu i z drutu.
+
+    Dziura 1 z red-teamu (2026-09-01), naprawiona 2026-09-03. Wcześniej wartość
+    z klienta przechodziła nietknięta: routing jej nie czytał (pilnuje tego
+    `test_target_z_ramki_chat_nie_wplywa_na_routing`), więc nie był to exploit
+    — ale ramka w logu **kłamała o adresacie**, a `read` i `listen --json`
+    oddają ją wiernie każdemu, kto po nią sięgnie. `target` jest na liście pól
+    autorytatywnych w `CLAUDE.md`, a dla chatu wartość autorytatywna to BRAK:
+    adresatów wyznacza wyłącznie wzmianka w treści.
+
+    Sprawdzamy OBA końce, bo naprawa tylko na drucie zostawiłaby kłamstwo tam,
+    gdzie przeżyje pokój — w logu.
+
+    Falsyfikacja w drugą stronę jest w tym samym teście: `status` dostaje
+    `target` NADANY PRZEZ SERWER. Bez tego członu zielony wynik znaczyłby
+    równie dobrze „hub zgubił pole target wszędzie", a to byłaby inna wada,
+    nie ta naprawa.
+    """
+    async def scenario(srv, port):
+        wsA, _ = await _hello(port, "napastnik")
+        wsV, _ = await _hello(port, "ofiara")
+        for w in (wsA, wsV):
+            await _drain(w)
+
+        # wzmianka W TEKSCIE, zeby ramka dotarla — i target sfalszowany obok
+        await wsA.send(json.dumps({"type": "chat", "from": "napastnik",
+                                   "ts": 1.0, "target": "ktos-inny",
+                                   "text": "@ofiara tresc"}))
+        got = await _recv(wsV, 1.0)
+        assert got and "tresc" in got.get("text", ""), \
+            "kontrola: ramka nie dotarla — harness zepsuty, wynik nizej niewazny"
+        assert "target" not in got, \
+            f"target z klienta dotarl na drucie do odbiorcy: {got.get('target')!r}"
+
+        # log przezyje pokoj — tam klamstwo boli najdluzej
+        czaty = [e for e in srv.log.replay() if e.get("type") == "chat"]
+        assert czaty, "kontrola: w logu nie ma ramki chat — nie ma czego sprawdzac"
+        assert all("target" not in e for e in czaty), \
+            "target z klienta zostal zapisany w logu"
+
+        # falsyfikacja w druga strone: dla `status` target NADAJE serwer
+        await wsA.send(json.dumps({"type": "status", "from": "napastnik",
+                                   "ts": 2.0, "state": "idle"}))
+        await asyncio.sleep(0.3)
+        statusy = [e for e in srv.log.replay() if e.get("type") == "status"]
+        assert statusy and statusy[-1].get("target") == "napastnik", \
+            "status stracil serwerowy target — naprawa zabrala za duzo"
     _run(scenario)
 
 
