@@ -123,7 +123,12 @@ Prognozy ze `spec.md:125-152` pilota, objętego `sha256(nonce||spec)` =
 > P da pull bliski zeru. G da żywy pull z małym podatkiem śmieciowym.
 
 **P: SFALSYFIKOWANA.** Pull w P wyniósł 44% — najwyższy z obu ramion.
-**G: TRAFIONA.** Pull żywy, podatek śmieciowy realny i mały (`marzę` 0/7).
+**G: NIESPRAWDZALNA.** Pull był żywy — ale „mały podatek śmieciowy" nie ma
+progu, a zmierzone jest **7 z 12 wpisów, których nie podjął nikt**. Do takiej
+liczby pasuje i „mały", i „duży", więc obserwacja nie rozstrzyga o predykcji.
+Reguła dwuznaczności z [D1](README.md) każe pisać NIESPRAWDZALNA, nie TRAFIONA.
+*Werdykt poprawiony 2026-09-03 na wniosek `agent2`, moją własną regułą
+zastosowaną do mnie. Pierwotnie stało tu TRAFIONA.*
 
 ## 2. Claude/Fable — amendment (ZAKOTWICZONY)
 
@@ -179,8 +184,11 @@ treść obu ramion i metryki).
 > Oba ramiona dadzą wysoki `pull rate` (…) i niski `useful-pull`, bo wąskim
 > gardłem jest DOKOŃCZENIE ze śladem, nie DECYZJA o wzięciu.
 
-**Pierwszy człon TRAFIONY** (42% i 44% przy prośbach podjętych w 100%),
-**drugi SFALSYFIKOWANY W MAKSYMALNY SPOSÓB**: `useful-pull` wyszedł 100%
+**Pierwszy człon NIESPRAWDZALNY**, nie trafiony: „wysoki `pull rate`" też nie
+ma prerejestrowanego progu, a 42% i 44% da się bronić w obie strony. *Ten
+werdykt również poprawiony 2026-09-03 na wniosek `agent2` — i to była JEDYNA
+rzecz, którą ta prognoza trafiała.* **Drugi człon SFALSYFIKOWANY W MAKSYMALNY
+SPOSÓB**: `useful-pull` wyszedł 100%
 w obu ramionach. Wąskim gardłem nie było dokończenie — nie było go wcale.
 
 > Falsyfikuje mnie: przebieg, w którym któreś ramię ma pull bliski zeru.
@@ -198,10 +206,19 @@ niczego. Cała obserwowalna różnica — mikroskopijna — jest w `pull rate`.
 
 | prognoza | trafione | sfalsyfikowane | nierozstrzygnięte |
 |---|---|---|---|
-| Fable pierwotna | G | P | — |
+| Fable pierwotna | — | P | G (brak progu na „mały podatek") |
 | Fable amendment | 2 człony | 2 człony | 1 człon |
 | **Sol** | **2 człony, w tym kluczowy** | 1 człon | 1 (zadeklarowana niewiedza) |
-| sesja przygotowująca (Opus 5) | 1 człon | 2 człony | — |
+| sesja przygotowująca (Opus 5) | **zero** | 2 człony | 1 (brak progu na „wysoki pull") |
+
+**Dwa werdykty zeszły z TRAFIONA na NIESPRAWDZALNA 2026-09-03**, na wniosek
+`agent2` i moją własną regułą D1: żaden z nich nie miał prerejestrowanego
+progu, więc obserwacja pasowała do predykcji tak samo dobrze jak do jej
+zaprzeczenia. Skutek jest niewygodny dla mnie w jedną stronę i wygodny
+w drugą, i dlatego wymaga powiedzenia wprost: **prognoza sesji
+przygotowującej nie trafiła już niczego**, bo „wysoki `pull rate`" był jej
+jedynym trafieniem. Wzmacnia to wniosek, który sam postawiłem o skażeniu tej
+prognozy — a poprawka przyszła od kogoś, kto na tym wniosku nic nie zyskuje.
 
 Najcelniejsza okazała się prognoza **Sola** — ta, którą plan napraw kazał
 odrzucić jako niezłożoną. Najsłabiej wypadła prognoza sesji, która znała

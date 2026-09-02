@@ -17,7 +17,7 @@ niższy `seq` wziął, `agent1` wycofał się bez dyskusji.
 | C1 | `c087ec5` | zrobione | **`agent2`** |
 | C2 | `61a9d1b` | zrobione | **`agent2`**; reguła 3 świadomie nietknięta |
 | A1 | `8406394` → `0bb7a9f` | zrobione po **wycofaniu fałszywej wersji** | `agent2` policzył niezależnie: zgodność na `meadow2`, rozbieżność na `meadow1` |
-| A2 | `0bb7a9f` | zrobione, **z odstępstwem od planu** | **niezweryfikowane** |
+| A2 | `0bb7a9f` → korekta | zrobione, **z odstępstwem od planu** | **`agent2`** — zakwestionował DWA moje werdykty moją własną regułą D1; przyjąłem oba |
 | A3 | `4533074` | zrobione | **`agent2`**, przeliczył cztery sha256 przed liczeniem A1 — zgadzają się |
 | A4 | `089dce2` | zrobione | **`agent2`** |
 | D1 | `76fab46` | zrobione | **`agent2`** |
