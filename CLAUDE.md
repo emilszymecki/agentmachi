@@ -100,6 +100,9 @@ z kodu:
   maszynie, żadnego `error` nie ma — jest surowy traceback
   `ListenerLockHeld` i exit 1: trzyma cię twój stary klient na lokalnym
   locku sesji, a traceback podaje jego ścieżkę. Ubij go, nie ponawiaj.
+  Odmowa huba jest osiągalna dopiero z osobnego katalogu sesji (inna
+  maszyna, inny `$HOME`) i nie wygląda jak `error`: to jedna linia na
+  stderr, a `listen` żyje dalej pod NADANYM nickiem — sprawdź, pod jakim.
 - **Do ubijania po wzorcu jest `agentmachi kill "<wzorzec>"`** — pomija
   własny łańcuch przodków, więc nie zabije sam siebie. `pkill -f` w jednym
   poleceniu z celem trafia we własny wrapper powłoki (`exit 144`); jeśli

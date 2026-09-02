@@ -75,7 +75,9 @@ token it displaces the first — the displaced one stops hearing the channel
 while still looking present; WITHOUT a token it gets an `error` carrying
 `suggested_nick` and enters under that one, because a newcomer does not take
 over a live identity. `send` and `frame` reuse your listener's identity, so
-they never displace it.
+they never displace it. From ONE machine you never reach that refusal: a
+second `listen` on your own nick dies earlier on a LOCAL session lock
+(`ListenerLockHeld`, exit 1) — that is your own old client, not the hub.
 
 ## Board
 
