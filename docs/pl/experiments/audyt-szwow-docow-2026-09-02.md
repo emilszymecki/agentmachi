@@ -47,6 +47,15 @@ Trzecia kategoria nie była przewidziana na starcie. Dopisaliśmy ją, gdy padł
 To nie jest złagodzenie „KŁAMIE": obietnica z tej kategorii jest prawdziwa,
 a mimo to wprowadza czytelnika w błąd, bo jej zakres jest niewypowiedziany.
 
+**Ale skala ruszyła się w trakcie przebiegu i czytelnik musi to wiedzieć,
+zanim uwierzy w liczbę zero.** Trzecia kategoria powstała, gdy wyniki leżały
+już na stole; reguła o dwuznaczności („pasuje predykcja i obserwacja →
+NIESPRAWDZALNA") też weszła w trakcie. Oba ruchy mogą kategorię KŁAMIE
+wyłącznie **opróżniać**, nigdy zapełniać. To nie zarzut złej wiary — to
+stopień swobody, który przy nagłówku „zero KŁAMIE" waży więcej niż dobór
+próbki. Wskazał to dopiero recenzent bez autorstwa; obaj audytorzy pisali
+i recenzowali ten plik, nie widząc tego ani razu.
+
 ## Zestaw A — `howto_default.md` (wyciągał agent2, wykonywał ślepo agent1)
 
 Predykcje zamrożone 20:55:16, `sha256` 656010a6ac0d9b0b… ogłoszony na kanale
@@ -281,9 +290,31 @@ agenta do obcego pokoju. Podpowiedź „is port 8767 free: `agentmachi list`"
 domyka pętlę: odsyła po weryfikację do narzędzia, które ten sam błędny adres
 potwierdzi.
 
-**(2) Pole `reason:` jest puste.** Jedyne miejsce, które miało powiedzieć,
-DLACZEGO pokój nie wstał, nie zawiera nic — a wcięte pod nim stoi zdanie
-zaproszenia, więc struktura czyta się jak „reason: <zaproszenie>".
+**(2) Pole `reason:` pokazuje zaproszenie zamiast powodu.**
+
+**KOREKTA DIAGNOZY (2026-09-02, po zadaniu 6).** Pierwsza wersja tej sekcji
+mówiła „pole `reason:` jest puste" i liczyła to jako **drugi defekt wydruku**.
+Obie rzeczy są nieprawdziwe. Diagnozę postawił subagent z dostępem do kodu,
+sprawdzona i potwierdzona w źródle:
+
+- `serve` drukuje kartę pokoju (`cli.py:1091`) **zanim** zawoła `server_main()`
+  (`cli.py:1097`), czyli zanim jakikolwiek bind się wydarzy,
+- proces dziecka kieruje stdout i stderr do JEDNEGO pliku; stderr leci od razu,
+  stdout wypada z bufora dopiero przy wyjściu interpretera — więc w `serve.log`
+  traceback stoi WYŻEJ, a karta NIŻEJ,
+- `cli.py:1429` bierze `ogon[-3:]`, czyli ostatnie trzy linie — ogon KARTY.
+  Pierwsza z nich to pusta linia z `print_card`, stąd „reason:" i nic po
+  dwukropku.
+
+Czyli: `reason:` **nie jest puste** — jest wypełnione ogonem karty. Zdania
+zaproszenia **nie drukuje `start` po awarii** — drukuje je dziecko, zanim wie,
+czy zbinduje, a `start` cytuje je z powrotem **jako powód**. To jest **JEDEN
+defekt kodu o trzech objawach**, nie dwa defekty wydruku, i wystąpi przy
+**każdej** nieudanej próbie bindu, nie tylko przy kolizji portu.
+
+Konsekwencja dla planu poprawek: to jest **naprawa w kodzie**, a nie
+„usunięcie sprzeczności w wydruku". Pierwsza wersja tego raportu skierowała
+defekt produktu do backlogu dokumentacji.
 
 **M5 — potok zjada kod wyjścia, a `$?` mierzy nie to, co się myśli.**
 
@@ -303,6 +334,22 @@ u jednego potok zjadł kod wyjścia przy `del`, `tail -3` uciął zakres przy
 jeden dzień. To nie jest anegdota o którymkolwiek z nich, tylko właściwość
 narzędzia, którym oboje mierzyli, i obowiązuje każdy następny przebieg:
 **kod wyjścia mierzy się bez potoku, zakres bez `head`/`tail`.**
+
+### Znalezisko 5 — adres zapisuje się przed potwierdzeniem bindu
+
+Dopisane 2026-09-02 po zadaniu 6; ogniwo **niezależne** od doboru portu
+ze Znaleziska 1.
+
+Pokój, który **nigdy nie wstał**, ma już zapisany adres w `config.json`,
+a `agentmachi list` podaje ten adres jako adres pokoju. Zmierzone w tym
+audycie (`t9`: `{"port": 8767}` w configu, `list` drukuje
+`ws://localhost:8767`, pokój nie działa) i odtworzone niezależnie na innej
+przyczynie awarii — nieroutowalny bind zamiast kolizji portu — gdzie dobór
+portu był **poprawny**, a `list` i tak kłamał.
+
+Znaczenie: naprawa doboru portu (Z1) **nie usuwa** tego ogniwa. Adres trafia
+do configu przed potwierdzeniem, że cokolwiek się zbindowało, więc `list`
+i `card` mogą wskazywać port, którego ten pokój nigdy nie dostał.
 
 ## Znaleziska z samej metody
 
@@ -397,10 +444,19 @@ jest zamianą mechanizmu na dobre chęci.
 
 ## Wniosek: ani jedno KŁAMIE — i dlaczego to nie jest certyfikat
 
-Po obu wycofaniach — „`start` kończy exit 0" i „B2 KŁAMIE", każde cofnięte
-przez własnego autora — **w całym przebiegu nie została ani jedna pozycja
-w kategorii KŁAMIE.** 22 obietnice sprawdzone zachowaniem; żadna **z tych,
-które sami wybraliśmy do sprawdzenia**, nie okazała się fałszem.
+Po obu wycofaniach — „`start` kończy exit 0" i „B2 KŁAMIE", **każde
+wycofane przez autora dopiero po tym, jak wymusił to drugi** — w kategorii
+KŁAMIE nie została ani jedna pozycja **z zakresu `howto` i skille**.
+Sprawdzono **24** obietnice (10 zestawu A, 12 w tabeli B, plus B1 i B13, które
+nie są w tabeli, bo rozrosły się w Znaleziska 1 i 2). Żadna **z tych, które
+sami wybraliśmy**, nie okazała się fałszem.
+
+**Zakres nagłówka jest zawężony świadomie.** Poza `howto` i skillami audyt
+uderzył nogą w jedno **twarde kłamstwo** — rada z `CLAUDE.md`, żeby przy
+niewstającym `listen` przeczytać `error`, którego w tej sytuacji nie ma
+(Znalezisko 3). Nie należy do audytowanego zakresu, ale należy do gorącej
+ścieżki, więc nagłówek „ani jedno KŁAMIE" NIE obejmuje całej dokumentacji
+i nie wolno go tak cytować.
 
 To zastrzeżenie nie jest kurtuazją, tylko głównym ograniczeniem wyniku —
 patrz „Czego ten wynik nie znaczy" niżej.
