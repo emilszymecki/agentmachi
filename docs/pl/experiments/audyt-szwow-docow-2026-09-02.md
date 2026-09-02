@@ -87,7 +87,7 @@ przepisane tu wiernie, bo pióro trzyma drugi.
 
 | # | obietnica | werdykt |
 |---|---|---|
-| B2 | `start` o działającym pokoju: „that is NOT an error, that is an answer" | PRAWDZIWA W ZAKRESIE, KTÓREGO NIE PODAJE |
+| B2 | `start` o działającym pokoju: „that is NOT an error, that is an answer" | **PRAWDA** (skorygowane 2026-09-02 po pomiarze — patrz niżej) |
 | B3 | `stop` zachowuje historię; restart utrzymuje zapisany adres | PRAWDA |
 | B4 | `del` bez `--yes-delete` odmawia | PRAWDA (powtórka bez ślepoty) |
 | B5 | `--all` + `--name` — odmowa | PRAWDA |
@@ -111,6 +111,40 @@ obiecuje zera. Obserwacja pasuje do obietnicy tak samo dobrze jak predykcja,
 więc KŁAMIE było za mocne. Hazard zostaje realny — kod wyjścia czyta automat,
 a dla automatu stan docelowy wygląda na awarię — ale to milczenie o granicy,
 nie fałsz.
+
+**B2 — KOREKTA PO POMIARZE, werdykt padł DRUGI RAZ.** Pozycja przeszła trzy
+etapy i warto, żeby było widać wszystkie, bo pouczający jest dopiero trzeci:
+
+1. `KŁAMIE` — doc mówi „to nie błąd", komenda kończy się kodem 1.
+2. `PRAWDZIWA W ZAKRESIE, KTÓREGO NIE PODAJE` — autor sam się wycofał: doc mówi
+   o interpretacji komunikatu, nie o kodzie wyjścia, i nigdzie nie obiecuje zera.
+3. **`PRAWDA`** — po pomiarze wykonanym dopiero w eksperymencie meta (zadanie 6),
+   na wniosek subagenta, który wytknął, że cały ten werdykt stoi na szkodzie
+   NIEZMIERZONEJ: „»agent skryptujący po exit code« nie został zaobserwowany;
+   to hipoteza o hipotetycznym konsumencie, podana w rubryce ustaleń audytu
+   behawioralnego".
+
+Pomiar, którego zabrakło, i który zajął jedno wywołanie:
+
+    agentmachi start --name interwizja      (pokój działa)
+    → harness: <error> Exit code 1
+      agentmachi: room 'interwizja' is already running (PID 22731).
+
+Szkoda okazała się realna: agent wywołujący komendę bezpośrednio dostaje od
+harnessu awarię. Ale ten sam pomiar **obala interpretację**, na której stał
+werdykt. Skoro agent naprawdę zobaczy błąd, to zdanie w docu robi dokładnie to,
+po co istnieje — uprzedza przed sygnałem, który wystąpi. Doc nie milczy o tej
+granicy; doc **jest** o tej granicy. Formułując to za subagentem: „po co
+ostrzegać »to nie jest błąd«, jeśli nic nie wygląda na błąd" — obaj audytorzy
+czytali niezerowy kod jako dowód PRZECIW obietnicy, a jest on dowodem NA JEJ
+RZECZ.
+
+Uwaga wykonawcza z tego samego pomiaru: szkoda zależy od tego, JAK agent wywoła
+komendę. Wpięta w większy skrypt — powłoka wychodzi zerem i harness nie zgłasza
+nic. Dopiero wywołanie gołe przepuszcza kod wyjścia dalej.
+
+Ta pozycja jest w całym audycie jedyną, której werdykt padł DWA RAZY, i obie
+korekty przyszły z zewnątrz autora: pierwsza od peera, druga od subagenta.
 
 **B4 i B10 — dwie pozycje wymagały powtórki z winy konstrukcji polecenia.**
 W B4 wcześniej zadziałał strażnik działającego pokoju i gałąź `--yes-delete`
