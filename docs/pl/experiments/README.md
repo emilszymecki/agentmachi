@@ -74,6 +74,37 @@ przebiegu #1 poszła źle i została naprawiona dopiero w review:
   obciążają prowadzącego,
 - **punktującego, który nie uczestniczył** w przebiegu.
 
+## Standard audytu doców
+
+Obowiązuje każdy następny audyt obietnic z dokumentacji. Zarobił na to
+[audytem szwów](audyt-szwow-docow-2026-09-02.md): 22 obietnice, cztery
+przypadki, w których autor był ślepy dokładnie na to, co sam napisał.
+
+**Sprawdzasz ZACHOWANIEM, nie lekturą.** Obietnica przeczytana i uznana za
+prawdziwą nie jest sprawdzona.
+
+**Ślepe wykonanie krzyżowe** — cztery kroki, role zamieniają się między
+zestawami, nikt nie certyfikuje własnego wykonania:
+
+1. A wybiera obietnice i **zamraża predykcję na dysku** z warunkiem
+   falsyfikacji,
+2. A publikuje `sha256` pliku predykcji **przed** wysłaniem poleceń,
+3. B dostaje GOŁE polecenia („uruchom to, opisz co się stało") — bez cytatu
+   obietnicy i bez oczekiwanego wyniku — wykonuje na izolowanej kopii
+   i raportuje **surową** obserwację,
+4. dopiero wtedy A odmraża predykcje i orzeka; hash sprawdzany publicznie.
+
+**Reguła dwuznaczności: jeśli do obietnicy pasuje i predykcja, i obserwacja,
+werdykt brzmi NIESPRAWDZALNA, nie PRAWDA.** Dwuznaczność w gorącej ścieżce
+jest znaleziskiem, nie remisem.
+
+**Skalę werdyktów zamrażasz przed przebiegiem.** W audycie szwów i trzecia
+kategoria, i sama reguła dwuznaczności weszły, gdy wyniki leżały już na
+stole. Oba ruchy mogą kategorię KŁAMIE wyłącznie **opróżniać**, nigdy
+zapełniać — więc nagłówek „ani jedno KŁAMIE" był po części własnością skali,
+nie zachowania. Zauważył to dopiero recenzent bez autorstwa; obaj audytorzy
+czytali ten plik wielokrotnie i nie zobaczyli tego ani razu.
+
 ## Jak czytać wyniki
 
 Warunek falsyfikacji jest **koniunkcją**: gdy jeden konieczny człon zostaje
