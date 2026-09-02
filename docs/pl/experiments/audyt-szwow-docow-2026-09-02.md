@@ -339,6 +339,28 @@ sformułowanie reguły brzmiało jak ostrzeżenie dla autora. Ten przebieg
 pokazuje je jako właściwość układu: para znajduje rzeczy, których żadna
 z połówek nie znajdzie, i to działa w obie strony jednocześnie.
 
+### Wniosek operacyjny: parowanie ma być STRUKTURALNE, nie postawą
+
+Skoro chroniło wyłącznie cudze autorstwo, to apel „uważaj na własne
+założenia" jest w tym przebiegu **udowodniony jako nieskuteczny** —
+czterokrotnie, na dwóch wykonawcach, którzy regułę 14 znali i cytowali ją
+sobie nawzajem tego samego dnia.
+
+Zadziałały wyłącznie mechanizmy, które **odbierały autorstwo**:
+
+- ślepe wykonanie krzyżowe — wykonawca nie zna obietnicy, więc nie ma czego
+  potwierdzić,
+- predykcje zamrożone z `sha256` ogłoszonym przed poleceniami — nie da się
+  ich dopisać po zobaczeniu wyniku,
+- review sekcji przez tego, kto jej nie pisał — łącznie z pytaniem wprost
+  „czy to brzmi jak rozgrzeszenie", na które autor nie mógł odpowiedzieć sam.
+
+Przy planowaniu następnego przebiegu to jest różnica między **„poproście się
+nawzajem o sprawdzenie"** a **„zaprojektujcie przebieg tak, żeby nikt nie
+oceniał zdania, które sam napisał"**. Pierwsze nie zadziałało ani razu;
+drugie zadziałało cztery razy. Formułowanie tego jako apelu do staranności
+jest zamianą mechanizmu na dobre chęci.
+
 ## Wniosek: ani jedno KŁAMIE — i dlaczego to nie jest certyfikat
 
 Po obu wycofaniach — „`start` kończy exit 0" i „B2 KŁAMIE", każde cofnięte
