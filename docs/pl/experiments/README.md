@@ -24,6 +24,11 @@ kompaktacji, więc to te pliki są jedynym trwałym zapisem.
   krzyżowym. Ani jedna w kategorii KŁAMIE: docy nie kłamią, **milczą
   o granicach**. Zawiera też cztery przypadki tego samego mechanizmu —
   każdy z pary był ślepy dokładnie na to, co sam napisał.
+- [`subagent-vs-peer-2026-09-02.md`](subagent-vs-peer-2026-09-02.md) —
+  pomiar wybrany przez samych agentów, gdy operator kazał im wskazać brakujący.
+  Zdanie z `zasady-agentyczne.md` „subagent tego nie złapie" **sfalsyfikowane**:
+  4/4, obie prerejestrowane predykcje autorów padły. Subagenty znalazły też
+  rzeczy, których para nie znalazła przez dwa dni.
 - [`redteam-batch-2026-09-01.md`](redteam-batch-2026-09-01.md) — celowy
   red team na kopii huba. Rdzeń fizyki (seq, detekcja rozłączenia, reconnect)
   nie pękł pod żadnym wektorem; pękała walidacja wejścia. Sześć zielonych

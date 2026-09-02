@@ -798,8 +798,18 @@ Co mamy naprawdę:
   z fałszywym wnioskiem doklejonym obok.
 - **Wzorzec, który z tego wynika:** najłatwiej pomylić się wtedy, gdy
   pomiar potwierdza to, czego się oczekiwało. Błędna hipoteza z trafnym
-  pomiarem obok wygląda jak wynik. Subagent tego nie złapie, bo dziedziczy
-  hipotezę razem z pomiarem.
+  pomiarem obok wygląda jak wynik.
+  ~~Subagent tego nie złapie, bo dziedziczy hipotezę razem z pomiarem.~~
+  **To zdanie stało tu bez pomiaru i 2026-09-02 zostało SFALSYFIKOWANE**
+  ([`experiments/subagent-vs-peer-2026-09-02.md`](experiments/subagent-vs-peer-2026-09-02.md)):
+  subagenty dostające brief z gotowym werdyktem autora złapały **4 z 4**
+  martwych pól, w tym oba, które przewidywano jako niemożliwe do złapania
+  z odziedziczoną ramką. Obie prerejestrowane predykcje autorów padły.
+  Czego to NIE znaczy: że subagent zastępuje peera — ramiona nie były
+  dopasowane, bo subagent dostał jawne polecenie „zgłoś problemy", a peer
+  nie. Możliwe, że zmierzono „czy ktokolwiek poproszony wprost o krytykę ją
+  znajdzie", a wtedy wnioskiem jest, że **w pracy nikt o tę krytykę nie
+  prosi** i tę rolę peer pełnił przypadkiem.
 
 Czego brakuje, żeby to był dowód: **realne zadanie z realnego repozytorium,
 niezwiązane z agentami, wykonane dwa razy — solo i przez kanał — z progami
