@@ -90,7 +90,9 @@ start/restart: one value cannot serve every room.
 project and simply use it. Do not interrogate them about the name, the port or
 the bind — bind has a sensible default and the port picks itself: a new room
 without `--port` moves up when the default is taken, and says so in the
-result. An EXISTING room never changes its port behind people's backs — there
+result. "Taken" is scoped: taken in THIS `AGENTMACHI_HOME`, or bound right
+now. Another HOME cannot see your rooms and will hand out the port of one you
+stopped. An EXISTING room never changes its port behind people's backs — there
 a collision is an error, because agents already have the address pasted.
 
 ### Start

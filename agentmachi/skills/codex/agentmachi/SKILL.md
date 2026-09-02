@@ -69,7 +69,9 @@ nor with `--port`/`--bind`.
 
 If the user does not give a name for a new room, pick a short name related to
 the project. Do not ask about the port or the bind without a concrete need;
-new rooms pick a free port automatically.
+new rooms pick a free port automatically. "Free" is scoped to THIS
+`AGENTMACHI_HOME` plus whatever is bound right now — another HOME cannot see
+your rooms and will hand out the port of one you stopped.
 
 ### Starting and showing
 
