@@ -96,6 +96,14 @@ ale asercja `'"abc"' in lines[0]` wiązała się z kształtem surowego JSON-a �
 `rules_hash` leżał w linii 0 tylko dlatego, że linia 0 była zrzutem całej ramki.
 Kolejność i widoczność skrótu bronione dalej, kształt puszczony.
 
+**Granica tej naprawy, zgłoszona przeze mnie, nie znaleziona u mnie.**
+Naprawiłem **wyłącznie** `session_metadata`. W `send.py:251` stoi dokładnie
+jeden warunek na typ, więc **`resync_state` nadal leci surowym JSON-em**
+w trybie czytelnym. Audyt wymieniał oba. Zrobiłem jeden, bo `session_metadata`
+dostaje **każdy** przy **każdym** wejściu, a resync jest rzadki — ale to jest
+wybór, nie kompletność, i nie ma przejść jako kompletność. Jeśli `agent1` uzna,
+że B2 przez to nie jest zrobione, dorobię `resync_state`.
+
 **Zweryfikuje:** agent1. **Niezweryfikowane w chwili pisania.**
 
 ## B3 — `list` podawał adres cudzego huba i nic nie ostrzegał
@@ -170,9 +178,34 @@ adresem **domyślnym** — widmo pod adresem, o który nikt nie prosił.
 Poprawione zdanie w `CLAUDE.md` jest prawdziwe co do słowa, łącznie z tym, że
 traceback podaje ścieżkę locka.
 
-**B5 i B7 — NIEZWERYFIKOWANE PRZEZE MNIE w chwili pisania.** Nie zdążyłem;
-to dług, nie werdykt. `agent1` sam wycofał i poprawił część B5 w `cce6124`
-(„moje własne zdanie było prawdziwe w zakresie, którego nie podawało").
+**B5 — ZWERYFIKOWANE PRZEZE MNIE, przechodzi**, i korekta `cce6124` jest
+mocniejsza niż pierwsza wersja. Własny hub `b5w` na 8952, listener 1 pod
+`localhost` na nicku `probant`:
+
+| drugi `listen` | wynik |
+|---|---|
+| `ws://localhost:8952` (ten sam zapis) | rc=1, `ListenerLockHeld` ×2 |
+| `ws://127.0.0.1:8952` (inny zapis) | rc=124 — **żyje**, hub: `[nick] 'probant' is taken by someone else — coming up as 'agent1'` |
+
+Czyli co do słowa: lock jest per **zapis adresu**, `127.0.0.1` go omija,
+wchodzisz i nasłuchujesz **pod cudzym nickiem**. Zdanie `agent1` jest
+prawdziwe; zakres może być nawet szerszy, niż podaje — nick, który hub nadał
+w moim teście, to `agent1`, czyli w tym pokoju byłby to nick żywego uczestnika.
+
+**B7 — NIE ZROBIONE. Brak commita.** `git log origin/main` ma A1, A2, A3, A4,
+B1–B6, C1, C2, D1, D2 i prerejestrację E1. B7 nie ma. To pozycja `agent1`,
+więc jej nie wykonuję; zgłosiłem ją na kanale wraz z materiałem.
+
+W `audyt-szwow-docow-2026-09-02.md` werdykt „prawdziwa w zakresie, którego nie
+podaje" pada 5 razy, z czego **dwie** to żywe obietnice bez zdania granicy:
+
+- **linia 180** — dobór portu: milczy, że „wolny" znaczy „wolny w TYM
+  `AGENTMACHI_HOME` i niezbindowany w tej sekundzie". Moja granica z B1
+  **istnieje, ale siedzi w komunikacie awarii bindu `serve`**, nie w tekście
+  samej obietnicy. Obietnica w docs nadal milczy.
+- **linia 221** — format `[seq] nick: line` milczy, że ten sam strumień niesie
+  nierenderowane bloki JSON. Po moim B2 jest to **prawie** nieaktualne —
+  patrz granica B2 niżej.
 
 ## C1, C2 — pozycje agent1
 
