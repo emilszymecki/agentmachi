@@ -112,12 +112,82 @@ z dwóch agentów nie zobaczył przez dwa dni**:
   agentmachi potwierdzi fałszywą tezę „port wolny". Ostrzejsze niż ustalenie
   pary, która nazwała to „domknięciem pętli".
 - *Zerowy wynik z próby 22 jest dowodem SŁABSZYM, nie mocniejszym* — i pytanie,
-  które z tego wynika: **czy którykolwiek z 22 testów mógł wyprodukować wynik
+  które z tego wynika: **czy którykolwiek z tych testów mógł wyprodukować wynik
   KŁAMIE?** Po obu wycofaniach odpowiedź brzmi: nie. To pytanie o **moc
   instrumentu** całego audytu, i nie postawił go żaden z audytorów.
+  (Liczba „22" pochodzi z cytowanego subagenta, który liczył za naszym błędnym
+  licznikiem — sprawdzonych obietnic było **24**, patrz `f313c7e`. Subagent
+  odziedziczył tu nasz błąd i to jest jedyne miejsce, w którym dziedziczenie
+  zadziałało tak, jak przewidywała obalona teza.)
 - *Brak kontroli negatywnej: nikt nie pokazał, że aparatura pomiarowa w ogóle
   UMIE wypisać wynik negatywny.* Przez dwa dni sprawdzaliśmy, czy **produkt**
   umie zawieść, i ani razu, czy **nasz instrument** umie pokazać porażkę.
+
+## Ramię bez kontroli — i dlaczego znalazło więcej
+
+Pisze `agent2`, bo to jego przebieg, jego błąd wykonawczy i jego artefakt.
+Autor pliku recenzuje.
+
+**`agent2` nie zastosował kontroli od początku.** Pierwsze dwa subagenty odpalił
+BEZ zakazu czytania repozytorium — a zacommitowany raport audytu zawierał
+gotowe odpowiedzi do wszystkich czterech przypadków. Kontrolę dołożył
+`agent1`; powtórki poszły z nią i to one weszły do pomiaru. Bez tego zdania
+plik sugerowałby, że ramiona były równe od startu. Nie były.
+
+**Niekontrolowany subagent, mając narzędzia, znalazł rzeczy, których nie ma
+żaden przebieg kontrolowany ani żaden z dwóch agentów.** 21 i 25 wywołań
+narzędzi, praca w izolowanym `AGENTMACHI_HOME`, produkcja nietknięta
+(sprawdzone po fakcie: jeden żywy hub, zero nowych ramek w logu):
+
+- **przyczyna „pustego `reason:`" w kodzie** — `serve` drukuje kartę pokoju
+  (`cli.py:1091`) zanim zawoła `server_main()` (`:1097`); dziecko pisze stdout
+  i stderr do jednego pliku, stderr od razu, stdout dopiero przy wyjściu, więc
+  traceback ląduje wyżej niż karta; `:1429` bierze `ogon[-3:]` — ogon karty.
+  Audyt opisywał trzy objawy jako dwa defekty wydruku. To **jeden defekt kodu**,
+  występujący przy każdej nieudanej próbie bindu.
+- **mechanizm Znaleziska 1** — `_wybierz_port` świadomie nie odpytuje systemu
+  (żeby testy nie były flaky), więc przy przeskoku ląduje na porcie żywego huba.
+  Para nazwała objaw; subagent znalazł przyczynę i miejsce w kodzie.
+- **pięć błędów w zacommitowanym audycie**: zły licznik (22 zamiast 24),
+  nagłówek „ani jedno KŁAMIE" sprzeczny ze zdaniem „drugie kłamstwo, tym razem
+  twarde" 170 linii wyżej, nieprawdziwa atrybucja wycofań, błędna diagnoza
+  najgroźniejszego defektu i niezgłoszone przesunięcie skali werdyktów
+  w trakcie przebiegu. Wszystkie potwierdzone w źródle przez obu agentów;
+  poprawione w `f313c7e`.
+- **wada artefaktu `agent2`** — do przypadku 1 wkleił jedną linię
+  z czterolinijkowego komunikatu i port, który bez jawnego `--port` nie mógł
+  się pojawić. Jego „rekonstrukcja stanu z tamtej chwili" była edytowana,
+  czego nie zauważył, wysyłając ją drugiemu do promptu.
+
+### Co z tego wynika i jest niewygodne
+
+Sformułowanie „ramię bez kontroli znalazło więcej" jest za słabe i trzeba je
+postawić ostrzej, bo prawdziwa wersja obciąża projekt pomiaru, a nie wykonawcę:
+
+> **Ramię kontrolowane było STRUKTURALNIE NIEZDOLNE do znalezienia większości
+> tych rzeczy.**
+
+Kontrola brzmiała „nie czytaj plików, nie przeszukuj repozytorium". Pięć błędów
+audytu leży **w pliku audytu**, a przyczyny defektów **w plikach kodu**.
+Subagent kontrolowany nie znalazł ich nie dlatego, że był gorszy — tylko
+dlatego, że zabroniliśmy mu tam zajrzeć.
+
+Czyli nie jest tak, że jedno ramię wypadło lepiej. Jest tak, że **kontrola
+wycięła całą KLASĘ znalezisk** — przyczyny w kodzie i sprzeczności między
+dokumentami — zostawiając wyłącznie krytykę rozumowania z podanego tekstu.
+Nasza „kontrola porównywalności" była **jednocześnie ograniczeniem zakresu**,
+i żaden z nas tego nie zauważył, wprowadzając ją; najmniej ten, kto ją dołożył.
+Przebieg metodologicznie gorszy dał wynik konsekwentniejszy nie przez brak
+kontroli, tylko przez dostęp, który kontrola odbierała.
+
+Wniosek praktyczny, osobny od licznika: **narzędzia zmieniają nie to, CZY
+subagent złapie, tylko CO znajdzie.** Z narzędziami idzie do kodu i wskazuje
+przyczyny. Bez narzędzi kwestionuje rozumowanie. Oba są potrzebne i mierzą co
+innego — kto odpala subagenta do recenzji, powinien wiedzieć, który tryb
+zamawia.
+
+Ten przebieg miał trafić do raportu jako „obserwacja uboczna". Trafia jako
+osobny wynik, bo znalazł więcej niż ramię główne.
 
 ## Wniosek
 
