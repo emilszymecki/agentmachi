@@ -167,6 +167,64 @@ def _znacznik_seq(data):
     return str(seq)
 
 
+ZNACZNIK_METADANYCH = "[session_metadata]"
+
+
+def _czytelne_metadane(data):
+    """`session_metadata` po ludzku. Zwraca linie BEZ znacznika.
+
+    Tryb czytelny obiecuje `[seq] nadawca: linia`, a zaczynal sie od JEDNEJ
+    linii surowego JSON-a na ~18 tys. znakow: rules + board + cale howto
+    razem, z `\\u2014` i `\\n` zamiast tekstu. To pierwsza rzecz, jaka widzi
+    kazdy wchodzacy, i jedyna, ktora dostaje ZAWSZE — obietnica „czytelny"
+    byla nieprawdziwa dokladnie tam, gdzie czyta sie od pierwszego wiersza.
+
+    Znacznik powtarza sie na KAZDEJ linii z tego samego powodu, dla ktorego
+    `[seq]` powtarza sie w `_print_event`, i jeszcze jednego, mocniejszego:
+    dokumentowany filtr agenta to `grep -v session_metadata` PRZED filtrem
+    wzmianek, bo slowa lapiace wzmianki (`@all`, `takeover`, `4003`) siedza
+    w tresci howto i przebijaja sie przy kazdym reconnect
+    (`references/claude-code.md`). Gdyby znacznik stal tylko w pierwszej
+    linii, rozbicie na linie ZEPSULOBY ten filtr: odpadlby naglowek, a howto
+    przeszloby dalej. Z znacznikiem w kazdej linii ta sama, niezmieniona
+    komenda odsiewa calosc."""
+    linie = []
+    grupy = ", ".join(data.get("groups") or []) or "-"
+    linie.append(f"you are: role={data.get('role', '?')}  groups={grupy}  "
+                 f"generation={data.get('generation', '?')}")
+    for uczestnik in data.get("participants") or []:
+        stan = "online " if uczestnik.get("connected") else "offline"
+        status = uczestnik.get("status") or {}
+        opis = status.get("state") or "-"
+        linie.append(f"  {uczestnik.get('nick', '?'):<12} {stan}  "
+                     f"last_seq={uczestnik.get('last_seq', '?')}  {opis}")
+    rules = (data.get("rules") or "").strip()
+    # `rules_hash` zostaje na wyjsciu, choc tresc jest tuz obok: to jedyna
+    # rzecz, po ktorej mozna sprawdzic, czy czytany tekst jest tym, ktory hub
+    # naprawde wydal. Format czytelny jest stratny, ale nie w tym miejscu.
+    skrot = data.get("rules_hash")
+    ogon = f"  (rules_hash {skrot})" if skrot else ""
+    if rules:
+        linie.append(f"rules of this room:{ogon}")
+        linie.extend("  " + l for l in rules.split("\n"))
+    else:
+        linie.append(f"rules: none (this room sets none){ogon}")
+    howto = (data.get("howto") or "").strip()
+    if howto:
+        linie.append("howto — protocol mechanics from the hub, read it:")
+        linie.extend("  " + l for l in howto.split("\n"))
+    # Klucze, ktorych ta funkcja NIE zna, ida na koniec zamiast zniknac.
+    # Format czytelny jest stratny z zalozenia, ale nie ma prawa ukrywac tego,
+    # ze hub przyslal cos nowego — inaczej dodane pole byloby niewidoczne
+    # dla kazdego, kto nie czyta `--json`.
+    znane = {"type", "role", "groups", "generation", "participants",
+             "rules", "rules_hash", "howto"}
+    reszta = {k: v for k, v in data.items() if k not in znane}
+    if reszta:
+        linie.append(f"other fields: {json.dumps(reszta, ensure_ascii=False)}")
+    return linie
+
+
 def _print_event(data):
     """Format CZYTELNY: `[seq] nadawca: linia` — znacznik na KAZDEJ linii.
 
@@ -183,11 +241,17 @@ def _print_event(data):
     akapit, akurat o wymowie ODWROTNEJ do calosci. Ucicie widac —
     odwrocenie sensu wyglada jak kompletna wypowiedz.
 
-    Ramka bez `text` (metadane sesji, snapshot) leci calym JSON-em: `seq`
-    jest juz w srodku, a tresci do rozbicia na linie nie ma.
+    Ramka bez `text` (snapshot) leci calym JSON-em: `seq` jest juz w srodku,
+    a tresci do rozbicia na linie nie ma. WYJATKIEM jest `session_metadata` —
+    patrz `_czytelne_metadane`.
     """
     if not isinstance(data, dict):
         print(json.dumps(data, ensure_ascii=False), flush=True)
+        return
+    if data.get("type") == "session_metadata":
+        for linia in _czytelne_metadane(data):
+            print(f"{ZNACZNIK_METADANYCH} {linia}" if linia
+                  else ZNACZNIK_METADANYCH, flush=True)
         return
     text = data.get("text")
     if text is None:

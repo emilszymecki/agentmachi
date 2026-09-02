@@ -187,6 +187,57 @@ def test_pusta_linia_w_srodku_nie_gubi_wskaznika(capsys):
         "[5] a: akapit", "[5] a:", "[5] a: drugi akapit"]
 
 
+def _metadane(**nadpisz):
+    dane = {"type": "session_metadata", "rules": "", "role": "agent",
+            "groups": [], "generation": 1,
+            "participants": [{"nick": "human", "role": "human", "groups": [],
+                              "connected": False, "status": None,
+                              "last_seq": 0}],
+            "howto": "# Channel protocol\n\n`@nick`, `$group`, `@all` wake "
+                     "an agent.\ncode 4003 is a kick, takeover is a thing."}
+    dane.update(nadpisz)
+    return dane
+
+
+def test_metadane_sesji_sa_czytelne_od_pierwszego_wiersza(capsys):
+    """Tryb czytelny obiecuje `[seq] nadawca: linia`, a zaczynal sie od JEDNEJ
+    linii surowego JSON-a na ~18 tys. znakow — rules + board + cale howto,
+    z `\\u2014` i `\\n` zamiast tekstu. To pierwsza rzecz, jaka widzi kazdy
+    wchodzacy, i jedyna, ktora dostaje ZAWSZE."""
+    send._print_event(_metadane())
+    linie = capsys.readouterr().out.splitlines()
+    assert len(linie) > 1, "metadane nadal ida jedna linia JSON-a"
+    assert not linie[0].lstrip().startswith("{"), \
+        "pierwszy wiersz czytelnego trybu to nadal JSON"
+    tresc = "\n".join(linie)
+    assert "role=agent" in tresc and "rules: none" in tresc
+    assert "# Channel protocol" in tresc, "howto ma byc tekstem, nie escapem"
+    assert "\\n" not in tresc
+
+
+def test_znacznik_metadanych_stoi_w_KAZDEJ_linii(capsys):
+    """Nie kosmetyka — warunek dzialania filtra agenta.
+
+    Dokumentowany filtr to `grep -v session_metadata` PRZED filtrem wzmianek,
+    bo slowa lapiace wzmianki (`@all`, `takeover`, `4003`) siedza w tresci
+    howto i przebijaja sie przy kazdym reconnect. Gdyby znacznik stal tylko
+    w naglowku, rozbicie na linie ZEPSULOBY ten filtr: naglowek by odpadl,
+    a howto przeszloby dalej."""
+    send._print_event(_metadane())
+    linie = capsys.readouterr().out.splitlines()
+    assert all(l.startswith(send.ZNACZNIK_METADANYCH) for l in linie)
+    zostaje = [l for l in linie if "session_metadata" not in l]
+    assert zostaje == [], f"filtr przepuscil {len(zostaje)} linii howto"
+
+
+def test_metadane_nie_ukrywaja_pola_ktorego_nie_znaja(capsys):
+    """Format czytelny jest stratny z zalozenia, ale nie ma prawa milczec
+    o tym, ze hub przyslal cos nowego — inaczej dodane pole jest niewidoczne
+    dla kazdego, kto nie czyta `--json`."""
+    send._print_event(_metadane(cos_nowego={"a": 1}))
+    assert "cos_nowego" in capsys.readouterr().out
+
+
 def test_json_daje_jedna_parsowalna_ramke_na_linie(capsys):
     """`--json` jest ZRODLEM DO ARBITRAZU: pelna ramka, jedna na linie,
     wielolinijkowa tresc zostaje w polu `text`, a nie rozlewa sie po
@@ -364,11 +415,23 @@ def test_hello_ok_emits_session_metadata_before_backlog(session, capsys):
         "groups": ["workers"], "rules": "tekst", "rules_hash": "abc",
         "backlog": [{"from": "a", "text": "x", "seq": 1}], "last_seq": 1})
     lines = capsys.readouterr().out.splitlines()
-    assert "session_metadata" in lines[0] and '"abc"' in lines[0]
+    # DRUGA korekta ksztaltu, ta sama zasada co przy `[1]` nizej: ten test
+    # broni KOLEJNOSCI emisji, i tak mowi jego wlasny komentarz. Stara
+    # asercja (`'"abc"' in lines[0]`) trzymala sie jednak ksztaltu SUROWEGO
+    # JSON-a — `rules_hash` lezal w linii 0 tylko dlatego, ze linia 0 byla
+    # zrzutem calej ramki. To bylo wiazanie na format, ktorego test wprost
+    # nie broni, wiec zastapione: metadane moga miec dowolnie wiele linii,
+    # byle szly PRZED backlogiem i byle skrot dalej byl widoczny.
+    metadane = [l for l in lines if l.startswith(send.ZNACZNIK_METADANYCH)]
+    assert metadane, "brak ramki metadanych"
+    assert lines[:len(metadane)] == metadane, \
+        "backlog wyszedl przed metadanymi sesji"
+    assert any("abc" in l for l in metadane), \
+        "rules_hash zniknal — nie ma czym sprawdzic, czy tresc rules jest ta"
     # `[1]` przed nadawca: ten test broni KOLEJNOSCI emisji, a nie ksztaltu
     # linii — format czytelny niesie teraz `seq` na KAZDEJ linii (patrz
     # sekcja "format wyjscia" wyzej).
-    assert lines[1] == "[1] a: x"
+    assert lines[len(metadane)] == "[1] a: x"
     assert session.last_applied_seq == 1
 
 
