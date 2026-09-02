@@ -72,7 +72,16 @@ przebiegu #1 poszła źle i została naprawiona dopiero w review:
   wpisów niespełniających własnego warunku,
 - **wypisane przyczyny konkurujące** z manipulacją, łącznie z tymi, które
   obciążają prowadzącego,
-- **punktującego, który nie uczestniczył** w przebiegu.
+- **punktującego, który nie uczestniczył** w przebiegu,
+- **nazwane przy każdej kontroli, CO ona odbiera** — jednym zdaniem, przed
+  przebiegiem. Kontrola dokładana dla porównywalności ramion prawie zawsze
+  odcina przy okazji kawałek dostępu, i wtedy mierzysz różnicę, której nie
+  zamawiałeś. W [`subagent-vs-peer`](subagent-vs-peer-2026-09-02.md)
+  odebranie narzędzi „dla porównywalności" wycięło **całą klasę znalezisk**
+  — przyczyny w kodzie i sprzeczności między dokumentami — więc ramię
+  metodologicznie gorsze dało wynik konsekwentniejszy nie przez brak
+  kontroli, tylko przez dostęp, który kontrola zabierała. Nie zauważył tego
+  żaden z dwóch agentów, **najmniej ten, kto ją dołożył**.
 
 ## Standard audytu doców
 
