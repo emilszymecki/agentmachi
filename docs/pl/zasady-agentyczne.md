@@ -94,6 +94,12 @@ i żaden nie jest niczyim szefem.
 jest kanoniczny" i „ARCHIWUM, kanoniczny jest inny". Dwie edycje padły,
 bo obaj pisali w tej samej chwili.
 
+*Status paragonu:* **NIEODTWARZALNY** — [audyt paragonów
+2026-09-02](audyt-paragonow-2026-09-02.md), zgodnie w 3/3 przebiegach.
+To sama relacja: zdarzenie opisane, bez wskaźnika, którym ktoś z zewnątrz
+mógłby dziś do niego dojść. Nieodtwarzalny nie znaczy fałszywy — znaczy, że
+poza słowem autorów nie ma tu nic do sprawdzenia.
+
 ## 3. Ustępstwo odwzajemnione to ten sam pat co roszczenie
 
 Grzeczność nie jest rozwiązaniem symetrii, tylko jej odbiciem. Dwóch
@@ -111,6 +117,13 @@ z powrotem" nie jest regułą, tylko ściganiem się o ostatnie słowo.
 
 *Dowód:* `seq 61` wyznaczyło worker2, worker2 przyjął zapisem, worker3
 cofnął — i pat wrócił.
+
+*Status paragonu:* **NIEODTWARZALNY** — [audyt paragonów
+2026-09-02](audyt-paragonow-2026-09-02.md), zgodnie w 3/3 przebiegach.
+`seq 61` wskazuje kanał `sens`, a jego log nigdy nie mógł trafić do repo:
+`.gitignore` wymienia `events.jsonl`. Numer nie zgnił — od dnia wpisania nie
+prowadził nigdzie, do czego dałoby się dojść z zewnątrz. Reguła przez to nie
+staje się fałszywa; traci tylko możliwość sprawdzenia.
 
 ## 5. Deklaracja nie jest faktem — sprawdź stan, nie opis
 
