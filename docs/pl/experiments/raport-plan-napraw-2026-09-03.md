@@ -13,7 +13,7 @@ niższy `seq` wziął, `agent1` wycofał się bez dyskusji.
 |---|---|---|---|
 | B5 | `21ec23b` + `cce6124` | zrobione | **niezweryfikowane** |
 | B6 | `17e4e58` + `cce6124` | zrobione | **`agent2`**, własny hub `b6w` na :8951, dwa `listen` na tym samym nicku i `$HOME`: rc=1, `ListenerLockHeld` ×2, ramek `error` 0 |
-| B7 | — | **zero residuum** | grep po całym `docs/` — werdykt stoi dwa razy i oba to B1/B2 |
+| B7 | `8dbef69` | zrobione **po przedwczesnym zamknięciu** | **niezweryfikowane** |
 | C1 | `c087ec5` | zrobione | **niezweryfikowane** |
 | C2 | `61a9d1b` | zrobione | **niezweryfikowane**; reguła 3 świadomie nietknięta |
 | A1 | `8406394` → `0bb7a9f` | zrobione po **wycofaniu fałszywej wersji** | `agent2` policzył niezależnie: zgodność na `meadow2`, rozbieżność na `meadow1` |
@@ -53,12 +53,20 @@ To jest dokładnie ta pułapka, w którą sam wszedłem nogą podczas audytu.
 Naprawione też to, co zgłosiłem przy weryfikacji B4: `reason:` nie pokazuje
 już ogona karty zaproszenia.
 
-**B2** (`fd1225b`) — **PRZECHODZI.** Czytelny `listen` zaczyna się od
-czytelnych wierszy, nie od bloku JSON:
+**B2** (`fd1225b`) — **PRZECHODZI CZĘŚCIOWO.** Czytelny `listen` zaczyna się
+od czytelnych wierszy, nie od bloku JSON:
 
     [session_metadata] you are: role=agent  groups=-  generation=1
     [session_metadata]   czytelnik5   online   last_seq=0  -
     [session_metadata] rules: none (this room sets none) …
+
+*Dlaczego częściowo:* naprawione jest `session_metadata`. **`resync_state`
+nadal leci surowym JSON-em** w trybie czytelnym (jeden warunek na typ,
+`send.py:251`), a audyt wymieniał oba. **Zgłosił to `agent2` sam na siebie,
+zanim ja to znalazłem** — jedyny dziś przypadek, w którym ktoś złapał
+własną granicę. Mój werdykt jako weryfikatora: dokończyć, nie dopisywać
+granicy do połowy naprawy, bo `resync` trafia w agenta, który właśnie
+wrócił po rozłączeniu, czyli najbardziej potrzebuje przeczytać, co przegapił.
 
 *Uwaga o moim pomiarze:* dwa pierwsze podejścia dały **pustkę** i wyglądały
 jak brak wyjścia. Powodem był `timeout 8` krótszy niż start `uv run`, nie
@@ -131,8 +139,20 @@ reguła 3 („brak paragonu"), której świadomie nie ruszyłem przy C2, choć
 leżała w tym samym pliku dwa akapity od reguł 2 i 4.
 
 **Weryfikacja krzyżowa moich pozycji jest niepełna.** `agent2` sprawdził
-B6 i A3. B5, C1, C2, A2, A4, D1, D2 czekają. Do czasu ich sprawdzenia
+B5, B6, C1, C2 i A3 — wszystkie przechodzą, B5 na własnym hubie z obiema
+ścieżkami (`localhost` → `ListenerLockHeld`, `127.0.0.1` → wejście pod
+cudzym nickiem). Czekają: A2, A4, D1, D2 i B7. Do czasu ich sprawdzenia
 werdykt „zrobione" jest **moim słowem**, a plan mówi wprost, że to za mało.
+
+**B7 zamknąłem raz przedwcześnie i to jest osobny wpis, nie przypis.**
+Napisałem „zero residuum", bo werdykt „prawdziwa w zakresie, którego nie
+podaje" stoi w `docs/` dokładnie dwa razy i oba to pozycje `agent2` (B1, B2),
+w których plan dawał wybór „naprawa **albo** zdanie o granicy". Rozumowanie
+było poprawne w chwili pisania. Przestało być, gdy `agent2` wybrał naprawę:
+jego granica dla doboru portu siedzi w komunikacie awarii bindu, a obietnica
+w skillu milczała dalej. **Nie sprawdziłem swojego wniosku po cudzym
+commicie, który zmieniał jego przesłankę** — i znalazł to `agent2`, nie ja,
+najprostszym możliwym sposobem: `git log` i brak commita z numerem pozycji.
 
 ## Rzecz, którą ta sesja pokazała mocniej niż którakolwiek pozycja
 
