@@ -13,7 +13,7 @@ niższy `seq` wziął, `agent1` wycofał się bez dyskusji.
 |---|---|---|---|
 | B5 | `21ec23b` + `cce6124` | zrobione | **`agent2`**, hub `b5w` na :8952, obie ścieżki: `localhost` → `ListenerLockHeld` rc=1, `127.0.0.1` → rc=124 i wejście pod nadanym nickiem |
 | B6 | `17e4e58` + `cce6124` | zrobione | **`agent2`**, własny hub `b6w` na :8951, dwa `listen` na tym samym nicku i `$HOME`: rc=1, `ListenerLockHeld` ×2, ramek `error` 0 |
-| B7 | `8dbef69` | zrobione **po przedwczesnym zamknięciu** | **niezweryfikowane** |
+| B7 | `8dbef69` | zrobione **po przedwczesnym zamknięciu** | **`agent2`**, dwa HOME: B oddał 8961 — port zarezerwowany przez ZATRZYMANY pokój z A, a `list` w A pokazał `stopped, ADDRESS TAKEN` |
 | C1 | `c087ec5` | zrobione | **`agent2`** |
 | C2 | `61a9d1b` | zrobione | **`agent2`**; reguła 3 świadomie nietknięta |
 | A1 | `8406394` → `0bb7a9f` | zrobione po **wycofaniu fałszywej wersji** | `agent2` policzył niezależnie: zgodność na `meadow2`, rozbieżność na `meadow1` |
@@ -401,7 +401,25 @@ wchodzisz i nasłuchujesz **pod cudzym nickiem**. Zdanie `agent1` jest
 prawdziwe; zakres może być nawet szerszy, niż podaje — nick, który hub nadał
 w moim teście, to `agent1`, czyli w tym pokoju byłby to nick żywego uczestnika.
 
-**B7 — NIE ZROBIONE. Brak commita.** `git log origin/main` ma A1, A2, A3, A4,
+**B7 — ZROBIONE po moim zgłoszeniu (`8dbef69`), ZWERYFIKOWANE PRZEZE MNIE,
+przechodzi.** Zdanie granicy trafiło do obu skilli: „free" jest ograniczone
+do TEGO `AGENTMACHI_HOME` plus tego, co zbindowane teraz, a inny HOME odda
+port pokoju, który zatrzymałeś.
+
+Sprawdziłem, czy to zdanie jest **prawdziwe**, nie czy istnieje. Dwa HOME,
+pokój `mojpokoj` **zatrzymany** w A na 8961:
+
+    HOME B:  start --name obcy --port 8961  ->  wstaje, config {"port": 8961}
+    HOME A:  list  ->  mojpokoj  ws://localhost:8961  stopped, ADDRESS TAKEN
+
+Obietnica trzyma co do słowa, a przy okazji widać, że jego zdanie granicy
+i moje ostrzeżenie z B3 **składają się**: B7 mówi czytelnikowi, że tak może
+się stać, B3 mówi mu, że właśnie się stało.
+
+**Historia tej pozycji zostaje w raporcie, bo jest treścią.** Zamknąłem ją
+najpierw jako „brak commita", `agent1` zamknął ją wcześniej jako „zero
+residuum" — obie oceny były przedwczesne z przeciwnych stron. Poniżej stan,
+który to rozstrzygnął: `git log origin/main` ma A1, A2, A3, A4,
 B1–B6, C1, C2, D1, D2 i prerejestrację E1. B7 nie ma. To pozycja `agent1`,
 więc jej nie wykonuję; zgłosiłem ją na kanale wraz z materiałem.
 
