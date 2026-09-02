@@ -1093,7 +1093,22 @@ def cmd_serve(args):
     bind = hub_bind(args.name, fallback=args.bind)
     write_hub_pid(args.name)
     tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))
-    print_card(args.name, port, tokens, bind=bind)
+    if not os.environ.get(SPAWNED_BY_START):
+        # Pod `start` karty NIE drukujemy: rodzic drukuje ja sam, PO
+        # potwierdzeniu bindu. Kopia dziecka trafiala do serve.log przed
+        # bindem i robila dwie szkody naraz w wydruku nieudanego startu
+        # (znalezisko 4 z audytu szwow):
+        #   1. `reason:` cytuje OGON logu, wiec pokazywal karte zamiast bledu —
+        #      czlowiek dostawal "powod: zdanie zaproszenia",
+        #   2. w tym zdaniu stalo gotowe do wklejenia "join agentmachi 'r2'
+        #      (ws://localhost:8767) as agent1" dla pokoju, ktory NIE wstal,
+        #      a pod tym adresem stal cudzy zywy hub. Czlowiek wykonujacy
+        #      dokladnie to, co produkt podsunal mu po awarii, wysylal agenta
+        #      do obcego pokoju. Tak stracilismy cztery ramki na `interwizji`
+        #      (seq 295-298, nick `ktos`).
+        # Samodzielny `serve` karte drukuje dalej — tam nie ma rodzica, ktory
+        # by ja podal, a czlowiek potrzebuje adresu.
+        print_card(args.name, port, tokens, bind=bind)
     os.environ["CHAT_TOKENS"] = str(d / "tokens.json")
     os.environ["CHAT_DATA"] = str(d / "data")
     os.environ["CHAT_PORT"] = str(port)
@@ -1128,16 +1143,49 @@ def cmd_list(args):
     # dysk i celowo nie rusza sieci, wiec obecnosci nie zna i nie ma udawac,
     # ze zna. Kto JEST na kanale, pokazuje TUI ("(nikt nie jest online)").
     print(f"{'ROOM':<16} {'ADDRESS':<28} {'STATE':<24} IDENTITIES (config)")
+    obce = []
     for r in rows:
         addr = f"ws://{connect_host(r['bind'])}:{r['port']}"
         if not r["running"]:
+            # Adres pokoju ZATRZYMANEGO nie musi byc juz jego. Zmierzone
+            # w audycie szwow: pokoj `t9` nie wstal (kolizja portu), a `list`
+            # podal ws://localhost:8767 — adres ZYWEJ `interwizji`. Klient
+            # wzial ten adres i wyslal; ramki stoja w cudzym logu do dzis
+            # (seq 295-298, nick `ktos`). Docs nazywaja `list`/`card`
+            # zrodlem prawdy o adresie, wiec milczenie tutaj jest wada.
+            #
+            # Pytamy siec WYLACZNIE o pokoje zatrzymane i wylacznie o ich
+            # wlasny adres. Reszta `list` czyta dalej sam dysk — celowo, bo
+            # obecnosci na kanale to narzedzie nie zna i nie ma udawac, ze zna.
             stan = "stopped"
+            if _port_accepts(r["port"], r["bind"]):
+                stan = "stopped, ADDRESS TAKEN"
+                obce.append((r["name"], addr))
         elif r["pidfile"]:
             stan = f"running (PID {r['pid']})"
         else:
             stan = f"running (PID {r['pid']}, no pidfile)"
         print(f"{r['name']:<16} {addr:<28} {stan:<24} {', '.join(r['nicks'])}")
-    zatrzymane = [r["name"] for r in rows if not r["running"]]
+    # Tabela idzie na stdout, ostrzezenie na stderr — przy przekierowaniu do
+    # pliku stdout jest blokowo buforowany i ostrzezenie wyladowaloby PRZED
+    # wierszem, ktorego dotyczy. Ta sama roznica buforowania zrobila z pola
+    # `reason:` cytat z karty (znalezisko 4).
+    sys.stdout.flush()
+    for nazwa, addr in obce:
+        print(f"\nwarning: {nazwa!r} is NOT running, but something is already "
+              f"listening on\n"
+              f"  {addr} — that address does not belong to this room now.\n"
+              f"  Do NOT paste it to an agent; it would join somebody else's "
+              f"room.\n"
+              f"  whose it is:  ss -tlnp | grep {addr.rsplit(':', 1)[1]}",
+              file=sys.stderr)
+    # Pokoj z zajetym adresem NIE trafia do podpowiedzi: `start` na nim i tak
+    # odmowi (istniejacy pokoj nie przesuwa portu), wiec podsuwalibysmy
+    # czlowiekowi komende, ktora na pewno nie zadziala — w wydruku, ktory
+    # wlasnie ostrzega, ze z tym pokojem cos jest nie tak.
+    z_zajetym = {n for n, _ in obce}
+    zatrzymane = [r["name"] for r in rows
+                  if not r["running"] and r["name"] not in z_zajetym]
     if zatrzymane:
         # `start`, nie `serve`: serve blokuje terminal, czyli dokladnie to,
         # od czego uciekamy w komendach dla czlowieka.

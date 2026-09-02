@@ -851,6 +851,75 @@ def test_udany_start_zostawia_adres_i_pidfile(home, monkeypatch):
     assert [r["name"] for r in cli.hub_rows()] == ["dziala"]
 
 
+def test_list_ostrzega_gdy_adres_zatrzymanego_pokoju_trzyma_ktos_inny(
+        home, monkeypatch, capsys):
+    """Znalezisko 4 audytu szwow, zaplacone czterema ramkami w cudzym logu.
+
+    Pokoj `t9` nie wstal (kolizja portu), a `list` podal ws://localhost:8767 —
+    adres ZYWEJ `interwizji`. Agent wzial ten adres z `list`, bo docs nazywaja
+    `list`/`card` zrodlem prawdy o adresie, i wyslal. Ramki stoja w cudzym
+    logu do dzis (seq 295-298, nick `ktos`).
+
+    `list` nie ma prawa milczec o tym, ze adres, ktory wlasnie wydrukowal,
+    nalezy teraz do kogos innego."""
+    cli.ensure_hub("t9", 8767)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+    monkeypatch.setattr(cli, "hub_pid", lambda name: None)   # pokoj NIE dziala
+    assert cli.cmd_list(argparse.Namespace()) == 0
+    out, err = capsys.readouterr()
+    assert "ADDRESS TAKEN" in out, "wiersz milczy o cudzym adresie"
+    assert "does not belong to this room" in err
+    assert "Do NOT paste it to an agent" in err, \
+        "czlowiek ma wiedziec, czego NIE robic z tym adresem"
+    assert "stopped ones you can launch" not in out, \
+        "podpowiedz kusi startem pokoju, ktory na tym adresie nie wstanie"
+
+
+def test_list_nie_krzyczy_o_adresie_ktorego_nikt_nie_trzyma(home, monkeypatch,
+                                                            capsys):
+    """Falsyfikacja w druga strone: ostrzezenie ma byc rzadkie. Gdyby leciało
+    zawsze, przestaloby cokolwiek znaczyc — a `list` jest wydrukiem czytanym
+    codziennie."""
+    cli.ensure_hub("wolny", 8931)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: False)
+    monkeypatch.setattr(cli, "hub_pid", lambda name: None)
+    cli.cmd_list(argparse.Namespace())
+    out, err = capsys.readouterr()
+    assert "ADDRESS TAKEN" not in out and "does not belong" not in err
+    assert "stopped ones you can launch: agentmachi start --name wolny" in out
+
+
+def test_serve_pod_startem_nie_drukuje_karty(home, monkeypatch, capsys):
+    """Drugi i trzeci defekt z wydruku nieudanego startu — jedna przyczyna.
+
+    Dziecko drukowalo karte do serve.log PRZED bindem, a rodzic cytuje OGON
+    tego logu jako `reason:`. Czlowiek dostawal wiec „powod: zdanie
+    zaproszenia", a w tym zdaniu gotowe do wklejenia
+    `join agentmachi 'r2' (ws://localhost:8767) as agent1` — dla pokoju,
+    ktory NIE wstal, pod adresem cudzego zywego huba."""
+    import chat.server
+    monkeypatch.setenv(cli.SPAWNED_BY_START, "1")
+    monkeypatch.setattr(chat.server, "main",
+                        lambda: (_ for _ in ()).throw(OSError("bind failed")))
+    cli.cmd_serve(argparse.Namespace(name="r2", port=8767, bind="127.0.0.1"))
+    out, err = capsys.readouterr()
+    assert "join agentmachi" not in out + err, \
+        "nieudany start podsuwa gotowe zaproszenie do cudzego pokoju"
+    assert "address:" not in out, "karta pod `start` jest duplikatem karty rodzica"
+    assert "could not bind" in err, "to ma zostac ogonem logu jako `reason:`"
+
+
+def test_serve_samodzielny_nadal_drukuje_karte(home, monkeypatch, capsys):
+    """Kontrola: bez rodzica karte drukuje `serve` i tylko on — inaczej
+    czlowiek odpalajacy hub w terminalu nie dostaje adresu wcale."""
+    import chat.server
+    monkeypatch.delenv(cli.SPAWNED_BY_START, raising=False)
+    monkeypatch.setattr(chat.server, "main", lambda: None)
+    assert cli.cmd_serve(argparse.Namespace(name="sam", port=8932,
+                                            bind="127.0.0.1")) == 0
+    assert "address: ws://localhost:8932" in capsys.readouterr().out
+
+
 def test_explicit_port_overrides_config_of_existing_room(home, monkeypatch,
                                                          capsys):
     """PULAPKA BEZ WYJSCIA (znaleziona przy weryfikacji): komunikat radzil
