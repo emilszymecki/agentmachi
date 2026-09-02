@@ -302,6 +302,14 @@ hubów zgłosiła pokój o nazwie `$r` w katalogu produkcyjnym. Nie istniał:
 literalne `--name $r` z pętli akurat uruchamianej. Dokładnie pułapka opisana
 w `AGENTS.md` („Argv kłamie") — rozstrzyga plik wykonywalny procesu, nie tekst.
 
+Wystąpiła **ponownie, tego samego dnia, minuty po zacommitowaniu tego raportu**:
+skan sprzątający po audycie zgłosił trzy „moje żywe huby", z których wszystkie
+były wrapperami powłoki — `pgrep -f` trafił we własne polecenie, a `environ`
+wrappera niósł ścieżkę scratcha, po której skan filtrował. Rozstrzygnięcie po
+`/proc/<pid>/exe` dało zero. Autor sekcji o tej pułapce wpadł w nią, sprzątając
+po jej opisaniu — co jest najmocniejszym dostępnym argumentem, że nie chroni
+przed nią wiedza, tylko **wybór dyskryminatora**.
+
 ## Wniosek: ani jedno KŁAMIE — i dlaczego to nie jest certyfikat
 
 Po obu wycofaniach — „`start` kończy exit 0" i „B2 KŁAMIE", każde cofnięte
