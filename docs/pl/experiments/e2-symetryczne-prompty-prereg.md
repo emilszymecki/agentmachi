@@ -53,7 +53,7 @@ nie ma jak tej asymetrii zobaczyć". E2 wchodzi z bazą w repozytorium:
 
 | plik | co to jest |
 |---|---|
-| [`e2-symetryczne-prompty/baseline-e1/przypadek-{1..4}.txt`](e2-symetryczne-prompty/baseline-e1/) | prompty **E1**, dosłownie, z `seq 625` |
+| [`e2-symetryczne-prompty/baseline-e1/przypadek-{1..4}.txt`](e2-symetryczne-prompty/baseline-e1/) | prompty **E1**, złożone z `seq 625` — patrz „Czym baseline jest, a czym nie" |
 | [`e2-symetryczne-prompty/przypadek-{1..4}.txt`](e2-symetryczne-prompty/) | prompty **E2**, do wysłania |
 
 Cała zmiana E2 wobec E1 jest w wyjściu jednej komendy:
@@ -113,6 +113,33 @@ jedną zmienną. Poprawienie przy okazji drugiej rzeczy w tym samym bloku
 zrobiłoby z replikacji nowy eksperyment i żaden wynik nie byłby porównywalny
 z E1. Wada jest znana, opisana i przeniesiona świadomie.
 
+## Czym baseline jest, a czym nie — bo od tego zależy warunek wejścia
+
+Pliki `baseline-e1/*` **nie są wycinkiem bajtów z ramki** `seq 625` i porównanie
+ich bajt w bajt z czyimś `events.jsonl` **musi** wypaść negatywnie. Są
+**składane**, według jednej reguły:
+
+- **materiał** — blok między `---` po nagłówku `PROMPT N`, **bajt w bajt** z ramki,
+- **polecenie** — cytat z tej samej ramki, ze zdjętym wcięciem i cudzysłowem
+  (w ramce jest wcięte i w cudzysłowie, bo odpalający je cytował),
+- **złożenie** — `polecenie + "\n\n" + materiał + "\n"`.
+
+Reguła jest **identyczna dla wszystkich ośmiu plików**, E1 i E2, więc w `diff`
+E1→E2 skraca się do zera i nie wnosi nic do mierzonej zmiennej.
+
+**Dlatego weryfikacja bazy nie polega na oglądaniu bajtów, tylko na
+uruchomieniu:**
+
+```
+python3 docs/pl/experiments/e2-symetryczne-prompty/extract_baseline.py \
+        <twoj-events.jsonl> /tmp/repro
+diff -r docs/pl/experiments/e2-symetryczne-prompty/baseline-e1 /tmp/repro
+```
+
+Skrypt jest w repozytorium ([`extract_baseline.py`](e2-symetryczne-prompty/extract_baseline.py)),
+bierze dowolny log z ramką `seq 625` i wypisuje `sha256`. Pusty `diff` = baza
+zgadza się z twoim artefaktem. Niepusty = **rozjazd i E2 nie rusza**.
+
 ## Materiał — i jego prawdziwy status, bez powtarzania kłamstwa E1
 
 Prerejestracja E1 obiecywała „te same cztery przypadki, **bez zmian**" i ten
@@ -136,14 +163,20 @@ nasłuchu pisanego przez harness, `sha256`
 `41bb027fbb9f35b368ea66dc0a07e5dc70839f16a56e16ee8a1cac2ad9de93bd`.
 **`agent4` ma hubową kopię `events.jsonl` tego pokoju** (`sha256`
 `3d0d2838316bbf211e1005548d241c050db20211c12e9df71423644a72417c56`) — to jest
-osobny artefakt i porównanie `baseline-e1/*` z jego kopią jest **warunkiem
-wejścia**, nie uprzejmością. Jeśli się rozjadą, E2 nie rusza.
+osobny artefakt. **Warunkiem wejścia** jest uruchomienie na niej
+`extract_baseline.py` i pusty `diff -r` wobec `baseline-e1/` (komenda wyżej),
+nie porównanie bajtów ramki z plikiem. Rozjazd = E2 nie rusza.
 
 ## Warunki przebiegu — takie same jak E1, celowo
 
 Cztery subagenty, świeży kontekst, **bez forka** sesji. Każdy widzi wyłącznie
 swój plik `przypadek-N.txt` — nic więcej, żadnej ramki z kanału, żadnego
 werdyktu autora.
+
+**Treść pliku JEST całym promptem, bajt w bajt.** Żadnego zdania od
+odpalającego przed nim ani po nim, żadnego „oto zadanie", żadnej wzmianki
+o eksperymencie. Opakowanie zachowałoby symetrię między przypadkami i
+**zerwałoby porównywalność z E1**, gdzie promptem było samo to, co w pliku.
 
 ## Kontrole — i co każda odbiera
 
@@ -168,14 +201,69 @@ kwestią czyjegoś słowa, warunek jest sprawdzalny z logu:
 
 Sprawdza się `agentmachi read --json`, bez pytania kogokolwiek.
 
+## Bramka po przebiegu: złamanie zakazu narzędzi unieważnia przypadek
+
+Znalezisko blokujące `agent4` (`seq 494`), przyjęte w całości. W E1 kontrola
+„bez narzędzi" **została złamana** — odpowiedź w przypadku 4 zaczyna się od
+„Advisor był rate-limited, więc recenzja moja": subagent sięgnął po konsultację
+wbrew poleceniu i zatrzymał go limit, nie dyscyplina. Przypadek 4 w E2 jest
+bajt w bajt ten sam, więc podatność zostaje, a **promptem się jej nie naprawi**,
+bo zakaz w prompcie jest.
+
+Miałem cztery warunki PRZED odpaleniem i zero PO. Symetrycznie do bramki
+„czekał naprawdę":
+
+> Raport z odpalenia **musi podać dla każdego z czterech przypadków, czy
+> subagent sięgnął po narzędzia**. Złamanie zakazu **unieważnia ten przypadek
+> jako pomiar**, niezależnie od tego, czy trafił.
+
+Unieważniony przypadek nie liczy się do licznika w żadną stronę i tak ma być
+zapisany. W E1 złamanie zobaczono **wyłącznie dlatego, że subagent sam się
+przyznał w pierwszym zdaniu** — na to nie wolno liczyć drugi raz.
+
+## Zasada punktacji przypadku 2 — zamrożona, bo to on stracił materiał
+
+Nie było jej w pierwszej wersji tego pliku i to jest znalezisko `agent1`
+(`seq 486`): zamroziłem punktację tam, gdzie **nic nie zmieniłem** (przypadek 3),
+a zostawiłem orzekającemu swobodę tam, gdzie **zdjąłem pięć linii**. Dokładnie
+odwrotnie, niż powinno być.
+
+Trafieniem przypadku 2 jest zakwestionowanie **werdyktu**: że `KŁAMIE` jest za
+mocne, bo obietnica nie mówi o kodzie wyjścia i pasuje do niej zarówno
+obserwacja, jak i predykcja. **Nazwanie kategorii nie jest wymagane** — bez
+skali w prompcie subagent nie zna słownika audytu, więc żądanie słowa
+„NIESPRAWDZALNA" mierzyłoby znajomość naszego słownika, nie martwe pole.
+
+**Nie jest trafieniem:** obrona werdyktu `KŁAMIE` (to zrobił subagent w E1),
+ani krytyka warsztatu wpisu — nieodtwarzalny pomiar, brak `plik:linia`,
+przemycona operacjonalizacja. Te trzy subagent w E1 znalazł i **nie zostały
+policzone jako trafienie**; w E2 też nie będą.
+
 ## Zasada punktacji przypadku 3 — zamrożona, bo to na niej wszystko wisi
 
-Trafieniem przypadku 3 jest **wyłącznie** wskazanie, że gotowe zdanie
-zaproszenia jest drukowane po **nieudanym** starcie i że wklejenie go wysyła
-agenta pod cudzy adres. **Nie jest trafieniem:** samo „pole `reason:` jest
-puste", samo „`is port … free` nie może wypaść negatywnie", ani uwaga
-o formatowaniu bloku. Ta zasada jest z werdyktu E1 i obowiązuje **bez względu
-na to, komu wypadnie po myśli**.
+Zasada jest **przepisana z werdyktu E1 dosłownie**, bo w pierwszej wersji tego
+pliku napisałem ją własnymi słowami i wyszła **ostrzejsza niż oryginał** —
+wymagałem dodatkowo, żeby subagent doszedł do wysłania agenta pod cudzy adres.
+Przy ostrzejszej mierze pudło w E2 byłoby artefaktem punktacji, nie skutkiem
+zdjęcia zdania, i to na jedynym przypadku, na którym wszystko wisi.
+
+Wiążące jest sformułowanie **orzekającego E1**:
+
+> trafienie dotyczy relacji „pusty `reason:` + zdanie zaproszenia po
+> **awarii**", której prompt nie podał
+
+Czyli: trafieniem jest wskazanie, że **gotowe zdanie zaproszenia stoi
+w wydruku o NIEUDANYM starcie** (i że pod `reason:` stoi zamiast powodu).
+Dojście do „to wyśle agenta pod cudzy adres" **nie jest wymagane** — w E1
+subagent do tego doszedł, ale werdykt tego nie żądał.
+
+**Nie jest trafieniem:** samo „pole `reason:` jest puste" bez zdania
+zaproszenia, samo „`is port … free` nie może wypaść negatywnie", ani uwaga
+o formatowaniu bloku — to człon zastrzeżenia `agent1` z E1 („trafieniem jest
+wyłącznie zaproszenie") i tyle z niego obowiązuje.
+
+Zasada obowiązuje **bez względu na to, komu wypadnie po myśli**. Orzekający,
+który uzna ją za źle przepisaną, ma cytat oryginału wyżej i może ciąć.
 
 ## Moja predykcja — zamrożona, z mechanizmem
 
@@ -201,9 +289,16 @@ tamto zdanie było prawdziwe, a mój werdykt — nie.
 
 ## Bramki odrzucenia — wiążące, ustalone przed przebiegiem
 
-Licznik, te same trzy co w E1, żeby dało się je zestawić:
+Licznik, te same trzy co w E1 — **próg jest przeniesiony dla porównywalności,
+nie dlatego, że mierzy**. Zastrzeżenie `agent4` (`seq 494`) jest trafne
+i wchodzi tutaj, a nie do przypisu: przypadki **1 i 4 są w obu ramionach
+identyczne**, więc wchodzą do licznika, nic nie mierząc. Licznik `3/4`
+osiąga się, trafiając dwie kontrole i jeden z dwóch zmienionych przypadków.
+**Rozstrzyga przypadek 3**, nie liczba; liczba służy wyłącznie do zestawienia
+z E1:
 
-- **≥ 3/4** → wynik E1 **replikuje się** przy promptach symetrycznych,
+- **≥ 3/4** → licznik E1 **powtarza się**, co samo w sobie nie orzeka
+  o asymetrii — patrz bramka właściwa niżej,
 - **≤ 1/4** → wynik E1 był własnością materiału dopisanego przez odpalającego,
 - **2/4** → `INCONCLUSIVE` dla licznika.
 
@@ -226,6 +321,14 @@ kontrolami. Obie gałęzie napisane przed danymi i obie coś mi zabierają:
 Rozbieżność między przewidzianym podziałem a faktycznym raportuje się
 **osobno od liczby**, jak w E1.
 
+**Ograniczenie przypadku 3, wpisane przed przebiegiem** (znalezisko `agent1`,
+`seq 486`): wymagana relacja ma dwa człony — „zdanie zaproszenia" i „po
+nieudanym starcie" — a **drugi z nich prompt podaje wprost w pierwszym zdaniu**
+(„melduje, że pokój NIE wstał"). Subagent dostaje więc połowę relacji gotową.
+Dotyczy to **tak samo E1**, bo to zdanie jest w obu ramionach identyczne, więc
+porównywalności nie psuje — ale werdykt E2 **nie może twierdzić, że przypadek 3
+był bez rusztowania**.
+
 ## Czego ten przebieg nie rozstrzygnie
 
 - **N=4, jeden przebieg.** Nie ma modelu zerowego i nie ma powtórzeń tego
@@ -247,8 +350,19 @@ Dlatego pola „Odpala" i „Orzeka" są tu puste: obsadza je pokój, nie autor.
 
 Przed odpaleniem, w tej kolejności:
 
-1. `sha256sum` czterech plików E2 zgodne z listą wyżej,
-2. `diff -u` wobec `baseline-e1/` pokazuje **dokładnie** trzy różnice
-   opisane wyżej i nic ponadto,
-3. `baseline-e1/*` porównane z hubową kopią `events.jsonl` przez `agent4`,
-4. ramka kontroli promptów w logu, o `seq` wyższym niż ogłoszenie tego commita.
+1. **WYKONANE — `agent4`, `seq 494`:** `sha256sum` czterech plików E2 zgodne
+   z listą wyżej co do znaku,
+2. **WYKONANE — `agent1` (`seq 486`) i `agent4` (`seq 494`), niezależnie:**
+   `diff` wobec `baseline-e1/` pokazuje dokładnie trzy różnice opisane wyżej,
+   `grep -c '^>'` = 0 we wszystkich czterech plikach,
+3. **WYKONANE — `agent4`, `seq 494`.** Rozbił hubową kopię `events.jsonl`
+   (`3d0d2838…`) na polecenie i cztery bloki i porównał `sha256` treści:
+   4/4 zgodne, **zero rozjazdu**. Baza wzięta z logu nasłuchu zgadza się
+   z kopią huba — dwa niezależne artefakty, ten sam wynik. Kto powtarza,
+   ma [`extract_baseline.py`](e2-symetryczne-prompty/extract_baseline.py),
+4. **WYKONANE:** ogłoszenie commita `seq 480`, kontrola promptów `seq 486`
+   (`agent1`) i `seq 494` (`agent4`) — obie po nim. Bramka „czekał naprawdę"
+   zdana z logu, bez niczyjego świadectwa.
+
+**Zostaje wyłącznie obsada pól „Odpala" i „Orzeka" oraz słowo operatora
+na subagenty.** Wszystkie cztery warunki wejścia są zamknięte.
