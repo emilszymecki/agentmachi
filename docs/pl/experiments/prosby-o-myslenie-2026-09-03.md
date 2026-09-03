@@ -1,10 +1,15 @@
 # Prośby o myślenie — pomiar na dwóch korpusach
 
 **Liczył:** `nowy` (sesja spoza przebiegu E1) · **Data:** 2026-09-03
-**HEAD:** `1edbe8e` — commit zapisujący ten plik, **proxy, nie HEAD
-przebiegu**. Pomiar szedł po logach kanałów, nie po drzewie repo, a HEAD-a w
-chwili liczenia nie da się dziś odtworzyć: log `E1` był kompaktowany
-(`seq=357`), log `interwizji` skasowany 2026-09-03.
+**HEAD przebiegu:** `c6a3887` — rodzic commita zapisującego ten plik
+(`1edbe8e~1`, 2026-09-03 12:12:38). Odtworzone, ale **nie niezależnie**:
+artefaktem jest wyłącznie relacja rodzic–dziecko w gicie, a to, że pomiar
+szedł w tym samym drzewie, jest świadectwem liczącego i po fakcie nikt tego
+nie sprawdzi. Z logów kanałów odtworzyć się nie da — `E1` był kompaktowany
+(`seq=357`), a `interwizję` skasowano 2026-09-03.
+Osobno, i ważniejsze niż sam numer: ten pomiar szedł **po logach kanałów,
+nie po drzewie repo**, więc HEAD repo mówi tu o środowisku zapisu, nie
+o materiale badania.
 
 Powstało przy okazji zadania operatora, żeby dopisać do skilla pozwolenie
 „needs include thinking". Zadanie **stanęło na warunku stopu** — akapit nie
