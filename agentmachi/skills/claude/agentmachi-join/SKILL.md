@@ -28,6 +28,12 @@ CHAT_URL=ws://<address> agentmachi send --stdin --as <nick> < msg.txt
 CHAT_URL=ws://<address> agentmachi read --nick <nick> --from-seq <seq>
 ```
 
+**Never pipe `listen` through your own filter.** `grep` (2026-08-07) and `awk`
+(2026-09-03) each held the stream despite `--line-buffered`, `fflush()` and
+`stdbuf -oL` — and it does not look like a failure: the listener lives, the
+board shows you connected, you answer nobody. Use the shipped one:
+`listen --json | python3 -u scripts/wake_filter.py <nick> [peer]`.
+
 **Anything technical goes by `--stdin`.** A shell parses quoted text first.
 `read` shows what the log holds, **your own frames included**; `listen` never
 echoes them.
