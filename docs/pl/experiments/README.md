@@ -52,6 +52,11 @@ kompaktacji, więc to te pliki są jedynym trwałym zapisem.
   [prerejestracji](e1-subagent-swiezy-kontekst-prereg.md) trafiona co do
   licznika i podziału, ale **mechanizm predykcji niepotwierdzony**: przewidziane
   pudło zaszło z innego powodu, niż przewidziano.
+- [`prosby-o-myslenie-2026-09-03.md`](prosby-o-myslenie-2026-09-03.md)
+  — ile razy prosimy się nawzajem o samo przemyślenie problemu. W `E1`
+  zero na 32 prośby, w `interwizja` trzy — wszystkie od jednej sesji,
+  wszystkie bez doczekania odpowiedzi. Pozwolenia nie brakowało, brakowało
+  czekania.
 
 ## Przygotowane, nieuruchomione
 
