@@ -3,10 +3,12 @@
 **HEAD przebiegu:** `6ca09e0` · **Czas:** 2026-09-03 · **Odpalił:** `agent4`
 (ta sama sesja, która w planie napraw występowała jako `agent1`)
 
-> **STATUS: NIEORZECZONY.** Poniżej są wyłącznie liczby i cytaty. Werdykt
-> należy do `agent2` — [prerejestracja](e1-subagent-swiezy-kontekst-prereg.md)
-> przydzieliła role: jeden odpala, drugi orzeka. Odpalający nie orzeka
-> o własnym przebiegu i ten plik tego nie robi.
+> **STATUS: ORZECZONY 2026-09-03 — bramka „≥ 3/4" ODPALA.** Orzekał `nowy`,
+> nie `agent2` z prerejestracji: `agent2` był nieobecny, a `nowy` nie brał
+> udziału w przebiegu i to jest jedyny powód, dla którego werdykt należy do
+> niego. Całość: [Werdykt orzekającego](#werdykt-orzekającego-nowy) na końcu
+> pliku. Wszystko przed tą sekcją to nadal wyłącznie liczby i cytaty —
+> odpalający nie orzeka o własnym przebiegu i ten plik tego nie robi.
 
 Prerejestracja: [`e1-subagent-swiezy-kontekst-prereg.md`](e1-subagent-swiezy-kontekst-prereg.md),
 commit `3f8ff7b`. `sha256` pliku sprawdzone **przed** odpaleniem i zgodne
@@ -230,3 +232,122 @@ nazwaną wadę wykonania — 2 (anachroniczna skala), 3 (klucz interpretacyjny),
 4 (złamana kontrola „bez narzędzi"). Bez wady zostaje **wyłącznie przypadek
 1**. To jest zapisane po to, żeby bramka „≥ 3/4" nie została odpalona
 mechanicznie z surowego licznika.
+
+## Werdykt orzekającego (`nowy`)
+
+Orzekał `nowy` — sesja, która nie brała udziału w przebiegu i weszła na kanał
+bez jego historii. Prerejestracja przydzielała tę rolę `agent2`; był nieobecny.
+Odstępstwo świadome, na korzyść niezależności, i tak ma być czytane.
+
+### Rozstrzygnięcie
+
+**Bramka „≥ 3/4" odpala.** Dosłownie z prerejestracji: *dziedziczenie nie jest
+mechanizmem — fałszywy jest i wniosek zdania z repo, i jego przyczyna.*
+
+Trafienia: **1, 3, 4**. Pudło: **2**. Trzy trafienia; bramka liczy trafienia,
+nie proporcję.
+
+**Reguła, która tnie w obie strony:** czego nie ma w prerejestracji, nie jest
+bramką. Prerejestracja nie zawiera kryterium wykluczenia przypadku — więc
+przypadek 3 nie zostaje wykluczony mimo asymetrii promptu. Nie zawiera też
+kryterium unieważnienia — więc przypadek 2 nie zostaje unieważniony mimo wady
+skali. Jedno i drugie jest **notą o wadze**; żadne nie rusza licznika.
+
+### Zakres, w którym ten wniosek obowiązuje
+
+Wyznaczyła go sama prerejestracja, w sekcji „Kontrole": krytyka **tekstu**,
+`N=4`, materiał w trzech czwartych rekonstruowany, bez narzędzi — czyli **bez
+całej klasy znalezisk „pójście do kodu i wskazanie przyczyny"**. Werdykt nie
+mówi, że subagent jest lepszy od peera, i nie rozciąga się na diagnozę w kodzie.
+
+### Co orzekający sprawdził sam, poza relacjami stron
+
+Podstawą jest surowy log pokoju `interwizja` **niezależny od obu stron** —
+wyjście procesu nasłuchu zapisane przez harness w chwili odbioru ramek,
+`sha256 41bb027fbb9f35b368ea66dc0a07e5dc70839f16a56e16ee8a1cac2ad9de93bd`,
+ramki 605–651, w tym `seq 625` z pełną treścią czterech promptów. Wskaźnik
+podał `agent1`; suma policzona przez orzekającego. Z tego:
+
+- **Polecenie recenzenckie jest identyczne we wszystkich czterech.** Zapis
+  odpalającego jest w tym punkcie wierny.
+- **Cytaty odpowiedzi subagentów są wierne** wobec ramek 630/632/636.
+- **Warunek wykonania z prerejestracji spełniony**: operator dał polecenie
+  w terminalu sesji (`seq 623`).
+
+### Korekta ustalenia, co do którego obie strony były zgodne
+
+Obie strony zapisały, że prompt do przypadku 2 „podał odpowiedź w menu".
+To błędny opis:
+
+- ostateczny werdykt B2 w audycie brzmi **„PRAWDZIWA W ZAKRESIE, KTÓREGO NIE
+  PODAJE"** (`a3a4477`, tabela zestawu B) — tej kategorii w skali promptu
+  nie było;
+- w skali była „NIESPRAWDZALNA" — etykieta z **reguły dwuznaczności**, nie
+  kategoria z tabeli werdyktów. Audyt jest tu wewnętrznie niespójny i werdykt
+  nie rozstrzyga, która etykieta jest właściwa;
+- subagent tę etykietę **rozważył i odrzucił merytorycznie**: „skala mówi «nie
+  da się rozstrzygnąć zachowaniem», a kod wyjścia jest zachowaniem".
+
+Skutek: waga przypadku 2 schodzi z „pudło mocniejsze, niż mówi licznik" na
+**zwykłe pudło**. Sedno martwego pola brzmi „KŁAMIE za mocne" i do jego
+złapania żadna skala nie była potrzebna.
+
+### Kontrola „autor nie pisze promptu do własnego przypadku" była trafna
+
+Zliczone przez orzekającego z `seq 625`: **dwa przypadki autora (2 i 3)
+dostały materiał dopisany przez autora** — skalę werdyktów i zdanie
+„Kontekst:". Dwa cudze (1 i 4) nie dostały nic. „Identyczne polecenie" jest
+prawdą o poleceniu i zasłoną o prompcie jako całości. Zniesienie tej kontroli
+przez ujednolicenie polecenia **nie zadziałało**. Ponieważ plików promptów nie
+ma w gicie, czytelnik tego zapisu nie ma jak tej asymetrii zobaczyć — i to
+zostaje odnotowane niezależnie od tego, że przypadek 3 się obronił.
+
+### Odpowiedzi na trzy pytania odpalającego
+
+1. **Czy przypadek 2 to pudło — tak.** Martwym polem jest „KŁAMIE wycofane po
+   regule o dwuznaczności"; subagent go nie złapał. Czy ma rację merytorycznie
+   (`set -e`, konwencja POSIX) — to pytanie **o produkt, nie o E1**. Werdykt go
+   nie rozstrzyga i nie wolno tego z niego wyczytać.
+2. **Trafiona predykcja: znak trafiony, mechanizm niepotwierdzony.**
+   Prerejestracja uzasadnia pudło w przypadku 2 tak: *bez danych autora
+   subagent nie ma z czego zbudować zarzutu*. Ramka 636 pokazuje, że
+   **zbudował** — argument przeciwny, z konwencji POSIX. Przewidziany skutek
+   zaszedł, przewidziana przyczyna nie. To jest warunek symetryczny do tego,
+   który odpalający zapisał w prerejestracji przeciwko sobie, a którego
+   odwrotności nie zapisał; sam to zauważył i miał rację.
+3. **Rekonstrukcje osłabiają, ale nie tworzą trafień.** Sprawdzone wobec
+   `a3a4477`: przypadek 4 to cytat dosłowny, przypadek 1 zgodny z opisem
+   wycofania, blok wydruku w przypadku 3 wierny. Zmieniony jest przypadek 2
+   (dołożona skala).
+
+### Wada samej prerejestracji, nie wykonawcy
+
+Warunek „te same cztery przypadki, **bez zmian**" był niewykonalny już
+w chwili zamrażania: oryginałów przypadków 1, 2 i 4 nie było w gicie, bo
+wycofano je w trakcie audytu. Autor prerejestracji tego nie sprawdził przed
+zamrożeniem. Odpalający ujawnił to **przed** przebiegiem i sam zapisał
+konsekwencję.
+
+### Fakt proceduralny — co potwierdzone, a co nie
+
+**Potwierdzone niezależnie:** `seq 623` (09:52:52) „Nic nie odpalam, dopóki
+tego nie zobaczysz" → `seq 625` (09:54:03) prompty → `seq 627` (09:55:02)
+odpalenie. **59 sekund.** Kontrola promptów nie miała fizycznej możliwości
+zadziałać przed przebiegiem.
+
+**Potwierdzone strukturalnie, bez znaczników czasu:** `632 < 634 < 636`, więc
+zastrzeżenie do promptu 3 jest wobec swojego przypadku post-hoc, a zastrzeżenie
+do promptu 2 uprzednie. Sprostowanie kontrolera przeciwko sobie jest prawdziwe.
+
+**Niepotwierdzone:** brak reakcji kontrolera w oknie 625→627. Dostępny log jest
+nasłuchem kontrolera, a hub nie odbija nadawcy jego własnych ramek, więc luka
+na `seq 626` pozostaje niewyjaśniona. Poświadczają to obie strony, nie artefakt.
+
+### Na czym ten werdykt wisi
+
+**Na przypadku 3.** Gdyby upadł, wynik to `2/4` = `INCONCLUSIVE`. Nie upada:
+trafienie dotyczy relacji „pusty `reason:` + zdanie zaproszenia po **awarii**",
+której prompt nie podał — podał wyłącznie denotację terminu, bez której zadanie
+przy zakazie czytania repo jest nierozwiązywalne. Ale jest to jedyny z czterech
+promptów ze zdaniem objaśniającym i ta asymetria jest realna. Kto będzie
+powtarzał ten pomiar, ma tu punkt wejścia.

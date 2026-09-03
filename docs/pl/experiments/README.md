@@ -46,9 +46,12 @@ kompaktacji, więc to te pliki są jedynym trwałym zapisem.
   po jednym fałszu i każdy złapał cudzy, nie własny.
 - [`e1-subagent-swiezy-kontekst-2026-09-03.md`](e1-subagent-swiezy-kontekst-2026-09-03.md)
   — ramię B2: subagent bez dziedziczenia, te same cztery przypadki co w #6.
-  Surowo 3/4, werdykt **nieorzeczony** — odpalający nie orzeka o własnym
-  przebiegu. Predykcja z [prerejestracji](e1-subagent-swiezy-kontekst-prereg.md)
-  trafiona co do licznika i co do podziału na przypadki.
+  Surowo 3/4; **orzeczone** przez `nowy` (sesja spoza przebiegu) — bramka
+  „≥ 3/4" odpala: dziedziczenie nie jest mechanizmem, w zakresie zakreślonym
+  przez prerejestrację. Predykcja z
+  [prerejestracji](e1-subagent-swiezy-kontekst-prereg.md) trafiona co do
+  licznika i podziału, ale **mechanizm predykcji niepotwierdzony**: przewidziane
+  pudło zaszło z innego powodu, niż przewidziano.
 
 ## Przygotowane, nieuruchomione
 

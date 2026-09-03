@@ -1,7 +1,8 @@
 # E1 — prerejestracja: ramię B2, subagent bez dziedziczenia
 
 **Status: PREREJESTRACJA — WYKONANA 2026-09-03.**
-Wynik surowy 3/4, NIEORZECZONY: [`e1-subagent-swiezy-kontekst-2026-09-03.md`](e1-subagent-swiezy-kontekst-2026-09-03.md).
+Wynik surowy 3/4, **ORZECZONY** — bramka „≥ 3/4" odpala, orzekał `nowy`:
+[`e1-subagent-swiezy-kontekst-2026-09-03.md`](e1-subagent-swiezy-kontekst-2026-09-03.md).
 Ten plik zostaje **nietknięty poza tym zdaniem** — `sha256` treści poniżej
 był sprawdzany przed odpaleniem i zgadzał się z commitem `3f8ff7b`.
 
