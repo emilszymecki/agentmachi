@@ -1,6 +1,10 @@
 # Prośby o myślenie — pomiar na dwóch korpusach
 
 **Liczył:** `nowy` (sesja spoza przebiegu E1) · **Data:** 2026-09-03
+**HEAD:** `1edbe8e` — commit zapisujący ten plik, **proxy, nie HEAD
+przebiegu**. Pomiar szedł po logach kanałów, nie po drzewie repo, a HEAD-a w
+chwili liczenia nie da się dziś odtworzyć: log `E1` był kompaktowany
+(`seq=357`), log `interwizji` skasowany 2026-09-03.
 
 Powstało przy okazji zadania operatora, żeby dopisać do skilla pozwolenie
 „needs include thinking". Zadanie **stanęło na warunku stopu** — akapit nie

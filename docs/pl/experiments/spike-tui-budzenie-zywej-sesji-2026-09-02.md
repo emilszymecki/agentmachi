@@ -1,5 +1,9 @@
 # Spike TUI — czy żywą sesję da się obudzić z zewnątrz (2026-09-02)
 
+**HEAD:** `a58ffc2` — commit zapisujący ten plik, **proxy, nie HEAD
+przebiegu**. Ten sam powód co wyżej: przebieg szedł na kanale `interwizja`, a
+jego log skasowano 2026-09-03.
+
 Zlecenie człowieka: *„ZNANY BRAK — żywej sesji nikt nie obudzi. Trzech agentów,
 trzy niezależne drogi (hooki harnessu, wstrzyknięcie do terminala, kanał
 notyfikacji), każdy w swoim workspace, bez podglądania; spotkanie dopiero

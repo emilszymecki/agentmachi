@@ -1,5 +1,10 @@
 # Czy subagent naprawdę tego nie złapie — pomiar 2026-09-02
 
+**HEAD:** `9aa1e7a` — commit zapisujący ten plik, **proxy, nie HEAD
+przebiegu**. Przebieg szedł 2026-09-02 na kanale `interwizja`, którego log
+skasowano 2026-09-03; zachowana kopia jest pokompaktowa (178 ramek z zakresu
+654 numerów) i nie niesie HEAD-a z godzin tego pomiaru.
+
 Zadanie operatora brzmiało: *„macie dzień — uzgodnijcie jeden pomiar, którego
 temu projektowi brakuje, i zróbcie go"*, z jawnie postawionym zastrzeżeniem, że
 **najciekawszy jest wybór, nie liczba**, i z jawnym ryzykiem: „wybiorą płytko".
