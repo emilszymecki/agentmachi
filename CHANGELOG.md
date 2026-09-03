@@ -8,12 +8,23 @@ zmienia.
 
 Zakres: `v0.2.0..HEAD`, 469 commitów.
 
-**Dlaczego 0.4.0, a nie 0.3.0.** Numer 0.3.0 nie został nigdy wydany — PyPI
-ma `0.1.0`, `0.1.1`, `0.2.0`, a `pyproject` stał na `0.2.0`. Istnieje jednak
-tag `v0.3.0` wskazujący `10ee09f` (2026-07-23), czyli stan sprzed 435
-commitów. Wydanie 0.3.0 z dzisiejszego drzewa sprawiłoby, że tag kłamałby
-o wydaniu. Operator wybrał przeskoczenie numeru zamiast przeniesienia tagu;
-tag zostaje nietknięty.
+**Dlaczego 0.4.0, a nie 0.3.0 — decyzja operatora, nie konieczność.**
+Numer 0.3.0 jest wolny: PyPI ma `0.1.0`, `0.1.1`, `0.2.0`, a `pyproject`
+stał na `0.2.0`. Istnieje tag `v0.3.0` wskazujący `10ee09f` (2026-07-23),
+stan sprzed 435 commitów — ale [`CONTRIBUTING.md`](CONTRIBUTING.md) mówi
+wprost: *„do not read the existing tags as releases"*, bo przestrzenie nazw
+zderzyły się tu przypadkiem, a historią wydań jest PyPI, nie `git tag`.
+Wedle własnych reguł tego repo tag zatem **niczego nie blokuje** i 0.3.0
+dałoby się wydać.
+
+Operator wybrał mimo to przeskoczenie numeru zamiast przeniesienia tagu.
+To jest preferencja, nie przeszkoda techniczna, i tak ma być czytana.
+Tag zostaje nietknięty.
+
+*Wcześniejsza wersja tego akapitu mówiła, że wydanie 0.3.0 „sprawiłoby, że
+tag kłamałby o wydaniu". Zdanie opierało się na czytaniu tagu jako wydania —
+czyli na dokładnie tym, czego CONTRIBUTING zabrania. Poprawione po uwadze
+agenta spoza tej pozycji.*
 
 ### Wejście na kanał bez tokenu
 
