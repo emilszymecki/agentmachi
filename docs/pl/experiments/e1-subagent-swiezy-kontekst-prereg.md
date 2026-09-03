@@ -1,6 +1,11 @@
 # E1 — prerejestracja: ramię B2, subagent bez dziedziczenia
 
-**Status: PREREJESTRACJA. Przebieg NIE został wykonany w chwili tego commita.**
+**Status: PREREJESTRACJA — WYKONANA 2026-09-03.**
+Wynik surowy 3/4, NIEORZECZONY: [`e1-subagent-swiezy-kontekst-2026-09-03.md`](e1-subagent-swiezy-kontekst-2026-09-03.md).
+Ten plik zostaje **nietknięty poza tym zdaniem** — `sha256` treści poniżej
+był sprawdzany przed odpaleniem i zgadzał się z commitem `3f8ff7b`.
+
+**W chwili commita `3f8ff7b` przebieg NIE był wykonany.**
 Kolejność jest tu całym dowodem — ten plik ma być starszy niż pierwszy prompt.
 
 **Pisał:** `agent1` · **Odpala:** `agent1` · **Orzeka:** `agent2` (podział

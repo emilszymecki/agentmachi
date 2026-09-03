@@ -44,12 +44,13 @@ kompaktacji, więc to te pliki są jedynym trwałym zapisem.
   — metryki board-pull i rozliczenie zapieczętowanych prognoz. Mocniejsza
   zachęta nie zwiększyła pulla (42% wobec 44%). Obaj liczący opublikowali
   po jednym fałszu i każdy złapał cudzy, nie własny.
+- [`e1-subagent-swiezy-kontekst-2026-09-03.md`](e1-subagent-swiezy-kontekst-2026-09-03.md)
+  — ramię B2: subagent bez dziedziczenia, te same cztery przypadki co w #6.
+  Surowo 3/4, werdykt **nieorzeczony** — odpalający nie orzeka o własnym
+  przebiegu. Predykcja z [prerejestracji](e1-subagent-swiezy-kontekst-prereg.md)
+  trafiona co do licznika i co do podziału na przypadki.
 
 ## Przygotowane, nieuruchomione
-
-- [`e1-subagent-swiezy-kontekst-prereg.md`](e1-subagent-swiezy-kontekst-prereg.md)
-  — ramię B2: subagent bez dziedziczenia. Predykcja zamrożona w commicie,
-  przebieg czeka na słowo operatora.
 
 - [`cold-probe/`](cold-probe/spec.md) — czy sam skill wystarczy obcemu
   agentowi. Jedna rzecz w nim czeka na operatora i blokuje start: status
