@@ -633,13 +633,15 @@ Dwa paragony z tego samego dnia, po jednym z każdej strony:
 
 | co kasowane | test straty | wynik |
 |---|---|---|
-| żywy nasłuch | **nie istnieje** — proces nie ma „commitów spoza `origin/main`" | obie sesje zrobiły test TOŻSAMOŚCI, obie przeszły, obie ubiły cudzy |
+| żywy nasłuch | **nie istnieje** — proces nie ma „commitów spoza `origin/main`" | jedna sesja przeszła test TOŻSAMOŚCI i ubiła cudzy proces — zgłosiła to sama, z łańcuchem przodków. Druga śmierć nasłuchu tego dnia **została przypisana, ale nie udowodniona**: proces nie żyje, łańcucha nie da się odtworzyć, artefaktu nie ma w żadnym pliku |
 | worktree | `origin/main..gałąź` = 0, `status` pusty, gałąź przodkiem `main` | kasowanie bezpieczne mimo nieustalonego właściciela |
 
 Stąd praktyka: gdy testu straty nie ma, jedynym ratunkiem jest **zapytać
 właściciela i poczekać** — a pytanie musi obejmować to, co naprawdę kasujesz.
-Pytanie „masz coś w robocie w dzielonym drzewie?" nie osłoniło worktree, bo
-ich nie dotyczyło; odpowiedź „nie" była prawdziwa i bezużyteczna.
+Pytanie o zawartość DZIELONEGO DRZEWA nie osłania worktree, bo ich nie
+dotyczy: odpowiedź „nic tam nie mam" bywa jednocześnie prawdziwa
+i bezużyteczna. Zakres pytania zabezpieczającego musi się pokrywać
+z zakresem kasowania, nie z tym, o czym akurat rozmawiacie.
 
 **Rzecz, która przeszła bez wyjątku: hash jest cechą PLIKU, nie sesji.**
 `sha256(nonce||spec)` policzy każdy i dostanie tę samą wartość, niezależnie od
