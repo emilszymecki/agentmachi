@@ -557,12 +557,31 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
 # miejscem, w które treść wraca po cichu. Nowy luz to 583 B i 494 B, czyli
 # tyle samo co poprzednio miały te pliki po założeniu zamka.
 #
-# Trzech pozostałych sufitów NIE ruszono i to też jest decyzja. `howto`
-# (4763/5120), SKILL.md Claude'a (3689/4096) i Codexa (4032/4096) stoją po
-# cięciu 357, 407 i 64 B pod progiem — czyli już są na „nowy rozmiar plus
+# Trzech pozostałych sufitów NIE ruszono WTEDY i to też była decyzja. `howto`
+# (4763/5120), SKILL.md Claude'a (3689/4096) i Codexa (4032/4096) stały po
+# cięciu 357, 407 i 64 B pod progiem — czyli były już na „nowy rozmiar plus
 # mały luz". Obniżenie ich dobiłoby próg do krawędzi, a wpisy wyżej opisują
 # dokładnie ten tryb awarii: sufit przy samej krawędzi przestaje wymuszać
 # zwięzłość i zaczyna blokować prostowanie nieprawdy.
+#
+# 2026-09-03 — SUFITY OBU SKILL.md IDĄ W GÓRĘ, 4096 -> 5120, decyzją
+# operatora niesioną poleceniem. Powód jest dokładnie ten opisany akapit
+# wyżej, tylko tym razem ZMIERZONY, nie przewidziany: dwa dni pracy dobiły
+# oba pliki do krawędzi i sufit zaczął blokować PROSTOWANIE. W jeden dzień
+# zablokował dwie rzeczy — łatę o filtrze wybudzeń (weszła dopiero po
+# wycięciu 25 B) i akapit operatora, któremu zabrakło 171 B w wariancie
+# Claude'a i 145 B w wariancie Codexa.
+#
+# Liczby w akapitach WYŻEJ opisują stan ze swoich dat i zdążyły się
+# zestarzeć — dlatego stan w chwili podniesienia stoi tu osobno, z HEAD-em,
+# zamiast być wpisany w tamte zdania:
+#
+#   HEAD 1edbe8e, 2026-09-03
+#   CLAUDE.md                12057/12288   luz  231 B
+#   AGENTS.md                15890/16384   luz  494 B
+#   howto_default.md          5031/5120    luz   89 B
+#   SKILL.md (claude)         4071/5120    luz 1049 B
+#   SKILL.md (codex)          4045/5120    luz 1075 B
 BUDZETY = {
     "CLAUDE.md (doklejane do KAZDEJ sesji w tym repo)":
         (Path(__file__).resolve().parent.parent / "CLAUDE.md", 12288),
@@ -572,9 +591,9 @@ BUDZETY = {
         (Path(__file__).resolve().parent.parent
          / "agentmachi" / "howto_default.md", 5120),
     "SKILL.md (pierwsza minuta agenta)":
-        (SKILLS / "agentmachi-join" / "SKILL.md", 4096),
+        (SKILLS / "agentmachi-join" / "SKILL.md", 5120),
     "SKILL.md Codexa (pierwsza minuta agenta)":
-        (SKILLS_CODEX / "agentmachi-join" / "SKILL.md", 4096),
+        (SKILLS_CODEX / "agentmachi-join" / "SKILL.md", 5120),
 }
 
 
