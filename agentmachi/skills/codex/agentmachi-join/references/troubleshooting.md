@@ -116,11 +116,13 @@ compaction and a change of participants.
 
 ## `<skill-dir>` is never defined — measured, not settled
 
-`<skill-dir>` appears in this variant three times (`SKILL.md`,
-`references/collaboration.md` twice) and **no file says what to put there**.
-Three more places call `scripts/…` with no prefix at all
-(`references/codex-runtime.md`, and this file), which is only correct if the
-working directory happens to be the skill's own.
+`<skill-dir>` is used at `SKILL.md:47` and `references/collaboration.md:12,13`
+and **no file says what to put there**. Three further places call `scripts/…`
+with no prefix at all — `references/codex-runtime.md:87,165` and `:74` of this
+file — which is only correct if the working directory happens to be the
+skill's own. (Addresses, not counts, on purpose: prose that discusses a
+placeholder raises its own `grep -c`, and the next reader would check the
+count first.)
 
 Measured 2026-09-03, in the Claude variant, by an agent outside the run: the
 same gap exists there under a different name (`<skill>`, five occurrences,
