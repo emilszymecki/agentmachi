@@ -2366,6 +2366,12 @@ def cmd_install_skills(args) -> int:
         list(skills_install.HARNESSY) if args.harness == "all" else [args.harness]
     )
     lacznie = 0
+    # Katalog -> harness, ktorego skille w nim NAPRAWDE leza. `--harness all`
+    # jest domyslne, wiec `--dest <jeden katalog>` wsadza tam oba; drugi
+    # zastaje zajete i jest pomijany. Bez tej mapy porownywalibysmy paczke
+    # codeksa z kopia claude'a i drukowali wieczne OUT OF DATE, ktorego
+    # `--force` nie naprawia, tylko odwraca, kto jest w katalogu.
+    wlasciciel: dict[Path, str] = {}
     for harness in harnessy:
         cel = (
             Path(args.dest)
@@ -2383,6 +2389,15 @@ def cmd_install_skills(args) -> int:
         if zainstalowane:
             print(f"{harness}: {', '.join(zainstalowane)} -> {cel_pokazany}")
             lacznie += len(zainstalowane)
+        kto = harness if zainstalowane else wlasciciel.get(cel_pokazany, harness)
+        wlasciciel[cel_pokazany] = kto
+        if kto != harness:
+            print(
+                f"{harness}: NOT INSTALLED in {cel_pokazany} — the directory "
+                f"already holds the {kto} skills; give each harness its own "
+                f"--dest"
+            )
+            continue
         # Liczone PO instalacji: to, co wlasnie wgralismy, jest z definicji
         # zgodne, wiec zostaja wylacznie kopie pominiete i naprawde stare.
         rozne = skills_install.rozne_od_pakietu(harness, cel)

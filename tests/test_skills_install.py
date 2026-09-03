@@ -127,3 +127,40 @@ def test_symlink_nie_jest_zglaszany_jako_rozny(tmp_path):
     (cel / "agentmachi-join").symlink_to(repo, target_is_directory=True)
 
     assert "agentmachi-join" not in skills_install.rozne_od_pakietu("claude", cel)
+
+
+def test_dwa_harnessy_do_jednego_dest_nie_klamia_o_nieaktualnosci(tmp_path, capsys):
+    """`--harness all` jest DOMYSLNE, wiec samo `--dest X` wsadza oba
+    harnessy w jeden katalog: claude wchodzi, codex zastaje zajete.
+
+    Porownanie paczki codeksa z kopia claude'a mierzy wtedy roznice MIEDZY
+    HARNESSAMI, nie nieaktualnosc — a `OUT OF DATE` bylby falszem trwalym,
+    bo `--force` go nie naprawia, tylko odwraca, kto jest w katalogu.
+    Kolizja katalogu jest starsza od tego komunikatu (codex nigdy sie tam
+    nie instalowal, po cichu); nowe jest wylacznie to, ze mowimy o niej
+    zamiast zglaszac nieistniejaca nieaktualnosc.
+    """
+    from agentmachi import cli
+
+    cel = tmp_path / "wspolny"
+
+    rc = cli.main(["install-skills", "--dest", str(cel)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "OUT OF DATE" not in out
+    assert "NOT INSTALLED" in out
+    assert "codex" in out
+
+
+def test_kolizja_katalogu_nie_narasta_przy_powtorzeniu(tmp_path, capsys):
+    """Trzy wywolania pod rzad daja ten sam stan: zadnego OUT OF DATE,
+    zadnego ping-ponga miedzy harnessami."""
+    from agentmachi import cli
+
+    cel = tmp_path / "wspolny"
+    for _ in range(3):
+        assert cli.main(["install-skills", "--dest", str(cel)]) == 0
+    out = capsys.readouterr().out
+
+    assert "OUT OF DATE" not in out
