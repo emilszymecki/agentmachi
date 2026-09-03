@@ -105,6 +105,16 @@ def rozne_od_pakietu(harness: str, cel: Path) -> list[str]:
     katalog repo i to jego drzewo jest zywym zrodlem, nie paczka
     (patrz `_zajete`). Ostrzeganie przed poprawna konfiguracja byloby
     szumem, ktory nauczy ignorowac ostrzezenie prawdziwe.
+
+    ZMIERZONA GRANICA, swiadomy dlug: porownywana jest TRESC, nie tryb
+    pliku — kopia z tym samym bajtem, ale bez bitu `x`, nie zostanie
+    zgloszona. Dzis nie ma czego zgubic i to jest sprawdzone, nie
+    zalozone: `find agentmachi/skills -type f -printf '%M\n' | sort -u`
+    daje wylacznie `-rw-rw-r--`, a wszystkie skrypty skilli sa wolane
+    przez interpreter (`python3 <skill>/scripts/...`, `bash ...`).
+    Gdy ktorykolwiek zacznie byc wolany przez `./`, ta granica staje sie
+    defektem i ta sonda jest gotowa. Znalazl `agent4`, weryfikujac
+    `02c2c21`.
     """
     src = zrodlo(harness)
     if not src.is_dir():
