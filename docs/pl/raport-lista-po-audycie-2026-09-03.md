@@ -149,12 +149,82 @@ nie sprawdzi. Zastrzegł to przeciwko sobie, zanim ktokolwiek zapytał.
 
 ## 5. Indeks zasad-agentycznych
 
-*(slot — wpisuje wykonawca)*
+**Robił:** `agent1` · **HEAD:** `db4f3b8` · **Czas:** 2026-09-03 15:00
+**Zweryfikował:** — · **Stan:** zrobiona, niezweryfikowana
+
+Tabela 17 reguł na górze pliku: numer, nazwa, jedno zdanie „sięgasz po nią,
+gdy", kotwica. Diff to **32 insercje i zero usunięć** — żadnej reguły nie
+skróciłem ani nie przeredagowałem (`git diff | grep -c '^-[^-]'` = 0).
+
+**Kotwica jest literalnym ciągiem `## N.`, nie slugiem ani numerem linii.**
+Slug musiałbym wygenerować algorytmem GitHuba, którego nie zweryfikuję
+lokalnie; numery linii starzeją się po pierwszej edycji. Sprawdzone: każda
+z 17 kotwic trafia w pliku dokładnie raz.
+
+W nagłówku indeksu stoi wprost, że **to nie jest streszczenie** i że tych
+zdań nie wolno cytować zamiast reguły — bez tego indeks zacznie być czytany
+jako skrót, a reguła zostanie hasłem bez paragonu.
+
+Odnotowane przy czytaniu, bo zobaczy to każdy nawigujący: reguły stoją
+w pliku w kolejności **powstawania**, nie numerycznej — 11 leży między 5 a 6.
 
 ## 6. `--apply` poza tym repo
 
-*(slot — wpisuje wykonawca)*
+**Robił:** `agent1` · **HEAD:** `db4f3b8` · **Czas:** 2026-09-03 14:58
+**Zweryfikował:** — · **Stan:** zamknięta odczytem, **bez zmian**
+
+`--apply` nie został uruchomiony nigdzie, bo nie było gdzie.
+
+| repo / plik | markery | akapit W BLOKU |
+|---|---|---|
+| `just_join_et/AGENTS.md` | tak | **tak** |
+| `just_join_et/CLAUDE.md` | tak | **tak** |
+
+Kryterium: obecność `<!-- agentmachi:start -->`, przeszukane po wszystkich
+repo w `~/Dokumenty/repos`. Żadne inne repo markerów nie ma. Akapit
+sprawdzany **wewnątrz bloku**, nie w całym pliku — obecność zdania gdzie
+indziej niczego by nie dowodziła. Oba bloki: 1620 B, linie 14–41.
+
+**Dwa trafienia odrzucone i powód:** `skills/claude/agentmachi/SKILL.md`
+i `skills/codex/agentmachi/SKILL.md` zawierają ciąg `agentmachi:start`, ale
+to dokumentacja markerów w samym skillu, nie projekt zintegrowany. Policzone
+dałyby cztery repo zamiast jednego.
+
+`git status` w `just_join_et` czysty — nie tknąłem tam ani jednego pliku.
 
 ## 7. Release — przygotowanie, nie publikacja
 
-*(slot — wpisuje wykonawca; czeka na decyzję operatora z pozycji 1)*
+**Robił:** `agent1` · **HEAD:** `f4ab273`, poprawka `a1534a1`
+**Czas:** 2026-09-03 15:04 · **Zweryfikował:** `nowy` (`f4ab273`)
+**Stan:** przygotowana, **NIEOPUBLIKOWANA**
+
+  `pyproject` 0.2.0 → **0.4.0** · `CHANGELOG.md` nowy (w repo go nie było)
+  zakres `v0.2.0..HEAD`, 469 commitów · tag **nie utworzony** · PyPI nietknięte
+
+CHANGELOG jest **tematyczny**, nie commit po commicie: opisuje wyłącznie
+zmiany zachowania. Z 469 commitów 200 to `docs`, kilkadziesiąt to refaktory
+bez zmiany zachowania — i tych tam nie ma. To decyzja redakcyjna, nie
+przeoczenie.
+
+**Uzasadnienie numeru poprawiane DWA RAZY, oba razy przez agenta spoza
+pozycji, żadnego nie zobaczyłem sam:**
+
+1. pierwotnie „0.3.0 jest **zajęty przez tag**" — fałsz. Tag w gicie niczego
+   na PyPI nie zajmuje, a PyPI 0.3.0 nie ma (wydane: 0.1.0, 0.1.1, 0.2.0).
+2. potem „wydanie 0.3.0 sprawiłoby, że **tag kłamałby o wydaniu**" — zdanie
+   stało na czytaniu tagu jako wydania, czyli na tym, czego
+   [`CONTRIBUTING.md`](../../CONTRIBUTING.md):166 zabrania wprost („do not
+   read the existing tags as releases (…) `git tag` is not a release history
+   here").
+
+**Stan końcowy uzasadnienia, i jest słabszy niż oba poprzednie:** wedle reguł
+tego repo tag niczego nie blokuje i 0.3.0 dałoby się wydać. Operator wybrał
+przeskoczenie numeru zamiast przeniesienia tagu — to **preferencja, nie
+przeszkoda techniczna**. Odrzucone `0.3.1`: zakłada wydane 0.3.0, które się
+łata, a takiego wydania nigdy nie było.
+
+**Luka w paragonie, zgłoszona przez `nowy` i nieusunięta:** decyzja
+operatora („możemy przeskoczyć") padła w terminalu i została przekazana na
+kanał przeze mnie. Na kanale **nie ma ramki operatora z numerem**. Terminal
+jest legalnym kanałem poleceń, ale artefaktu na kanale brak — i tak to tu
+stoi, zamiast być domknięte moim świadectwem.
