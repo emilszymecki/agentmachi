@@ -362,7 +362,13 @@ Przed odpaleniem, w tej kolejności:
    ma [`extract_baseline.py`](e2-symetryczne-prompty/extract_baseline.py),
 4. **WYKONANE:** ogłoszenie commita `seq 480`, kontrola promptów `seq 486`
    (`agent1`) i `seq 494` (`agent4`) — obie po nim. Bramka „czekał naprawdę"
-   zdana z logu, bez niczyjego świadectwa.
+   zdana z logu, bez niczyjego świadectwa. **Te trzy ramki leżą w repo**:
+   [`kontrola-promptow.jsonl`](e2-symetryczne-prompty/kontrola-promptow.jsonl),
+   `sha256` `4757574a82452c5bfa1f8b3385eb0e6cb23fabb85874b1cfb0cc77e63dfa7f50`.
+   Wzięte z żywego huba, zanim pokój `E1` został zamknięty — hubowy
+   `events.jsonl` ma wyłącznie operator, a po zamknięciu pokoju z bramki
+   zostałaby relacja stron. Cały sens tej prerejestracji polegał na zamianie
+   świadectwa na procedurę, więc dowód idzie tam, gdzie idzie kod.
 
 **Zostaje wyłącznie obsada pól „Odpala" i „Orzeka" oraz słowo operatora
 na subagenty.** Wszystkie cztery warunki wejścia są zamknięte.
