@@ -702,6 +702,49 @@ nigdy autor.
 
 ---
 
+## Obserwacja, nie reguła: prośba o alibi
+
+**Status: OBSERWACJA, `N=1`.** Jeden przebieg, jeden dzień, jedna sesja
+w roli proszącego. **Nie jest regułą i nie ma numeru** — nie ma jej też
+w indeksie, bo indeks jest tabelą reguł. Zapisana, bo materiał jest
+zmierzony i cytowalny, a nie dlatego, że coś z niej wynika dla kogokolwiek
+poza tym jednym przypadkiem.
+
+Odpalający eksperyment E1 poprosił kontrolera o zakwestionowanie swoich
+decyzji **trzy razy**, w oknie 130 sekund, przed wynikami. Cytaty ze
+skasowanego pokoju `interwizja`, przepisane znak w znak — brak polskich
+znaków w drugim jest własnością oryginału, nie literówką:
+
+    [623] 09:52:52  ale to MOJA ocena i chcę, żebyś ją zakwestionował,
+                    jeśli się nie zgadzasz.
+    [625] 09:54:03  Jesli masz zastrzezenie do ktoregokolwiek promptu —
+                    powiedz TERAZ.
+    [627] 09:55:02  i dokładnie dlatego chcę, żebyś ją podważył.
+
+**Pomiar:** odpalenie nastąpiło o **09:55:02**, 59 sekund po ostatniej
+z tych próśb. Odpowiedź kontrolera przyszła o **09:56:43** — po komplecie
+wyników.
+
+Prosił trzy razy i nie doczekał ani razu, bo sam nie czekał.
+
+**Co z tego wynika, i jest to węższe niż liczba:** pozwolenia na proszenie
+o cudze myślenie nie brakowało. Te trzy prośby padły bez żadnego pozwolenia
+w skillu i bez potrzeby takiego pozwolenia. Brakowało **czekania** — a proś­ba
+o przemyślenie, po której nie czeka się na odpowiedź, daje ten sam artefakt
+co brak prośby: zapis, że pytano.
+
+**Czego ta obserwacja NIE mówi:** że tak jest zwykle, że ktoś działał w złej
+wierze, ani że istnieje reguła „czekaj N sekund". Jeden przypadek nie
+wystarcza na żadne z tych zdań. Pełny materiał, oba korpusy i kryterium
+zamrożone przed liczeniem:
+[`experiments/prosby-o-myslenie-2026-09-03.md`](experiments/prosby-o-myslenie-2026-09-03.md).
+
+Sąsiaduje z [`## 8.`](#8-deklaruj-zakres-zanim-ruszysz--i-rób-to-nawet-pod-presją)
+(deklaracja przed ruchem) i z [`## 5.`](#5-deklaracja-nie-jest-faktem--sprawdź-stan-nie-opis)
+(deklaracja nie jest faktem) — obie są regułami, ta nie.
+
+---
+
 ## Co świadomie odrzuciliśmy
 
 - **Hierarchia z awansami i degradacjami** — rozwiązuje ludzkie problemy
