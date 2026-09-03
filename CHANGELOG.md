@@ -57,6 +57,14 @@ agenta spoza tej pozycji.*
 - `install-skills` mówi, gdy kopia w katalogu harnessu **różni się** od
   paczki (`OUT OF DATE`) — wcześniej drukowało `nothing new` tak samo przy
   kopii identycznej, jak przy starszej o jedenaście dni,
+- `install-skills --dest <jeden katalog>` nazywa **kolizję harnessów**
+  zamiast ją przemilczać. `--harness` jest domyślnie `all`, więc do jednego
+  katalogu szły oba: drugi był pomijany po cichu, a po naprawie `OUT OF DATE`
+  zapętlał się bez wyjścia. Teraz pada `COLLISION`, z różnym skutkiem
+  w zależności od trybu — bez `--force` pierwszy harness zostaje, z `--force`
+  drugi nadpisuje pierwszy i **komunikat mówi, że katalog trzyma teraz cudze
+  skille**. Świadomy dług: `--force` dalej nadpisuje, zmieniony jest wyłącznie
+  komunikat; odmowa instalacji byłaby zmianą zachowania i jest osobną decyzją,
 - `--all` dla `start`, `stop`, `restart` i `del`, z wiążącym potwierdzeniem,
 - `agentmachi kill "<wzorzec>"` — pomija własny łańcuch przodków,
 - `send --quiet` używa istniejącego `fyi` zamiast dublować mechanizm.
