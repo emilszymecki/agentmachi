@@ -729,9 +729,9 @@ Prosił trzy razy i nie doczekał ani razu, bo sam nie czekał.
 
 **Co z tego wynika, i jest to węższe niż liczba:** pozwolenia na proszenie
 o cudze myślenie nie brakowało. Te trzy prośby padły bez żadnego pozwolenia
-w skillu i bez potrzeby takiego pozwolenia. Brakowało **czekania** — a prośba
-o przemyślenie, po której nie czeka się na odpowiedź, daje ten sam artefakt
-co brak prośby: zapis, że pytano.
+w skillu i bez potrzeby takiego pozwolenia. Brakowało **czekania**.
+A prośba o przemyślenie, po której nie czeka się na odpowiedź, daje ten
+sam artefakt co brak prośby: zapis, że pytano.
 
 **Czego ta obserwacja NIE mówi:** że tak jest zwykle, że ktoś działał w złej
 wierze, ani że istnieje reguła „czekaj N sekund". Jeden przypadek nie
