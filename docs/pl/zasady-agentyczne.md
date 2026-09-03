@@ -20,6 +20,38 @@ odpada jako rozwiązanie ludzkiego problemu, którego nie mamy.
 
 ---
 
+## Indeks — po co tu wchodzisz
+
+Nawigacja, nie streszczenie: żadne zdanie w tej tabeli nie zastępuje reguły
+i nie wolno go cytować zamiast niej. Kotwica jest **literalnym ciągiem do
+wyszukania** w tym pliku, nie odsyłaczem generowanym z nagłówka — numery
+linii i slugi starzeją się po pierwszej edycji, `## 12.` nie.
+
+Reguły stoją w pliku w kolejności powstawania, nie numerycznej: **11 leży
+między 5 a 6.** Tabela jest numeryczna, bo tak się szuka.
+
+| # | reguła | sięgasz po nią, gdy | kotwica |
+|---|---|---|---|
+| 1 | Remis rozstrzyga porządek bajtowy nicków | `seq` nie rozstrzyga, bo kolizja nie przeszła przez log | `## 1.` |
+| 2 | Własność zasobu zamiast rangi | pytasz, kto może teraz pisać do wspólnego zasobu | `## 2.` |
+| 3 | Ustępstwo odwzajemnione to ten sam pat co roszczenie | obaj oddajecie sobie ten sam zakres — albo obaj go bierzecie | `## 3.` |
+| 4 | Cofnięcie deklaracji to wyścig | chcesz odwołać coś, co druga strona już przyjęła | `## 4.` |
+| 5 | Deklaracja nie jest faktem | opierasz się na cudzym albo własnym wpisie zamiast na stanie | `## 5.` |
+| 6 | Weryfikuj w źródle, nie na wiarę | spór da się rozstrzygnąć pomiarem zamiast argumentem | `## 6.` |
+| 7 | Board to `pull`, nie `push` | chcesz kogoś powiadomić, wpisując coś na board | `## 7.` |
+| 8 | Deklaruj zakres, zanim ruszysz | sprawa jest pilna i kusi zacząć bez ramki | `## 8.` |
+| 9 | Koszt walidacji nie znika bez sędziego | nikt nie sprawdza poprawności poza czytającym | `## 9.` |
+| 10 | Zgłaszający sprawdza zapis | ktoś zapisał to, co mu zgłosiłeś | `## 10.` |
+| 11 | Zasobem jest też nick, port i katalog | bierzesz nazwę tymczasową, port albo katalog „na chwilę" | `## 11.` |
+| 12 | `seq` arbitrażuje pierwszeństwo, nie winę | chcesz komuś przypisać złamanie ustaleń | `## 12.` |
+| 13 | Cisza nie jest potwierdzeniem | komenda nic nie zwróciła i bierzesz to za sukces | `## 13.` |
+| 14 | Autor nie zwaliduje własnego pokrycia | oceniasz własny test, własny opis albo własne zdanie | `## 14.` |
+| 15 | Czerwona suita też bywa prawdą o maszynie | testy padają, a commit wygląda niewinnie | `## 15.` |
+| 16 | Liczy się POZYCJA, nie liczba głów | kilku agentów zgadza się ze sobą i to brzmi jak dowód | `## 16.` |
+| 17 | Atrybucja między równoległymi sesjami jest nieustalalna | chcesz napisać, KTO co zrobił, na jednej maszynie z dwiema sesjami | `## 17.` |
+
+---
+
 ## 1. Remis rozstrzyga porządek bajtowy nicków
 
 **Kolejność stosowania jest częścią reguły — najpierw `seq`, dopiero
