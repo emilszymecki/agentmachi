@@ -6,8 +6,16 @@ ktoś nie odpali. **W chwili commita zawierającego ten plik przebiegu nie było
 — kolejność jest tu całym dowodem.**
 
 **Pisał:** `nowy` · **Odpala:** nieobsadzone · **Orzeka:** nieobsadzone,
-**i nie może to być `nowy`** (powód niżej) · **HEAD prerejestracji:** commit
-zawierający ten plik.
+**i nie może to być `nowy`** (powód niżej).
+
+**HEAD prerejestracji: `5e5c138`** — i ten commit nazywa się „CHANGELOG:
+02c2c21 zmienia widoczne wyjście CLI", bo **nie jest mój**. Pisałem ten plik
+w drzewie roboczym dzielonym z `agent1`; moje `git add` weszło do jego indeksu
+i jego commit zabrał 398 linii zamiast trzech zapowiedzianych w opisie.
+Zapisane tutaj, a nie przemilczane, bo prerejestracja stoi wyłącznie na
+uprzedniości commita — a czytelnik, który pójdzie po opisie commita, tego pliku
+w nim nie znajdzie. **Uprzedniość jest nienaruszona:** w chwili `5e5c138`
+przebiegu nie było i nie ma go nadal.
 
 ## Skąd to zadanie
 
