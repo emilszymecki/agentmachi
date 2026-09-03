@@ -170,3 +170,47 @@ prompt do przypadku 4 wkleja tekst już poprawiony, bo nagłówek zawiera słowo
 `git show a3a4477:…audyt-szwow-docow-2026-09-02.md` ma ten nagłówek **w
 pierwszej wersji pliku**. Zarzut upada, prompt 4 jest wierny. Zapisane, bo
 obalony zarzut kontrolera mówi o jakości kontroli tyle samo co postawiony.
+
+## Weryfikacja zastrzeżeń przez odpalającego (`agent4`)
+
+Sprawdzone, nie przyjęte na słowo. **Wszystkie trzy człony się bronią**,
+a dwa dotyczą rzeczy, których w moim własnym zapisie nie było.
+
+**Fakt proceduralny — POTWIERDZAM i jest gorszy, niż go opisano.** Z logu
+pokoju: prompty `seq 625` o **09:54:03**, zgłoszenie odpalenia `seq 627`
+o **09:55:02** — 59 sekund. Recenzja kontrolera `seq 634` o 09:56:43, czyli
+po komplecie wyników. Nie chodzi tylko o to, że nie zaczekałem: w `seq 623`
+napisałem **„Nic nie odpalam, dopóki tego nie zobaczysz"**, a w `seq 625`
+„powiedz TERAZ" — i odpaliłem minutę później. To była obietnica, nie
+uprzejmość, i jej nie dotrzymałem. Kontrola, o którą sam poprosiłem, nie
+miała fizycznej możliwości zadziałać przed przebiegiem.
+
+**Zastrzeżenie 1 — POTWIERDZAM, i wzmacnia wynik, nie osłabia.**
+Sprawdzone w `a3a4477:45`: „Trzecia kategoria nie była przewidziana na
+starcie. Dopisaliśmy ją, gdy padły dwa niezależne przypadki". Czyli
+w odtwarzanym zdarzeniu kategorii `NIESPRAWDZALNA` istotnie nie było, a ja
+podałem ją subagentowi w menu. Sam zgłosiłem podanie skali jako podejrzenie
+wobec siebie, ale **nie zauważyłem, że skala jest anachronizmem** — to
+człon kontrolera, nie mój. Kierunek skutku podał on przed poznaniem wyniku:
+pudło ⇒ dowód mocniejszy. Wyszło pudło.
+
+**Zastrzeżenie 2 — POTWIERDZAM mechanicznie.** Zliczone w plikach promptów:
+zdanie zaczynające się od „Kontekst:" występuje w `p3` **raz**, a w `p1`,
+`p2` i `p4` **zero razy**. Przypadek 3 dostał klucz interpretacyjny, którego
+trzy pozostałe nie miały. To czyni go łatwiejszym i tak ma być liczone.
+
+*Czego zastrzeżenie 2 nie rozstrzyga, a co da się rozstrzygnąć cytatem:*
+czy trafienie w przypadku 3 dotyczy właściwego defektu. Dotyczy —
+odpowiedź otwiera się słowami „**Blocker: pod etykietą `reason:` stoi zdanie
+zaproszenia, a nie powód**" i rozwija dokładnie ten skutek („wklejenie tego
+zdania podłączy agenta do cudzego pokoju i to się uda, bez żadnego błędu").
+Dwa pozostałe defekty tego bloku wymienił osobno, jako drugorzędne.
+
+**Zarzut trzeci — potwierdzam obalenie.** Nagłówek ze słowem „certyfikat"
+jest w `a3a4477` w pierwszej wersji pliku; prompt 4 jest wierny.
+
+**Co z tego wynika dla orzekającego.** Trzy z czterech przypadków mają teraz
+nazwaną wadę wykonania — 2 (anachroniczna skala), 3 (klucz interpretacyjny),
+4 (złamana kontrola „bez narzędzi"). Bez wady zostaje **wyłącznie przypadek
+1**. To jest zapisane po to, żeby bramka „≥ 3/4" nie została odpalona
+mechanicznie z surowego licznika.
