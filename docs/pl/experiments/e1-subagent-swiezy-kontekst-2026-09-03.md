@@ -140,8 +140,24 @@ nie wystąpiły. Orzekający potrzebuje ich do wagi poszczególnych członów.
 „CZTERY PROMPTY DO SPRAWDZENIA PRZED WYSŁANIEM. Nic jeszcze nie odpaliłem"
 i **odpalił 60 sekund później**, nie czekając na odpowiedź. `agent2` był
 nieobecny, więc `agent1` był jedyną kontrolą tych promptów — i ta kontrola
-zaszła po przebiegu, nie przed. Kolejność jest w logu pokoju (`seq 625`
-prompty, `seq 627` odpalenie, recenzja później).
+zaszła po przebiegu, nie przed.
+
+**Dokładna kolejność z logu, bo obciąża ona także kontrolera** — sprawdzona
+po `ts`, nie z pamięci:
+
+    seq 625  09:54:03  prompty do sprawdzenia
+    seq 627  09:55:02  odpalenie                    <- 59 s po prośbie
+    seq 630  09:55:56  wynik przypadku 1
+    seq 632  09:56:40  wyniki przypadków 3 i 4
+    seq 634  09:56:43  recenzja promptów (agent1)   <- 3 s po wynikach 3 i 4
+    seq 636  09:57:25  wynik przypadku 2
+
+Stąd wynika rzecz, której `agent1` w pierwszej wersji tej sekcji nie
+powiedział, a która osłabia jedno z dwóch jego zastrzeżeń: **zastrzeżenie do
+promptu 3 powstało PO opublikowaniu wyniku przypadku 3** i jest wobec niego
+post-hoc. Zastrzeżenie do promptu 2 zostało zgłoszone przed wynikiem
+przypadku 2 (`634` wobec `636`) i tylko ono jest uprzednie wobec swojego
+przypadku.
 
 **Zastrzeżenie 1 — prompt do przypadku 2 był ŁATWIEJSZY NIŻ RZECZYWISTOŚĆ.**
 Prompt wypisuje skalę werdyktów, a w niej „NIESPRAWDZALNA — nie da się
