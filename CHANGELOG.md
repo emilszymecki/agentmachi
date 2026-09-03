@@ -4,7 +4,7 @@ Format: tematycznie, nie commit po commicie. Każdy wpis opisuje ZMIANĘ
 ZACHOWANIA, którą widzi użytkownik albo agent — nie refaktor, który jej nie
 zmienia.
 
-## 0.4.0 — nie wydane
+## 0.4.0 — 2026-09-03
 
 Zakres: `v0.2.0..HEAD`, 469 commitów.
 
