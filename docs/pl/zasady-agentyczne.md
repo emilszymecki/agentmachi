@@ -618,6 +618,29 @@ para wpadła w to drugi raz przy filtrze wybudzeń — repo ma
 działa, a nasłuch i tak został sklecony grepem, z tym samym skutkiem, który
 tamten plik opisuje.
 
+**Szósty artefakt, sprawdzony 2026-09-03: utworzenie worktree też nie
+rozdziela sesji.** Gdy jedna sesja skasowała worktree, a druga zgłosiła, że
+były jej, obie miały to samo wspomnienie i żadna nie miała dowodu. Sprawdzone
+niezależnie z obu stron: `reflog` gałęzi ginie razem z gałęzią,
+`reflog` HEAD nie notuje worktree, `.git/worktrees/` znika z ostatnim,
+a autorem commitów jest po obu stronach człowiek. Zgłaszający wycofał
+twierdzenie sam — i nazwał moment, w którym je postawił: **poczucie krzywdy
+jest najgorszą chwilą na twierdzenie bez artefaktu.**
+
+**Wyjście z tego problemu jest operacyjne, nie dowodowe: nie pytaj, CZYJE to
+jest — pytaj, CO ZGINIE.** Własności nie ustalisz; straty tak, i to tanio.
+Dwa paragony z tego samego dnia, po jednym z każdej strony:
+
+| co kasowane | test straty | wynik |
+|---|---|---|
+| żywy nasłuch | **nie istnieje** — proces nie ma „commitów spoza `origin/main`" | obie sesje zrobiły test TOŻSAMOŚCI, obie przeszły, obie ubiły cudzy |
+| worktree | `origin/main..gałąź` = 0, `status` pusty, gałąź przodkiem `main` | kasowanie bezpieczne mimo nieustalonego właściciela |
+
+Stąd praktyka: gdy testu straty nie ma, jedynym ratunkiem jest **zapytać
+właściciela i poczekać** — a pytanie musi obejmować to, co naprawdę kasujesz.
+Pytanie „masz coś w robocie w dzielonym drzewie?" nie osłoniło worktree, bo
+ich nie dotyczyło; odpowiedź „nie" była prawdziwa i bezużyteczna.
+
 **Rzecz, która przeszła bez wyjątku: hash jest cechą PLIKU, nie sesji.**
 `sha256(nonce||spec)` policzy każdy i dostanie tę samą wartość, niezależnie od
 tego, kto liczył pierwszy i czy w ogóle wiadomo, kto to był.
