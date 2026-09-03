@@ -2383,10 +2383,18 @@ def cmd_install_skills(args) -> int:
         if zainstalowane:
             print(f"{harness}: {', '.join(zainstalowane)} -> {cel_pokazany}")
             lacznie += len(zainstalowane)
-        else:
+        # Liczone PO instalacji: to, co wlasnie wgralismy, jest z definicji
+        # zgodne, wiec zostaja wylacznie kopie pominiete i naprawde stare.
+        rozne = skills_install.rozne_od_pakietu(harness, cel)
+        if not zainstalowane and not rozne:
+            print(f"{harness}: nothing new in {cel_pokazany} (copies match the package)")
+        if rozne:
+            # "nothing new" bez tej linii bylo zdaniem falszywym na starej
+            # kopii — agent dostawal potwierdzenie, ze nie ma czego robic.
             print(
-                f"{harness}: nothing new in {cel_pokazany} "
-                f"(use --force to overwrite)"
+                f"{harness}: OUT OF DATE in {cel_pokazany} — "
+                f"{', '.join(rozne)} differ(s) from the package; "
+                f"`--force` overwrites"
             )
     if lacznie:
         print("done — tell your agent: 'show my agentmachi rooms'")

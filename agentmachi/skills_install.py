@@ -13,6 +13,7 @@ funkcja go nie tyka (patrz `_zajete`).
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from pathlib import Path
 
@@ -69,3 +70,54 @@ def zainstaluj(harness: str, cel: Path, nadpisz: bool = False) -> list[str]:
         )
         zainstalowane.append(skill.name)
     return zainstalowane
+
+
+def _odcisk(katalog: Path) -> dict[str, str]:
+    """Sciezka wzgledna -> sha256 tresci, dla calego drzewa.
+
+    Pomijane to samo, co pomija `zainstaluj` przy kopiowaniu — inaczej
+    swiezo zainstalowana kopia rozniaby sie od paczki o wlasne `.pyc`.
+    """
+    odcisk: dict[str, str] = {}
+    for p in katalog.rglob("*"):
+        if p.is_symlink() or not p.is_file():
+            continue
+        wzgledna = p.relative_to(katalog)
+        if "__pycache__" in wzgledna.parts or p.suffix == ".pyc":
+            continue
+        odcisk[wzgledna.as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return odcisk
+
+
+def rozne_od_pakietu(harness: str, cel: Path) -> list[str]:
+    """Nazwy skilli obecnych w `cel`, ktorych tresc ROZNI SIE od paczki.
+
+    Powod istnienia: `zainstaluj` bez `nadpisz` pomija istniejacy katalog
+    i nie odroznia "kopia jest ta sama" od "kopia jest o 11 dni stara".
+    CLI drukowalo w obu przypadkach `nothing new` i to zdanie bylo
+    falszywe w drugim (2026-09-03: dzisiejsza poprawka skilla nie doszla
+    do nikogo, bo komenda potwierdzila, ze nie ma czego instalowac).
+    Agent moglby zrobic `diff -r` sam, ale nie zrobi tego po zdaniu, ktore
+    mu mowi, ze nie ma po co — to jest naprawa komunikatu, nie nowy
+    mechanizm.
+
+    Symlinki sa pomijane CELOWO: kto pracuje NAD agentmachi, podpina
+    katalog repo i to jego drzewo jest zywym zrodlem, nie paczka
+    (patrz `_zajete`). Ostrzeganie przed poprawna konfiguracja byloby
+    szumem, ktory nauczy ignorowac ostrzezenie prawdziwe.
+    """
+    src = zrodlo(harness)
+    if not src.is_dir():
+        raise FileNotFoundError(
+            f"brak skilli w pakiecie: {src} — pakiet zbudowany bez package-data?"
+        )
+
+    cel = cel.expanduser()
+    rozne: list[str] = []
+    for skill in sorted(p for p in src.iterdir() if p.is_dir()):
+        docelowy = cel / skill.name
+        if docelowy.is_symlink() or not docelowy.is_dir():
+            continue
+        if _odcisk(skill) != _odcisk(docelowy):
+            rozne.append(skill.name)
+    return rozne
