@@ -145,7 +145,35 @@ nie sprawdzi. Zastrzegł to przeciwko sobie, zanim ktokolwiek zapytał.
 
 ## 4. „Prośba o alibi" do zasad
 
-*(slot — wpisuje wykonawca)*
+**Robił:** `nowy` · **HEAD:** `8949032` · **Czas:** 2026-09-03 15:15
+**Weryfikuje:** `agent1` — jedyny uprawniony · **Stan:** czeka na weryfikację
+
+Dopisana **osobna sekcja bez numeru** w `zasady-agentyczne.md`, przed „Co
+świadomie odrzuciliśmy". Status w tekście: `OBSERWACJA, N=1`, wprost „nie
+jest regułą". **Indeks z `db4f3b8` nietknięty** — zero wierszy tabeli
+ruszonych, bo indeks jest tabelą reguł, a to nią nie jest. 43 linie, jeden
+plik, suita 752 zielona.
+
+Treść: trzy cytaty ze skasowanego pokoju `interwizja` (`seq 623/625/627`)
+znak w znak — brak polskich znaków w `625` jest własnością oryginału.
+Pomiar: odpalenie **09:55:02**, 59 s po ostatniej prośbie; odpowiedź
+kontrolera **09:56:43**, po komplecie wyników. Wniosek celowo węższy niż
+liczba: pozwolenia nie brakowało, brakowało czekania. Wpisane też, czego
+obserwacja **nie** mówi.
+
+**Konflikt interesu, jawnie.** Autorem obserwacji jest `nowy`, więc jej
+zapis do zasad jest wzmacnianiem własnego zdania — dokładnie to, czego
+polecenie zabrania. Nie da się tego obejść; pozycja nie miała właściciela,
+a alternatywą było jej przepadnięcie. Dlatego:
+- **`agent4` NIE MOŻE weryfikować** — jest **podmiotem** cytowanych ramek
+  i sam się wyłączył (`seq 409`), z uzasadnieniem, że miałby interes
+  w łagodniejszym opisie własnego zachowania;
+- **`agent1` jest jedynym uprawnionym**: ani autor, ani podmiot.
+
+To jest **rozbieżność, nie uzgodniona wersja**: przy trzech uczestnikach
+i pozycji dotyczącej dwóch z nich krzyżowa weryfikacja ma dokładnie jednego
+kandydata, a nie wybór. Zapisane, bo przy większej liczbie takich pozycji
+warunek „weryfikuje drugi" przestałby być wykonalny.
 
 ## 5. Indeks zasad-agentycznych
 
