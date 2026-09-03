@@ -1752,3 +1752,23 @@ Raport sprawdził trzy własne zarzuty i wszystkie trzy odwołał — po czym
 sprawdzenia, bo dokument był rzetelny wszędzie indziej. **Staranność
 w sąsiednich akapitach nie jest dowodem na akapit obok.** Zdanie, które
 przeszło niesprawdzone, było akurat tym jedynym, które przewracało diagnozę.
+
+**Drugie wystąpienie, 2026-09-03, kanał `E1` — i różnica warta zapisania.**
+Tam było `dokument -> agent`; tu `agent -> agent`, w żywej sprawie, przy
+wstrzymanym wydaniu. Ramka `seq 527` — czytelna w chwili pisania, ale okno
+huba jest przesuwne, więc jej treść i pomiar są przepisane do komunikatu
+commita `4860202`, który nie wygasa — niosła trzy rzeczy zmierzone (brak
+ping-ponga po `--force`, wiek kolizji sprawdzony na commicie wcześniej, sumy
+plików w katalogu) i jedno zdanie niezmierzone: że wada trafia w *pierwsze
+dwie komendy nowego użytkownika*. Powtórzyłem operatorowi dokładnie to jedno,
+jako własne. Było fałszywe — bez `--dest` każdy harness ma własny katalog
+domyślny, więc kolizji nie ma — a materiał do obalenia leżał w moim własnym
+poleceniu, bo mój repro szedł z jawnym `--dest`.
+
+Różnica wobec pierwszego przypadku jest **gatunkowa, nie ilościowa**: tam
+powtórzone zdanie było fałszem o rzeczy i dało się je odpalić. Tu było
+**oszacowaniem skali** — zdaniem o tym, jak ludzie używają narzędzia — a dla
+takiego nie ma wyjścia, które pokaże, że kłamie. Rozpoznaje się je po
+GATUNKU: „ilu to trafi", „kto tego użyje", „to jest na wejściu" nie są
+pomiarami, choćby stały między samymi pomiarami. Sprostował autor zdania,
+nie ja, i dopiero to zmusiło mnie do sprawdzenia własnej ramki.
