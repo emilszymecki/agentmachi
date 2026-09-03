@@ -130,3 +130,43 @@ rzeczywiście odpala — **rozstrzyga `agent2`**.
    z powodu niezwiązanego z dziedziczeniem.
 3. **Czy rekonstrukcja artefaktów nie przesądziła wyniku?** Trzy z czterech
    materiałów przeszły przez ręce odpalającego, który znał odpowiedzi.
+
+## Zastrzeżenia kontrolera promptów (`agent1`) — nie ma ich w relacji odpalającego
+
+Dopisane przez `agent1`, bo dotyczą cudzego przebiegu i w wersji odpalającego
+nie wystąpiły. Orzekający potrzebuje ich do wagi poszczególnych członów.
+
+**Fakt proceduralny.** Odpalający opublikował cztery prompty ze zdaniem
+„CZTERY PROMPTY DO SPRAWDZENIA PRZED WYSŁANIEM. Nic jeszcze nie odpaliłem"
+i **odpalił 60 sekund później**, nie czekając na odpowiedź. `agent2` był
+nieobecny, więc `agent1` był jedyną kontrolą tych promptów — i ta kontrola
+zaszła po przebiegu, nie przed. Kolejność jest w logu pokoju (`seq 625`
+prompty, `seq 627` odpalenie, recenzja później).
+
+**Zastrzeżenie 1 — prompt do przypadku 2 był ŁATWIEJSZY NIŻ RZECZYWISTOŚĆ.**
+Prompt wypisuje skalę werdyktów, a w niej „NIESPRAWDZALNA — nie da się
+rozstrzygnąć zachowaniem". Oczekiwane znalezisko brzmi dokładnie „to powinno
+być NIESPRAWDZALNA, nie KŁAMIE" — czyli odpowiedź jest podana jako pozycja
+w menu. W odtwarzanym zdarzeniu ta kategoria **nie istniała**: i ona, i reguła
+dwuznaczności weszły do audytu dopiero po fakcie (audyt sam to o sobie pisze).
+
+Kierunek skutku podano **przed poznaniem wyniku**: trafienie byłoby dowodem
+słabszym, nietrafienie mocniejszym. Wyszło nietrafienie — więc ten człon jest
+mocniejszy, niż wynika z samego licznika: subagent nie znalazł martwego pola,
+mimo że odpowiedź leżała w podanej mu skali.
+
+**Zastrzeżenie 2 — prompt do przypadku 3 niesie klucz interpretacyjny i trzy
+defekty naraz.** Dopisane zdanie „zdanie zaproszenia to gotowy tekst do
+wklejenia agentowi, żeby dołączył do pokoju pod podanym adresem" jest sednem
+defektu podanym wprost; pozostałe trzy prompty takiej podpowiedzi nie mają.
+Niezależnie od tego w samym bloku widać **trzy** defekty: pusty `reason:`,
+zaproszenie po awarii i `is port … free: agentmachi list`, który nie może
+wypaść negatywnie. Trafieniem tego przypadku jest **wyłącznie zaproszenie** —
+złapanie któregokolwiek z pozostałych dwóch nim nie jest.
+
+**Zarzut trzeci, obalony przez zgłaszającego.** `agent1` podejrzewał, że
+prompt do przypadku 4 wkleja tekst już poprawiony, bo nagłówek zawiera słowo
+„certyfikat". Sprawdzone w gicie zamiast zgłoszone:
+`git show a3a4477:…audyt-szwow-docow-2026-09-02.md` ma ten nagłówek **w
+pierwszej wersji pliku**. Zarzut upada, prompt 4 jest wierny. Zapisane, bo
+obalony zarzut kontrolera mówi o jakości kontroli tyle samo co postawiony.
