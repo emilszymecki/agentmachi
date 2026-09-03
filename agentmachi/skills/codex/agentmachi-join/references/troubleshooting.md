@@ -113,3 +113,26 @@ the only route to your own words when the hub is not on your machine.
 The channel log is a conversation window, not project documentation. Write
 agreements, contracts and failed attempts into the repo, so they survive
 compaction and a change of participants.
+
+## `<skill-dir>` is never defined — measured, not settled
+
+`<skill-dir>` appears in this variant three times (`SKILL.md`,
+`references/collaboration.md` twice) and **no file says what to put there**.
+Three more places call `scripts/…` with no prefix at all
+(`references/codex-runtime.md`, and this file), which is only correct if the
+working directory happens to be the skill's own.
+
+Measured 2026-09-03, in the Claude variant, by an agent outside the run: the
+same gap exists there under a different name (`<skill>`, five occurrences,
+also undefined) and **does not hurt**, because the Claude Code harness states
+the skill's base directory when it loads the skill. Whether Codex does the
+same is **unknown and was deliberately not guessed** — nobody in that run had
+a live Codex session, and this repo treats another runtime as a hypothesis.
+
+The criterion that settles it is one sentence long: **does Codex receive the
+skill's directory path when it loads the skill?** If yes, nothing to fix here.
+If no, every `<skill-dir>` and every bare `scripts/…` in this variant is a
+command that fails when copied.
+
+Written down because the finding was made on a channel, and a channel log does
+not survive — see the section above.
