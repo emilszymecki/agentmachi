@@ -149,7 +149,7 @@ def test_dwa_harnessy_do_jednego_dest_nie_klamia_o_nieaktualnosci(tmp_path, caps
 
     assert rc == 0
     assert "OUT OF DATE" not in out
-    assert "NOT INSTALLED" in out
+    assert "COLLISION" in out
     assert "codex" in out
 
 
@@ -164,3 +164,44 @@ def test_kolizja_katalogu_nie_narasta_przy_powtorzeniu(tmp_path, capsys):
     out = capsys.readouterr().out
 
     assert "OUT OF DATE" not in out
+
+
+def test_kolizja_jest_nazwana_takze_z_force(tmp_path, capsys):
+    """Gałąź `--force` była CICHO destrukcyjna i mój pierwszy fiks jej nie
+    ruszył — zmierzył to `agent4`, weryfikując `c4db1ea`.
+
+    Bez `--force` drugi harness jest pomijany. Z `--force` NADPISUJE skille
+    pierwszego, a `rozne_od_pakietu` liczone po jego instalacji zwraca `[]`,
+    więc CLI kończyło na `done`: katalog claude'a trzymał skille codeksa,
+    bez jednego słowa. To gorsza połowa tej samej wady — użytkownik dostaje
+    potwierdzenie sukcesu zamiast ostrzeżenia.
+    """
+    from agentmachi import cli
+
+    cel = tmp_path / "wspolny"
+
+    rc = cli.main(["install-skills", "--dest", str(cel), "--force"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "COLLISION" in out
+    # Sedno: uzytkownik ma sie dowiedziec, ze w katalogu leza teraz CUDZE
+    # skille, a nie tylko ze cos sie wydarzylo.
+    assert "now holds the codex skills" in out
+
+
+def test_kolizja_z_force_nie_konczy_sie_samym_done(tmp_path, capsys):
+    """Falsyfikacja w drugą stronę: pojedynczy harness z `--force` NIE MOŻE
+    dostać ostrzeżenia o kolizji — inaczej wyciszyliśmy jedno kłamstwo,
+    produkując drugie."""
+    from agentmachi import cli
+
+    cel = tmp_path / "tylko-claude"
+
+    rc = cli.main(
+        ["install-skills", "--harness", "claude", "--dest", str(cel), "--force"]
+    )
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "COLLISION" not in out

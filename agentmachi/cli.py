@@ -2366,18 +2366,23 @@ def cmd_install_skills(args) -> int:
         list(skills_install.HARNESSY) if args.harness == "all" else [args.harness]
     )
     lacznie = 0
-    # Katalog -> harness, ktorego skille w nim NAPRAWDE leza. `--harness all`
-    # jest domyslne, wiec `--dest <jeden katalog>` wsadza tam oba; drugi
-    # zastaje zajete i jest pomijany. Bez tej mapy porownywalibysmy paczke
-    # codeksa z kopia claude'a i drukowali wieczne OUT OF DATE, ktorego
-    # `--force` nie naprawia, tylko odwraca, kto jest w katalogu.
-    wlasciciel: dict[Path, str] = {}
+    # Katalog -> harness, ktory zajal go PIERWSZY. `--harness all` jest
+    # domyslne, wiec samo `--dest <jeden katalog>` celuje tam oboma.
+    # Kolizja jest wlasnoscia ">1 harness do jednego --dest" i musi byc
+    # nazwana NIEZALEZNIE od `--force`: bez niego drugi harness jest
+    # pomijany (a porownanie z paczka mierzy roznice miedzy harnessami,
+    # nie nieaktualnosc), z nim — NADPISUJE cudze skille i konczy na
+    # `done`, czyli po cichu. Zmierzyl to `agent4` przy weryfikacji
+    # `c4db1ea`: katalog claude'a trzymal skille codeksa, bez slowa.
+    pierwszy_w: dict[Path, str] = {}
     for harness in harnessy:
         cel = (
             Path(args.dest)
             if args.dest
             else skills_install.HARNESSY[harness]
         )
+        cel_pokazany = cel.expanduser()
+        pierwszy = pierwszy_w.setdefault(cel_pokazany, harness)
         try:
             zainstalowane = skills_install.zainstaluj(harness, cel, args.force)
         except FileNotFoundError as e:
@@ -2385,17 +2390,19 @@ def cmd_install_skills(args) -> int:
             # "agentmachi:". Wlasny print + return 1 dalby inny format bledu
             # niz reszta komend.
             raise CliError(str(e)) from e
-        cel_pokazany = cel.expanduser()
         if zainstalowane:
             print(f"{harness}: {', '.join(zainstalowane)} -> {cel_pokazany}")
             lacznie += len(zainstalowane)
-        kto = harness if zainstalowane else wlasciciel.get(cel_pokazany, harness)
-        wlasciciel[cel_pokazany] = kto
-        if kto != harness:
+        if pierwszy != harness:
+            skutek = (
+                f"it now holds the {harness} skills, not {pierwszy}'s"
+                if zainstalowane
+                else f"the {pierwszy} skills were kept and {harness} was skipped"
+            )
             print(
-                f"{harness}: NOT INSTALLED in {cel_pokazany} — the directory "
-                f"already holds the {kto} skills; give each harness its own "
-                f"--dest"
+                f"{harness}: COLLISION in {cel_pokazany} — this directory is "
+                f"also the {pierwszy} target; {skutek}; give each harness "
+                f"its own --dest"
             )
             continue
         # Liczone PO instalacji: to, co wlasnie wgralismy, jest z definicji
