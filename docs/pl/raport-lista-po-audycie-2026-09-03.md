@@ -71,11 +71,77 @@ ochroniło ten wybór tutaj.
 
 ## 2. Sufity join-skilla
 
-*(slot — wpisuje wykonawca)*
+**Robił:** `agent4` · **HEAD:** `e18ec24` · **Czas:** 2026-09-03 14:56
+**Zweryfikował:** `agent1` na własnej kopii · **Stan:** zamknięta
+
+Sufity obu `SKILL.md` **4096 → 5120**, decyzją operatora niesioną poleceniem.
+Ruszony jeden plik: `tests/test_skills.py`. Suita 752 zielona.
+
+**Komentarz przy `BUDZETY` podawał nieprawdę** i to była główna część
+zadania: mówił, że „SKILL.md Claude'a (3689/4096) i Codexa (4032/4096)
+**stoją** pod progiem", gdy z HEAD wychodziło 4071 i 4045. Stary akapit
+został jako **historia** — czas zmieniony na przeszły, ani jedno zdanie nie
+przepisane, bo opisuje decyzję z 2026-09-01 i ma prawo mówić o stanie ze
+swojej daty. Stan bieżący dopisany osobno, z HEAD-em i datą, zamiast
+wpisywania nowych liczb w cudze zdania.
+
+| plik | rozmiar / sufit | luz |
+|---|---|---|
+| `CLAUDE.md` | 12057 / 12288 | 231 B |
+| `AGENTS.md` | 15890 / 16384 | 494 B |
+| `howto_default.md` | 5031 / 5120 | 89 B |
+| `SKILL.md` (claude) | 4071 / 5120 | 1049 B |
+| `SKILL.md` (codex) | 4045 / 5120 | 1075 B |
+
+**Powód podniesienia jest zmierzony, nie przewidziany.** Komentarz opisywał
+ten tryb awarii od sierpnia; w jeden dzień wystąpił dwa razy: sufit zablokował
+łatę o filtrze wybudzeń (weszła po wycięciu 25 B) i akapit operatora,
+któremu zabrakło 171 B (claude) i 145 B (codex).
+
+**Strażnik pokazany, nie zadeklarowany** — po dopisaniu do 6144 B:
+
+    AssertionError: SKILL.md (pierwsza minuta agenta): 6144 B przy limicie
+    5120 B. (…) assert 6144 <= 5120
+
+Plik przywrócony do 4071 B i sprawdzony **po** przywróceniu. `agent1`
+powtórzył tę kontrolę u siebie niezależnie (1100 B na swojej kopii).
+
+**Skutek uboczny, do wiadomości operatora:** przy nowym sufitcie zablokowany
+akapit „needs include thinking" mieści się w obu wariantach z zapasem
+(196 B przy 1049 i 1075 B wolnego). Tej pozycji nikt nie wykonał — nie było
+jej na tej liście.
 
 ## 3. HEAD w studiach
 
-*(slot — wpisuje wykonawca)*
+**Robił:** `agent4` · **HEAD:** `27f18ab`, poprawka `dff54c6` · **Czas:**
+2026-09-03 15:01 i 15:05 · **Zweryfikował:** `nowy` na własnej kopii ·
+**Stan:** zamknięta, z jedną poprawką po weryfikacji
+
+Dopisana linia HEAD do trzech studiów i **nic poza nią** — 3 pliki, same
+dopiski, zero zmian w treści, tabelach i wnioskach.
+
+**Odtwarzalność sprawdzona zanim sięgnięto po proxy**, bo zadanie daje proxy
+jako drugą opcję:
+
+| plik | wpisane | status |
+|---|---|---|
+| `prosby-o-myslenie-2026-09-03.md` | `c6a3887` | HEAD przebiegu, odtworzony — **nie niezależnie** |
+| `subagent-vs-peer-2026-09-02.md` | `9aa1e7a` | **proxy**, nazwane proxy |
+| `spike-tui-…-2026-09-02.md` | `a58ffc2` | **proxy**, nazwane proxy |
+
+Dla dwóch studiów z 2026-09-02 HEAD przebiegu nie jest odtwarzalny: log
+kanału `interwizja` skasowano 2026-09-03, a zachowana kopia jest
+pokompaktowa (178 ramek z zakresu 654 numerów) i przeszukana pod HEAD daje
+trafienia z 09-01 i z nocy 09-03, żadnego z godzin tych pomiarów.
+
+**ROZBIEŻNOŚĆ, ROZSTRZYGNIĘTA NA MOJĄ NIEKORZYŚĆ.** Pierwsza wersja wpisała
+proxy także do `prosby-o-myslenie` z uzasadnieniem „HEAD-a w chwili liczenia
+nie da się dziś odtworzyć". `nowy` wykazał, że to **fałszywe**: `1edbe8e~1`
+daje `c6a3887` jedną komendą. Poprawione w `dff54c6`. Weszło jego
+rozróżnienie, nie moje: **odtwarzalne tak, niezależnie odtwarzalne nie** —
+artefaktem jest wyłącznie relacja rodzic–dziecko w gicie, a to, że pomiar
+szedł w tym samym drzewie, jest świadectwem liczącego i po fakcie nikt tego
+nie sprawdzi. Zastrzegł to przeciwko sobie, zanim ktokolwiek zapytał.
 
 ## 4. „Prośba o alibi" do zasad
 
