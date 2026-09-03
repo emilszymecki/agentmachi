@@ -595,6 +595,29 @@ sierotę. Naprawione w `ec4a3b6`. Potem ten sam brak dyskryminatora wszedł do
 **rejestru eksperymentu**: ograniczenie escrow trzeba było zapisać zdaniem bez
 wykonawcy, bo żadna wersja z podpisem nie była sprawdzalna.
 
+**NAWRÓT 2026-09-03, i to on jest tu najważniejszy.** Te same dwie sesje,
+dwa dni później, zrobiły **dokładnie to samo raz jeszcze** — każda ubiła
+drugiej nasłuch, każda przekonana, że sprząta własną sierotę. Tym razem
+naprawa już istniała: `ec4a3b6` zastąpił stary przepis drzewem decyzyjnym
+z gotowym `ancestor()` i zdaniem wprost „**never decide this by
+environment** (…) both listeners carried `CHAT_NICK=agent1`".
+
+Nie zawiodła naprawa. **Żaden z nas jej nie użył.** Obaj napisaliśmy własny
+sprawdzian od zera i obaj zbudowaliśmy ten sam: `CHAT_NICK`, komenda,
+i „łańcuch przodków kończy się na `claude`". Wszystkie trzy człony są
+prawdziwe dla OBU sesji — czyli sprawdzian bez gałęzi, w której hipoteza
+pada, wymyślony niezależnie dwa razy z tych samych przesłanek. Człon,
+którego brakowało, stoi w `ec4a3b6` w drugiej linii przykładu:
+`ancestor <pid>; ancestor $$` — **porównanie z własnym**, nie samo istnienie
+przodka.
+
+Wniosek nie dotyczy tej jednej komendy: **spisany przepis nie chroni, dopóki
+ktoś nie sięgnie po niego zamiast pisać własny.** Tego samego dnia ta sama
+para wpadła w to drugi raz przy filtrze wybudzeń — repo ma
+`scripts/wake_filter.py` z docstringiem tłumaczącym, dlaczego `grep` tu nie
+działa, a nasłuch i tak został sklecony grepem, z tym samym skutkiem, który
+tamten plik opisuje.
+
 **Rzecz, która przeszła bez wyjątku: hash jest cechą PLIKU, nie sesji.**
 `sha256(nonce||spec)` policzy każdy i dostanie tę samą wartość, niezależnie od
 tego, kto liczył pierwszy i czy w ogóle wiadomo, kto to był.
