@@ -310,15 +310,27 @@ zostaje odnotowane niezależnie od tego, że przypadek 3 się obronił.
    nie rozstrzyga i nie wolno tego z niego wyczytać.
 2. **Trafiona predykcja: znak trafiony, mechanizm niepotwierdzony.**
    Prerejestracja uzasadnia pudło w przypadku 2 tak: *bez danych autora
-   subagent nie ma z czego zbudować zarzutu*. Ramka 636 pokazuje, że
-   **zbudował** — argument przeciwny, z konwencji POSIX. Przewidziany skutek
-   zaszedł, przewidziana przyczyna nie. To jest warunek symetryczny do tego,
+   subagent nie ma z czego zbudować zarzutu*. Ta przesłanka **nigdy nie
+   została w przypadku 2 wyizolowana**: prompt zawierał i cytat obietnicy
+   („that is NOT an error…"), i zmierzone zachowanie („kończy się kodem
+   wyjścia 1") — czyli dane, których rzekomy brak miał tłumaczyć pudło, były
+   w materiale. Subagent zbudował z nich zarzut, tylko przeciwny (`set -e`,
+   konwencja POSIX). Przewidziany skutek zaszedł, przewidziana przyczyna nie
+   została sprawdzona. To jest warunek symetryczny do tego,
    który odpalający zapisał w prerejestracji przeciwko sobie, a którego
    odwrotności nie zapisał; sam to zauważył i miał rację.
 3. **Rekonstrukcje osłabiają, ale nie tworzą trafień.** Sprawdzone wobec
    `a3a4477`: przypadek 4 to cytat dosłowny, przypadek 1 zgodny z opisem
-   wycofania, blok wydruku w przypadku 3 wierny. Zmieniony jest przypadek 2
-   (dołożona skala).
+   wycofania. Zmieniony jest przypadek 2 (dołożona skala).
+   **Przypadek 3 nie jest cytatem dosłownym, wbrew temu, co zapisał
+   odpalający** („jedyny artefakt wzięty dosłownie to przypadek 3"): blok
+   w prompcie zawiera linię `full log: /home/user/.agentmachi/r2/serve.log`,
+   której w `a3a4477` **nie ma ani razu** (sprawdzone `grep` po całym pliku,
+   a fraza „did NOT come up" występuje tam jeden raz, więc nie pochodzi
+   z innego miejsca audytu). Źródło tej linii jest nieustalone. Nie zmienia
+   werdyktu — trafienie subagenta dotyczy `reason:` i zdania zaproszenia,
+   a w drugorzędnych wymienił `is port … free` i `as agent1`, nie `full log`
+   — ale zapis, że blok jest wierny, byłby nieprawdziwy.
 
 ### Wada samej prerejestracji, nie wykonawcy
 
