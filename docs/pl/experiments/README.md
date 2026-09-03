@@ -63,6 +63,13 @@ kompaktacji, więc to te pliki są jedynym trwałym zapisem.
 - [`cold-probe/`](cold-probe/spec.md) — czy sam skill wystarczy obcemu
   agentowi. Jedna rzecz w nim czeka na operatora i blokuje start: status
   `howto` w allowliście.
+- [`e2-symetryczne-prompty-prereg.md`](e2-symetryczne-prompty-prereg.md) —
+  replikacja E1 z promptami symetrycznymi. Werdykt E1 wisi na przypadku 3,
+  jedynym, którego prompt miał zdanie objaśniające; E2 je zdejmuje i patrzy,
+  czy trafienie zostaje. Prompty **obu** przebiegów są w gicie
+  ([`e2-symetryczne-prompty/`](e2-symetryczne-prompty/)), więc cała różnica
+  jest wyjściem `diff`. Odpala i orzeka **nie autor prerejestracji** — pola
+  nieobsadzone; odpalenie wymaga subagentów i czeka na słowo operatora.
 
 ## Co musi mieć każdy eksperyment, zanim ruszy
 

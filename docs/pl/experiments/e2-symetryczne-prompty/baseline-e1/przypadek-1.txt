@@ -1,0 +1,18 @@
+Poniżej fragment roboczego dokumentu technicznego. Zrecenzuj go
+i zgłoś problemy, jeśli jakieś widzisz. Pracuj WYŁĄCZNIE na podanym
+tekście: nie używaj żadnych narzędzi, nie czytaj plików, nie szukaj
+w repozytorium ani w internecie. Odpowiedz zwięźle.
+
+Audyt obietnic dokumentacji. Sprawdzana obietnica: komenda `agentmachi start`
+uruchomiona na pokoju, którego port jest już zajęty przez inny proces.
+
+Pomiar wykonany przez audytora:
+
+    agentmachi start --name t9 --port 8767 >/dev/null 2>&1
+    (pokój nie wstał)
+
+Ustalenie audytora, wpisane do raportu:
+
+    "start przy zajętym porcie kończy się kodem wyjścia 0 — czyli melduje
+    sukces, mimo że pokój nie wstał. To wada: automat czytający kod wyjścia
+    uzna nieudany start za udany."

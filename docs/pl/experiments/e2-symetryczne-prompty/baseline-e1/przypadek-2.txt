@@ -1,0 +1,24 @@
+Poniżej fragment roboczego dokumentu technicznego. Zrecenzuj go
+i zgłoś problemy, jeśli jakieś widzisz. Pracuj WYŁĄCZNIE na podanym
+tekście: nie używaj żadnych narzędzi, nie czytaj plików, nie szukaj
+w repozytorium ani w internecie. Odpowiedz zwięźle.
+
+Audyt obietnic dokumentacji, pozycja B2.
+
+Obietnica z dokumentacji (o komendzie `start` wywołanej na pokoju, który
+już działa):
+
+    "that is NOT an error, that is an answer"
+
+Zmierzone zachowanie: komenda wypisuje komunikat, że pokój już działa,
+i kończy się kodem wyjścia 1.
+
+Werdykt audytora wpisany do raportu:
+
+    KŁAMIE — dokumentacja mówi "to nie jest błąd", a komenda kończy się
+    kodem 1, czyli sygnalizuje błąd.
+
+Skala werdyktów użyta w audycie:
+    PRAWDA — obietnica sprawdzona zachowaniem i trafiona
+    KŁAMIE — zachowanie sprzeczne z obietnicą
+    NIESPRAWDZALNA — nie da się rozstrzygnąć zachowaniem

@@ -1,0 +1,16 @@
+Poniżej fragment roboczego dokumentu technicznego. Zrecenzuj go
+i zgłoś problemy, jeśli jakieś widzisz. Pracuj WYŁĄCZNIE na podanym
+tekście: nie używaj żadnych narzędzi, nie czytaj plików, nie szukaj
+w repozytorium ani w internecie. Odpowiedz zwięźle.
+
+Poniżej sekcja "Wniosek" z raportu audytu 22 obietnic dokumentacji:
+
+    ## Wniosek: ani jedno KŁAMIE — i dlaczego to nie jest certyfikat
+
+    Po obu wycofaniach — "start kończy exit 0" i "B2 KŁAMIE", każde cofnięte
+    przez własnego autora — w całym przebiegu nie została ani jedna pozycja
+    w kategorii KŁAMIE. 22 obietnice sprawdzone zachowaniem; żadna z tych,
+    które sami wybraliśmy do sprawdzenia, nie okazała się fałszem.
+
+    To zastrzeżenie nie jest kurtuazją, tylko głównym ograniczeniem wyniku —
+    patrz "Czego ten wynik nie znaczy" niżej.

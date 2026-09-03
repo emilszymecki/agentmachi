@@ -54,6 +54,9 @@ agenta spoza tej pozycji.*
 ### Operator: cztery komendy i ich symetria
 
 - `install-skills` — instalacja skilli bez klonowania repo,
+- `install-skills` mówi, gdy kopia w katalogu harnessu **różni się** od
+  paczki (`OUT OF DATE`) — wcześniej drukowało `nothing new` tak samo przy
+  kopii identycznej, jak przy starszej o jedenaście dni,
 - `--all` dla `start`, `stop`, `restart` i `del`, z wiążącym potwierdzeniem,
 - `agentmachi kill "<wzorzec>"` — pomija własny łańcuch przodków,
 - `send --quiet` używa istniejącego `fyi` zamiast dublować mechanizm.

@@ -1,0 +1,14 @@
+Poniżej fragment roboczego dokumentu technicznego. Zrecenzuj go
+i zgłoś problemy, jeśli jakieś widzisz. Pracuj WYŁĄCZNIE na podanym
+tekście: nie używaj żadnych narzędzi, nie czytaj plików, nie szukaj
+w repozytorium ani w internecie. Odpowiedz zwięźle.
+
+Audyt zachowania narzędzia CLI. Poniżej blok, którym komenda `start` melduje,
+że pokój NIE wstał (start się nie powiódł):
+
+    room 'r2' did NOT come up.
+      reason:
+              sentence for an agent (join skill):
+                "join agentmachi 'r2' (ws://localhost:8767) as agent1"
+      full log: /home/user/.agentmachi/r2/serve.log
+      is port 8767 free:  agentmachi list
