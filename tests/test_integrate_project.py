@@ -4,6 +4,7 @@ Kontrakty, ktore pilnujemy: podglad domyslnie, zero nadpisania cudzej tresci,
 idempotencja, aktualizacja bloku w miejscu i czyste usuniecie.
 """
 import difflib
+import re
 import sys
 from pathlib import Path
 
@@ -373,6 +374,83 @@ def test_nowy_plik_dostaje_prawa_jak_zwykly_zapis(tmp_path):
     ip.main([str(tmp_path), "--apply"])
     oczekiwany = 0o666 & ~biezacy
     assert _stat.S_IMODE((tmp_path / "AGENTS.md").stat().st_mode) == oczekiwany
+
+
+# --- CLAUDE.md importuje, nie kopiuje ---------------------------------------
+#
+# Claude Code czyta CLAUDE.md, nie AGENTS.md — dokumentacja mowi to wprost,
+# a loader 2.1.261 wylicza CLAUDE.md, .claude/CLAUDE.md, .claude/rules
+# i CLAUDE.local.md. Do 2026-09-05 instalator wpisywal pelny kontrakt do OBU
+# plikow: dwie kopie, a ustalenie dopisane do jednej ginelo dla drugiego
+# harnessu. Teraz kontrakt siedzi w AGENTS.md, a CLAUDE.md dostaje
+# `@AGENTS.md`. Ze import miedzy dwiema liniami komentarza HTML naprawde sie
+# laduje, zmierzone tego dnia na `claude -p --tools ""`: sentinel z AGENTS.md
+# wrocil; w kontroli bez importu — NONE.
+
+
+def test_CLAUDE_md_dostaje_import_a_nie_kopie_kontraktu(tmp_path):
+    ip.main([str(tmp_path), "--apply"])
+    agents = (tmp_path / "AGENTS.md").read_text()
+    claude = (tmp_path / "CLAUDE.md").read_text()
+    assert "take precedence" in agents.lower(), "kontrakt nie trafil do AGENTS.md"
+    assert ip.POCZATEK in claude and ip.KONIEC in claude
+    assert re.search(r"(?m)^@AGENTS\.md$", claude), \
+        "CLAUDE.md nie importuje AGENTS.md"
+    assert "take precedence" not in claude.lower(), \
+        "kontrakt skopiowany do CLAUDE.md — dwa zrodla prawdy"
+
+
+def test_stary_uklad_z_kopia_kontraktu_w_CLAUDE_md_zwija_sie_do_importu(tmp_path):
+    """Repo zintegrowane starym instalatorem ma pelny blok w CLAUDE.md.
+    Nastepny --apply podmienia go w miejscu na import — bez ruszania tresci
+    wokol i bez drugiego kompletu markerow."""
+    (tmp_path / "AGENTS.md").write_text("# A\n")
+    claude = tmp_path / "CLAUDE.md"
+    claude.write_text("# C\n\n" + ip.POCZATEK + "\n" + ip.KONTRAKT + ip.KONIEC
+                      + "\n\n# Po\n")
+    ip.main([str(tmp_path), "--apply"])
+    tresc = claude.read_text()
+    assert "take precedence" not in tresc.lower(), "stara kopia kontraktu zostala"
+    assert "@AGENTS.md" in tresc and tresc.count(ip.POCZATEK) == 1
+    assert "# C" in tresc and "# Po" in tresc, "migracja zjadla tekst wokol"
+
+
+def test_wlasny_import_wlasciciela_wystarcza_i_zdejmuje_nasz_blok(tmp_path):
+    """Wlasciciel, ktory poszedl za dokumentacja Claude Code, ma juz
+    `@AGENTS.md` w CLAUDE.md. Drugi import bylby smieciem, wiec pliku nie
+    ruszamy; a stary blok z kopia kontraktu — zdejmujemy, import zostaje."""
+    (tmp_path / "AGENTS.md").write_text("# A\n")
+    claude = tmp_path / "CLAUDE.md"
+    claude.write_text("@AGENTS.md\n\n# Moje\n")
+    ip.main([str(tmp_path), "--apply"])
+    assert claude.read_text() == "@AGENTS.md\n\n# Moje\n", \
+        "instalator ruszyl CLAUDE.md, ktory juz importuje AGENTS.md"
+    assert ip.POCZATEK in (tmp_path / "AGENTS.md").read_text()
+
+    claude.write_text("@./AGENTS.md\n" + ip.POCZATEK + "\nstare\n" + ip.KONIEC + "\n")
+    ip.main([str(tmp_path), "--apply"])
+    assert claude.read_text().strip() == "@./AGENTS.md"
+
+
+def test_CLAUDE_md_jako_link_na_AGENTS_md_jest_pomijany_nie_odrzucany(tmp_path, capsys):
+    """`ln -s AGENTS.md CLAUDE.md` to drugi uklad z dokumentacji Claude Code
+    i zarazem stan docelowy: jeden plik. Fail-closed na symlinku zostaje dla
+    kazdego INNEGO celu (`test_cel_bedacy_symlinkiem_jest_odrzucany`) — tu za
+    linkiem nie stoi cudzy plik, tylko nasz wlasny cel. Podglad ma to
+    powiedziec, a nie przemilczec."""
+    agents = tmp_path / "AGENTS.md"
+    agents.write_text("# A\n")
+    (tmp_path / "CLAUDE.md").symlink_to("AGENTS.md")
+
+    assert ip.main([str(tmp_path)]) == 0
+    assert "[skip] CLAUDE.md" in capsys.readouterr().out, "podglad przemilczal link"
+    assert ip.main([str(tmp_path), "--apply"]) == 0
+    assert (tmp_path / "CLAUDE.md").is_symlink(), "link zastapiony plikiem"
+    assert agents.read_text().count(ip.POCZATEK) == 1
+
+    assert ip.main([str(tmp_path), "--remove", "--apply"]) == 0
+    assert agents.read_text().strip() == "# A"
+    assert (tmp_path / "CLAUDE.md").is_symlink()
 
 
 # --- kopia dla drugiego harnessu -------------------------------------------

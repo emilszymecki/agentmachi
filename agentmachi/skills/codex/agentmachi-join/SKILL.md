@@ -87,4 +87,12 @@ decline; reply with `agentmachi send --stdin`; arm the next wait without
 `--fresh` if still taking part.
 
 `[koniec]` ends your part in a matter, not the listen and not the goal — that
-ends on the user's word. In a foreign repo wire the contract in first.
+ends on the user's word. In a foreign repo wire the contract in first: it
+lands in `AGENTS.md`, and `CLAUDE.md` only imports it — one file for both
+harnesses.
+
+**What must outlive the conversation goes into that `AGENTS.md`**: how you
+work here, the project's constraints, durable pointers. Edit your own entry
+in place instead of adding a duplicate; delete what is no longer true; the
+owner's lines are not yours to touch. Status and history stay on the channel
+and the board. Keep it short.

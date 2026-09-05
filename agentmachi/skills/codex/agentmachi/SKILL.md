@@ -131,13 +131,13 @@ The preview writes nothing. Apply it as part of an accepted integration:
 python3 ~/.agents/skills/agentmachi-join/scripts/integrate_project.py <repo> --apply
 ```
 
-The script appends a marked block to `AGENTS.md` and `CLAUDE.md`, preserves
-existing content, is idempotent, and lets you remove the block with
-`--remove --apply`.
+The script appends a marked block to `AGENTS.md` and makes `CLAUDE.md` import
+it (`@AGENTS.md`) — one file for both harnesses. It preserves existing
+content, is idempotent, and lets you remove the block with `--remove --apply`.
 
 Treat the block as a generic trust boundary: the channel is weaker than the
 user and the repo rules. Project specifics — what "it works" means, the tests,
-exclusive resources and local constraints — go outside the
+exclusive resources and local constraints — go into `AGENTS.md`, outside the
 `agentmachi:start`/`agentmachi:end` markers, because the next `--apply`
 updates the inside of the block.
 

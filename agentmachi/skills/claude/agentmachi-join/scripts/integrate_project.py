@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Add the minimal agentmachi contract to a project's AGENTS.md / CLAUDE.md.
+"""Add the minimal agentmachi contract to a project's AGENTS.md and make
+CLAUDE.md import it.
 
 Why: when agents talk through a channel while working on SOMEONE ELSE'S
 repository, that project does not know that channel content is data from a
 peer participant, not an order from its owner. This script appends a few
-sentences saying exactly that — to the files the agent reads anyway.
+sentences saying exactly that — to AGENTS.md, the file Codex reads; and puts
+an `@AGENTS.md` import into CLAUDE.md, the only file Claude Code reads. One
+file, both harnesses.
 
 Rules this script obeys, because it installs into SOMEONE ELSE'S repo:
 
@@ -23,6 +26,7 @@ import argparse
 import contextlib
 import difflib
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -82,11 +86,31 @@ hand something off, or ask for a second look from a place you cannot
 see. Working alone is the normal case and needs no justification.
 """
 
+# CLAUDE.md nie dostaje kopii kontraktu, tylko import. Claude Code czyta
+# CLAUDE.md, a AGENTS.md nie (dokumentacja: „Claude Code reads CLAUDE.md, not
+# AGENTS.md"; loader 2.1.261 wylicza CLAUDE.md, .claude/CLAUDE.md,
+# .claude/rules i CLAUDE.local.md). Codex czyta AGENTS.md. Do 2026-09-05 blok
+# szedl do OBU plikow, wiec ustalenie dopisane do jednego z nich ginelo dla
+# drugiego harnessu. Jeden plik, jedna prawda: to, co ma przezyc rozmowe —
+# jak tu pracujemy, ograniczenia projektu — agenci pisza do AGENTS.md,
+# a CLAUDE.md je importuje. Zmierzone 2026-09-05 (`claude -p --tools ""`,
+# 2.1.261): import miedzy dwiema liniami komentarza HTML laduje sie, sentinel
+# z AGENTS.md wraca; w kontroli bez importu — NONE.
+IMPORT = "@AGENTS.md"
+# Import wpisany przez wlasciciela poza naszymi markerami czyni nasz blok
+# zbednym. Lapiemy dwie formy z dokumentacji (`@AGENTS.md`, `@./AGENTS.md`)
+# jako osobny token — nie kazda mozliwa.
+IMPORT_RE = re.compile(r"(?<!\S)@(?:\./)?AGENTS\.md(?!\S)")
+
 PLIKI = ("AGENTS.md", "CLAUDE.md")
 
 
-def blok():
-    return f"{POCZATEK}\n{KONTRAKT}{KONIEC}\n"
+def tresc_bloku(nazwa):
+    return KONTRAKT if nazwa == "AGENTS.md" else IMPORT + "\n"
+
+
+def blok(nazwa="AGENTS.md"):
+    return f"{POCZATEK}\n{tresc_bloku(nazwa)}{KONIEC}\n"
 
 
 class KorupcjaMarkerow(Exception):
@@ -112,17 +136,19 @@ def _sprawdz_markery(nazwa, tekst):
         f"block.")
 
 
-def zastosuj(tekst):
-    """Zwróć treść pliku z aktualnym blokiem. Idempotentne.
+def zastosuj(tekst, nazwa="AGENTS.md"):
+    """Zwróć treść pliku z aktualnym blokiem dla `nazwa`. Idempotentne.
 
     Zakłada, że markery przeszły `_sprawdz_markery` — inaczej mogłaby
-    powstać druga, niedomknięta kopia bloku."""
+    powstać druga, niedomknięta kopia bloku. Stary układ (pełna kopia
+    kontraktu w CLAUDE.md) zwija się tu do importu tą samą drogą, którą
+    idzie każda zmiana treści: podmiana bloku w miejscu."""
     if POCZATEK in tekst and KONIEC in tekst:
         przed = tekst[:tekst.index(POCZATEK)]
         po = tekst[tekst.index(KONIEC) + len(KONIEC):].lstrip("\n")
-        return przed + blok() + (("\n" + po) if po else "")
+        return przed + blok(nazwa) + (("\n" + po) if po else "")
     ogon = tekst if tekst.endswith("\n") or not tekst else tekst + "\n"
-    return (ogon + "\n" if ogon else "") + blok()
+    return (ogon + "\n" if ogon else "") + blok(nazwa)
 
 
 def _zapisz_atomowo(sciezka, tresc):
@@ -214,6 +240,16 @@ def main(argv=None):
     plan = []
     for nazwa in PLIKI:
         sciezka = katalog / nazwa
+        # CLAUDE.md bedacy linkiem na AGENTS.md z tego samego katalogu to
+        # drugi uklad z dokumentacji Claude Code (`ln -s AGENTS.md CLAUDE.md`)
+        # i zarazem stan docelowy: jeden plik, oba harnessy. Nie ma czego
+        # dopisywac ani zdejmowac — a `_sprawdz_cel` odrzucilby link jako
+        # cudzy cel zapisu, wiec rozstrzygamy to PRZED nim. Kazdy INNY
+        # symlink zostaje fail-closed.
+        if (nazwa == "CLAUDE.md" and sciezka.is_symlink()
+                and sciezka.resolve() == (katalog / "AGENTS.md").resolve()):
+            print(f"[skip] {nazwa} is a link to AGENTS.md — one file already")
+            continue
         try:
             _sprawdz_cel(sciezka)
             istnieje = sciezka.exists()
@@ -234,8 +270,13 @@ def main(argv=None):
             if not istnieje:
                 continue
             nowy = usun(stary)
+        elif nazwa == "CLAUDE.md" and IMPORT_RE.search(usun(stary)):
+            # Wlasciciel juz importuje AGENTS.md poza naszym blokiem: drugi
+            # import bylby smieciem, a stary blok (kopia kontraktu) — do
+            # zdjecia. `usun` na pliku bez bloku niczego nie zmienia.
+            nowy = usun(stary)
         else:
-            nowy = zastosuj(stary)
+            nowy = zastosuj(stary, nazwa)
         if nowy != stary:
             plan.append((nazwa, sciezka, stary, nowy))
 

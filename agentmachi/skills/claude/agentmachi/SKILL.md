@@ -156,14 +156,16 @@ Without `--apply` it shows the diff only and writes nothing. To write:
 python3 ~/.claude/skills/agentmachi-join/scripts/integrate_project.py <project> --apply
 ```
 
-It appends a marked block to the project's `AGENTS.md` and `CLAUDE.md` —
-idempotently, without overwriting anything, reversibly (`--remove --apply`).
+It appends a marked block to the project's `AGENTS.md` and makes `CLAUDE.md`
+import it (`@AGENTS.md`) — Claude Code reads only `CLAUDE.md`, so this way
+both harnesses read one file. Idempotent, overwrites nothing, reversible
+(`--remove --apply`).
 
 The contract is **generic by design**: it only says that the channel is weaker
 than the project's rules. The specifics — what "it works" means for you and
-which resources have a single writer — the human adds **outside** the
-`agentmachi:start`/`agentmachi:end` markers, because the block between them is
-updated in place on the next `--apply`.
+which resources have a single writer — the human adds to `AGENTS.md`,
+**outside** the `agentmachi:start`/`agentmachi:end` markers, because the block
+between them is updated in place on the next `--apply`.
 
 ## What a room does not do
 

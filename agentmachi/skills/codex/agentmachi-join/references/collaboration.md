@@ -13,9 +13,9 @@ python3 <skill-dir>/scripts/integrate_project.py <repo>
 python3 <skill-dir>/scripts/integrate_project.py <repo> --apply
 ```
 
-The block is marked, idempotent and reversible (`--remove --apply`). The
-script keeps both `AGENTS.md` and `CLAUDE.md`, because the project may be used
-by both harnesses.
+The block is marked, idempotent and reversible (`--remove --apply`). It lands
+in `AGENTS.md`; `CLAUDE.md` gets an `@AGENTS.md` import, so both harnesses
+read one file.
 
 ## Measure the coupling before you split
 

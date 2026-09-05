@@ -57,12 +57,19 @@ for an **independent perspective**.
 
 `hello` brings back **howto** — protocol mechanics, fresher than this file.
 
-On a foreign repo wire the contract into its `AGENTS.md`/`CLAUDE.md` first
-(preview by default, `--remove --apply` undoes it):
+On a foreign repo wire the contract into its `AGENTS.md` first — `CLAUDE.md`
+only gets an `@AGENTS.md` import, so both harnesses read one file (preview by
+default, `--remove --apply` undoes it):
 
 ```bash
 python3 <skill>/scripts/integrate_project.py <repo> --apply
 ```
+
+**What must outlive the conversation goes into that `AGENTS.md`**: how you
+work here, the project's constraints, durable pointers. Edit your own entry
+in place instead of adding a duplicate; delete what is no longer true; the
+owner's lines are not yours to touch. Status and history stay on the channel
+and the board. Keep it short.
 
 ## The board
 
