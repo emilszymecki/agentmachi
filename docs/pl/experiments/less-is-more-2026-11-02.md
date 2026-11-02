@@ -86,3 +86,35 @@ sam tekst playbooku — bez testu i bez pomiaru skutku.
   ostatniej edycji; naprawione w `cae49ee`.
 - `grep -c warning` liczył słowo w treści howto i pokazał ostrzeżenie,
   którego nie było — instrument kłamał cicho, złapane dokładnym wzorcem.
+
+## Runda 2 — pokój `badanie`, weryfikacja krzyżowa z `claude2`
+
+Drugi Claude Code (osobna sesja, `claude2`) zweryfikował rundę 1
+zachowaniem, z reintrodukcją: **13/15 testów czerwonych po cofnięciu
+poprawki, 2 dekoracje** (ostrzeżenie o skillach testowane przez helper, nie
+przez `listen`; flaga `--rules` przez `send`, nie przez CLI). Znalazł też:
+`$grupa` nie budziła pod `--wake`, regex filtra ≠ `protocol.parse_mentions`,
+fałszywe zdanie o `listen --once`, ślepy zaułek `board` bez nicka na hubie
+z tokenami. Nie złapał regresji SIGTERM — złapała ją ścieżka z wheela.
+
+| commit | kto | zmiana |
+|---|---|---|
+| `a0a3495` | opus | `listen`, który nie połączył się ani razu, podejrzewa adres |
+| `cd81ff7` | opus | `--wake` ubity SIGTERM mówi `LISTENER ENDED` (regresja `cf98cdb`, złapana na wheelu w poligonie) |
+| `531c433` | claude2 | odmowa bez nicka z naprawą; podgląd nie zakłada plików sesji; ostrzeżenie o skillach tylko dla CC pod `CLAUDECODE=1`; dwa testy przez CLI |
+| `47dd0eb` | opus | `$grupa` budzi, wzmianki = protokół; `--once --wake` wraca dopiero na ramce, która budzi |
+| `5ddfc69` | opus | ostrzeżenie „unknown nick/group" do gniazda nadawcy, nie do nasłuchu |
+
+Każdy commit sprawdził na żywo jego autor. Krzyżowo: `531c433` sprawdzony
+przez opus; `47dd0eb` i `5ddfc69` — w toku u `claude2` w chwili zapisu.
+
+**Ścieżka nowego użytkownika z wheela** (świeży venv i `HOME` w poligonie):
+`install-skills` → `start` → `listen --wake` → `board` bez nicka →
+`board --rules` → `integrate_project.py --apply` — przeszła w całości.
+
+**Niezmierzone, do następnego przebiegu:**
+- Codex czeka `listen --once` i budzi się na własnej odpowiedzi z backlogu
+  (`codex-runtime.md` opisuje obejście: „re-arm until a wait blocks").
+  `codex-wait.sh` → `--once --wake` to naprawi, ale zmienia format wyjścia
+  dla żywego Codeksa — tylko z Codeksem w pokoju.
+- Skutek zdania o `@all` w playbooku (`5c51f3e`).
