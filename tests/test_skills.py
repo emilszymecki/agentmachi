@@ -345,86 +345,12 @@ def _bez_blokow_kodu(tekst):
 
 
 def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
-    r"""Common core boardu: skill ma nauczyc, CZYM board jest, KIEDY go czytac
-    i CO sie na nim pisze — i nie ma prawa nauczyc, ze cudzy wpis jest
-    zobowiazaniem ANI podac gotowego slownika rubryk.
-
-    2026-08-23 wypadl z obu wariantow slownik `teraz/martwie/prosze/marze`.
-    Powod jest ten sam, dla ktorego `DEFAULT_RULES` jest puste
-    (`test_hub_nie_ma_domyslnych_regul`): gotowa ontologia to USTROJ podany
-    z gory, a agent, ktory dostal cztery rubryki, wypelni cztery rubryki
-    zamiast napisac swoja sytuacje. Kotwica dziala nawet wtedy, gdy tekst
-    obok mowi „dodaj wlasne". Fizyka boardu sie NIE zmienila — schemat,
-    ramka `status` i routing stoja gdzie stały; zmienila sie kultura w
-    skillu, czyli jedyne miejsce, w ktorym wolno ja zmienic.
-
-    Sprawdzamy OBA warianty i po CALEJ tresci skilla (SKILL.md + references),
-    bo podzial miedzy nimi jest decyzja redakcyjna, nie kontraktem: wariant
-    Claude'a niesie caly akapit w SKILL.md, wariant Codexa zostawia tam
-    mechanike i najkrotsza wersje, a wezwanie reakcji przez kanal lezy w
-    `collaboration.md`, bo jego SKILL.md niesie dodatkowo caly Goal mode
-    i przy sufitcie 4096 B nie miesci obu. Kontrakt jest ten sam.
-
-    NIE testujemy tekstu co do bajtu — to ma przezyc redakcje. Testujemy
-    twierdzenia, ktore musza w tym tekscie stac, i te, ktorych stac nie moze.
-
-    Wzorce sa `\s+`-odporne z tego samego powodu, ktory zlapal
-    `test_skill_nie_odwraca_priorytetu_nad_projektem` 2026-08-22: asercja
-    literalna pada przy PRZEFORMATOWANIU, ktore nie zmienia ani jednego slowa,
-    bo markdown zawija wiersz miedzy slowami frazy."""
-    # kontrola samego narzedzia — inaczej caly ten test jest atrapa
-    assert re.search(r"not\s+a\s+backlog", "not a\nbacklog")
-
+    """Skills must not impose work allocation or a mandatory board schema."""
     for korzen in (SKILLS, SKILLS_CODEX):
         tresc = "\n".join(
             sciezka.read_text().lower()
             for sciezka in sorted((korzen / "agentmachi-join").rglob("*.md")))
         gdzie = korzen.name
-
-        # --- MUSI BYC: czym board jest --------------------------------------
-        # trzy miejsca, trzy role — bez tego board jest "jeszcze jednym czatem"
-        assert re.search(r"board\s*=\s*declarations", tresc), \
-            f"{gdzie}: skill nie mowi, ze board to AKTUALNE DEKLARACJE"
-        assert re.search(r"log\s*=\s*history", tresc), \
-            f"{gdzie}: skill nie odroznia boardu od logu jako historii"
-        assert re.search(r"not\s+a\s+backlog", tresc), \
-            f"{gdzie}: skill nie mowi, ze board NIE jest backlogiem"
-        assert re.search(r"not\s+history", tresc), \
-            f"{gdzie}: skill nie mowi, ze board NIE jest historia"
-
-        # --- MUSI BYC: kiedy go czytac ---------------------------------------
-        assert re.search(r"edges", tresc), \
-            f"{gdzie}: skill nie mowi, ze board czyta sie na KRAWEDZIACH pracy"
-        assert re.search(r"not\s+while\s+working", tresc), \
-            f"{gdzie}: skill nie odradza pollowania boardu w trakcie pracy"
-
-        # --- MUSI BYC: co sie na nim pisze -----------------------------------
-        assert re.search(r"keep\s+it\s+short", tresc), \
-            f"{gdzie}: skill nie mowi, ze wpis ma byc KROTKI"
-        assert re.search(r"what\s+you\s+work\s+on", tresc), \
-            f"{gdzie}: skill nie mowi, ze piszesz NAD CZYM PRACUJESZ"
-        assert re.search(r"what\s+you\s+need", tresc), \
-            f"{gdzie}: skill nie mowi, ze piszesz CZEGO POTRZEBUJESZ"
-        # brak potrzeby to pelnoprawny wpis, nie brakujaca rubryka
-        assert re.search(r"if\s+you\s+need\s+nothing", tresc), \
-            f"{gdzie}: skill nie mowi, ze BEZ POTRZEB sam przedmiot pracy wystarczy"
-
-        # --- MUSI BYC: brak narzuconej formy ---------------------------------
-        # Sedno zmiany z 2026-08-23. Bez tych dwoch zdan nastepny redaktor
-        # dopisze „przydatne pola:" i ontologia wroci tylnymi drzwiami.
-        assert re.search(r"no\s+prescribed\s+vocabulary", tresc), \
-            f"{gdzie}: skill nie mowi, ze NIE MA narzuconego slownika"
-        assert re.search(r"no\s+required\s+structure", tresc), \
-            f"{gdzie}: skill nie mowi, ze NIE MA wymaganej struktury"
-
-        # --- MUSI BYC: reakcji szuka sie na kanale, nie na boardzie -----------
-        # board jest PULL — wpis nikogo nie budzi, wiec potrzeba reakcji musi
-        # znalezc droge do istniejacej mechaniki wzmianki.
-        assert re.search(r"from\s+the\s+channel,\s*not\s+from\s+the\s+board",
-                         tresc), \
-            f"{gdzie}: skill nie kieruje potrzeby REAKCJI na kanal zamiast na board"
-        assert "@nick" in tresc and "$group" in tresc, \
-            f"{gdzie}: skill nie pokazuje, CZYM wola sie reakcje (@nick / $group)"
 
         # --- NIE MOZE BYC ---------------------------------------------------
         # Ramie G eksperymentu board-pull. Zdanie brzmi niewinnie i wlasnie
@@ -487,6 +413,11 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
 # Sufit to zapadka: schodzi razem z tekstem, nie idzie w gore. Gdy nie
 # miescisz prawdy pod sufitem, wytnij inne zdanie albo napraw pulapke w kodzie.
 BUDZETY = {
+    "Codex collaboration": (SKILLS_CODEX / "agentmachi-join" / "references" / "collaboration.md", 2560),
+    "Codex runtime": (SKILLS_CODEX / "agentmachi-join" / "references" / "codex-runtime.md", 4096),
+    "Codex routing Claude": (SKILLS / "agentmachi-join" / "references" / "codex.md", 1024),
+    "Codex operator": (SKILLS_CODEX / "agentmachi" / "SKILL.md", 4096),
+    "Codex troubleshooting": (SKILLS_CODEX / "agentmachi-join" / "references" / "troubleshooting.md", 3072),
     "CLAUDE.md (doklejane do KAZDEJ sesji w tym repo)":
         (Path(__file__).resolve().parent.parent / "CLAUDE.md", 1024),
     "AGENTS.md (doklejane do KAZDEJ sesji w tym repo)":
@@ -497,7 +428,7 @@ BUDZETY = {
     "SKILL.md (pierwsza minuta agenta)":
         (SKILLS / "agentmachi-join" / "SKILL.md", 5120),
     "SKILL.md Codexa (pierwsza minuta agenta)":
-        (SKILLS_CODEX / "agentmachi-join" / "SKILL.md", 5120),
+        (SKILLS_CODEX / "agentmachi-join" / "SKILL.md", 3072),
 }
 
 
@@ -508,7 +439,6 @@ BEZ_SUFITU = {
     SKILLS / "agentmachi" / "SKILL.md":
         "skill OPERATORA: laduje sie na zadanie czlowieka, nie doklada sie "
         "do kazdej sesji agenta — inny kontrakt kosztowy niz agentmachi-join",
-    SKILLS_CODEX / "agentmachi" / "SKILL.md": "jak wyzej, wariant Codexa",
 }
 
 
@@ -729,11 +659,8 @@ def test_codex_wait_nie_udaje_mechanizmu_wybudzania_modelu():
 
 # --- blok /goal do wklejenia: kontrakt STRUKTURY, nie tresci ---------------
 
-GOAL_PLIKI = [
-    SKILLS_CODEX / "agentmachi-join" / "SKILL.md",
-    SKILLS_CODEX / "agentmachi-join" / "references" / "codex-runtime.md",
-    SKILLS / "agentmachi-join" / "references" / "codex.md",
-]
+# Publish the copyable goal once; references route to this source.
+GOAL_PLIKI = [SKILLS_CODEX / "agentmachi-join" / "SKILL.md"]
 
 
 def _bloki_z_celem(sciezka):
@@ -744,25 +671,7 @@ def _bloki_z_celem(sciezka):
 
 
 def test_blok_do_wklejenia_zawiera_wylacznie_cel():
-    """Zlapane przez Codexa (agent2) w audycie 35fa0e2 — commit, w ktorym
-    CALA suita byla zielona, a blok i tak byl zepsuty.
-
-    Blok mial w srodku najpierw zdanie „Paste this into Codex...", pusta
-    linie, a dopiero potem `/goal`. Przycisk kopiowania bierze CALY fence,
-    wiec do promptu wchodzila najpierw instrukcja — a prompt, ktory nie
-    zaczyna sie od slash-commanda, nie jest komenda. Bramka byla poprawna
-    w kazdym innym szczególe i zadne z 16 testow tego nie mierzylo, bo
-    wszystkie patrzyly na TRESC, nie na strukture.
-
-    Kontrakt: instrukcja poza fencem, w fencu dokladnie JEDNA niepusta
-    fizyczna linia i zaczyna sie od `/goal`. Wieloliniowosci nie sprawdzamy
-    dla ozdoby — parser `/goal` jest nieudokumentowany, a Codex potwierdzil
-    empirycznie wylacznie cel jednoliniowy.
-
-    Ostatnia asercja pilnuje czegos innego: te same trzy pliki niosa ten sam
-    tekst celu. Rozjazd miedzy wariantem Codexa a lustrem po stronie Claude
-    to udokumentowany tryb awarii tego repo — agent dowiaduje sie o nim po
-    wejsciu, czyli w najgorszym momencie."""
+    """The published goal is a single copyable command, without a preamble."""
     teksty = {}
     for sciezka in GOAL_PLIKI:
         bloki = _bloki_z_celem(sciezka)
