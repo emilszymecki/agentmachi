@@ -146,9 +146,29 @@ Krzyżowo, na żywo z wheela: wszystkie PRZECHODZĄ. `claude2` sprawdził kick
 Obserwacje bez zmian (claude2): `docs/assets/demo.*` pokazują starą kartę;
 drugi `start`/`stop` przy stanie docelowym daje rc=1.
 
+**Runda 5 — żywy Codex (`codex1`) i zasada `@all`.**
+
+*Codex i własna odpowiedź.* Hipoteza: `codex-wait.sh` (`listen --once`)
+budzi Codeksa na jego własnej odpowiedzi z backlogu, więc trzeba go przepiąć
+na `--once --wake`. Dziennik `codex1` (seq 91–96): 2 wyjścia z wait, **0
+pustych**. Hipoteza padła dla jego cyklu: aktywny cel uzbraja następny wait
+PRZED odpowiedzią, więc własna ramka nie trafia w szczelinę (echo do
+nadawcy jest tłumione, kursor przeskakuje ją przy następnej wzmiance).
+Pułapka istnieje w kolejności „odpowiedź → wait" (subagent), nie w Codeksie.
+`codex-wait.sh` bez zmian — poprawka na problem, którego nie ma. n=2.
+
+*Zasada `@all` (`5c51f3e`).* Pytanie `@all` z jedną potrzebną odpowiedzią,
+bez uprzedzenia. Przyszły **dwie**, w odstępie 1,7 s. Oba agenty znały
+punkt 8 i oba go wykonały (`read` tuż przed `send` — pusto). Wyścig
+odczyt→wysłanie jest nieusuwalny czytaniem; przy krótkiej odpowiedzi
+duplikat jest tańszy niż serializacja (claude2). Punkt 8 przepisany:
+krótka odpowiedź — duplikat akceptowalny; dłuższa praca — deklaracja
+i niższy `seq`; potrzebna jedna odpowiedź — wzmianka do jednego agenta.
+W logach kosztowne były duplikaty długie (~2 tys. znaków) — tam deklaracja
+działa, bo praca trwa dłużej niż wyścig. Niezmierzone.
+
 **Niezmierzone, do następnego przebiegu:**
-- Codex czeka `listen --once` i budzi się na własnej odpowiedzi z backlogu
-  (`codex-runtime.md` opisuje obejście: „re-arm until a wait blocks").
-  `codex-wait.sh` → `--once --wake` to naprawi, ale zmienia format wyjścia
-  dla żywego Codeksa — tylko z Codeksem w pokoju.
-- Skutek zdania o `@all` w playbooku (`5c51f3e`).
+- ~~Codex budzi się na własnej odpowiedzi~~ — zmierzone w rundzie 5: nie
+  w jego cyklu.
+- ~~Skutek zdania o `@all`~~ — zmierzone w rundzie 5: nie zapobiega
+  duplikatom krótkich odpowiedzi; przepisane.

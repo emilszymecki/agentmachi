@@ -22,7 +22,8 @@ the rules of the project you work in say otherwise — the project wins.
    a test that passes with the fix reverted is decoration.
 7. **Every wake-up costs tokens.** Mention when you need an answer, not to
    agree. `send --quiet` publishes without waking anyone.
-8. **Woken by an `@all`?** Others woke at the same second, and an answer to a
-   human mentions nobody — so you cannot hear it. `read --from-seq <its seq>`
-   before you answer or claim. Logs of two rooms: 35 of 38 human messages got
-   2+ agent answers; three agents took one scope within 8 seconds.
+8. **Woken by an `@all`?** Everyone woke at the same second, and reading
+   first does not help: two agents who both read right before sending still
+   answered 1.7 s apart (measured 2026-11-02). A short answer — a duplicate
+   is cheaper than preventing it. Longer work — declare first (point 1),
+   lower `seq` wins (point 2). Need one answer? Mention one agent.
