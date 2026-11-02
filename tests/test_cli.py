@@ -3355,6 +3355,9 @@ def test_board_rules_przez_CLI_dochodzi_do_read_board(home, monkeypatch):
                                    SessionError=type("E", (Exception,), {}))
     monkeypatch.setattr(cli, "_import_send", lambda: atrapa)
     monkeypatch.setenv("CHAT_URL", "ws://localhost:1")
+    # `_agent_env` pisze je wprost do os.environ — setenv przed = sprzatniete
+    monkeypatch.setenv("CHAT_NICK", "")
+    monkeypatch.setenv("CHAT_TOKEN", "")
     assert cli.main(["board", "--rules"]) == 0
     assert cli.main(["board"]) == 0
     assert [w.get("zasady") for w in wolania] == [True, False]

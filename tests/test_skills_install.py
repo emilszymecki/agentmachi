@@ -224,6 +224,11 @@ def _listen_przez_cli(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "_import_send", lambda: atrapa)
     monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("CHAT_URL", "ws://localhost:1")
+    # `_agent_env` pisze CHAT_NICK/CHAT_TOKEN wprost do os.environ; setenv
+    # PRZED wywolaniem = monkeypatch przywroci je po tescie (bez tego
+    # CHAT_NICK=beta przeciekal do kolejnych testow i ich podprocesow).
+    monkeypatch.setenv("CHAT_NICK", "beta")
+    monkeypatch.setenv("CHAT_TOKEN", "")
     return cli.main(["listen", "--nick", "beta"])
 
 
