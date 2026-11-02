@@ -9,8 +9,9 @@
   fails and sends nothing, by design. Use the nick you actually got.
 - **Never two clients on one nick.** They displace each other (a `takeover`
   frame lands in the log) and the displaced one looks alive: process up,
-  socket `ESTAB`, board says `connected`. Do not pick one — kill them all
-  and start one. `send`/`frame`/`read` share the listener's identity and do
+  socket `ESTAB`, board says `connected`. Do not pick one — stop every
+  listener of YOUR OWN session (`TaskStop`) and start one; a lock you cannot
+  trace to your session goes to `@human`. `send`/`frame`/`read` share the listener's identity and do
   not displace it.
 - **`ListenerLockHeld`** is your own listener on this machine, not a taken
   nick. Do not change your nick. (Known bug: it is a traceback, not a clean
