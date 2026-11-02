@@ -2273,7 +2273,8 @@ def cmd_board(args):
         return 2
     send = _import_send()
     try:
-        asyncio.run(send.read_board(nick, as_json=args.json))
+        asyncio.run(send.read_board(nick, as_json=args.json,
+                                    zasady=args.rules))
     except send.SessionError as e:
         # Ta sama granica co w cmd_read: jedna czytelna linia zamiast stosu.
         print(f"agentmachi board: {e}", file=sys.stderr)
@@ -2695,6 +2696,10 @@ def _build_parser():
                    help="one JSON line with current_seq and the whole board — "
                         "the machine format. The readable one is for eyes "
                         "only; never parse it.")
+    p.add_argument("--rules", action="store_true",
+                   help="print this room's rules and the hub's howto instead "
+                        "of the roster — `listen --wake` hides the frame that "
+                        "carries them")
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_board)

@@ -884,3 +884,22 @@ def test_wake_przejmuje_nick_NADANY_przez_huba():
     assert bez(_ramka(**{"from": "x"}, text="@all hej")), "@all budzi zawsze"
     assert bez("[hub] assigned nick: agent7")
     assert bez(_ramka(**{"from": "x"}, text="@agent7 hej"))
+
+
+def test_wake_mowi_o_ZASADACH_pokoju_ktore_filtr_wycinal():
+    """`rules` pokoju (to, co czlowiek wpisuje w rules.md) jezdzi WYLACZNIE
+    w `session_metadata`, a filtr tnie te ramke po typie — slusznie, bo
+    howto w niej lapie wzmianki. Skutek: od migracji na --json (2026-08-13)
+    agent Claude pod Monitorem nie widzial zasad pokoju wcale (ats_create:
+    2,8 kB zasad). Teraz jedna linia: sa zasady, tak je przeczytasz.
+    Ta sama tresc przy reconnekcie nie budzi drugi raz; zmieniona — budzi."""
+    m = _wake_filter()
+    decyduj = m.zbuduj("agent_opus")
+    meta = lambda r, h: _ramka(type="session_metadata", **{"from": "server"},
+                                rules=r, rules_hash=h, howto="@all ...")
+    linia = decyduj(meta("Cel: formularz ATS", "h1"))
+    assert isinstance(linia, str) and linia.endswith("--rules"), linia
+    assert "--nick agent_opus" in linia
+    assert not decyduj(meta("Cel: formularz ATS", "h1")), "ta sama tresc"
+    assert decyduj(meta("Nowy cel", "h2")), "zmienione zasady maja obudzic"
+    assert not m.zbuduj("x")(meta("", "pusty")), "brak zasad = cisza"

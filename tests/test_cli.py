@@ -2960,7 +2960,7 @@ def test_board_przekazuje_nick_i_json_do_klienta(home, monkeypatch):
     monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
         "SessionError": Exception,
         "read_board": staticmethod(
-            lambda nick, as_json=False:
+            lambda nick, as_json=False, zasady=False:
                 przekazane.update(nick=nick, as_json=as_json))})())
     monkeypatch.setattr(cli.asyncio, "run", lambda coro: coro)
     for zmienna in ("CHAT_URL", "CHAT_TOKEN"):
@@ -2984,7 +2984,7 @@ def test_board_odmowa_klienta_to_niezerowy_kod(home, monkeypatch, capsys):
     class _Odmowa(Exception):
         pass
 
-    def _padnij(nick, as_json=False):
+    def _padnij(nick, as_json=False, zasady=False):
         raise _Odmowa("the hub replied to hello without a `participants` board")
 
     monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {

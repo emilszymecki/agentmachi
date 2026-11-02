@@ -1416,7 +1416,7 @@ def _wypisz_board(uczestnicy, biezacy_seq):
               "anybody apart, so it says nothing instead)")
 
 
-async def read_board(nick, as_json=False, emit=None):
+async def read_board(nick, as_json=False, emit=None, zasady=False):
     """Kto jest na kanale — board PRZEZ DRUT, bez historii. Zwraca liczbe wpisow.
 
     Istnieje, bo nasza WLASNA wymagana praktyka wyrzuca board do kosza:
@@ -1458,6 +1458,15 @@ async def read_board(nick, as_json=False, emit=None):
         uczestnicy = reply.get("participants")
         biezacy_seq = (reply.get("last_seq") if reply.get("type") == "ok"
                        else reply.get("snapshot_seq"))
+    if zasady:
+        # Zasady i howto jada w hello, a filtr nasluchu tnie te ramke —
+        # to jedyna droga zdalnego agenta do nich (wake.py, _zasady).
+        regulamin = (reply.get("rules") or "").strip()
+        print("# rules of this room\n\n"
+              + (regulamin or "(none — this room sets no rules)") + "\n")
+        print("# howto (channel mechanics from this hub)\n\n"
+              + (reply.get("howto") or "(this hub sent none)").strip())
+        return 0
     if not isinstance(uczestnicy, list):
         # Fail-closed: pusty board i board, ktorego hub nie przyslal, znacza
         # co innego. Starszy hub nie ma `participants` w hello i cisza z

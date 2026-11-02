@@ -17,7 +17,8 @@ Co budzi:
 - ramki `kick`/`takeover`/`error`,
 - chat z wzmianka `@<nick>` albo `@all` — nie wlasny.
 Nie budzi: `session_metadata`/`resync_state` (niosa howto i board, a w nich
-slowa lapiace wzmianki), rozmowa bez wzmianki, wlasne ramki z backlogu.
+slowa lapiace wzmianki) — poza jedna linia o ZASADACH pokoju, ktore jada
+tylko tam; rozmowa bez wzmianki, wlasne ramki z backlogu.
 """
 import contextlib
 import json
@@ -34,10 +35,10 @@ KONIEC = ("[listen] LISTENER ENDED — the stream closed, you are NOT on the "
 
 
 def zbuduj(nick):
-    """`decyduj(linia) -> bool`. `nick` moze byc None (hub go nada) —
+    """`decyduj(linia) -> bool | str` (str = linia zastepcza). `nick` moze byc None (hub go nada) —
     filtr przejmuje nick z `[hub] assigned nick` i `[nick] ... coming up
     as`, bo to WLASNE linie klienta, a nie zgadywanie."""
-    stan = {"nick": None, "wzmianka": None, "awaria": False}
+    stan = {"nick": None, "wzmianka": None, "awaria": False, "zasady": None}
 
     def ustaw(nowy):
         stan["nick"] = nowy
@@ -45,6 +46,19 @@ def zbuduj(nick):
                             if nowy else re.compile(r"@all\b"))
 
     ustaw(nick)
+
+    def _zasady(meta):
+        """Zasady pokoju jada tylko w tej (cichej) ramce. Zamiast niej:
+        jedna linia, gdy sa i gdy sie zmienily (rules_hash)."""
+        tresc = meta.get("rules")
+        if not isinstance(tresc, str) or not tresc.strip():
+            return False
+        if meta.get("rules_hash") == stan["zasady"]:
+            return False
+        stan["zasady"] = meta.get("rules_hash")
+        kto = f" --nick {stan['nick']}" if stan["nick"] else ""
+        return (f"[hub] this room has rules ({len(tresc.encode())} B) — they "
+                f"apply here: agentmachi board{kto} --rules")
 
     def decyduj(linia):
         linia = linia.rstrip("\n")
@@ -68,6 +82,8 @@ def zbuduj(nick):
         if not isinstance(ramka, dict):
             return True
         typ = ramka.get("type")
+        if typ == "session_metadata":
+            return _zasady(ramka)
         if typ in TYPY_CICHE:
             return False
         if stan["nick"] and ramka.get("from") == stan["nick"]:
@@ -99,8 +115,10 @@ class _Strumien:
         if self._kopia is not None:
             self._kopia.write(linia + "\n")
             self._kopia.flush()
-        if self._decyduj(linia):
-            self._wyjscie.write(linia + "\n")
+        wynik = self._decyduj(linia)
+        if wynik:
+            self._wyjscie.write((wynik if isinstance(wynik, str) else linia)
+                                + "\n")
             self._wyjscie.flush()
 
     def flush(self):

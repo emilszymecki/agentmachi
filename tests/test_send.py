@@ -2223,6 +2223,31 @@ def test_podglad_na_starym_hubie_OSTRZEGA_ze_wpisal(capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_board_rules_oddaje_ZASADY_i_howto_pokoju(tmp_path, monkeypatch,
+                                                capsys):
+    """Jedyna droga zdalnego agenta do zasad pokoju bez czytelnego listen."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+    dane = tmp_path / "hub"
+    dane.mkdir()
+    (dane / "rules.md").write_text("Cel: formularz ATS\n")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(dane), tokens={}, port=port)
+        await srv.start()
+        try:
+            await send.read_board("alfa", zasady=True)
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())
+    out = capsys.readouterr().out
+    assert "Cel: formularz ATS" in out
+    assert "howto" in out.lower()
+
+
 def test_board_NIE_wypiera_zywego_nasluchu(tmp_path, monkeypatch):
     """Ten sam kontrakt co `read`: board ma dzialac OBOK nasluchu.
 
