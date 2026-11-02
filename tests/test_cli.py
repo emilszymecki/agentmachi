@@ -92,10 +92,10 @@ def test_card_lists_participants_and_join_commands(home, capsys):
     # PAKIET 0: uczestnik nazywa sie agent1, nie worker1 — nazwa "worker"
     # niesie ustroj (jest wykonawca czyjegos polecenia), a hub ma byc
     # mechanika. Karta musi nadal DZIALAC: nick + komenda + zdanie do wklejenia.
-    assert "agent1" in out and "agentmachi listen" in out
+    assert "agent1" in out
     # Zmienil sie JEZYK karty, nie kontrakt: karta nadal musi niesc
     # gotowe zdanie do wklejenia agentowi.
-    assert "join agentmachi" in out
+    assert "join agentmachi 'alpha' (ws://localhost:8931) as agent1" in out
 
 
 # --- Task 1: CHAT_BIND / CHAT_URL ------------------------------------------
@@ -121,7 +121,7 @@ def test_card_shows_chat_url_and_remote_hint_for_0000(home, capsys):
     cli.print_card("alpha", 8931, tokens, bind="0.0.0.0")
     out = capsys.readouterr().out
     assert "ws://localhost:8931" in out
-    assert "CHAT_URL=ws://localhost:8931" in out
+    assert "(ws://localhost:8931)" in out, "zdanie dla agenta niesie adres"
     # Zmienil sie JEZYK karty, nie kontrakt: naglowek ostrzezenia to teraz
     # "warning:", a podpowiedz mowi o "tailnet".
     assert "0.0.0.0" not in out.split("warning:")[0]  # adres sam nie niesie 0.0.0.0
@@ -2233,7 +2233,6 @@ def test_karta_nie_hardkoduje_rol_wykonawczych(home, capsys):
     # pusta — a wtedy czlowiek nie ma czego wkleic agentowi (zlapane przy
     # review E1).
     assert "agent1" in out, "karta nie podaje zadnego uczestnika"
-    assert "agentmachi listen" in out, "karta nie mowi, jak wejsc"
     # Zmienil sie JEZYK karty, nie kontrakt.
     assert "join agentmachi" in out, "brak zdania do wklejenia agentowi"
 
@@ -3460,3 +3459,43 @@ def test_listen_once_wake_NIE_wraca_po_kicku_zamknieciem(home, monkeypatch,
     args = cli._build_parser().parse_args(["listen", "--once", "--wake"])
     assert cli.cmd_listen(args) == 0
     assert wywolania == ["k1"], f"petla wrocila po kicku: {wywolania}"
+
+
+def test_karta_daje_czlowiekowi_JEDNA_rzecz_do_wklejenia(home, capsys):
+    """Karta mowila "paste one of these to an agent" nad gola linia
+    `CHAT_URL=... agentmachi listen`, a nizej podawala zdanie dla skilla —
+    dwie instrukcje wklejenia. Gola linia jest zla pod KAZDYM harnessem:
+    Claude Code puszcza ja w `Bash(run_in_background)` i agent gluchnie
+    (CLAUDE.md, references/claude-code.md), Codex czeka przez `--once`.
+    Kontrakt "karta mowi, jak wejsc" niesie zdanie: skill robi hello,
+    listen i reszte (weryfikacja sciezki czlowieka z wheela, 2026-11-02)."""
+    cli.ensure_hub("alpha", 8931)
+    tokens, _ = cli.load_tokens("alpha")
+    cli.print_card("alpha", 8931, tokens)
+    out = capsys.readouterr().out
+    assert out.count("paste") == 1, out
+    assert "agentmachi listen" not in out, "karta uczy golego nasluchu"
+    assert "join agentmachi 'alpha' (ws://localhost:8931) as agent1" in out
+    assert "install-skills" in out, "agent bez skilla nie zrozumie zdania"
+    assert "CHAT_TOKEN" in out, "droga spoza tailnetu zniknela z karty"
+
+
+def test_tui_bez_extra_mowi_jak_doinstalowac(home, monkeypatch, capsys):
+    """`pip install agentmachi` (README quick start), potem `agentmachi tui`
+    z karty -> traceback `ModuleNotFoundError: No module named 'rich'`
+    (zmierzone na czystym venv z wheela 0.4.0, 2026-11-02). TUI to extra
+    — brak extra to zdanie z komenda, nie stos."""
+    import builtins
+    prawdziwy = builtins.__import__
+
+    def bez_rich(name, *a, **k):
+        if name == "tui":
+            raise ModuleNotFoundError("No module named 'rich'", name="rich")
+        return prawdziwy(name, *a, **k)
+
+    cli.ensure_hub("alpha", 8931)
+    monkeypatch.setattr(builtins, "__import__", bez_rich)
+    assert cli.main(["tui", "--name", "alpha"]) == 2
+    err = capsys.readouterr().err
+    assert "pip install 'agentmachi[tui]'" in err, err
+    assert "Traceback" not in err

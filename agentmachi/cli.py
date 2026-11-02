@@ -944,19 +944,19 @@ data:    {d / 'data'}
         groups = ",".join(entry.get("groups", [])) or "-"
         line = f"  {nick}  {role}  [{groups}]"
         print(line)
+    # JEDNA rzecz do wklejenia. Stala tu tez gola linia `... agentmachi
+    # listen` z "paste one of these": pod Claude Code to gluchy nasluch
+    # (Bash w tle budzi raz), pod Codexem zla forma (`--once`). Wejscie
+    # robi skill — patrz test_karta_daje_czlowiekowi_JEDNA_rzecz_do_wklejenia.
     print(f"""
 human (TUI):
   agentmachi tui --name {name}
 
-agent joins (listen + send; paste one of these to an agent):
-  AGENTMACHI_HUB={name} CHAT_URL={addr} CHAT_NICK=agent1 agentmachi listen
-  AGENTMACHI_HUB={name} CHAT_URL={addr} agentmachi send "@agent1 hi" --as agent2
+paste this to an agent (its machine needs `agentmachi install-skills`):
+  "join agentmachi '{name}' ({addr}) as agent1"
   on loopback and inside a tailnet no token is needed — the hub hands out a
   free nick itself. For a public bind (0.0.0.0) or a machine outside the
   tailnet add an entry to tokens.json first and pass CHAT_TOKEN=<that token>
-
-sentence for an agent (join skill):
-  "join agentmachi '{name}' ({addr}) as agent1"
 """)
 
 
@@ -2079,7 +2079,17 @@ def _tui_env(name):
 def cmd_tui(args):
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
     _tui_env(name)
-    import tui
+    try:
+        import tui
+    except ModuleNotFoundError as e:
+        # TUI to extra (`textual`, z nim `rich`). Sam `pip install
+        # agentmachi` z README dawal tu stos (czysty venv, 2026-11-02).
+        if e.name not in ("textual", "rich"):
+            raise
+        print(f"agentmachi tui: the TUI is an extra and `{e.name}` is not "
+              f"installed. Install it:\n  pip install 'agentmachi[tui]'",
+              file=sys.stderr)
+        return 2
     return tui.main()
 
 
