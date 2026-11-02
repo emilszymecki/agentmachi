@@ -480,113 +480,14 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
 
 # -- PAKIET 4: budzety statyczne ------------------------------------------
 #
-# Kazdy z tych plikow trafia do KONTEKSTU agenta — drutem (howto), przy
-# wczytaniu skilla (SKILL.md) albo do cudzego repo (kontrakt). Rozmiar jest
-# tu zobowiazaniem, nie estetyka: 17479 B, ktore hub wysylal przy kazdym
-# hello I kazdym reconnect, nikt nie zauwazyl przez dwa dogfoody.
-#
-# Prog przekroczony = decyzja do podjecia, nie liczba do podniesienia.
-# Przy E4 SKILL.md wyszedl 303 B ponad; zamiast zmiekczyc limit, sytuacje
-# awaryjna (zajety nick) przeniesiono do pulapek, gdzie i tak jest jej
-# miejsce. Plik zmiescil sie w 4096 B.
-#
-# 2026-08-01: howto podniesione 4096 -> 5120 DECYZJA OPERATORA, nie ucieczka
-# przed czerwonym testem. Powod jest strukturalny i wyszedl z E2E: plik stal
-# na 4090 B, czyli 6 B pod sufitem, wiec poprawka NIEPRAWDZIWEGO opisu
-# kolizji nickow (dac91fa) nie miescila sie bez wyrzucenia innej tresci.
-# Sufit dobity do samej krawedzi przestaje wymuszac zwiezlosc, a zaczyna
-# blokowac prostowanie klamstw — i to jest gorszy tryb awarii niz kilkaset
-# bajtow wiecej na drucie. Regula zostaje ta sama: to nadal jest prog do
-# obrony, nie miejsce na rozwlekanie.
-#
-# 2026-08-06: sufit ZOSTAJE 5120, a plik zszedl 5116 B -> 4025 B. Po podniesieniu
-# progu howto doroslo z powrotem do 5116 B, czyli 4 B pod sufitem — dokladnie
-# ten sam tryb awarii, przed ktorym mial chronic wpis wyzej: kto chcialby
-# poprawic tam nieprawdziwe zdanie, musialby najpierw wyciac inne. Ciecie
-# poszlo po jednym kryterium: wypada wszystko, co agent i tak przeczyta
-# w `agentmachi <cmd> --help` (rozpisane skladnie, opisy flag, `--stdin`,
-# `frame`, wyliczanki), zostaje to, czego pomocy komendy nie mowi —
-# kontrakt hello/kursora, stratnosc formatu czytelnego, dlugozyjacy `listen`,
-# tozsamosc polaczenia, board jako PULL, 4003.
-# ~1100 B luzu to NIE jest odzyskany budzet: to miejsce na PROSTOWANIE
-# nieprawdy bez negocjowania, co za nia wyrzucic. Kolejne zdanie dopisujesz
-# tu tylko wtedy, gdy bez niego agent popelni blad, ktorego sam nie wykryje.
-
-# CLAUDE.md i AGENTS.md doszly 2026-08-10 po przegladzie rozmiarow i sa
-# tu z INNEGO powodu niz trojka nizej. Tamte pilnujemy, bo ida drutem albo
-# do pierwszej minuty. Te ida do KAZDEJ sesji otwartej w tym repo — razem
-# 32 kB, dwa i pol raza wiecej niz cala reszta budzetu razem — i do tego
-# dnia nie mialy zadnego zamka. Efekt byl taki, jaki musial byc: rosly po
-# cichu, bo dopisanie akapitu nigdy nie bylo decyzja, tylko odruchem.
-#
-# Sufit stoi ~800 B nad stanem z dnia zalozenia i to NIE jest budzet do
-# wydania. Ten luz istnieje z tego samego powodu co przy howto: zeby dalo
-# sie PROSTOWAC nieprawde bez negocjowania, co za nia wyrzucic. Jesli
-# potrzebujesz wiecej, to jest decyzja (co wyciac albo dlaczego prog ma sie
-# zmienic), nie liczba do podniesienia w tym miejscu.
-#
-# STAN NA WIECZÓR 2026-08-10, tego samego dnia: luz przy CLAUDE.md jest
-# WYCZERPANY — 16161/16384 B, zostały 223 B z ~800. Zmierzył to świeży agent
-# spoza sesji; test milczał, bo milczenie zielonego testu wygląda tak samo
-# przy 223 B luzu i przy 800.
-#
-# Ta liczba jest DATOWANA i taka zostaje — nie aktualizujemy jej, bo każda
-# jej wersja starzeje się przy pierwszym commicie dotykającym pliku, i to
-# NIEWIDOCZNIE: suita zostaje zielona. Zmierzone 2026-08-22 — jeden commit
-# (4b87c07, trzy linie do CLAUDE.md) zjadł dwie trzecie tego, co zdanie wyżej
-# nazywa „zostało". Kto chce znać luz TERAZ, ma na to jedną komendę i ona
-# nie zgnije:
-#
-#   python3 -c "import pathlib; [print(f'{p.name}: {p.stat().st_size}/{s}')
-#     for p, s in [(pathlib.Path(f), s) for f, s in
-#     [('CLAUDE.md', 16384), ('AGENTS.md', 17408)]]]"
-#
-# Wniosek o samym mechanizmie, wart więcej niż każda z tych liczb:
-# **sufit bajtowy nie odróżnia sprostowania od dopisku.** Kto
-# jutro znajdzie w CLAUDE.md nieprawdę, i tak będzie musiał najpierw coś
-# wyciąć — czyli dokładnie to, przed czym luz miał chronić. To jest przyjęty
-# koszt tego narzędzia, nie jego usterka: taniej niż brak zamka, którym ten
-# plik rósł po cichu przez pół roku. Progu nie podnoś, żeby ten koszt ominąć.
-#
-# 2026-09-01, sesja odejmowania: sufity CLAUDE.md i AGENTS.md ZESZŁY
-# (16384 -> 12288, 17408 -> 16384) za cięciem, które wyrzuciło z obu plików
-# filozofię, preambuły i uzasadnienia historyczne. To jest ta sama decyzja
-# co przy podnoszeniu progu, tylko w drugą stronę: sufit ma zapisywać stan,
-# do którego wróci się bez negocjacji, więc po odchudzeniu musi zejść — bo
-# inaczej odzyskany luz przestaje być luzem na PROSTOWANIE i staje się
-# miejscem, w które treść wraca po cichu. Nowy luz to 583 B i 494 B, czyli
-# tyle samo co poprzednio miały te pliki po założeniu zamka.
-#
-# Trzech pozostałych sufitów NIE ruszono WTEDY i to też była decyzja. `howto`
-# (4763/5120), SKILL.md Claude'a (3689/4096) i Codexa (4032/4096) stały po
-# cięciu 357, 407 i 64 B pod progiem — czyli były już na „nowy rozmiar plus
-# mały luz". Obniżenie ich dobiłoby próg do krawędzi, a wpisy wyżej opisują
-# dokładnie ten tryb awarii: sufit przy samej krawędzi przestaje wymuszać
-# zwięzłość i zaczyna blokować prostowanie nieprawdy.
-#
-# 2026-09-03 — SUFITY OBU SKILL.md IDĄ W GÓRĘ, 4096 -> 5120, decyzją
-# operatora niesioną poleceniem. Powód jest dokładnie ten opisany akapit
-# wyżej, tylko tym razem ZMIERZONY, nie przewidziany: dwa dni pracy dobiły
-# oba pliki do krawędzi i sufit zaczął blokować PROSTOWANIE. W jeden dzień
-# zablokował dwie rzeczy — łatę o filtrze wybudzeń (weszła dopiero po
-# wycięciu 25 B) i akapit operatora, któremu zabrakło 171 B w wariancie
-# Claude'a i 145 B w wariancie Codexa.
-#
-# Liczby w akapitach WYŻEJ opisują stan ze swoich dat i zdążyły się
-# zestarzeć — dlatego stan w chwili podniesienia stoi tu osobno, z HEAD-em,
-# zamiast być wpisany w tamte zdania:
-#
-#   HEAD 1edbe8e, 2026-09-03
-#   CLAUDE.md                12057/12288   luz  231 B
-#   AGENTS.md                15890/16384   luz  494 B
-#   howto_default.md          5031/5120    luz   89 B
-#   SKILL.md (claude)         4071/5120    luz 1049 B
-#   SKILL.md (codex)          4045/5120    luz 1075 B
+# Te pliki agent dostaje bez pytania (kazda sesja, kazde hello, wejscie).
+# Sufit to zapadka: schodzi razem z tekstem, nie idzie w gore. Gdy nie
+# miescisz prawdy pod sufitem, wytnij inne zdanie albo napraw pulapke w kodzie.
 BUDZETY = {
     "CLAUDE.md (doklejane do KAZDEJ sesji w tym repo)":
-        (Path(__file__).resolve().parent.parent / "CLAUDE.md", 12288),
+        (Path(__file__).resolve().parent.parent / "CLAUDE.md", 1024),
     "AGENTS.md (doklejane do KAZDEJ sesji w tym repo)":
-        (Path(__file__).resolve().parent.parent / "AGENTS.md", 16384),
+        (Path(__file__).resolve().parent.parent / "AGENTS.md", 6144),
     "howto (drutem, przy KAZDYM hello i reconnect)":
         (Path(__file__).resolve().parent.parent
          / "agentmachi" / "howto_default.md", 5120),
@@ -818,7 +719,8 @@ def test_codex_wait_nie_udaje_mechanizmu_wybudzania_modelu():
                      "natychmiast", "codex exec", "agentmachi node"):
         assert wymagane in agents, \
             f"AGENTS.md nie utrwala drogi Codexa: brak {wymagane!r}"
-    assert "bez aktywnego celu nie\n  ogłaszaj wejścia" in agents, \
+    # Kontrakt to tresc zdania, nie jego zawiniecie: normalizujemy whitespace.
+    assert "bez aktywnego celu nie ogłaszaj wejścia" in " ".join(agents.split()), \
         "AGENTS.md pozwala znowu oglosic agenta-widmo"
 
 
