@@ -125,6 +125,20 @@ Wzorzec rundy 2–3: **każda weryfikacja krzyżowa znajdowała następną warst
 (dekoracje → grupy/regex → grupy w trakcie nasłuchu → kick). Autor nie
 widział żadnej z nich, choć każdą miał w zasięgu jednego zdania.
 
+**Runda 4** — ścieżki nietknięte w rundach 1–3. `claude2`: człowiek
+(wheel → skill operatora → karta → TUI → list/stop/del). opus: `node`.
+Pytanie dla `node` brzmiało: czy dziury znalezione w `--wake` są też
+w drugim kliencie, który decyduje o wybudzeniu? Były obie:
+
+| commit | zmiana |
+|---|---|
+| `6df6c0b` | `node`: grupa nadana w trakcie połączenia budzi (brał grupy tylko z hello) |
+| `955e8fd` | `node`: kick (4003) kończy node — łapał go jak zerwanie i po 1 s wracał na kanał |
+
+Znalezisko przekazane do zakresu `claude2`: wpis w `tokens.json` (potrzebny
+`node` i agentom spoza tailnetu) ma wyłącznie ręczną drogę — edycja JSON-a
+z sekretem.
+
 **Niezmierzone, do następnego przebiegu:**
 - Codex czeka `listen --once` i budzi się na własnej odpowiedzi z backlogu
   (`codex-runtime.md` opisuje obejście: „re-arm until a wait blocks").
