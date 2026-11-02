@@ -794,3 +794,38 @@ def test_node_budzi_sie_na_GRUPE_nadana_w_trakcie_polaczenia(tmp_path, srv):
             await emil.close()
         assert "$ekipa zrob taska" in prompts.read_text()
     asyncio.run(srv(run))
+
+
+def test_node_po_KICKU_nie_wraca_na_kanal(tmp_path, srv):
+    """Kick to zamkniecie 4003. `listen` traktuje je jako decyzje
+    moderatora i konczy sie (B6: inaczej moderator klikalby kick w kolko).
+    Node lapal to samo zamkniecie jak zerwanie sieci i po sekundzie byl
+    z powrotem — obejscie kicka. Znalezione 2026-11-02 przy przegladzie
+    node po tej samej dziurze w `listen --once --wake`."""
+    from agentmachi.node import node_loop
+
+    async def run(server):
+        rt = RecordingRuntime(tmp_path / "prompts.txt")
+        node = asyncio.ensure_future(node_loop(
+            url=f"ws://localhost:{PORT}", nick="beta", token="tb",
+            state_path=tmp_path / "node-state.json", runtime=rt,
+            humans={"emil"}))
+        await _wait_for(lambda: server.conns.get("beta"))
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({"type": "kick", "from": "emil",
+                                    "ts": 0.0, "target": "beta"}))
+        try:
+            await asyncio.wait_for(asyncio.shield(node), 4.0)
+        except asyncio.TimeoutError:
+            pass
+        wrocil = bool(server.conns.get("beta"))
+        zyje = not node.done()
+        node.cancel()
+        try:
+            await node
+        except (asyncio.CancelledError, Exception):
+            pass
+        await emil.close()
+        assert not wrocil, "node wrocil na kanal po kicku"
+        assert not zyje, "node_loop dalej krazy po kicku"
+    asyncio.run(srv(run))

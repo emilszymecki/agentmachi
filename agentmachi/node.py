@@ -45,6 +45,7 @@ from pathlib import Path
 
 import websockets
 
+from send import KICKED_CODE as _KICKED_CODE
 from send import MAX_HUB_FRAME as _MAX_HUB_FRAME
 
 from chat import protocol
@@ -517,8 +518,20 @@ async def node_loop(url, nick, token, state_path, runtime, humans,
                                   humans, limiter, now,
                                   instance_id=instance_id)
             backoff = BACKOFF_START
-        except (OSError, asyncio.TimeoutError,
-                websockets.exceptions.ConnectionClosed) as e:
+        except websockets.exceptions.ConnectionClosed as e:
+            # Kick (4003) to DECYZJA moderatora, nie awaria transportu —
+            # `listen` konczy sie na nim od B6. Node lapal go jak zerwanie
+            # i po sekundzie wracal: obejscie kicka (2026-11-02).
+            if getattr(e, "rcvd", None) is not None and \
+                    e.rcvd.code == _KICKED_CODE:
+                _log("kicked off the channel by a moderator — node stops; "
+                     "start it again to come back")
+                return
+            _log(f"connection dropped ({type(e).__name__}: {e}); "
+                 f"retrying in {backoff:.0f}s")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, BACKOFF_MAX)
+        except (OSError, asyncio.TimeoutError) as e:
             # BEZ TEJ LINII node jest nieodrozninalny od dzialajacego: proces
             # zyje, kursor stoi, log pusty. Zmierzone na zywym kanale —
             # diagnoza "node sie nie laczy" byla falszywa, bo brak logu
