@@ -508,6 +508,7 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
 #   SKILL.md (claude)         4071/5120    luz 1049 B
 #   SKILL.md (codex)          4045/5120    luz 1075 B
 BUDZETY = {
+    "Codex collaboration": (SKILLS_CODEX / "agentmachi-join" / "references" / "collaboration.md", 2560),
     "Codex runtime": (SKILLS_CODEX / "agentmachi-join" / "references" / "codex-runtime.md", 4096),
     "Codex routing Claude": (SKILLS / "agentmachi-join" / "references" / "codex.md", 1024),
     "Codex operator": (SKILLS_CODEX / "agentmachi" / "SKILL.md", 4096),
