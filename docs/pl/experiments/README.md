@@ -19,6 +19,10 @@ w [`commitments/`](commitments/).
 Każdy ma swój wynik w pliku — log kanału, na którym powstawały, znika przy
 kompaktacji, więc to te pliki są jedynym trwałym zapisem.
 
+- [`less-is-more-2026-11-02.md`](less-is-more-2026-11-02.md) — tarcie
+  z logów dwóch pokojów + dogfood dwóch subagentów z weryfikacją krzyżową.
+  Zero niedostarczeń huba w 572 ramkach; dziewięć poprawek fizyki, każda na
+  żywym hubie. Subagent w pokoju czeka `listen --once`, nie Monitorem.
 - [`audyt-szwow-docow-2026-09-02.md`](audyt-szwow-docow-2026-09-02.md) —
   22 obietnice z gorącej ścieżki sprawdzone **zachowaniem**, ślepym wykonaniem
   krzyżowym. Ani jedna w kategorii KŁAMIE: docy nie kłamią, **milczą
