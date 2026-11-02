@@ -3477,7 +3477,8 @@ def test_karta_daje_czlowiekowi_JEDNA_rzecz_do_wklejenia(home, capsys):
     assert "agentmachi listen" not in out, "karta uczy golego nasluchu"
     assert "join agentmachi 'alpha' (ws://localhost:8931) as agent1" in out
     assert "install-skills" in out, "agent bez skilla nie zrozumie zdania"
-    assert "CHAT_TOKEN" in out, "droga spoza tailnetu zniknela z karty"
+    assert "agentmachi card --name alpha --nick <nick>" in out, \
+        "droga spoza tailnetu zniknela z karty"
 
 
 def test_tui_bez_extra_mowi_jak_doinstalowac(home, monkeypatch, capsys):
@@ -3499,3 +3500,89 @@ def test_tui_bez_extra_mowi_jak_doinstalowac(home, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "pip install 'agentmachi[tui]'" in err, err
     assert "Traceback" not in err
+
+
+def _karta(nick, capsys, name="alpha", tty=True):
+    import sys as _sys
+    _sys.stdout.isatty = lambda: tty     # capsys podmienia stdout per test
+    rc = cli.main(["card", "--name", name, f"--nick={nick}"])
+    wyj = capsys.readouterr()
+    return rc, wyj.out, wyj.err
+
+
+def test_card_nick_DOPISUJE_tozsamosc_z_tokenem(home, capsys, monkeypatch):
+    """Wpis do tokens.json mial tylko reczna droge: czlowiek edytowal JSON
+    z sekretem 0600 wedlug `hub.tokens.example.json` ("change-me"), a node
+    i karta odsylaly go tam slowami (opus, runda 4, 2026-11-02; Codex
+    utknal na tym kilkanascie minut — cli.py przy cmd_node). `card --nick`
+    to zaproszenie: wpis z losowym tokenem i zdanie z tym nickiem."""
+    from chat.identity import Registry
+    monkeypatch.setattr(cli, "hub_pid", lambda _n: None)
+    cli.ensure_hub("alpha", 8931)
+    przed, _ = cli.load_tokens("alpha")
+
+    rc, out, _ = _karta("bob", capsys)
+    assert rc == 0
+    tokens, d = cli.load_tokens("alpha")
+    assert stat.S_IMODE(os.stat(d / "tokens.json").st_mode) == 0o600
+    assert tokens["human"] == przed["human"], "karta ruszyla moderatora"
+    wpis = tokens["bob"]
+    assert wpis["role"] == "agent" and wpis["groups"] == []
+    assert "join agentmachi 'alpha' (ws://localhost:8931) as bob" in out
+    assert f"CHAT_TOKEN={wpis['token']}" in out
+    # hub przyjmuje ten wpis (ta sama sciezka co przy starcie huba)
+    assert Registry(tokens).hello("bob", "i1", wpis["token"]) >= 1
+
+    rc, out, _ = _karta("bob", capsys)
+    assert rc == 0 and cli.load_tokens("alpha")[0]["bob"] == wpis, \
+        "drugie zaproszenie podmienilo token, ktory agent juz ma"
+    assert f"CHAT_TOKEN={wpis['token']}" in out
+
+
+def test_card_nick_ODMAWIA_zlego_nicka_i_moderatora(home, capsys,
+                                                    monkeypatch):
+    """Nick, ktorego nie da sie zawolac (`@bob smith`), zarezerwowany
+    (`server`, `all`) albo moderatora (`human` — jego token to moderacja,
+    nie zaproszenie): odmowa, plik bez zmian."""
+    monkeypatch.setattr(cli, "hub_pid", lambda _n: None)
+    cli.ensure_hub("alpha", 8931)
+    przed = (cli.hub_dir("alpha") / "tokens.json").read_text()
+    for zly in ("bob smith", "server", "all", "human", "-bob", "@bob"):
+        rc, out, err = _karta(zly, capsys)
+        assert rc == 2, (zly, out, err)
+        assert "CHAT_TOKEN=" not in out
+    assert (cli.hub_dir("alpha") / "tokens.json").read_text() == przed
+
+
+def test_card_nick_przy_ZYWYM_pokoju_mowi_o_restarcie(home, capsys,
+                                                      monkeypatch):
+    """Hub czyta tokens.json tylko przy starcie — nowy wpis w zywym pokoju
+    zadziala po restarcie i karta musi to powiedziec. Wpis juz istniejacy
+    restartu nie potrzebuje."""
+    cli.ensure_hub("alpha", 8931)
+    monkeypatch.setattr(cli, "hub_pid", lambda _n: 4242)
+    _, out, _ = _karta("bob", capsys)
+    assert "agentmachi restart --name alpha" in out
+    _, out, _ = _karta("bob", capsys)
+    assert "restart" not in out
+
+
+def test_card_nick_POZA_terminalem_NIE_drukuje_tokenu(home, capsys,
+                                                       monkeypatch):
+    """Decyzja operatora (2026-11-02): token tylko w terminalu czlowieka.
+    Agent, ktory odpala `card --nick` w swoim Bashu (nie-TTY), mial sekret
+    w kontekscie — a stamtad na kanale i w logach. Wpis i tak powstaje:
+    zaproszenie dziala, sekretu agent nie widzi."""
+    monkeypatch.setattr(cli, "hub_pid", lambda _n: 4242)
+    cli.ensure_hub("alpha", 8931)
+    rc, out, _ = _karta("bob", capsys, tty=False)
+    tokens, d = cli.load_tokens("alpha")
+    assert rc == 0 and tokens["bob"]["role"] == "agent"
+    assert tokens["bob"]["token"] not in out, "token w sesji agenta"
+    assert "CHAT_TOKEN=" not in out
+    assert str(d / "tokens.json") in out and "'bob'" in out
+    assert "agentmachi restart --name alpha" in out
+    assert "join agentmachi 'alpha' (ws://localhost:8931) as bob" in out
+    rc, out, _ = _karta("bob", capsys, tty=True)
+    assert f"CHAT_TOKEN={tokens['bob']['token']}" in out, \
+        "czlowiek w terminalu nie dostal tokenu"

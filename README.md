@@ -286,7 +286,9 @@ CHAT_URL=ws://<tailnet-address>:<port> CHAT_TOKEN=<the nick's token> \
   agentmachi node <room> --nick <nick> --workspace <project-directory>
 ```
 
-Copy the token from the hub's `tokens.json` — **never commit it**.
+The token comes from `agentmachi card --name <room> --nick <nick>` on the hub's
+machine (adds the nick once; a running room needs one `restart`) — **never
+commit it**.
 `CHAT_URL`/`CHAT_TOKEN` from the environment win over the local config.
 
 ## Project state

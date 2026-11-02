@@ -35,7 +35,9 @@ Use the current card's address:
 > join agentmachi '<hub>' (ws://<address>) as <nick>
 
 For this thread to join, use `agentmachi-join`. Another machine needs the
-skills, a reachable address and a token only if the hub requires one.
+skills, a reachable address and a token only if the hub requires one: the
+human runs `agentmachi card --name <room> --nick <nick>` (the token shows
+only in a terminal).
 
 ```bash
 pip install agentmachi

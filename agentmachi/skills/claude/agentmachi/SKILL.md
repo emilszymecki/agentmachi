@@ -51,8 +51,11 @@ agentmachi card --name <room>
 
 gives the sentence: *join agentmachi '<room>' (ws://<address>) as <nick>*.
 The agent needs the `agentmachi-join` skill. Another machine also needs
-`install-skills` there, the token from `~/.agentmachi/<room>/tokens.json` and
-a reachable address (tailnet or tunnel — README). **Generate the card when
+`install-skills` there, a token and a reachable address (tailnet or tunnel —
+README). The token: the human runs `agentmachi card --name <room> --nick
+<nick>` in their terminal — it adds the nick once and prints the token
+only to a terminal (run by you it writes the entry, not the secret); a
+running room needs one `restart`. **Generate the card when
 needed; never reuse an address from memory.**
 
 ## The project they work on

@@ -924,7 +924,8 @@ def connect_host(bind):
     return "localhost" if bind in ("127.0.0.1", "0.0.0.0", "localhost") else bind
 
 
-def print_card(name, port, tokens, bind=DEFAULT_BIND):
+def print_card(name, port, tokens, bind=DEFAULT_BIND, zaproszony="agent1",
+               token=None, restart=False):
     """Karta wejsciowa: wszystko, czego potrzebuje czlowiek i agenci."""
     d = hub_dir(name)
     addr = f"ws://{connect_host(bind)}:{port}"
@@ -953,11 +954,32 @@ human (TUI):
   agentmachi tui --name {name}
 
 paste this to an agent (its machine needs `agentmachi install-skills`):
-  "join agentmachi '{name}' ({addr}) as agent1"
-  on loopback and inside a tailnet no token is needed — the hub hands out a
-  free nick itself. For a public bind (0.0.0.0) or a machine outside the
-  tailnet add an entry to tokens.json first and pass CHAT_TOKEN=<that token>
-""")
+  "join agentmachi '{name}' ({addr}) as {zaproszony}\"""")
+    if token and not sys.stdout.isatty():
+        # Decyzja operatora 2026-11-02: sekret tylko w terminalu czlowieka.
+        # Bash agenta, Monitor, potok = nie-TTY: wpis powstaje, ale token
+        # nie wchodzi do sesji agenta (stamtad trafia na kanal i do logow).
+        print(f"  its token is in {hub_dir(name) / 'tokens.json'} (key "
+              f"{zaproszony!r}) — not printed here: this is not a terminal.\n"
+              f"  The human sees it with the same command in their own "
+              f"terminal.")
+        if restart:
+            print(f"  NEW identity in a running room — the hub reads "
+                  f"tokens.json at start, so it works after:\n"
+                  f"    agentmachi restart --name {name}")
+    elif token:
+        print(f"  and give it CHAT_TOKEN={token} in its environment "
+              f"(the token is a password: not on the channel, not in git)")
+        if restart:
+            print(f"  NEW identity in a running room — the hub reads "
+                  f"tokens.json at start, so it works after:\n"
+                  f"    agentmachi restart --name {name}")
+    else:
+        print("  on loopback and inside a tailnet no token is needed — the "
+              "hub hands out a\n  free nick itself. For a public bind "
+              "(0.0.0.0) or a machine outside the\n  tailnet: "
+              f"agentmachi card --name {name} --nick <nick> gives a token")
+    print()
 
 
 def _agent_env(args):
@@ -2049,7 +2071,30 @@ def cmd_card(args):
     # Karta niesie zdanie DO WKLEJENIA agentowi — zgadniety adres rozsialby
     # blad dalej, na kazdego, kto ta karte dostanie.
     bind, port = join_addr(name)
-    print_card(name, port, tokens, bind=bind)
+    if not args.nick:
+        print_card(name, port, tokens, bind=bind)
+        return 0
+    nick = args.nick
+    # Nick, ktory da sie zawolac (`protocol._MENTION`), nie zarezerwowany,
+    # nie moderator: token `human` to moderacja, nie zaproszenie.
+    if (not re.fullmatch(r"\w+(?:-\w+)*", nick)
+            or nick in ("server", "all")
+            or tokens.get(nick, {}).get("role") == "human"):
+        print(f"agentmachi card: {nick!r} cannot be an invited agent — use "
+              f"letters, digits, _ and inner -, not `server`/`all` and not "
+              f"a human identity", file=sys.stderr)
+        return 2
+    nowy = nick not in tokens
+    if nowy:
+        tokens[nick] = {"token": secrets.token_urlsafe(16), "role": "agent",
+                        "groups": []}
+        # Atomowo: plik z sekretami nie moze zostac uciety w polowie.
+        tmp = d / "tokens.json.tmp"
+        _write_0600(tmp, json.dumps(tokens, indent=2))
+        os.replace(tmp, d / "tokens.json")
+    print_card(name, port, tokens, bind=bind, zaproszony=nick,
+               token=tokens[nick]["token"],
+               restart=nowy and hub_pid(name) is not None)
     return 0
 
 
@@ -2596,6 +2641,10 @@ def _build_parser():
 
     p = sub.add_parser("card", help="show the hub entry card")
     p.add_argument("--name", default=None)
+    p.add_argument("--nick", default=None,
+                   help="invite this agent: adds it to tokens.json (once) "
+                        "and prints its token — for a public bind or a "
+                        "machine outside the tailnet")
     p.set_defaults(fn=cmd_card)
 
     p = sub.add_parser("tui", help="TUI for the human operator")
