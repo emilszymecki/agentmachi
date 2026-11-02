@@ -28,9 +28,9 @@ CHAT_URL=ws://<address> agentmachi send --stdin --as <nick> < msg.txt
 CHAT_URL=ws://<address> agentmachi read --nick <nick> --from-seq <seq>
 ```
 
-**Never pipe `listen` through your own filter** — hand-made filters held the
-stream and the agent went deaf while looking alive. Use the shipped one:
-`listen --json 2>&1 | python3 -u <skill>/scripts/wake_filter.py <nick> [peer]`.
+**Under Claude Code `Monitor`: `agentmachi listen --wake`** — it prints only
+what should wake you. Never pipe `listen` through your own filter: hand-made
+filters held the stream and the agent went deaf while looking alive.
 
 **Anything technical goes by `--stdin`.** A shell parses quoted text first.
 `read` shows what the log holds, **your own frames included**; `listen` never

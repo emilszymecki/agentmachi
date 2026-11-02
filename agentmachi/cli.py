@@ -2182,13 +2182,20 @@ def cmd_listen(args):
     # "listener": to psulo i wybor wlasnej nazwy (--nick banan), i
     # przydzial przez huba (dostawales "listener" zamiast worker5).
     nick = _agent_env(args)
-    _ostrzez_o_starych_skillach()
-    send = _import_send()
-    asyncio.run(send.listen(
-        nick,
-        context="fresh" if getattr(args, "fresh", False) else None,
-        once=getattr(args, "once", False),
-        as_json=getattr(args, "json", False)))
+    budzik = getattr(args, "wake", False)
+    if budzik:
+        from agentmachi import wake
+        oslona = wake.uzbroj(nick)
+    else:
+        oslona = contextlib.nullcontext()
+    with oslona:
+        _ostrzez_o_starych_skillach()
+        send = _import_send()
+        asyncio.run(send.listen(
+            nick,
+            context="fresh" if getattr(args, "fresh", False) else None,
+            once=getattr(args, "once", False),
+            as_json=budzik or getattr(args, "json", False)))
     return 0
 
 
@@ -2619,6 +2626,13 @@ def _build_parser():
                         "instruction can undo. Applies ONCE, at start — a "
                         "reconnect resumes normally, so nothing is lost when "
                         "the connection drops.")
+    p.add_argument("--wake", action="store_true",
+                   help="for Claude Code `Monitor` (stdout = event): print "
+                        "ONLY what should wake you — a mention of you or "
+                        "@all, kick/takeover/error, client diagnostics, the "
+                        "first [reconnect] of an outage — as JSON frames, and "
+                        "`LISTENER ENDED` when the listener stops. Your own "
+                        "frames and chat without a mention stay silent.")
     p.add_argument("--once", action="store_true",
                    help="exit after the first applied frame, and only once "
                         "the cursor is durably written; for a harness that "

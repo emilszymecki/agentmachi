@@ -489,53 +489,6 @@ def test_kazdy_SKILL_ma_sufit_ALBO_jawne_zwolnienie():
 # wiec przepis z nim NIE WYSTARTUJE w harnessie, ktory ich uzywa. Jedyne
 # przenosne miejsce jest w filtrze — linia na STDOUT, bo tylko stdout budzi.
 
-def test_koniec_strumienia_wychodzi_na_stdout(capsys):
-    m = _wake_filter()
-
-    class _Stdin:
-        def __init__(self, linie):
-            self._it = iter(linie)
-
-        def readline(self):
-            return next(self._it, "")
-
-    stary = sys.stdin
-    sys.stdin = _Stdin([])          # od razu EOF: listener zniknal
-    try:
-        assert m.main(["agent_opus"]) == 0
-    finally:
-        sys.stdin = stary
-    out = capsys.readouterr().out
-    assert "LISTENER ENDED" in out, (
-        "koniec strumienia musi wyjsc na STDOUT — stderr laduje w pliku, "
-        "ktorego nikt nie czyta w porze awarii")
-
-
-def test_koniec_strumienia_po_ramkach_tez_wychodzi(capsys):
-    """Nie tylko przy pustym wejsciu: normalny przypadek to nasluch, ktory
-    chodzil godzine i zginal."""
-    m = _wake_filter()
-
-    class _Stdin:
-        def __init__(self, linie):
-            self._it = iter(linie)
-
-        def readline(self):
-            return next(self._it, "")
-
-    ramka = ('{"seq": 5, "type": "chat", "from": "worker2", '
-             '"text": "@agent_opus tresc"}\n')
-    stary = sys.stdin
-    sys.stdin = _Stdin([ramka])
-    try:
-        assert m.main(["agent_opus"]) == 0
-    finally:
-        sys.stdin = stary
-    linie = capsys.readouterr().out.splitlines()
-    assert "@agent_opus" in linie[0]
-    assert "LISTENER ENDED" in linie[-1]
-
-
 def test_budzety_kontekstu_agenta():
     for opis, (sciezka, limit) in BUDZETY.items():
         bajty = len(sciezka.read_bytes())
@@ -710,15 +663,10 @@ def test_blok_do_wklejenia_zawiera_wylacznie_cel():
 # karmil filtr linia, ktora sam wymyslil.
 
 def _wake_filter():
-    """Zaladuj skrypt ze skilla jako modul — testujemy PLIK, ktory agent
-    naprawde uruchamia, nie jego kopie przepisana do testu."""
-    import importlib.util
-    sciezka = (SKILLS / "agentmachi-join" / "scripts" / "wake_filter.py")
-    assert sciezka.exists(), f"brak {sciezka}"
-    spec = importlib.util.spec_from_file_location("wake_filter", sciezka)
-    modul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modul)
-    return modul
+    """Filtr wybudzen zyje w pakiecie (`agentmachi listen --wake`), nie
+    w skrypcie skilla — testujemy kod, ktory listen naprawde wola."""
+    from agentmachi import wake
+    return wake
 
 
 def _ramka(**pola):
@@ -729,8 +677,8 @@ def _ramka(**pola):
     return json.dumps(pola, ensure_ascii=False)
 
 
-def _przepuszcza(modul, linia, nick="agent_opus", peer="agent_codex"):
-    return modul.zbuduj(nick, peer)(linia)
+def _przepuszcza(modul, linia, nick="agent_opus"):
+    return modul.zbuduj(nick)(linia)
 
 
 def test_wake_filter_budzi_na_wzmiance_czlowieka_TAKZE_z_liczba():
@@ -743,23 +691,6 @@ def test_wake_filter_budzi_na_wzmiance_czlowieka_TAKZE_z_liczba():
     assert _przepuszcza(m, _ramka(**{"from": "human"}, text="@agent_opus 3"))
     assert _przepuszcza(m, _ramka(**{"from": "human"},
                                   text="@all cos dla wszystkich"))
-
-
-def test_wake_filter_tnie_ramki_liczace_TYLKO_od_peera():
-    """Petla liczaca peera jest obsluzona przez INNY proces — wybudzenie na
-    nia kosztuje ture i nie wnosi nic. Ale ta sama tresc od KOGOKOLWIEK
-    innego musi obudzic, bo to juz zwykla wiadomosc."""
-    m = _wake_filter()
-    assert not _przepuszcza(m, _ramka(**{"from": "agent_codex"},
-                                      text="7 @agent_opus"))
-    assert not _przepuszcza(m, _ramka(**{"from": "agent_codex"},
-                                      text="@agent_opus 7"))
-    assert _przepuszcza(m, _ramka(**{"from": "human"}, text="7 @agent_opus"))
-    assert _przepuszcza(m, _ramka(**{"from": "agent_codex"},
-                                  text="@agent_opus 7 to nie jest licznik"))
-    # Bez podanego peera nie tniemy niczego.
-    assert m.zbuduj("agent_opus")(_ramka(**{"from": "agent_codex"},
-                                         text="7 @agent_opus"))
 
 
 def test_wake_filter_tnie_session_metadata_PO_TYPIE_nie_po_slowach():
@@ -873,40 +804,6 @@ def test_wake_filter_JEDNA_ramka_to_JEDNO_wybudzenie_niezaleznie_od_dlugosci():
     assert _przepuszcza(m, linia)
 
 
-def test_wake_filter_PADA_GLOSNO_gdy_potok_stoi_bez_json(capsys):
-    """Cisza jest tu najgorszym mozliwym skutkiem: agent nie wie, ze oslepl,
-    a `listen` po lewej stronie potoku nie dostanie SIGPIPE, dopoki nie
-    zapisze kolejnej ramki — wiec komenda wyglada na zywa jeszcze przez
-    jedna wiadomosc.
-
-    Komunikat idzie na STDOUT **oraz** stderr. Stdout jest konieczny, bo
-    harness Claude Code powiadamia z linii stdout, a stderr laduje w pliku,
-    ktorego nikt nie czyta w porze awarii. Niezaufanej linii NIE cytujemy —
-    jedyne, co agent ma z niej wyczytac, to ze potok stoi zle."""
-    m = _wake_filter()
-    with pytest.raises(m.ZlyPotok):
-        _przepuszcza(m, "[318] worker2: @agent_opus zwykla wiadomosc")
-
-    class _Stdin:
-        def __init__(self, linie):
-            self._it = iter(linie)
-
-        def readline(self):
-            return next(self._it, "")
-
-    stary = sys.stdin
-    sys.stdin = _Stdin(["[318] worker2: @agent_opus tresc\n"])
-    try:
-        assert m.main(["agent_opus"]) == 3
-    finally:
-        sys.stdin = stary
-    zebrane = capsys.readouterr()
-    assert "--json" in zebrane.out, "harness nie zobaczy awarii na samym stderr"
-    assert "--json" in zebrane.err
-    assert "worker2" not in zebrane.out and "worker2" not in zebrane.err, \
-        "niezaufana linia nie moze wjechac agentowi w kontekst"
-
-
 def test_wake_filter_milczy_na_rozmowie_bez_wzmianki():
     """Chat bez wzmianki i tak nie dociera do agenta z huba — ale gdyby
     filtr go przepuszczal, kazda cudza rozmowa kosztowalaby ture."""
@@ -915,52 +812,6 @@ def test_wake_filter_milczy_na_rozmowie_bez_wzmianki():
                                       text="zwykla rozmowa bez wzmianki"))
     assert not _przepuszcza(m, _ramka(**{"from": "ktos"},
                                       text="@ktos_inny nie do ciebie"))
-
-
-def test_wake_filter_MELDUJE_CZYM_JEDZIE_bo_plik_i_proces_to_dwie_rzeczy(capsys):
-    """Zmierzone 2026-08-13, DWA RAZY w ciagu jednego dnia i przy dwoch roznych
-    poprawkach: plik na dysku byl juz nowy, a zywy proces nasluchu wiozl stara
-    wersje, bo filtr wczytuje sie przy starcie, nie przy linii.
-
-    Uklad "stary filtr w zywym procesie" jest SPOJNY i dziala, wiec nie wyglada
-    na awarie — a agent, ktory sprawdzil sam plik, ma prawo uwazac, ze jest na
-    nowym. Sformulowal to ten, komu sie to przydarzylo: **"zaktualizowany" ma
-    dwa niezalezne znaczenia i tylko jedno z nich widac w `ls`.**
-
-    Hash WLASNEGO zrodla, a nie numer wersji: numeru ktos zapomni podbic, a
-    klamiacy wskaznik wersji jest gorszy niz jego brak, bo przestajesz
-    sprawdzac. Baner idzie na stderr, bo za wlasny start nie placi sie tury —
-    i tak jest widoczny, bo harness zbiera stderr do pliku wyjscia."""
-    m = _wake_filter()
-
-    class _PustyStdin:
-        def readline(self):
-            return ""
-
-    stary = sys.stdin
-    sys.stdin = _PustyStdin()
-    try:
-        assert m.main(["agent_opus", "agent_codex"]) == 0
-    finally:
-        sys.stdin = stary
-    err = capsys.readouterr().err
-    assert "[wake_filter]" in err
-    assert "nick=agent_opus" in err and "peer=agent_codex" in err
-    assert f"src={m.tozsamosc()}" in err
-    assert len(m.tozsamosc()) == 12 and m.tozsamosc() != "nieznane-zrodlo", \
-        "skrot ma identyfikowac zrodlo, ktore proces naprawde wczytal"
-    # Baner NIE moze isc na stdout: tam kazda linia jest wybudzeniem, wiec
-    # agent placilby ture za wlasny start potoku.
-    assert "[wake_filter]" not in capsys.readouterr().out
-
-
-def test_wake_filter_bez_nicka_ODMAWIA_zamiast_przepuszczac_wszystko():
-    """Fail-closed: bez nicka nie da sie powiedziec, co jest wzmianka.
-    Cichy przepust byl by tu gorszy niz blad — agent placilby tura za
-    kazda linia i uznal to za normalny halas kanalu."""
-    m = _wake_filter()
-    assert m.main([]) == 2
-    assert m.main(["   "]) == 2
 
 
 def test_codex_wait_jest_TEN_SAM_w_obu_wariantach_skilla():
@@ -995,3 +846,41 @@ def test_codex_wait_jest_TEN_SAM_w_obu_wariantach_skilla():
             claude.decode().splitlines(keepends=True),
             codex.decode().splitlines(keepends=True),
             fromfile=str(kopie[0]), tofile=str(kopie[1]))))
+
+
+def test_wake_koniec_nasluchu_to_ZDARZENIE_na_stdout(capsys):
+    """Zmierzone 2026-08-22: Monitor zglosil "stream ended, exit code 0"
+    i to bylo wszystko, co agent dostal, gdy listener przestal istniec.
+    Takze przy wyjatku — wtedy najbardziej."""
+    m = _wake_filter()
+    with m.uzbroj("agent_opus"):
+        print(_ramka(**{"from": "alfa"}, text="@agent_opus tresc"))
+        print(_ramka(**{"from": "alfa"}, text="bez wzmianki"))
+        print("[reconnect] connection dropped", file=sys.stderr)
+    out = capsys.readouterr().out.splitlines()
+    assert len(out) == 3, out
+    assert "@agent_opus" in out[0] and out[1].startswith("[reconnect]")
+    assert "LISTENER ENDED" in out[-1]
+
+    with pytest.raises(RuntimeError):
+        with m.uzbroj("agent_opus"):
+            raise RuntimeError("listen padl")
+    assert "LISTENER ENDED" in capsys.readouterr().out
+
+
+def test_wake_przejmuje_nick_NADANY_przez_huba():
+    """Wejscie bez nicka albo na zajety nick: hub nadaje inny. Skrypt
+    w skillu dostawal nick w argv i po podmianie nie lapal juz wzmianek
+    do agenta — filtr w procesie widzi wlasna linie klienta i sie
+    przestawia."""
+    m = _wake_filter()
+    decyduj = m.zbuduj("alfa")
+    assert decyduj("[nick] 'alfa' is taken by someone else — coming up as "
+                   "'alfa2'")
+    assert decyduj(_ramka(**{"from": "x"}, text="@alfa2 hej"))
+    assert not decyduj(_ramka(**{"from": "alfa2"}, text="@alfa2 echo"))
+
+    bez = m.zbuduj(None)
+    assert bez(_ramka(**{"from": "x"}, text="@all hej")), "@all budzi zawsze"
+    assert bez("[hub] assigned nick: agent7")
+    assert bez(_ramka(**{"from": "x"}, text="@agent7 hej"))

@@ -24,7 +24,7 @@
 
 - **Never a watcher that ends after a hit** (`listen | grep -m1 "@nick"`):
   `listen` gets no `SIGPIPE` until the next line, so you always wake one
-  message late. Never a hand-made filter either — use `wake_filter.py`.
+  message late. Never a hand-made filter either — use `listen --wake`.
 - **Check hearing, not the process.** Compare the last `seq` your listener
   applied with the hub's:
 
