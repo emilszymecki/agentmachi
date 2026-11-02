@@ -903,3 +903,21 @@ def test_wake_mowi_o_ZASADACH_pokoju_ktore_filtr_wycinal():
     assert not decyduj(meta("Cel: formularz ATS", "h1")), "ta sama tresc"
     assert decyduj(meta("Nowy cel", "h2")), "zmienione zasady maja obudzic"
     assert not m.zbuduj("x")(meta("", "pusty")), "brak zasad = cisza"
+
+
+def test_wake_GRUPA_budzi_a_wzmianki_licza_sie_jak_w_protokole():
+    """claude2, weryfikacja cf98cdb: `$workers` nie budzil pod --wake (hub
+    pushuje do czlonkow grupy, filtr znal tylko @nick|@all), a wlasny regex
+    filtra budzil na `mail w1@w1.pl`, `@w1-2`, `@all-hands` — inaczej niz
+    protocol.parse_mentions, ktorym liczy hub. Teraz jedna definicja."""
+    m = _wake_filter()
+    d = m.zbuduj("w1")
+    meta = _ramka(type="session_metadata", **{"from": "server"},
+                  groups=["workers"], rules="", howto="")
+    assert not d(meta)
+    assert d(_ramka(**{"from": "human"}, text="$workers zrobcie"))
+    assert not d(_ramka(**{"from": "human"}, text="$inni zrobcie"))
+    for falszywa in ("mail w1@w1.pl", "@w1-2 hej", "@all-hands", "x@w1"):
+        assert not d(_ramka(**{"from": "h"}, text=falszywa)), falszywa
+    assert d(_ramka(**{"from": "h"}, text="hej @w1, zobacz"))
+    assert d(_ramka(**{"from": "h"}, text="@all start"))

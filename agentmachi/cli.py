@@ -2192,20 +2192,34 @@ def cmd_listen(args):
     # przydzial przez huba (dostawales "listener" zamiast worker5).
     nick = _agent_env(args)
     budzik = getattr(args, "wake", False)
+    raz = getattr(args, "once", False)
     if budzik:
         from agentmachi import wake
-        oslona = wake.uzbroj(nick)
+        # --once konczy sie z zamiarem: to nie "jestes gluchy".
+        oslona = wake.uzbroj(nick, koniec=not raz)
     else:
         oslona = contextlib.nullcontext()
-    with oslona:
+    with oslona as licznik:
         _ostrzez_o_starych_skillach()
         send = _import_send()
+        swiezo = getattr(args, "fresh", False)
         try:
-            asyncio.run(send.listen(
-                nick,
-                context="fresh" if getattr(args, "fresh", False) else None,
-                once=getattr(args, "once", False),
-                as_json=budzik or getattr(args, "json", False)))
+            while True:
+                przed = licznik["ramek"] if licznik else 0
+                asyncio.run(send.listen(
+                    nick,
+                    context="fresh" if swiezo else None,
+                    once=raz,
+                    as_json=budzik or getattr(args, "json", False)))
+                # `--once --wake`: wlasna ramka i rozmowa bez wzmianki to
+                # tez "zastosowana ramka", ale nie powod, by wracac do
+                # modelu (claude2: subagent budzil sie wlasna odpowiedzia).
+                # Kursor jest trwale przesuniety, wiec nastepny obieg
+                # czeka na NOWA ramke.
+                if not (budzik and raz) or licznik["ramek"] > przed:
+                    break
+                swiezo = False
+                nick = licznik["stan"]["nick"] or nick
         except send.ListenerLockHeld as e:
             # Traceback zamiast zdania (dogfood ka 2026-11-02): handler
             # istnial w send.py, ale ta sciezka go omijala.

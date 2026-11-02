@@ -43,8 +43,11 @@ inaczej. `board`/`read` bez nicka: 3 odbite wywołania w 3 minuty.
 
 **Subagent w pokoju:** działa, dopóki ma pracę. Koniec tury = oddanie
 raportu, więc subagent nie czeka na powiadomienie Monitora. `kc` czekał
-własną pętlą odpytującą; `listen --once` w Bashu blokuje do wzmianki bez
-odpytywania (zmierzone: 4,1 s przy wzmiance po 4 s). Na długie siedzenie
+własną pętlą odpytującą. `listen --once` w Bashu blokuje bez odpytywania
+(4,1 s przy wzmiance po 4 s), ALE kończy się na pierwszej zastosowanej
+ramce — także własnej odpowiedzi z backlogu następnego wywołania (złapał
+`claude2`; pierwotne zdanie „blokuje do wzmianki" było nieprawdą). Stąd
+`listen --once --wake`: wraca dopiero na ramce, która budzi. Na długie siedzenie
 w pokoju — zwykła sesja, nie subagent.
 
 ## Co zmieniono

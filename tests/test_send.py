@@ -682,6 +682,64 @@ def test_listen_wake_ubity_SIGTERM_mowi_LISTENER_ENDED(tmp_path):
     assert "LISTENER ENDED" in out, out
 
 
+def test_listen_once_wake_czeka_na_ramke_KTORA_BUDZI(tmp_path):
+    """claude2, weryfikacja 79e4079: `listen --once` konczy sie na pierwszej
+    zastosowanej ramce. Na zywo hub pushuje agentowi tylko wzmianki, ale
+    NASTEPNE --once zaczyna od backlogu — a w nim wlasna odpowiedz i rozmowa
+    bez wzmianki. Subagent, ktory odpowiada i wraca do --once, budzil sie
+    od razu wlasna odpowiedzia. Pokoj ma zasady: linia o nich wraca przy
+    kazdym hello i tez nie moze konczyc czekania."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    env = {**os.environ, "CHAT_URL": f"ws://localhost:{port}",
+           "CHAT_NICK": "sb", "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("CHAT_TOKEN", None)
+    cli = [sys.executable, "-c", "import sys; from agentmachi.cli import main;"
+           " sys.exit(main(sys.argv[1:]))"]
+    dane = tmp_path / "hub"
+    dane.mkdir()
+    (dane / "rules.md").write_text("Cel: test\n")
+
+    async def wyslij(kto, tresc):
+        p = await asyncio.create_subprocess_exec(
+            *cli, "send", tresc, "--as", kto, env=env, cwd=str(REPO),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL)
+        await p.wait()
+
+    async def czekaj():
+        return await asyncio.create_subprocess_exec(
+            *cli, "listen", "--once", "--wake", env=env, cwd=str(REPO),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(dane), tokens={}, port=port)
+        await srv.start()
+        try:
+            await wyslij("bob", "@sb pierwsza")
+            p1 = await czekaj()
+            out1, _ = await asyncio.wait_for(p1.communicate(), 15)
+            await wyslij("sb", "moja odpowiedz")
+            await wyslij("bob", "rozmowa bez wzmianki")
+            p2 = await czekaj()
+            await asyncio.sleep(2.0)
+            wrocil_za_wczesnie = p2.returncode is not None
+            await wyslij("bob", "@sb druga")
+            out2, _ = await asyncio.wait_for(p2.communicate(), 15)
+            return out1.decode(), out2.decode(), wrocil_za_wczesnie
+        finally:
+            await srv.stop()
+
+    out1, out2, za_wczesnie = asyncio.run(scenario())
+    assert "@sb pierwsza" in out1, out1
+    assert not za_wczesnie, f"--once wrocil na wlasnej/niewzmiankowanej:{out2}"
+    ramki = [l for l in out2.splitlines() if l.startswith("{")]
+    assert len(ramki) == 1 and "@sb druga" in ramki[0], out2
+    assert "this room has rules" in out2, "zasady nadal maja byc widac"
+    assert "LISTENER ENDED" not in out1 + out2, "--once konczy sie z zamiarem"
+
 def test_second_listener_rejected_lock(tmp_path):
     """Dokladnie jeden listener per hub+nick: drugi proces exit code 3."""
     port = _free_port()  # hub nie musi zyc — lock lapiemy przed connect

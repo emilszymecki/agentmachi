@@ -26,6 +26,8 @@ import re
 import signal
 import sys
 
+from chat import protocol
+
 DIAGNOSTYKA = re.compile(r"^\[(hub|kick|nick|read|resync|warning)\]")
 NADANY = re.compile(r"^\[hub\] assigned nick: (\S+)")
 PODMIENIONY = re.compile(r"^\[nick\] .* coming up as '([^']+)'")
@@ -39,14 +41,18 @@ def zbuduj(nick):
     """`decyduj(linia) -> bool | str` (str = linia zastepcza). `nick` moze byc None (hub go nada) —
     filtr przejmuje nick z `[hub] assigned nick` i `[nick] ... coming up
     as`, bo to WLASNE linie klienta, a nie zgadywanie."""
-    stan = {"nick": None, "wzmianka": None, "awaria": False, "zasady": None}
+    stan = {"nick": nick, "grupy": set(), "awaria": False, "zasady": None}
 
     def ustaw(nowy):
         stan["nick"] = nowy
-        stan["wzmianka"] = (re.compile(rf"@{re.escape(nowy)}\b|@all\b")
-                            if nowy else re.compile(r"@all\b"))
 
-    ustaw(nick)
+    def do_mnie(tresc):
+        """Ta sama definicja wzmianki co hub (protocol.parse_*), nie
+        wlasny regex — inaczej filtr budzil na `mail w1@w1.pl`, a spal na
+        `$workers` (claude2, weryfikacja cf98cdb)."""
+        nicki = protocol.parse_mentions(tresc)
+        return ("all" in nicki or stan["nick"] in nicki
+                or bool(stan["grupy"] & protocol.parse_groups(tresc)))
 
     def _zasady(meta):
         """Zasady pokoju jada tylko w tej (cichej) ramce. Zamiast niej:
@@ -84,6 +90,9 @@ def zbuduj(nick):
             return True
         typ = ramka.get("type")
         if typ == "session_metadata":
+            grupy = ramka.get("groups")
+            if isinstance(grupy, list):
+                stan["grupy"] = {g for g in grupy if isinstance(g, str)}
             return _zasady(ramka)
         if typ in TYPY_CICHE:
             return False
@@ -92,16 +101,18 @@ def zbuduj(nick):
         if typ in TYPY_BUDZACE:
             return True
         tresc = ramka.get("text")
-        return isinstance(tresc, str) and bool(stan["wzmianka"].search(tresc))
+        return isinstance(tresc, str) and do_mnie(tresc)
 
+    decyduj.stan = stan
     return decyduj
 
 
 class _Strumien:
     """Strumien tnacy na linie: budzace -> `wyjscie`, kazda -> `kopia`."""
 
-    def __init__(self, decyduj, wyjscie, kopia=None):
+    def __init__(self, decyduj, wyjscie, kopia=None, licznik=None):
         self._decyduj, self._wyjscie, self._kopia = decyduj, wyjscie, kopia
+        self._licznik = licznik if licznik is not None else {"obudzen": 0}
         self._bufor = ""
         self.encoding = getattr(wyjscie, "encoding", "utf-8")
 
@@ -118,6 +129,12 @@ class _Strumien:
             self._kopia.flush()
         wynik = self._decyduj(linia)
         if wynik:
+            self._licznik["obudzen"] += 1
+            if wynik is True and linia.startswith("{"):
+                # RAMKA, ktora budzi — nie diagnostyka i nie linia
+                # o zasadach (te wracaja przy kazdym hello). Na tym
+                # konczy sie `--once --wake`.
+                self._licznik["ramek"] = self._licznik.get("ramek", 0) + 1
             self._wyjscie.write((wynik if isinstance(wynik, str) else linia)
                                 + "\n")
             self._wyjscie.flush()
@@ -132,15 +149,18 @@ class _Strumien:
 
 
 @contextlib.contextmanager
-def uzbroj(nick):
+def uzbroj(nick, koniec=True):
     """Podmienia stdout/stderr procesu na filtr. stderr idzie TAKZE dalej
     na prawdziwy stderr (harness trzyma go w pliku — tam szuka sie
     przyczyn). Na wyjsciu — takze przez wyjatek — `LISTENER ENDED` na
     stdout: koniec nasluchu musi byc zdarzeniem, nie cisza."""
     wyjscie, blad = sys.stdout, sys.stderr
     decyduj = zbuduj(nick)
-    sys.stdout = _Strumien(decyduj, wyjscie)
-    sys.stderr = _Strumien(decyduj, wyjscie, kopia=blad)
+    # Wolajacy widzi, ile linii obudzilo i pod jakim nickiem jest (hub
+    # mogl go nadac) — `--once --wake` czeka po tym na ramke, ktora budzi.
+    licznik = {"obudzen": 0, "ramek": 0, "stan": decyduj.stan}
+    sys.stdout = _Strumien(decyduj, wyjscie, licznik=licznik)
+    sys.stderr = _Strumien(decyduj, wyjscie, kopia=blad, licznik=licznik)
     # SIGTERM (`timeout`, `agentmachi kill`, wygasniecie) domyslnie zabija
     # bez `finally` — filtr jako osobny proces widzial wtedy EOF, filtr
     # w procesie milczal (regresja cf98cdb, zlapana na wheelu). SIGKILL-a
@@ -148,12 +168,15 @@ def uzbroj(nick):
     def _zakoncz(numer, _ramka):
         raise SystemExit(128 + numer)
     poprzedni = signal.signal(signal.SIGTERM, _zakoncz)
+    przerwane = True
     try:
-        yield
+        yield licznik
+        przerwane = False
     finally:
         signal.signal(signal.SIGTERM, poprzedni)
         for strumien in (sys.stdout, sys.stderr):
             if isinstance(strumien, _Strumien):
                 strumien.flush()
         sys.stdout, sys.stderr = wyjscie, blad
-        print(KONIEC, flush=True)
+        if koniec or przerwane:
+            print(KONIEC, flush=True)
