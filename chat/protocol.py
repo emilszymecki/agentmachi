@@ -370,6 +370,15 @@ def _validate_body(frame, ftype):
         # odsiala; sam drop na boardzie nie wystarcza, zeby task_id nie wyciekl.
         if "task_id" in frame:
             return "status: task_id is retired; use subject"
+        # Nieznany klucz odbity, nie zgubiony: handler utrwala cala ramke,
+        # a board projektuje tylko state/subject/note — agent dostawal
+        # "(sent)" i myslal, ze zadeklarowal cos, czego nikt nie zobaczy
+        # (zmierzone 2026-11-02: `text` zamiast `subject`).
+        nieznane = set(frame) - {"type", "from", "ts", "state", "subject",
+                                 "note", "target"}
+        if nieznane:
+            return (f"status: unknown field(s): {', '.join(sorted(nieznane))}"
+                    f" — the board shows only state, subject and note")
         for opt in ("note", "subject"):
             if opt in frame and (not isinstance(frame[opt], str)
                                  or not frame[opt]):

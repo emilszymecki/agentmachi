@@ -3512,3 +3512,19 @@ def test_workspace_odrzuca_sciezke_i_nieznane_pola(srv):
         assert "beta" not in server.workspace
         await ws_b.close()
     asyncio.run(srv(scenario))
+
+
+def test_status_z_nieznanym_kluczem_odbity_a_nie_zgubiony(srv):
+    # Zmierzone 2026-11-02: `{"state":"idle","text":"..."}` dawalo "(sent)",
+    # a board pokazal samo "idle" — opis zniknal bez slowa.
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        przed = server.log.last_seq
+        await ws_b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0,
+                                    "state": "idle", "text": "czekam"}))
+        err = await recv(ws_b)
+        assert err["type"] == "error" and "text" in err["text"]
+        assert server.log.last_seq == przed
+        assert "beta" not in server.status
+        await ws_b.close()
+    asyncio.run(srv(scenario))
