@@ -839,6 +839,10 @@ async def listen(nick, context=None, once=False, as_json=False):
     # `[reconnect]` i polyka kolejne (inaczej martwy hub = ~120 wybudzen na
     # godzine), wiec o KONCU awarii agent dowiaduje sie tylko z `[hub] back`.
     proby = 0
+    # Zly adres i martwy hub daja ten sam blad. Roznica: przez zly adres
+    # nie polaczyles sie NIGDY. Zmierzone 2026-11-02 — nasluch z pamieci na
+    # 8766 zamiast 8769 z karty wygladal jak zwykla awaria.
+    polaczony_kiedys = False
     try:
         while True:
             try:
@@ -914,6 +918,7 @@ async def listen(nick, context=None, once=False, as_json=False):
                     fresh_pending = False
                     _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
+                    polaczony_kiedys = True
                     if proby:
                         print(f"[hub] back on the channel after {proby} "
                               f"reconnect attempt(s); what you missed comes "
@@ -973,9 +978,14 @@ async def listen(nick, context=None, once=False, as_json=False):
                 # session moze byc None, gdy nickless hello padlo, zanim hub
                 # nadal nick (np. hub chwilowo niedostepny) — kursor jeszcze
                 # nie istnieje, wiec meldujemy 0 zamiast siegac po None.
+                adres = ("" if polaczony_kiedys or proby else
+                         f" — never connected to {URI} since start: is the "
+                         f"address right? its source: agentmachi card "
+                         f"--name <hub>")
                 print(f"[reconnect] connection dropped ({e}); retrying in "
                       f"{backoff:.0f}s from cursor "
-                      f"{session.last_applied_seq if session else 0}", file=sys.stderr)
+                      f"{session.last_applied_seq if session else 0}{adres}",
+                      file=sys.stderr)
                 proby += 1
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)

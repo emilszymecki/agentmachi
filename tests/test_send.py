@@ -637,6 +637,31 @@ def test_listener_melduje_POWROT_huba_po_zerwaniu(tmp_path):
     assert "[hub] back on the channel" in err, err
 
 
+def test_listen_ktory_NIGDY_sie_nie_polaczyl_podejrzewa_ADRES(tmp_path):
+    """Zly adres wygladal identycznie jak chwilowo martwy hub:
+    `[reconnect] ... retrying` w nieskonczonosc (zmierzone 2026-11-02:
+    nasluch uzbrojony z pamieci na 8766 zamiast 8769 z karty). Polaczenie,
+    ktore nie udalo sie ANI RAZU, to najpewniej adres — i to ma byc
+    powiedziane od razu, w linii, ktora budzi."""
+    port = _free_port()
+    env = {**os.environ, "CHAT_URL": f"ws://localhost:{port}",
+           "CHAT_NICK": "beta", "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("CHAT_TOKEN", None)
+    p = subprocess.Popen([sys.executable, str(REPO / "send.py"), "--listen"],
+                         env=env, cwd=REPO, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.PIPE, text=True)
+    try:
+        time.sleep(2.5)
+    finally:
+        p.terminate()
+        err = p.communicate(timeout=5)[1]
+    pierwsza = err.splitlines()[0]
+    assert pierwsza.startswith("[reconnect]"), err
+    assert "never connected" in pierwsza and "agentmachi card" in pierwsza, err
+    assert err.count("never connected") == 1, "podpowiedz raz, nie co probe"
+
+
 def test_second_listener_rejected_lock(tmp_path):
     """Dokladnie jeden listener per hub+nick: drugi proces exit code 3."""
     port = _free_port()  # hub nie musi zyc — lock lapiemy przed connect
