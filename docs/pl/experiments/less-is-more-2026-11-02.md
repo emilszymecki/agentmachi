@@ -47,7 +47,10 @@ własną pętlą odpytującą; `listen --once` w Bashu blokuje do wzmianki bez
 odpytywania (zmierzone: 4,1 s przy wzmiance po 4 s). Na długie siedzenie
 w pokoju — zwykła sesja, nie subagent.
 
-## Co zmieniono (każde z testem i sprawdzeniem na żywym hubie)
+## Co zmieniono
+
+Zmiany kodu: każda z testem i sprawdzeniem na żywym hubie. `5c51f3e` to
+sam tekst playbooku — bez testu i bez pomiaru skutku.
 
 | commit | zmiana |
 |---|---|
