@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.19, pytest-9.2.0, pluggy-1.7.0 -- /home/emil-szymecki/.cache/uv/builds-v0/.tmpYug63P/bin/python
+rootdir: /tmp/claude-1000/-home-emil-szymecki-Dokumenty-repos-agents-chat/28e7b45d-7bd6-40d9-97a0-05ba79334ca4/scratchpad/sedzia
+collecting ... collected 11 items
+
+test_akceptacja.py::test_liczby_commitow_i_merge PASSED                  [  9%]
+test_akceptacja.py::test_pierwsza_i_ostatnia_data PASSED                 [ 18%]
+test_akceptacja.py::test_autorzy_kolejnosc_i_liczby PASSED               [ 27%]
+test_akceptacja.py::test_pliki_przemianowanie_binarny_spacja_kolejnosc PASSED [ 36%]
+test_akceptacja.py::test_top_obcina PASSED                               [ 45%]
+test_akceptacja.py::test_dzien_tygodnia_w_strefie_autora PASSED          [ 54%]
+test_akceptacja.py::test_godzina_w_strefie_autora PASSED                 [ 63%]
+test_akceptacja.py::test_puste_repo PASSED                               [ 72%]
+test_akceptacja.py::test_nie_repo_kod_2 PASSED                           [ 81%]
+test_akceptacja.py::test_nieistniejaca_sciezka_kod_2 PASSED              [ 90%]
+test_akceptacja.py::test_markdown PASSED                                 [100%]
+
+============================== 11 passed in 0.62s ==============================

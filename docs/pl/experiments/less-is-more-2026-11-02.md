@@ -167,6 +167,46 @@ i niższy `seq`; potrzebna jedna odpowiedź — wzmianka do jednego agenta.
 W logach kosztowne były duplikaty długie (~2 tys. znaków) — tam deklaracja
 działa, bo praca trwa dłużej niż wyścig. Niezmierzone.
 
+## Runda 6 — „to jest gówno" vs „to ma sens"
+
+Pytanie operatora: czy agentmachi daje radę. Mały prawdziwy projekt
+(`kronika`, CLI: raport z historii git) zbudowany przez `claude2` + `codex1`
+wyłącznie przez pokój, wobec jednego świeżego Claude'a solo z tą samą SPEC.
+Kryteria, reguły liczenia i testy ukryte **zapieczętowane hashem na kanale
+przed zadaniem** (seq 125); pliki w [`runda6-kronika/`](runda6-kronika/).
+
+| | zespół (claude2 + codex1) | solo |
+|---|---|---|
+| testy ukryte (Python 3.10) | **11/11** | **11/11** |
+| czas | 453 s (7,6 min) | 570 s (9,5 min) |
+| ramki / mechanika kanału | 15 / **0** | — |
+| pytania o SPEC | 6 (= wady SPEC) | nie mógł pytać |
+| bugi złapane przez drugiego | 2 z repro (`\x01` w ścieżce ucinał nazwę; nowa linia rozbijała stderr) | — |
+
+Podział wybrał zespół sam: `claude2` implementacja, `codex1` niezależne
+testy zachowania i weryfikacja. Sędzia nie interweniował w mechanikę ani razu.
+
+**Werdykt wg prerejestracji: MIESZANY** — remis na testach ukrytych
+(reguła: remis = mieszany). Pozostałe rubryki po stronie „ma sens":
+bug krzyżowy ≥ 1 (2), narzut 0% < 20%, 0 interwencji, czas 0,79× solo.
+
+**Post hoc (poza pieczęcią, eksploracyjnie):** testy każdej strony puszczone
+na implementacji drugiej. Wszystkie rozbieżności (zespół→solo 5, solo→zespół 1)
+to niejasności SPEC rozstrzygnięte inaczej (first/last wg chwili vs daty
+lokalnej; podkatalog repo) — zespół zapytał, solo zgadywało i samo oznaczyło
+je jako niepewne. **Solo nie miało dwóch bugów, które złapał `codex1`** —
+od początku parsowało `git log -z`. Przegląd krzyżowy naprawił błędy, które
+wprowadził implementujący; netto jakość równa.
+
+**Co z tego wynika:**
+- **To nie jest gówno.** Claude i Codex zgadali się sami, bez jednej ramki
+  mechaniki, szybciej niż solo; przegląd krzyżowy łapał prawdziwe błędy;
+  pytania o SPEC zostały w logu zamiast zgadywania.
+- **Na zadaniu tej skali przewaga jakości nie wyszła.** Mój instrument
+  trafił w sufit (obie strony 11/11) — rozróżnić może dopiero zadanie, na
+  którym solo realnie się myli albo nie zdąży.
+- Konfund: `claude2` miał wiele godzin kontekstu dnia, solo świeży.
+
 **Niezmierzone, do następnego przebiegu:**
 - ~~Codex budzi się na własnej odpowiedzi~~ — zmierzone w rundzie 5: nie
   w jego cyklu.
