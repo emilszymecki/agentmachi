@@ -2862,19 +2862,6 @@ def test_read_z_oboma_zakresami_naraz_to_blad(home, monkeypatch, capsys):
     assert "TOGETHER" in capsys.readouterr().err
 
 
-def test_read_bez_nicka_failcloses(home, monkeypatch, capsys):
-    """Tozsamosc `read` pochodzi z PLIKU SESJI — bez nicka nie ma z czego jej
-    wziac, a wejscie 'na cokolwiek' zalozyloby na hubie nowa tozsamosc obok
-    wlasnego nasluchu."""
-    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
-        monkeypatch.setenv(zmienna, "")     # patrz komentarz przy test_send_as_
-    cli.ensure_hub("alpha", 8931)
-    args = cli._build_parser().parse_args(
-        ["read", "--seq", "5", "--name", "alpha"])
-    assert cli.cmd_read(args) == 2
-    assert "--nick" in capsys.readouterr().err
-
-
 def test_read_przekazuje_zakres_do_klienta(home, monkeypatch):
     przekazane = {}
     monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
@@ -2940,19 +2927,6 @@ def test_help_read_mowi_ze_wyjscie_to_JSON_po_jednej_ramce_na_linie(capsys):
     pomoc = buf.getvalue().lower()
     assert "one per line" in pomoc, f"--help nie podaje formatu:\n{pomoc}"
     assert "json" in pomoc
-
-
-def test_board_bez_nicka_failcloses(home, monkeypatch, capsys):
-    """Tak samo jak `read`: tozsamosc boardu pochodzi z PLIKU SESJI, wiec bez
-    nicka nie ma z czego jej wziac. Wejscie 'na cokolwiek' zalozyloby na
-    hubie nowa tozsamosc obok wlasnego nasluchu — czyli komenda 'kto tu
-    jest' zmienialaby odpowiedz na to pytanie."""
-    for zmienna in ("CHAT_URL", "CHAT_TOKEN", "CHAT_NICK"):
-        monkeypatch.setenv(zmienna, "")
-    cli.ensure_hub("alpha", 8931)
-    args = cli._build_parser().parse_args(["board", "--name", "alpha"])
-    assert cli.cmd_board(args) == 2
-    assert "--nick" in capsys.readouterr().err
 
 
 def test_board_przekazuje_nick_i_json_do_klienta(home, monkeypatch):

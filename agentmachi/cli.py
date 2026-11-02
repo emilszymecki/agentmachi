@@ -2232,13 +2232,7 @@ def cmd_read(args):
               "`seq` is assigned by the server and you see it at the start of "
               "every `agentmachi listen` line.", file=sys.stderr)
         return 2
-    nick = _agent_env(args)
-    if not nick:
-        print("agentmachi read: I do not know WHO you are — pass --nick "
-              "<nick> or set CHAT_NICK. read enters with the identity from "
-              "your session file, exactly so that it does NOT take over your "
-              "own `agentmachi listen`.", file=sys.stderr)
-        return 2
+    nick = _agent_env(args)   # moze byc pusty: peek nie zostawia sladu
     send = _import_send()
     from_seq = args.seq if args.seq is not None else args.from_seq
     try:
@@ -2264,13 +2258,7 @@ def cmd_board(args):
     srodku przebija filtr wzmianek). Jedyna droga do boardu byla wiec
     ponowne wejscie na kanal — okolo 5k tokenow za odpowiedz na pytanie
     "kto tu jest"."""
-    nick = _agent_env(args)
-    if not nick:
-        print("agentmachi board: I do not know WHO you are — pass --nick "
-              "<nick> or set CHAT_NICK. board enters with the identity from "
-              "your session file, exactly so that it does NOT take over your "
-              "own `agentmachi listen`.", file=sys.stderr)
-        return 2
+    nick = _agent_env(args)   # moze byc pusty: peek nie zostawia sladu
     send = _import_send()
     try:
         asyncio.run(send.read_board(nick, as_json=args.json,

@@ -2248,6 +2248,38 @@ def test_board_rules_oddaje_ZASADY_i_howto_pokoju(tmp_path, monkeypatch,
     assert "howto" in out.lower()
 
 
+def test_board_i_read_BEZ_NICKA_w_otwartym_pokoju(tmp_path, monkeypatch):
+    """Wymog nicka chronil przed tym, ze wejscie "na cokolwiek" zalozy na
+    hubie nowa tozsamosc obok wlasnego nasluchu. Po `peek` podglad nie
+    zostawia sladu, wiec wymog byl szczatkowy — a kosztowal: dogfood
+    2026-11-02, 3 odbite wywolania u dwoch agentow w 3 minuty."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "alfa", "ia")
+                await ws.send(json.dumps({"type": "chat", "from": "alfa",
+                                          "ts": 0.0, "text": "r0"}))
+                await _czekaj_na_seq(srv, 2)
+                board, ramki = [], []
+                await send.read_board(None, as_json=True, emit=board.append)
+                await send.read_frames(None, 1, emit=ramki.append)
+                return board[0], ramki, set(srv.registry.roles)
+        finally:
+            await srv.stop()
+
+    board, ramki, znani = asyncio.run(scenario())
+    assert {u["nick"] for u in board["participants"]} == {"alfa"}
+    assert [r["text"] for r in ramki] == ["r0"]
+    assert znani == {"alfa"}, f"podglad bez nicka zostawil slad: {znani}"
+
+
 def test_board_NIE_wypiera_zywego_nasluchu(tmp_path, monkeypatch):
     """Ten sam kontrakt co `read`: board ma dzialac OBOK nasluchu.
 

@@ -114,6 +114,17 @@ class _BootIdentity:
         self.last_applied_seq = 0
 
 
+def _tozsamosc_podgladu(nick):
+    """Z nickiem: tozsamosc z pliku sesji (ten sam instance_id co nasluch).
+    Bez nicka: jednorazowa — `peek` nie zostawia na hubie sladu, wiec nie
+    ma czego chronic (dawniej wymog nicka; patrz test BEZ_NICKA)."""
+    if nick:
+        return _session(nick)
+    boot = _BootIdentity()
+    boot.path = "(none — read without a nick)"
+    return boot
+
+
 async def do_hello(ws, nick, session, token, role=None, context=None,
                    return_errors=False, peek=False):
     """`return_errors=True`: odmowa WRACA ramka zamiast konczyc proces.
@@ -1183,7 +1194,7 @@ async def read_frames(nick, from_seq, only_seq=None, emit=None):
             f"invalid seq: {only_seq!r} — seq numbering starts at 1")
     emit = emit or _print_json
     token = _require_token()
-    session = _session(nick)          # tylko zrodlo tozsamosci — zero zapisu
+    session = _tozsamosc_podgladu(nick)   # tylko zrodlo tozsamosci — zero zapisu
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         reply = await do_hello(ws, nick,
                                _ReadIdentity(session, from_seq - 1), token,
@@ -1447,7 +1458,7 @@ async def read_board(nick, as_json=False, emit=None, zasady=False):
     i wtedy board padalby na `CursorBeyondLog`, czyli na rzecz zupelnie
     niezwiazana z pytaniem "kto tu jest"."""
     token = _require_token()
-    session = _session(nick)          # tylko zrodlo tozsamosci — zero zapisu
+    session = _tozsamosc_podgladu(nick)   # tylko zrodlo tozsamosci — zero zapisu
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         reply = await do_hello(ws, nick, _ReadIdentity(session, 0), token,
                                context="fresh", return_errors=True,
