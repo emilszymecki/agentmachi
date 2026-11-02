@@ -207,6 +207,37 @@ def test_kolizja_z_force_nie_konczy_sie_samym_done(tmp_path, capsys):
     assert "COLLISION" not in out
 
 
+def _listen_przez_cli(monkeypatch, tmp_path):
+    """`agentmachi listen` przez cmd_listen, z hubem zastapionym atrapa.
+
+    Przez CLI, nie przez helper: test wolajacy `_ostrzez_o_starych_skillach`
+    wprost zostawal zielony po usunieciu wywolania z cmd_listen (weryfikacja
+    7d92bd7, 2026-11-02) — nazwa mowila "listen", test listen nie dotykal."""
+    import types
+    from agentmachi import cli
+
+    async def listen(*_a, **_k):
+        return None
+
+    atrapa = types.SimpleNamespace(listen=listen,
+                                   ListenerLockHeld=type("L", (Exception,), {}))
+    monkeypatch.setattr(cli, "_import_send", lambda: atrapa)
+    monkeypatch.setenv("AGENTMACHI_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CHAT_URL", "ws://localhost:1")
+    return cli.main(["listen", "--nick", "beta"])
+
+
+def _stary_claude_i_stary_codex(tmp_path, monkeypatch):
+    stary = tmp_path / "claude"
+    skills_install.zainstaluj("claude", stary)
+    (stary / "agentmachi-join" / "SKILL.md").write_text("stara wersja\n")
+    codex = tmp_path / "codex"
+    skills_install.zainstaluj("codex", codex)
+    monkeypatch.setattr(skills_install, "HARNESSY",
+                        {"claude": stary, "codex": codex})
+    return stary, codex
+
+
 def test_listen_OSTRZEGA_gdy_zainstalowany_skill_jest_stary(tmp_path,
                                                            monkeypatch,
                                                            capsys):
@@ -216,22 +247,41 @@ def test_listen_OSTRZEGA_gdy_zainstalowany_skill_jest_stary(tmp_path,
     z paczka o SKILL.md, wake_filter i claude-code.md). `install-skills`
     to wykrywa, ale nikt go nie odpala, kiedy sadzi, ze wszystko gra.
     `listen` przechodzi kazdy agent — tam ostrzezenie trafi zawsze."""
-    from agentmachi import cli
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    stary, _ = _stary_claude_i_stary_codex(tmp_path, monkeypatch)
 
-    stary = tmp_path / "claude"
-    skills_install.zainstaluj("claude", stary)
-    (stary / "agentmachi-join" / "SKILL.md").write_text("stara wersja\n")
-    swiezy = tmp_path / "codex"
-    skills_install.zainstaluj("codex", swiezy)
-    monkeypatch.setattr(skills_install, "HARNESSY",
-                        {"claude": stary, "codex": swiezy})
-
-    cli._ostrzez_o_starych_skillach()
+    assert _listen_przez_cli(monkeypatch, tmp_path) == 0
     err = capsys.readouterr().err
     assert err.startswith("[warning]"), "wake_filter budzi na [warning]"
     assert "agentmachi-join" in err and "--harness claude --force" in err
-    assert "codex" not in err, "zgodna kopia nie ma prawa halasowac"
+    assert "--harness codex" not in err, "zgodna kopia nie ma prawa halasowac"
 
     skills_install.zainstaluj("claude", stary, nadpisz=True)
-    cli._ostrzez_o_starych_skillach()
-    assert capsys.readouterr().err == ""
+    assert _listen_przez_cli(monkeypatch, tmp_path) == 0
+    assert "[warning]" not in capsys.readouterr().err
+
+
+def test_pod_claude_code_listen_NIE_ostrzega_o_skillu_codexa(tmp_path,
+                                                             monkeypatch,
+                                                             capsys):
+    """Stara kopia skilla Codexa budzila agenta Claude'a pod `--wake`
+    i kazala mu `install-skills --harness codex --force` — nadpisac cudzy
+    katalog (weryfikacja 7d92bd7, 2026-11-02). Pod `CLAUDECODE=1` liczy
+    sie tylko skill Claude'a.
+
+    GRANICA, swiadoma: Codex nie ma zmierzonego sygnalu srodowiska, wiec
+    poza Claude Code ostrzezenie dalej mowi o obu (test wyzej). Codex
+    odpalony Z Claude Code dziedziczy `CLAUDECODE=1` i o wlasnym starym
+    skillu sie stad nie dowie."""
+    _, codex = _stary_claude_i_stary_codex(tmp_path, monkeypatch)
+    (codex / "agentmachi-join" / "SKILL.md").write_text("stara wersja\n")
+    skills_install.zainstaluj("claude", tmp_path / "claude", nadpisz=True)
+    monkeypatch.setenv("CLAUDECODE", "1")
+
+    assert _listen_przez_cli(monkeypatch, tmp_path) == 0
+    assert "[warning]" not in capsys.readouterr().err
+
+    monkeypatch.delenv("CLAUDECODE")
+    assert _listen_przez_cli(monkeypatch, tmp_path) == 0
+    assert "--harness codex --force" in capsys.readouterr().err, \
+        "poza Claude Code stary skill Codexa ma byc zgloszony jak dotad"

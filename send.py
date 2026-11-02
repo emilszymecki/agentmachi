@@ -34,7 +34,8 @@ from urllib.parse import urlparse
 import websockets
 
 from chat import protocol, store
-from chat.client_session import ListenerLockHeld, Session, SessionError
+from chat.client_session import (ListenerLockHeld, Session, SessionError,
+                                 session_files)
 
 PORT = os.environ.get("CHAT_PORT", "8765")
 
@@ -115,13 +116,17 @@ class _BootIdentity:
 
 
 def _tozsamosc_podgladu(nick):
-    """Z nickiem: tozsamosc z pliku sesji (ten sam instance_id co nasluch).
-    Bez nicka: jednorazowa — `peek` nie zostawia na hubie sladu, wiec nie
-    ma czego chronic (dawniej wymog nicka; patrz test BEZ_NICKA)."""
-    if nick:
+    """Z nickiem i ISTNIEJACYM plikiem sesji: tozsamosc z pliku (ten sam
+    instance_id co nasluch). Inaczej jednorazowa — `peek` nie zostawia na
+    hubie sladu, wiec nie ma czego chronic (dawniej wymog nicka; patrz test
+    BEZ_NICKA). Brak pliku = na tej maszynie nie ma nasluchu tego nicka
+    (listen zaklada plik na starcie), a `_session` zalozylby go za kazde
+    `board --nick <literowka>` (weryfikacja 4258477, 2026-11-02)."""
+    if nick and session_files(HUB_ID, nick)[0].exists():
         return _session(nick)
     boot = _BootIdentity()
-    boot.path = "(none — read without a nick)"
+    boot.path = (f"(none — no session for {nick!r} on this machine)"
+                 if nick else "(none — read without a nick)")
     return boot
 
 
@@ -1153,6 +1158,16 @@ def _odczyt_albo_padnij(reply, nick, session, from_seq, naprawa=None):
             f"your session file — often your own `agentmachi node`.\n"
             f"  read as the nick you really are on this hub:\n"
             f"      {naprawa(proponowany) if naprawa else f'agentmachi read --nick {proponowany} --from-seq {from_seq}'}")
+    if not nick:
+        # Bez nicka odmawia tylko hub z tokenami (token wymaga nicka, do
+        # ktorego nalezy). Bez tej linii odmowa byla slepym zaulkiem:
+        # "invalid nick" przy nicku, ktorego nikt nie podal.
+        raise ReadRefused(
+            f"the hub REJECTED hello without a nick — nothing was read.\n"
+            f"  reason: {powod}\n"
+            f"  this hub wants a named identity: pass the nick your "
+            f"CHAT_TOKEN belongs to:\n"
+            f"      {naprawa('<nick>') if naprawa else f'agentmachi read --nick <nick> --from-seq {from_seq}'}")
     raise ReadRefused(
         f"the hub REJECTED hello for {nick!r} — nothing was read.\n"
         f"  reason: {powod}\n"

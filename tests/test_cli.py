@@ -3337,3 +3337,96 @@ def test_wzgledny_AGENTMACHI_HOME_dziecko_dostaje_jako_absolutny(
             break
         time.sleep(0.1)
     assert log.read_text().strip() == str(tmp_path / "wzgledny-home")
+
+
+def test_board_rules_przez_CLI_dochodzi_do_read_board(home, monkeypatch):
+    """`board --rules` przez parser i cmd_board, nie przez send wprost.
+
+    Test w test_send.py wola `read_board(zasady=True)` i zostawal zielony,
+    gdy cmd_board podawal `zasady=False` (weryfikacja 7faae56,
+    2026-11-02) — flaga mogla sie odpiac od wywolania bez sladu."""
+    import types
+    wolania = []
+
+    async def read_board(nick, **kw):
+        wolania.append(kw)
+
+    atrapa = types.SimpleNamespace(read_board=read_board,
+                                   SessionError=type("E", (Exception,), {}))
+    monkeypatch.setattr(cli, "_import_send", lambda: atrapa)
+    monkeypatch.setenv("CHAT_URL", "ws://localhost:1")
+    assert cli.main(["board", "--rules"]) == 0
+    assert cli.main(["board"]) == 0
+    assert [w.get("zasady") for w in wolania] == [True, False]
+
+
+def _klient_send_na_port(tmp_path, monkeypatch):
+    """Modul `send` wycelowany w wolny port testu; tryb huba wybiera test."""
+    import socket
+    import send
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    monkeypatch.delenv("CHAT_TOKEN", raising=False)
+    monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
+    monkeypatch.setattr(send, "URI", f"ws://localhost:{port}")
+    monkeypatch.setattr(send, "HUB_ID", f"localhost:{port}")
+    return send, port
+
+
+def test_board_i_read_BEZ_NICKA_na_hubie_z_tokenami_PODAJA_naprawe(
+        tmp_path, monkeypatch):
+    """Na hubie z tokenami podglad bez nicka konczyl sie "hub REJECTED hello
+    for '' — reason: invalid nick" i niczym wiecej (weryfikacja cae49ee,
+    2026-11-02). Przed cae49ee CLI mowilo "pass --nick"; po nim — slepy
+    zaulek dokladnie tam, gdzie token jest obowiazkowy."""
+    import asyncio
+    from chat.server import ChatServer
+    send, port = _klient_send_na_port(tmp_path, monkeypatch)
+    monkeypatch.setenv("CHAT_TOKEN", "tok-a")
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), port=port,
+                         tokens={"alfa": {"token": "tok-a", "role": "agent",
+                                          "groups": []}}, open_mode=False)
+        await srv.start()
+        bledy = []
+        try:
+            for wywolanie in (lambda: send.read_board(None, emit=print),
+                              lambda: send.read_frames(None, 1, emit=print)):
+                try:
+                    await wywolanie()
+                except send.ReadRefused as e:
+                    bledy.append(str(e))
+        finally:
+            await srv.stop()
+        return bledy
+
+    board, read = asyncio.run(scenario())
+    assert "agentmachi board --nick <nick>" in board, board
+    assert "agentmachi read --nick <nick> --from-seq 1" in read, read
+
+
+def test_podglad_NIE_zaklada_pliku_sesji_dla_obcego_nicka(tmp_path,
+                                                          monkeypatch):
+    """`board --nick carol` (literowka, carol nigdy nie sluchala na tej
+    maszynie) zostawial w CHAT_SESSION_DIR carol-*.json i *.lock —
+    weryfikacja 4258477, 2026-11-02. Plik sesji zaklada `listen`; podglad
+    bierze go tylko, gdy juz jest (ten sam instance_id co nasluch)."""
+    import asyncio
+    from chat.server import ChatServer
+    send, port = _klient_send_na_port(tmp_path, monkeypatch)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            await send.read_board("carol", emit=lambda _: None)
+            await send.read_frames("carol", 1, emit=lambda _: None)
+        finally:
+            await srv.stop()
+
+    asyncio.run(scenario())
+    sesje = tmp_path / "sess"
+    assert not sesje.exists() or not list(sesje.iterdir()), \
+        f"podglad zalozyl pliki sesji: {list(sesje.iterdir())}"

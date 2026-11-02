@@ -2163,9 +2163,18 @@ def _ostrzez_o_starych_skillach():
     instrukcje i nie ma jak sie o tym dowiedziec (E1 seq 292; 2026-11-02).
     `listen` przechodzi kazdy agent, `install-skills` — nikt, kto sadzi,
     ze wszystko gra. Symlinki (praca NAD agentmachi) pomija
-    `rozne_od_pakietu`."""
+    `rozne_od_pakietu`.
+
+    Pod Claude Code (`CLAUDECODE=1`) tylko skill Claude'a: inaczej stara
+    kopia skilla Codexa budzila agenta Claude'a pod `--wake` i kazala mu
+    nadpisac cudzy katalog (weryfikacja 7d92bd7, 2026-11-02). Codex nie ma
+    zmierzonego sygnalu (`CODEX_*` ustawia tu nawet plugin w Claude Code),
+    wiec poza Claude Code — oba, jak dotad."""
     from agentmachi import skills_install
-    for harness, cel in skills_install.HARNESSY.items():
+    harnessy = skills_install.HARNESSY
+    if os.environ.get("CLAUDECODE") == "1":
+        harnessy = {h: c for h, c in harnessy.items() if h == "claude"}
+    for harness, cel in harnessy.items():
         try:
             rozne = skills_install.rozne_od_pakietu(harness, Path(cel))
         except (OSError, ValueError):
