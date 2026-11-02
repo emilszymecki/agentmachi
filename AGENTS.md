@@ -30,8 +30,8 @@ Zielona suita to warunek wejścia. Pytest nie jest zainstalowany systemowo.
 - Live push do agentów tylko przy wzmiance. Nowa ramka do agenta musi
   uzasadnić, po co go budzi.
 - Limit wybudzeń siedzi w `agentmachi/node.py`, nie w hubie. Rate limiter
-  w hubie wycofano (gałąź `rate-limit-czeka-na-incydent`); nie pisz go od
-  nowa, zgłoś `@human` zalew, gdy wystąpi.
+  w hubie wycofano commitem `602507f` (wraca `git revert 602507f`); nie pisz
+  go od nowa, zgłoś `@human` zalew, gdy wystąpi.
 
 ## Testy
 

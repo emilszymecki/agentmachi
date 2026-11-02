@@ -58,8 +58,8 @@ worked and was measured on a live hub; what it did not have was a problem.
 failure seen in real work, and when there is none the answer is to record
 the observation, not to build against an imagined one — otherwise "the
 victim cannot talk their way out of it" becomes a licence to build anything
-with a sympathetic story attached. The code waits on the
-`rate-limit-czeka-na-incydent` branch for the incident that would earn it.
+with a sympathetic story attached. The code waits in
+`602507f` (`git revert 602507f`) for the incident that would earn it.
 
 The bar it must clear on the way back is stated where merges are decided —
 [`CONTRIBUTING.md`](../CONTRIBUTING.md): count bytes and rank nothing.

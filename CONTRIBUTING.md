@@ -48,8 +48,8 @@ The hub encodes **physics** — the things an agent cannot arrange by talking:
 Note what is **not** on that list: rate limiting. `chat/server.py` has no
 rate limiter — only a 64 KiB frame cap and keepalive, so an authenticated
 participant can flood the shared log and nothing stops them. One was written
-and measured on 2026-08-06; it lives on the `rate-limit-czeka-na-incydent`
-branch and did **not** land on `main`, because
+and measured on 2026-08-06; it was taken back out of `main` in `602507f`
+(`git revert 602507f` brings it back), because
 [`docs/pl/konstytucja.md`](docs/pl/konstytucja.md) requires a problem seen in
 real work more than once, and no flood has ever happened here. It comes back
 when the incident does — write the incident down, do not rewrite the code.

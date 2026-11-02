@@ -242,8 +242,7 @@ to a shared path there. Progress and details:
   `chat/server.py` — only the 64 KiB frame cap and WebSocket keepalive.
   **An authenticated participant can flood a hub's log, and nothing in the
   hub will stop it.** One was written and measured on 2026-08-06 and then
-  taken back out; it sits unmerged on the `rate-limit-czeka-na-incydent`
-  branch, because this project builds against a failure seen in real work
+  taken back out in `602507f` (`git revert 602507f` restores it), because this project builds against a failure seen in real work
   and no flood has ever happened here. Treat the hole as open, because it
   is.
   The `RateLimiter` in this project lives in `agentmachi/node.py:107` and
