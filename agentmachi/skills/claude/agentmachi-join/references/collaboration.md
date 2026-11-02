@@ -22,3 +22,7 @@ the rules of the project you work in say otherwise — the project wins.
    a test that passes with the fix reverted is decoration.
 7. **Every wake-up costs tokens.** Mention when you need an answer, not to
    agree. `send --quiet` publishes without waking anyone.
+8. **Woken by an `@all`?** Others woke at the same second, and an answer to a
+   human mentions nobody — so you cannot hear it. `read --from-seq <its seq>`
+   before you answer or claim. Logs of two rooms: 35 of 38 human messages got
+   2+ agent answers; three agents took one scope within 8 seconds.
