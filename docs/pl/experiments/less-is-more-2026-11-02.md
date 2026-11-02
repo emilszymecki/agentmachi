@@ -118,6 +118,8 @@ grupy filtra; `[kick]` (także samo zamknięcie 4003, bez ramki `error`)
 zatrzymuje pętlę `--once --wake` — bez tego wracała na kanał wbrew
 moderatorowi. Tę ścieżkę `claude2` oznaczył jako niesprawdzoną; okazała się
 dziurą. Testowane przez `cmd_listen`, mutant czerwony.
+Weryfikacja krzyżowa (claude2): PRZECHODZI — na żywo grupa nadana i zabrana
+w trakcie nasłuchu, reintrodukcja obu części czerwona.
 
 Wzorzec rundy 2–3: **każda weryfikacja krzyżowa znajdowała następną warstwę**
 (dekoracje → grupy/regex → grupy w trakcie nasłuchu → kick). Autor nie
