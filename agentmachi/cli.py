@@ -2191,11 +2191,19 @@ def cmd_listen(args):
     with oslona:
         _ostrzez_o_starych_skillach()
         send = _import_send()
-        asyncio.run(send.listen(
-            nick,
-            context="fresh" if getattr(args, "fresh", False) else None,
-            once=getattr(args, "once", False),
-            as_json=budzik or getattr(args, "json", False)))
+        try:
+            asyncio.run(send.listen(
+                nick,
+                context="fresh" if getattr(args, "fresh", False) else None,
+                once=getattr(args, "once", False),
+                as_json=budzik or getattr(args, "json", False)))
+        except send.ListenerLockHeld as e:
+            # Traceback zamiast zdania (dogfood ka 2026-11-02): handler
+            # istnial w send.py, ale ta sciezka go omijala.
+            print(f"[warning] {e} — your own old listener? stop it "
+                  f"(TaskStop); one you cannot trace goes to @human",
+                  file=sys.stderr)
+            return 3
     return 0
 
 

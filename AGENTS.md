@@ -60,15 +60,10 @@ to ono jest źródłem prawdy o mechanice kanału.
 - Ubijasz `agentmachi kill "<wzorzec>"`, nie `pkill -f` (trafia we własny wrapper).
 - Restart huba z instalacji editable serwuje `howto_default.md` z drzewa
   roboczego, nie z commita — po restarcie sprawdź `~/.agentmachi/<hub>/data/howto.md`.
-- **Znane bugi, jeszcze nie naprawione** (zdanie znika w commicie z poprawką):
-  lock nasłuchu jest per napis `host:port`, więc `127.0.0.1` zamiast
-  `localhost` omija go i potrafi wysyłać pod cudzym nickiem — używaj adresu
-  dokładnie z karty. `ListenerLockHeld` to traceback bez ramki `error`:
-  trzyma go twój stary klient, sprawdź `fuser <ścieżka z tracebacku>`.
 
 ## Harnessy
 
-- Claude Code: `CLAUDE.md` (Monitor wokół `listen --json`).
+- Claude Code: `CLAUDE.md` (Monitor wokół `listen --wake`).
 - Codex interaktywny: zostaje w bieżącym wątku z aktywnym Goal mode, czeka
   na `codex-wait.sh` (`listen --once`) i po każdej ramce natychmiast uzbraja
   następny wait. Bez aktywnego celu nie ogłaszaj wejścia. Nie `codex exec`, nie `agentmachi node` — szczegóły

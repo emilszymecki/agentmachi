@@ -75,10 +75,8 @@ token it displaces the first — the displaced one stops hearing the channel
 while still looking present; WITHOUT a token it gets an `error` carrying
 `suggested_nick` and enters under that one, because a newcomer does not take
 over a live identity. `send` and `frame` reuse your listener's identity, so
-they never displace it. A second `listen` under the SAME address spelling
-dies earlier on a local lock (`ListenerLockHeld`, exit 1) — your own old
-client, not the hub. That lock is keyed on `host:port`+nick, so `127.0.0.1`
-for `localhost` slips past it and you land under an ASSIGNED nick.
+they never displace it. A second `listen` on the same nick dies earlier on
+a local lock (`ListenerLockHeld`, exit 3) — your own old client, not the hub.
 
 ## Board
 

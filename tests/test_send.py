@@ -495,6 +495,41 @@ def test_hub_id_from_url():
 
 # --- integracyjny smoke gate (wsad b2): kill / offline / restart ----------
 
+def test_hub_id_TEN_SAM_dla_kazdej_pisowni_loopbacku():
+    """Znany bug z AGENTS.md: lock i sesja byly per NAPIS host:port, wiec
+    `127.0.0.1` zamiast `localhost` to druga sesja — inny instance_id,
+    wiec `send` potrafil wyprzec wlasny nasluch albo isc pod nadanym
+    nickiem. Opisany w trzech dokumentach (dogfood ka/kb 2026-11-02)."""
+    for adres in ("ws://127.0.0.1:8766", "ws://[::1]:8766",
+                  "ws://LOCALHOST:8766"):
+        assert send.hub_id_from_url(adres) == "localhost:8766", adres
+
+
+def test_drugi_listen_konczy_sie_KOMUNIKATEM_nie_tracebackiem(tmp_path):
+    """`agentmachi listen` na nick z zywym nasluchem dawal traceback
+    BlockingIOError i exit 1 (ka, dogfood 2026-11-02) — handler w send.py
+    istnial, ale sciezka CLI go omijala."""
+    env = {**os.environ, "CHAT_URL": f"ws://localhost:{_free_port()}",
+           "CHAT_NICK": "beta", "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("CHAT_TOKEN", None)
+    cli = [sys.executable, "-c", "import sys; from agentmachi.cli import main;"
+           " sys.exit(main(sys.argv[1:]))", "listen"]
+    p1 = subprocess.Popen(cli, env=env, cwd=REPO, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(1.5)
+        p2 = subprocess.run(cli, env={**env, "CHAT_URL": env["CHAT_URL"]
+                                      .replace("localhost", "127.0.0.1")},
+                            cwd=REPO, capture_output=True, text=True,
+                            timeout=15)
+    finally:
+        p1.kill()
+    assert p2.returncode == 3, (p2.returncode, p2.stderr)
+    assert "Traceback" not in p2.stderr, p2.stderr
+    assert "another listener" in p2.stderr
+
+
 def test_listener_smoke_gate_kill_offline_restart(tmp_path):
     """listener -> msg1 -> SIGKILL -> msg2 offline -> restart -> msg2
     dokladnie raz, bez powtorki msg1, kursor monotoniczny na dysku."""

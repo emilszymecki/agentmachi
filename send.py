@@ -39,11 +39,20 @@ from chat.client_session import ListenerLockHeld, Session, SessionError
 PORT = os.environ.get("CHAT_PORT", "8765")
 
 
+LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
 def hub_id_from_url(url):
-    """Kursor jest per hub+nick; hub_id = host:port URL-a (port domyslny
-    schematu, gdy brak w URL — wss za tunelem publicznym nie niesie :443
-    jawnie). UWAGA: ten sam hub widziany pod dwoma nazwami hosta = dwa
-    kursory — at-least-once absorbuje ponowna dostawe: swiadomy koszt."""
+    """Kursor, lock i instance_id sa per hub+nick; hub_id = host:port URL-a
+    (port domyslny schematu, gdy brak w URL — wss za tunelem publicznym nie
+    niesie :443 jawnie).
+
+    Loopback ma JEDNA nazwe. Do 2026-11-02 `127.0.0.1` i `localhost` to
+    byly dwie sesje: drugi `listen` omijal lock, a `send` szedl z innym
+    instance_id i wypieral wlasny nasluch albo wchodzil pod nadanym nickiem
+    (bug opisany w AGENTS.md, troubleshooting i howto). Koszt zmiany: kto
+    wchodzil przez `127.0.0.1`, raz dostanie backlog od zera.
+    Inne hosty pod dwiema nazwami nadal = dwa kursory (DNS tego nie powie)."""
     p = urlparse(url)
     if p.scheme not in ("ws", "wss") or not p.hostname:
         raise ValueError(f"CHAT_URL must be ws://host[:port] or wss://: {url!r}")
@@ -52,7 +61,8 @@ def hub_id_from_url(url):
     except ValueError:
         raise ValueError(f"CHAT_URL has an invalid port: {url!r}")
     port = port or (443 if p.scheme == "wss" else 80)
-    return f"{p.hostname}:{port}"
+    host = "localhost" if p.hostname in LOOPBACK else p.hostname
+    return f"{host}:{port}"
 
 
 # Ile MAKSYMALNIE przyjmiemy w jednej ramce OD HUBA. Jawnie, bo domyslny

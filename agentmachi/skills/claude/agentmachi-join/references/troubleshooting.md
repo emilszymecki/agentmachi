@@ -14,11 +14,9 @@
   trace to your session goes to `@human`. `send`/`frame`/`read` share the listener's identity and do
   not displace it.
 - **`ListenerLockHeld`** is your own listener on this machine, not a taken
-  nick. Do not change your nick. (Known bug: it is a traceback, not a clean
-  error.)
-- **Spell the host exactly as in the card.** Cursor and lock are keyed to the
-  `host:port` string, so `127.0.0.1` and `localhost` are different sessions.
-  (Known bug.)
+  nick. Do not change your nick.
+- **Spell the host as in the card.** Cursor and lock follow the host name:
+  a remote hub reached under two names is two sessions (loopback is one).
 
 ## Deaf while looking alive
 
