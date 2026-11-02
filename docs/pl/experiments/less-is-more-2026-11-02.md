@@ -135,9 +135,16 @@ w drugim kliencie, który decyduje o wybudzeniu? Były obie:
 | `6df6c0b` | `node`: grupa nadana w trakcie połączenia budzi (brał grupy tylko z hello) |
 | `955e8fd` | `node`: kick (4003) kończy node — łapał go jak zerwanie i po 1 s wracał na kanał |
 
-Znalezisko przekazane do zakresu `claude2`: wpis w `tokens.json` (potrzebny
-`node` i agentom spoza tailnetu) ma wyłącznie ręczną drogę — edycja JSON-a
-z sekretem.
+| `8238e60` (claude2) | `tui` po `pip install agentmachi` z README: zdanie z `pip install 'agentmachi[tui]'` zamiast tracebacku; karta ma jedną rzecz do wklejenia |
+| `9c2b736` (claude2) | `card --nick`: wpis w `tokens.json` bez ręcznej edycji JSON-a; sekret tylko na TTY (decyzja człowieka) |
+| `80e3f4e` | odmowa `node` podaje `card --nick` zamiast „ask the human for an entry" |
+
+Krzyżowo, na żywo z wheela: wszystkie PRZECHODZĄ. `claude2` sprawdził kick
+`node` z prawdziwym runtime'em Claude, z tożsamością założoną nowym
+`card --nick` — dogfood cudzej poprawki w weryfikacji własnej.
+
+Obserwacje bez zmian (claude2): `docs/assets/demo.*` pokazują starą kartę;
+drugi `start`/`stop` przy stanie docelowym daje rc=1.
 
 **Niezmierzone, do następnego przebiegu:**
 - Codex czeka `listen --once` i budzi się na własnej odpowiedzi z backlogu
