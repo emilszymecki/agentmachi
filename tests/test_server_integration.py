@@ -3468,3 +3468,47 @@ def test_resync_state_jest_TYM_SAMYM_co_snapshot_na_dysku(srv, tmp_path):
     assert stan_z_drutu == z_dysku, \
         "to, co hub obiecuje na drucie, nie jest tym, co zapisal na dysk"
     assert z_dysku["status_seq"]["alfa"] >= 1
+
+
+# --- workspace: gdzie pracuje agent, bez recznej deklaracji (2026-11-02) ---
+
+def test_workspace_na_boardzie_osobno_od_statusu_i_bez_logu(srv):
+    # Efemeryczne jak `connected`: zero seq, zero eventu w logu (nie budzi
+    # nikogo przy reconnect), i NIE nadpisuje deklaracji agenta w `status`.
+    async def scenario(server):
+        ws_b, reply = await hello("beta", "tb", instance="ib")
+        # nowy hub stawia klucz `workspace` przy kazdym uczestniku — po nim
+        # klient poznaje, ze wolno wyslac ramke
+        assert all("workspace" in p for p in reply["participants"])
+        await ws_b.send(json.dumps({"type": "status", "from": "beta", "ts": 0.0,
+                                    "state": "working", "subject": "X"}))
+        await asyncio.sleep(0.1)
+        przed = server.log.last_seq
+        await ws_b.send(json.dumps({"type": "workspace", "from": "beta",
+                                    "ts": 0.0, "worktree": "repo-wt-a",
+                                    "branch": "feat-a", "head": "abc1234"}))
+        await asyncio.sleep(0.1)
+        assert server.log.last_seq == przed
+        by_nick = {p["nick"]: p for p in server._participants_snapshot()}
+        assert by_nick["beta"]["workspace"] == {
+            "worktree": "repo-wt-a", "branch": "feat-a", "head": "abc1234"}
+        assert by_nick["beta"]["status"]["subject"] == "X"
+        await ws_b.close()
+    asyncio.run(srv(scenario))
+
+
+def test_workspace_odrzuca_sciezke_i_nieznane_pola(srv):
+    # Absolutna sciezka mowi o maszynie operatora wiecej, niz peer
+    # potrzebuje; nieznane pole odbite, nie po cichu zgubione.
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        for zla in ({"worktree": "/home/x/repo", "head": "abc1234"},
+                    {"worktree": "repo", "head": "xyz"},
+                    {"worktree": "repo", "head": "abc1234", "path": "/tmp"}):
+            await ws_b.send(json.dumps({"type": "workspace", "from": "beta",
+                                        "ts": 0.0, **zla}))
+            err = await recv(ws_b)
+            assert err["type"] == "error", zla
+        assert "beta" not in server.workspace
+        await ws_b.close()
+    asyncio.run(srv(scenario))

@@ -236,6 +236,7 @@ def _przytnij_pole(out, pole, wartosc, wymus=False):
 # task_expired_batch (A4). Serwer nie planuje pracy; board = state/subject/note.
 INBOUND_FRAME_TYPES = {
     "hello", "chat", "fyi", "status", "membership_set", "kick",
+    "workspace",  # efemeryczny (bez seq): gdzie pracuje klient — patrz _validate_body
 }
 OUTBOUND_FRAME_TYPES = {
     "backlog", "resync_required", "error", "ok",
@@ -376,6 +377,27 @@ def _validate_body(frame, ftype):
         if "target" in frame and (not isinstance(frame["target"], str)
                                   or not frame["target"]):
             return "status: target if given must be a non-empty string"
+        return None
+    if ftype == "workspace":
+        # Gdzie pracuje agent — fakt, ktory klient zna, a ktorego agent nie
+        # aktualizuje recznie (zmierzone 2026-11-02: cala sesja bez galezi
+        # i worktree na boardzie). Bez absolutnych sciezek: `worktree` to
+        # nazwa katalogu, nie sciezka. Brak `branch` = detached HEAD.
+        nieznane = set(frame) - {"type", "from", "ts", "worktree", "branch",
+                                 "head"}
+        if nieznane:
+            return f"workspace: unknown field(s): {', '.join(sorted(nieznane))}"
+        worktree, head = frame.get("worktree"), frame.get("head")
+        if (not isinstance(worktree, str) or not worktree
+                or len(worktree) > 100 or "/" in worktree or "\\" in worktree):
+            return "workspace: worktree required (directory name, max 100)"
+        if (not isinstance(head, str) or not 4 <= len(head) <= 40
+                or any(c not in "0123456789abcdef" for c in head)):
+            return "workspace: head required (hex commit, 4-40)"
+        if "branch" in frame and (not isinstance(frame["branch"], str)
+                                  or not frame["branch"]
+                                  or len(frame["branch"]) > 100):
+            return "workspace: branch if given must be a non-empty string (max 100)"
         return None
     if ftype == "kick":
         # B6: moderacja czlowieka. Zadnych pol poza target — powod, ban,

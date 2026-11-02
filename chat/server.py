@@ -184,6 +184,10 @@ class ChatServer:
         # `prezentacja` 2026-08-07, godzine po napisaniu `agentmachi board`:
         # status przezyl restart, wiek wrocil jako nieznany.
         self.status_seq = {}   # nick -> seq ramki status (metadana serwera)
+        # nick -> {worktree, head, branch?}: gdzie pracuje klient. EFEMERYCZNE
+        # jak `connected`: bez logu i snapshotu, bo klient wysyla je przy
+        # kazdym hello, wiec po restarcie huba wraca samo.
+        self.workspace = {}
         if snap:
             # Legacy-snapshot sanityzacja: stary snapshot (pre-B1) niesie martwe
             # task_id w status. Projektujemy KAZDY wpis tylko na dozwolone klucze,
@@ -505,6 +509,10 @@ class ChatServer:
                  # Wieku cudzej deklaracji nie da sie wyliczyc po stronie
                  # klienta — to jedyny powod, dla ktorego jest tutaj.
                  "status_seq": self.status_seq.get(nick),
+                 # Klucz obecny ZAWSZE (takze None): po nim klient poznaje,
+                 # ze hub przyjmuje ramke `workspace` — stary hub odbilby ja
+                 # bledem, a `error` budzi agenta.
+                 "workspace": self.workspace.get(nick),
                  "last_seq": ostatnia.get(nick, 0),
                  "addr": self._peer_host(nick)}
                 for nick in sorted(znani | set(self.conns))]
@@ -1369,6 +1377,14 @@ class ChatServer:
             for observer, role in list(self.roles.items()):
                 if role == "human" and observer != nick:
                     # live board dla TUI; agenci dostaja tylko backlog/preambule
+                    await self._send(observer, frame)
+        elif ftype == "workspace":
+            # Bez _append: fakt o zywym kliencie, nie zdarzenie rozmowy.
+            # Agentom nie wysylamy nic (zero wybudzen) — widza to na boardzie.
+            self.workspace[nick] = {k: frame[k] for k in
+                                    ("worktree", "branch", "head") if k in frame}
+            for observer, role in list(self.roles.items()):
+                if role == "human" and observer != nick:
                     await self._send(observer, frame)
         elif ftype == "kick":
             await self._on_kick(frame, nick, ws)

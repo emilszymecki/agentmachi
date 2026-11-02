@@ -24,6 +24,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -699,6 +700,74 @@ async def _pokaz_ostrzezenie_serwera(ws):
         # cokolwiek innego to cudzy ruch na wspolnym nicku — nie nasza sprawa
 
 
+# --- workspace: gdzie pracuje agent, bez recznej deklaracji -----------------
+#
+# Zmierzone 2026-11-02: przez cala sesje zaden agent nie mial na boardzie
+# galezi ani worktree — deklaracja reczna nie dziala, bo nikt nie ma powodu
+# jej odswiezac. Klient `listen` zyje w katalogu roboczym agenta, wiec zna
+# te fakty sam. Wysylamy je przy hello i przy kazdej zmianie.
+
+WORKSPACE_POLL = 15.0   # sekundy; git rev-parse to milisekundy, sieci zero
+
+
+def _git(*args, cwd=None):
+    try:
+        wynik = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
+                               text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return wynik.stdout.strip() if wynik.returncode == 0 else None
+
+
+def workspace_now(cwd=None):
+    """{worktree, head, branch?} albo None poza repo gita / z opt-outem.
+
+    `worktree` to NAZWA katalogu, nie sciezka — absolutna sciezka mowi
+    o maszynie operatora wiecej, niz peer potrzebuje. Detached HEAD to brak
+    `branch`, a nie napis "HEAD" — wlasnie ten stan ma byc widac."""
+    if os.environ.get("AGENTMACHI_NO_WORKSPACE"):
+        return None
+    # `listen` zna tylko SWOJ katalog. Agent pracujacy gdzie indziej (inny
+    # worktree) wskazuje go raz przy wejsciu — dalej idzie samo, lacznie ze
+    # zmiana galezi. Bez tego board mowilby nieprawde (zlapane 2026-11-02:
+    # nasluch w wt-nowy, praca w wt-board).
+    cwd = cwd or os.environ.get("AGENTMACHI_WORKSPACE") or None
+    toplevel = _git("rev-parse", "--show-toplevel", cwd=cwd)
+    head = _git("rev-parse", "--short", "HEAD", cwd=cwd)
+    if not toplevel or not head:
+        return None
+    ws = {"worktree": Path(toplevel).name, "head": head}
+    branch = _git("symbolic-ref", "--quiet", "--short", "HEAD", cwd=cwd)
+    if branch:
+        ws["branch"] = branch[:100]
+    return ws
+
+
+def _hub_przyjmuje_workspace(reply):
+    """Stary hub odbija nieznany typ ramki `error`-em, a `error` budzi
+    agenta przy kazdym hello. Nowy hub stawia klucz `workspace` przy kazdym
+    uczestniku — po nim poznajemy, ze wolno wyslac."""
+    uczestnicy = reply.get("participants") if isinstance(reply, dict) else None
+    return (isinstance(uczestnicy, list) and bool(uczestnicy)
+            and all(isinstance(u, dict) and "workspace" in u
+                    for u in uczestnicy))
+
+
+async def _wyslij_workspace(ws, nick, stan):
+    await ws.send(protocol.dumps({"type": "workspace", "from": nick,
+                                  "ts": 0.0, **stan}))
+
+
+async def _pilnuj_workspace(ws, nick, wyslany, poll=WORKSPACE_POLL):
+    """Petla zmian: wysyla tylko roznice, cisza przy braku zmian."""
+    while True:
+        await asyncio.sleep(poll)
+        teraz = workspace_now()
+        if teraz and teraz != wyslany:
+            await _wyslij_workspace(ws, nick, teraz)
+            wyslany = teraz
+
+
 async def send_once(nick, text, quiet=False):
     """quiet=True: ramka trafia do logu i do ludzi, ale NIE budzi agentow.
     Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
@@ -811,24 +880,34 @@ async def listen(nick, context=None, once=False, as_json=False):
                     fresh_pending = False
                     _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
+                    stan = (workspace_now() if _hub_przyjmuje_workspace(reply)
+                            else None)
+                    if stan:
+                        await _wyslij_workspace(ws, nick, stan)
                     if once and applied_from_hello:
                         return
-                    async for message in ws:
-                        try:
-                            data = json.loads(message)
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            _print_message(message, emit)
-                            continue
-                        applied = apply_frame(session, data, emit)
-                        seq = data.get("seq") if isinstance(data, dict) else None
-                        durable = (
-                            not isinstance(seq, bool)
-                            and isinstance(seq, int)
-                            and seq >= 1
-                            and session.last_applied_seq >= seq
-                        )
-                        if once and applied and durable:
-                            return
+                    straznik = (asyncio.create_task(
+                        _pilnuj_workspace(ws, nick, stan)) if stan else None)
+                    try:
+                        async for message in ws:
+                            try:
+                                data = json.loads(message)
+                            except (json.JSONDecodeError, UnicodeDecodeError):
+                                _print_message(message, emit)
+                                continue
+                            applied = apply_frame(session, data, emit)
+                            seq = data.get("seq") if isinstance(data, dict) else None
+                            durable = (
+                                not isinstance(seq, bool)
+                                and isinstance(seq, int)
+                                and seq >= 1
+                                and session.last_applied_seq >= seq
+                            )
+                            if once and applied and durable:
+                                return
+                    finally:
+                        if straznik:
+                            straznik.cancel()
             except websockets.exceptions.ConnectionClosed as e:
                 # B6: 4003 = wyrzucony przez czlowieka. Reconnect jest tu
                 # ODWROTNOSCIA intencji: serwer mowi "wyjdz", a klient
@@ -1272,6 +1351,12 @@ def _wypisz_board(uczestnicy, biezacy_seq):
         print(f"  {opis[0]}")
         for dalsza in opis[1:]:
             print(f"    {dalsza}" if dalsza else "")
+        gdzie = u.get("workspace")
+        if isinstance(gdzie, dict) and gdzie.get("worktree"):
+            galaz = gdzie.get("branch") or "DETACHED HEAD"
+            print("  " + bezpieczna_jedna_linia(
+                f"listener's repo: {gdzie['worktree']}  {galaz}  "
+                f"@{gdzie.get('head')}"))
     # Puste `addr` u WSZYSTKICH czyta sie jak zepsuta kolumna, a jest
     # odmowa: hub oddaje host peera tylko przy bindzie na tailnet, bo na
     # loopbacku nie rozroznia podmiotow i wolal milczec niz zmyslic
