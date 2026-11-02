@@ -3341,3 +3341,25 @@ def test_hub_startuje_w_katalogu_pokoju_a_nie_wolajacego(tmp_path, monkeypatch):
             break
         time.sleep(0.1)
     assert log.read_text().strip() == str(pokoj)
+
+
+def test_wzgledny_AGENTMACHI_HOME_dziecko_dostaje_jako_absolutny(
+        tmp_path, monkeypatch):
+    # Dziecko startuje w katalogu pokoju; wzgledny HOME rozwiazaloby wzgledem
+    # niego, nie wzgledem wolajacego.
+    import sys
+    import time
+    from agentmachi import cli
+    pokoj = tmp_path / "pokoj"
+    pokoj.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENTMACHI_HOME", "wzgledny-home")
+    log = pokoj / "serve.log"
+    cli._spawn_detached(
+        [sys.executable, "-c",
+         "import os; print(os.environ['AGENTMACHI_HOME'], flush=True)"], log)
+    for _ in range(50):
+        if log.read_text().strip():
+            break
+        time.sleep(0.1)
+    assert log.read_text().strip() == str(tmp_path / "wzgledny-home")

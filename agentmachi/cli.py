@@ -1327,10 +1327,15 @@ def _spawn_detached(argv, log_path):
     kodzie TEGO checkoutu zamiast instalacji (zmierzone 2026-11-02: restart
     z detached wt-nowy wstal na starym kodzie bez `workspace`). Przy okazji
     hub przestaje trzymac cudzy worktree jako swoj cwd."""
+    env = dict(os.environ)
+    if env.get("AGENTMACHI_HOME"):
+        # wzgledny HOME dziecko rozwiazaloby wzgledem SWOJEGO cwd (katalog
+        # pokoju) i zalozylo pokoj w zlym miejscu — kotwiczymy go tutaj
+        env["AGENTMACHI_HOME"] = str(Path(env["AGENTMACHI_HOME"]).absolute())
     with open(log_path, "a") as log:
         proc = subprocess.Popen(
             argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-            start_new_session=True, cwd=Path(log_path).parent)
+            start_new_session=True, cwd=Path(log_path).parent, env=env)
     return proc.pid
 
 
