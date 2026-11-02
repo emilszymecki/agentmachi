@@ -2979,6 +2979,29 @@ def test_nadawca_dowiaduje_sie_o_nieznanym_nicku(srv):
     asyncio.run(srv(scenario))
 
 
+def test_nieznany_nick_obok_poprawnego_NIE_mowi_ze_nikt_sie_nie_obudzil(srv):
+    """Hub pisal "so NO AGENT woke up" takze wtedy, gdy ta sama ramka
+    budzila poprawna wzmianka. W logach dwoch pokojow: 8 ramek (~8,8 tys.
+    znakow), czterech agentow — `@font-face` albo `@match` w tresci
+    technicznej, hub ogłasza, ze nikogo nie obudzil, agent wysyla ponownie
+    i zapisuje w pamieci falszywa regule (ats_create seq 695/697/1001).
+    Znalezione juz w docs/pl/audyt-paragonow-2026-09-02.md i nienaprawione."""
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        beta, _ = await hello("beta", "tb")
+        await alfa.send(json.dumps({"type": "chat", "from": "alfa", "ts": 0.0,
+                                    "text": "@beta css: @font-face"}))
+        odp = json.loads(await asyncio.wait_for(alfa.recv(), 5))
+        dostal = json.loads(await asyncio.wait_for(beta.recv(), 5))
+        assert dostal["type"] == "chat", "beta mial sie obudzic"
+        assert "font-face" in odp["text"]
+        assert "NO AGENT woke up" not in odp["text"], odp["text"]
+        assert "participants who do exist" in odp["text"], odp["text"]
+        for ws in (alfa, beta):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
 def test_ostrzezenia_mowia_co_sie_stalo_z_ramka_a_nie_tylko_co_jest_nie_tak(srv):
     """ZNALEZIONE UZYCIEM NA CUDZYM PROJEKCIE, nie czytaniem kodu.
 

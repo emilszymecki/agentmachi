@@ -769,13 +769,18 @@ class ChatServer:
             # podlaczonym czlowieku: hub mowil "nikogo" i rownoczesnie
             # dorecza1. Zlapane E2E przez agent1 (S16) na scenariuszu, ktorego
             # moj wlasny test nie mial — bo sprawdzalem tylko nadawce.
+            # Drugi raz to samo, wezej niz wystepowalo: "NO AGENT woke up"
+            # padalo takze, gdy ta sama ramka budzila poprawna wzmianke
+            # (`@beta css: @font-face`) — audyt 2026-09-02, logi ats_create.
+            # Tekst wzorowany 1:1 na galezi grupowej wyzej.
             await self._send(nick, protocol.make_frame(
                 "error", "server", time.time(),
                 text=f"unknown nick: {', '.join(nieznane_nicki)} — there is no "
-                     f"such participant, so NO AGENT woke up. The frame went "
-                     f"to the log and to connected humans as usual. "
-                     f"Who is on the channel: participants in the hello "
-                     f"reply."))
+                     f"such participant, so NO AGENT wakes up through it. This "
+                     f"is a warning, NOT a rejection: the frame is routed "
+                     f"like any other chat — into the log, to connected "
+                     f"humans, and to mentions of participants who do exist. "
+                     f"Who is on the channel: agentmachi board."))
         await self._publish_chat(frame, mentions, groups_mentioned, set(unknown_groups))
 
     # -- hello / auth --------------------------------------------------------
