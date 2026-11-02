@@ -432,6 +432,24 @@ def test_node_cmd_rejects_unknown_nick(home, monkeypatch):
     assert rc == 2
 
 
+def test_node_odmowa_podaje_NAPRAWE_ktora_dziala(home, monkeypatch, capsys):
+    """Odmowa kazala "ask the human for an entry in tokens.json" — reczna
+    edycja JSON-a z sekretem. Od 9c2b736 jest komenda; odmowa ma ja podac,
+    a podana komenda ma naprawde dodac wpis."""
+    monkeypatch.setenv("CHAT_TOKEN", "")
+    monkeypatch.setenv("CHAT_URL", "")
+    monkeypatch.setenv("CHAT_NICK", "")
+    cli.ensure_hub("alpha", 8931)
+    assert cli.main(["node", "alpha", "--nick", "nowy-agent",
+                     "--workspace", "/tmp/w"]) == 2
+    err = capsys.readouterr().err
+    naprawa = "agentmachi card --name alpha --nick nowy-agent"
+    assert naprawa in err, err
+    assert cli.main(naprawa.split()[1:]) == 0
+    tokens, _ = cli.load_tokens("alpha")
+    assert "nowy-agent" in tokens
+
+
 def test_ensure_hub_writes_howto_for_agents(tmp_path, monkeypatch):
     """F5 (B5): swiezy hub serwuje howto — agent na golym sockecie dostaje
     onboarding protokolem, bez dostepu do repo."""

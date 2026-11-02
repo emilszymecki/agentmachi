@@ -2429,8 +2429,9 @@ def cmd_node(args):
                   f"tell whose state to resume.\n"
                   f"  agent nicks on this hub: {znane}\n"
                   f"  Enter as one of them (--nick <nick>), or — if you want "
-                  f"your own name — ask the human for an entry in "
-                  f"tokens.json.\n"
+                  f"your own name — the human adds it (then restarts the "
+                  f"room):\n"
+                  f"      agentmachi card --name {args.hub} --nick {nick}\n"
                   f"  Plain LISTENING needs no entry: `agentmachi listen` "
                   f"enters in open mode, and when the nick is taken the "
                   f"client comes up under a free one by itself.",
