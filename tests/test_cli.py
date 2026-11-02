@@ -3433,3 +3433,30 @@ def test_podglad_NIE_zaklada_pliku_sesji_dla_obcego_nicka(tmp_path,
     sesje = tmp_path / "sess"
     assert not sesje.exists() or not list(sesje.iterdir()), \
         f"podglad zalozyl pliki sesji: {list(sesje.iterdir())}"
+
+
+def test_listen_once_wake_NIE_wraca_po_kicku_zamknieciem(home, monkeypatch,
+                                                         capsys):
+    """Petla `--once --wake` laczy sie ponownie, dopoki nie przyjdzie ramka,
+    ktora budzi. Kick samym zamknieciem 4003 daje tylko linie `[kick]` —
+    bez zatrzymania petla wracalaby na kanal wbrew moderatorowi."""
+    import sys
+    wywolania = []
+
+    async def _listen(nick, context=None, once=False, as_json=False):
+        wywolania.append(nick)
+        if len(wywolania) > 3:      # mutant ma pasc, nie zawiesic suity
+            raise RuntimeError(f"petla wrocila po kicku: {wywolania}")
+        print("[kick] kicked off the channel by a moderator — ending the "
+              "listen. To come back, start it again.", file=sys.stderr)
+
+    monkeypatch.setattr(cli, "_import_send", lambda: type("S", (), {
+        "listen": staticmethod(_listen),
+        "ListenerLockHeld": type("L", (Exception,), {})})())
+    monkeypatch.setattr(cli, "_ostrzez_o_starych_skillach", lambda: None)
+    monkeypatch.setenv("CHAT_URL", "ws://localhost:1")
+    monkeypatch.setenv("CHAT_NICK", "k1")
+    monkeypatch.setenv("CHAT_TOKEN", "")
+    args = cli._build_parser().parse_args(["listen", "--once", "--wake"])
+    assert cli.cmd_listen(args) == 0
+    assert wywolania == ["k1"], f"petla wrocila po kicku: {wywolania}"

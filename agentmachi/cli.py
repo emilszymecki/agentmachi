@@ -2216,7 +2216,8 @@ def cmd_listen(args):
                 # modelu (claude2: subagent budzil sie wlasna odpowiedzia).
                 # Kursor jest trwale przesuniety, wiec nastepny obieg
                 # czeka na NOWA ramke.
-                if not (budzik and raz) or licznik["ramek"] > przed:
+                if (not (budzik and raz) or licznik["ramek"] > przed
+                        or licznik["stan"].get("wyrzucony")):
                     break
                 swiezo = False
                 nick = licznik["stan"]["nick"] or nick

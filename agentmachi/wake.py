@@ -77,6 +77,11 @@ def zbuduj(nick):
             stan["awaria"] = True
             return True
         stan["awaria"] = False
+        if linia.startswith("[kick]"):
+            # Kick samym zamknieciem 4003 to TYLKO ta linia — `--once
+            # --wake` musi sie na niej zatrzymac, inaczej petla wraca na
+            # kanal wbrew moderatorowi.
+            stan["wyrzucony"] = True
         nowy = NADANY.match(linia) or PODMIENIONY.match(linia)
         if nowy:
             ustaw(nowy.group(1))
@@ -89,6 +94,11 @@ def zbuduj(nick):
         if not isinstance(ramka, dict):
             return True
         typ = ramka.get("type")
+        if (typ == "membership_set" and stan["nick"]
+                and ramka.get("target") == stan["nick"]
+                and isinstance(ramka.get("groups"), list)):
+            # Grupa nadana W TRAKCIE nasluchu (claude2, weryfikacja 47dd0eb).
+            stan["grupy"] = {g for g in ramka["groups"] if isinstance(g, str)}
         if typ == "session_metadata":
             grupy = ramka.get("groups")
             if isinstance(grupy, list):

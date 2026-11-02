@@ -921,3 +921,29 @@ def test_wake_GRUPA_budzi_a_wzmianki_licza_sie_jak_w_protokole():
         assert not d(_ramka(**{"from": "h"}, text=falszywa)), falszywa
     assert d(_ramka(**{"from": "h"}, text="hej @w1, zobacz"))
     assert d(_ramka(**{"from": "h"}, text="@all start"))
+
+
+def test_wake_grupa_NADANA_w_trakcie_nasluchu_budzi():
+    """claude2, weryfikacja 47dd0eb: grupy braly sie tylko z session_metadata,
+    wiec `membership_set` nadany w trakcie nasluchu (hub go pushuje) nie
+    zmienial filtra — `$ekipa` budzilo dopiero po ponownym hello."""
+    m = _wake_filter()
+    d = m.zbuduj("g1")
+    assert not d(_ramka(**{"from": "h"}, text="$ekipa start"))
+    d(_ramka(type="membership_set", **{"from": "human"}, target="g1",
+             groups=["ekipa"]))
+    assert d(_ramka(**{"from": "h"}, text="$ekipa start"))
+    d(_ramka(type="membership_set", **{"from": "human"}, target="inny",
+             groups=[]))
+    assert d(_ramka(**{"from": "h"}, text="$ekipa dalej")), "cudzy target"
+
+
+def test_wake_KICK_zamknieciem_konczy_czekanie_once():
+    """Kick moze przyjsc samym zamknieciem 4003 — wtedy `[kick]` to
+    diagnostyka, nie ramka. `--once --wake` liczy ramki, wiec bez tej flagi
+    petla polaczylaby sie ponownie: obejscie kicka moderatora."""
+    m = _wake_filter()
+    d = m.zbuduj("k1")
+    assert not d.stan.get("wyrzucony")
+    assert d("[kick] kicked off the channel by a moderator — ending the listen")
+    assert d.stan["wyrzucony"]
