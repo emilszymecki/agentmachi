@@ -2979,6 +2979,29 @@ def test_nadawca_dowiaduje_sie_o_nieznanym_nicku(srv):
     asyncio.run(srv(scenario))
 
 
+def test_ostrzezenie_o_wzmiance_idzie_do_GNIAZDA_nadawcy_nie_do_nasluchu(srv):
+    """`send` dzieli tozsamosc z nasluchem, wiec ostrzezenie "unknown
+    nick/group" szlo do OBU gniazd nicka: `send` je wypisywal, a nasluch pod
+    --wake budzil agenta drugi raz o tym samym. Zmierzone 2026-11-02 dwa
+    razy (kb: `@7d92bd7`, opus: `$grupa`). Kazdy inny blad huba idzie do
+    gniazda, ktore wyslalo ramke (`_error(ws, ...)`) — te dwa byly wyjatkiem
+    z rozpedu, nie z decyzji."""
+    async def scenario(server):
+        nasluch, _ = await hello("alfa", "ta", instance="i1")
+        nadawca, _ = await hello("alfa", "ta", instance="i1")
+        await nadawca.send(json.dumps({"type": "chat", "from": "alfa",
+                                       "ts": 0.0,
+                                       "text": "@nikt-taki $upiory hej"}))
+        odp = json.loads(await asyncio.wait_for(nadawca.recv(), 5))
+        assert odp["type"] == "error", odp
+        with pytest.raises(asyncio.TimeoutError):
+            zbedne = await asyncio.wait_for(nasluch.recv(), 0.5)
+            raise AssertionError(f"nasluch dostal ostrzezenie: {zbedne}")
+        for ws in (nasluch, nadawca):
+            await ws.close()
+    asyncio.run(srv(scenario))
+
+
 def test_nieznany_nick_obok_poprawnego_NIE_mowi_ze_nikt_sie_nie_obudzil(srv):
     """Hub pisal "so NO AGENT woke up" takze wtedy, gdy ta sama ramka
     budzila poprawna wzmianka. W logach dwoch pokojow: 8 ramek (~8,8 tys.

@@ -689,7 +689,7 @@ class ChatServer:
         for nick in targets:
             await self._send(nick, event)
 
-    async def _handle_chat(self, frame, nick):
+    async def _handle_chat(self, frame, nick, ws):
         text = frame.get("text", "")
         mentions = protocol.parse_mentions(text)
         groups_mentioned = protocol.parse_groups(text)
@@ -753,15 +753,19 @@ class ChatServer:
             # zniknelo: warunki liczymy nadal tutaj, ale SAME RAMKI wychodza
             # ponizej, po zapisie. Tekst zostaje bez zmian, bo regula jest
             # prawdziwa tak samo po zapisie jak przed nim.
-            await self._send(nick, protocol.make_frame(
-                "error", "server", time.time(),
-                text=f"unknown group: {', '.join(unknown_groups)} — no "
+            # Do GNIAZDA nadawcy (`_error(ws, ...)` jak kazdy inny blad),
+            # nie do wszystkich gniazd nicka: `send` dzieli tozsamosc
+            # z nasluchem, ktory pod --wake budzil agenta drugi raz o tym
+            # samym (2026-11-02: kb `@7d92bd7`, opus `$grupa`).
+            await self._error(
+                ws,
+                f"unknown group: {', '.join(unknown_groups)} — no "
                      f"participant has that group, so NO AGENT wakes up "
                      f"through it. This is a warning, NOT a rejection: the "
                      f"frame is routed like any other chat — into the log, to "
                      f"connected humans, and to mentions of participants who "
                      f"do exist. A group exists only where a human or $admin "
-                     f"made one (membership_set); a new room has none."))
+                     f"made one (membership_set); a new room has none.")
         if nieznane_nicki:
             # "zaden AGENT", nie "nikt". Ludzie dostaja kazdy chat niezaleznie
             # od wzmianek (_publish_chat dokłada wszystkie podlaczone role
@@ -773,14 +777,14 @@ class ChatServer:
             # padalo takze, gdy ta sama ramka budzila poprawna wzmianke
             # (`@beta css: @font-face`) — audyt 2026-09-02, logi ats_create.
             # Tekst wzorowany 1:1 na galezi grupowej wyzej.
-            await self._send(nick, protocol.make_frame(
-                "error", "server", time.time(),
-                text=f"unknown nick: {', '.join(nieznane_nicki)} — there is no "
+            await self._error(
+                ws,
+                f"unknown nick: {', '.join(nieznane_nicki)} — there is no "
                      f"such participant, so NO AGENT wakes up through it. This "
                      f"is a warning, NOT a rejection: the frame is routed "
                      f"like any other chat — into the log, to connected "
                      f"humans, and to mentions of participants who do exist. "
-                     f"Who is on the channel: agentmachi board."))
+                     f"Who is on the channel: agentmachi board.")
         await self._publish_chat(frame, mentions, groups_mentioned, set(unknown_groups))
 
     # -- hello / auth --------------------------------------------------------
@@ -1362,7 +1366,7 @@ class ChatServer:
             frame.pop(field, None)
         frame["from"] = nick  # tozsamosc z hello, nie z ramki (pole autorytatywne)
         if ftype == "chat":
-            await self._handle_chat(frame, nick)
+            await self._handle_chat(frame, nick, ws)
         elif ftype == "fyi":
             # PUBLIKACJA, NIE ZAWOLANIE: do logu i do ludzi, ale nie budzi
             # zadnego agenta. Typ istnieje od planu B1, tylko nie byl nigdzie
