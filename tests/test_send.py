@@ -662,6 +662,26 @@ def test_listen_ktory_NIGDY_sie_nie_polaczyl_podejrzewa_ADRES(tmp_path):
     assert err.count("never connected") == 1, "podpowiedz raz, nie co probe"
 
 
+def test_listen_wake_ubity_SIGTERM_mowi_LISTENER_ENDED(tmp_path):
+    """Regresja cf98cdb, zlapana na sciezce z wheela (poligon 2026-11-02):
+    filtr jako osobny proces widzial EOF przy KAZDEJ smierci nasluchu
+    i meldowal koniec; filtr w procesie ginal razem z nim przy SIGTERM
+    (`timeout`, `agentmachi kill`) — bez slowa na stdout."""
+    env = {**os.environ, "CHAT_URL": f"ws://localhost:{_free_port()}",
+           "CHAT_NICK": "beta", "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("CHAT_TOKEN", None)
+    p = subprocess.Popen(
+        [sys.executable, "-c", "import sys; from agentmachi.cli import main;"
+         " sys.exit(main(sys.argv[1:]))", "listen", "--wake"],
+        env=env, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True)
+    time.sleep(1.5)
+    p.send_signal(signal.SIGTERM)
+    out = p.communicate(timeout=10)[0]
+    assert "LISTENER ENDED" in out, out
+
+
 def test_second_listener_rejected_lock(tmp_path):
     """Dokladnie jeden listener per hub+nick: drugi proces exit code 3."""
     port = _free_port()  # hub nie musi zyc — lock lapiemy przed connect

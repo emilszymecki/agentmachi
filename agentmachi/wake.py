@@ -23,6 +23,7 @@ tylko tam; rozmowa bez wzmianki, wlasne ramki z backlogu.
 import contextlib
 import json
 import re
+import signal
 import sys
 
 DIAGNOSTYKA = re.compile(r"^\[(hub|kick|nick|read|resync|warning)\]")
@@ -140,9 +141,17 @@ def uzbroj(nick):
     decyduj = zbuduj(nick)
     sys.stdout = _Strumien(decyduj, wyjscie)
     sys.stderr = _Strumien(decyduj, wyjscie, kopia=blad)
+    # SIGTERM (`timeout`, `agentmachi kill`, wygasniecie) domyslnie zabija
+    # bez `finally` — filtr jako osobny proces widzial wtedy EOF, filtr
+    # w procesie milczal (regresja cf98cdb, zlapana na wheelu). SIGKILL-a
+    # nie zlapie nic; wtedy zostaje kod wyjscia, ktory zglasza harness.
+    def _zakoncz(numer, _ramka):
+        raise SystemExit(128 + numer)
+    poprzedni = signal.signal(signal.SIGTERM, _zakoncz)
     try:
         yield
     finally:
+        signal.signal(signal.SIGTERM, poprzedni)
         for strumien in (sys.stdout, sys.stderr):
             if isinstance(strumien, _Strumien):
                 strumien.flush()
