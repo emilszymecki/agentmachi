@@ -4,6 +4,89 @@ Format: tematycznie, nie commit po commicie. Każdy wpis opisuje ZMIANĘ
 ZACHOWANIA, którą widzi użytkownik albo agent — nie refaktor, który jej nie
 zmienia.
 
+## 0.5.0 — 2026-11-03
+
+Zakres: `8bbf299..HEAD` (po wydaniu 0.4.0), 50 commitów. Większość z badania
+„less is more" 2026-11-02 — tarcie zmierzone w logach dwóch pokojów,
+w dogfoodzie subagentów i w weryfikacji krzyżowej dwóch sesji Claude Code
+oraz Codeksa: [`docs/pl/experiments/less-is-more-2026-11-02.md`](docs/pl/experiments/less-is-more-2026-11-02.md).
+
+### ZMIANA ŁAMIĄCA: nasłuch pod Claude Code to `listen --wake`
+
+`agentmachi/skills/claude/agentmachi-join/scripts/wake_filter.py` **usunięty**.
+Kto ma gdziekolwiek ręcznie wklejony potok
+
+    agentmachi listen --json 2>&1 | python3 -u <skill>/scripts/wake_filter.py <nick>
+
+po `install-skills --force` zostaje bez skryptu. Zamiennik, bez potoku:
+
+    CHAT_URL=ws://<host>:<port> CHAT_NICK=<nick> agentmachi listen --wake
+
+`integrate_project.py` tego potoku nie wpisywał — dotyczy tylko kopii
+zrobionych ręcznie (np. w `CLAUDE.md` innego repo).
+
+### Nasłuch (`listen`)
+
+- `--wake`: stdout to wyłącznie to, co ma obudzić agenta (wzmianka, `@all`,
+  `$grupa`, kick/takeover/error, diagnostyka) i `LISTENER ENDED` na końcu —
+  także przy SIGTERM. Wzmianki liczone tą samą funkcją co w hubie; grupa
+  nadana w trakcie nasłuchu budzi; nick nadany przez hub przejmowany sam.
+- martwy hub budzi dwa razy (`[reconnect]` i `[hub] back on the channel`),
+  nie co 30 s (~120 wybudzeń na godzinę),
+- połączenie, które nie udało się ani razu, podpowiada zły adres i źródło
+  (`agentmachi card`),
+- `--once --wake` wraca dopiero na ramce, która budzi — nie na własnej
+  odpowiedzi i nie na rozmowie bez wzmianki; nie wraca po kicku. Sposób
+  czekania dla subagenta, który nie może zakończyć tury,
+- ostrzeżenie `[warning]`, gdy zainstalowany skill różni się od paczki,
+- `localhost`, `127.0.0.1` i `::1` to jedna sesja (lock, kursor,
+  `instance_id`). Kto wchodził przez `127.0.0.1`, raz dostanie backlog od
+  zera,
+- drugi `listen` na tym samym nicku: zdanie i rc=3, nie traceback,
+- `listen` sam podaje na board worktree i gałąź.
+
+### Podgląd: `board` i `read`
+
+- podgląd nie zostawia śladu w pokoju (`hello` z `peek`): literówka w
+  `--nick` nie tworzy już uczestnika-ducha, który gasił ostrzeżenie
+  „unknown nick", a patrzenie nie przesuwa końca logu,
+- działają bez nicka; na hubie z tokenami odmowa podaje naprawę,
+- `board --rules`: zasady pokoju i howto huba — pod `--wake` jedyna droga
+  do nich (wcześniej agent Claude nie widział `rules.md` pokoju wcale).
+
+### Hub
+
+- ostrzeżenie „unknown nick" nie twierdzi, że nikt się nie obudził, gdy
+  obok była poprawna wzmianka,
+- ostrzeżenia o wzmiance idą do gniazda nadawcy, nie do nasłuchu tego
+  samego nicka (nie budzą drugi raz),
+- nieznany klucz w `status` odbity błędem, nie zgubiony po cichu; pusta
+  ramka `workspace` odwołuje wpis.
+
+### `node`
+
+- grupa nadana w trakcie połączenia budzi,
+- kick kończy node — wcześniej wracał na kanał po sekundzie,
+- odmowa nieznanego nicka podaje `agentmachi card --nick`.
+
+### Człowiek / operator
+
+- `card --name <pokój> --nick <nick>`: wpis w `tokens.json` bez ręcznej
+  edycji JSON-a; sekret drukowany tylko na terminalu,
+- `tui` bez extra mówi `pip install 'agentmachi[tui]'` zamiast tracebacku;
+  karta ma jedną rzecz do wklejenia agentowi,
+- `start`/`restart`: hub startuje w katalogu pokoju; względny
+  `AGENTMACHI_HOME` kotwiczony przed startem.
+
+### Skille
+
+- wejście odchudzone (claude-code 19,7 → 3,5 kB, troubleshooting 15,1 →
+  3,0 kB, skill operatora 9,4 → 3,8 kB); `CLAUDE.md` importuje `AGENTS.md`,
+  `integrate_project.py` wpisuje kontrakt do `AGENTS.md`,
+- playbook: `@all` — krótka odpowiedź: duplikat tańszy niż zapobieganie;
+  dłuższa praca: deklaracja i niższy `seq` (zmierzone),
+- wygasanie Monitora (30 min) opisane z naprawą: uzbrój ponownie.
+
 ## 0.4.0 — 2026-09-03
 
 Zakres: `v0.2.0..HEAD`, 469 commitów.
