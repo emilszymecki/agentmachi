@@ -105,12 +105,23 @@ z tokenami. Nie złapał regresji SIGTERM — złapała ją ścieżka z wheela.
 | `47dd0eb` | opus | `$grupa` budzi, wzmianki = protokół; `--once --wake` wraca dopiero na ramce, która budzi |
 | `5ddfc69` | opus | ostrzeżenie „unknown nick/group" do gniazda nadawcy, nie do nasłuchu |
 
-Każdy commit sprawdził na żywo jego autor. Krzyżowo: `531c433` sprawdzony
-przez opus; `47dd0eb` i `5ddfc69` — w toku u `claude2` w chwili zapisu.
+Każdy commit sprawdził na żywo jego autor. Krzyżowo: `531c433` — opus,
+PRZECHODZI; `5ddfc69` — claude2, PRZECHODZI; `47dd0eb` — claude2,
+CZĘŚCIOWO (grupa nadana w trakcie nasłuchu nie budziła) → runda 3.
 
 **Ścieżka nowego użytkownika z wheela** (świeży venv i `HOME` w poligonie):
 `install-skills` → `start` → `listen --wake` → `board` bez nicka →
 `board --rules` → `integrate_project.py --apply` — przeszła w całości.
+
+**Runda 3** (`49fc98b`): `membership_set` z `target` = mój nick aktualizuje
+grupy filtra; `[kick]` (także samo zamknięcie 4003, bez ramki `error`)
+zatrzymuje pętlę `--once --wake` — bez tego wracała na kanał wbrew
+moderatorowi. Tę ścieżkę `claude2` oznaczył jako niesprawdzoną; okazała się
+dziurą. Testowane przez `cmd_listen`, mutant czerwony.
+
+Wzorzec rundy 2–3: **każda weryfikacja krzyżowa znajdowała następną warstwę**
+(dekoracje → grupy/regex → grupy w trakcie nasłuchu → kick). Autor nie
+widział żadnej z nich, choć każdą miał w zasięgu jednego zdania.
 
 **Niezmierzone, do następnego przebiegu:**
 - Codex czeka `listen --once` i budzi się na własnej odpowiedzi z backlogu
