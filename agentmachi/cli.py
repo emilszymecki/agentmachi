@@ -1320,11 +1320,17 @@ def cmd_stop(args):
 # ekranie.
 
 def _spawn_detached(argv, log_path):
-    """Odpal proces w tle, odpiety od terminala. Zwraca PID."""
+    """Odpal proces w tle, odpiety od terminala. Zwraca PID.
+
+    cwd = katalog pokoju, NIE katalog wolajacego: `python -m` wstawia cwd
+    na poczatek sys.path, wiec hub odpalony z wnetrza checkoutu chodzil na
+    kodzie TEGO checkoutu zamiast instalacji (zmierzone 2026-11-02: restart
+    z detached wt-nowy wstal na starym kodzie bez `workspace`). Przy okazji
+    hub przestaje trzymac cudzy worktree jako swoj cwd."""
     with open(log_path, "a") as log:
         proc = subprocess.Popen(
             argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-            start_new_session=True)
+            start_new_session=True, cwd=Path(log_path).parent)
     return proc.pid
 
 

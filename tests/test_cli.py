@@ -3318,3 +3318,26 @@ def test_all_podsumowuje_TAKZE_gdy_nie_bylo_co_robic(argumenty, slowo,
     wyjscie = capsys.readouterr().out
     assert slowo in wyjscie and "failed 0" in wyjscie, \
         f"brak kategorycznego podsumowania przy zerze celow: {wyjscie!r}"
+
+
+def test_hub_startuje_w_katalogu_pokoju_a_nie_wolajacego(tmp_path, monkeypatch):
+    # `python -m` stawia cwd na poczatku sys.path: hub odpalony z wnetrza
+    # checkoutu importowal kod checkoutu zamiast instalacji (2026-11-02).
+    import subprocess
+    import sys
+    import time
+    from agentmachi import cli
+    pokoj = tmp_path / "pokoj"
+    pokoj.mkdir()
+    gdzie_indziej = tmp_path / "checkout"
+    gdzie_indziej.mkdir()
+    monkeypatch.chdir(gdzie_indziej)
+    log = pokoj / "serve.log"
+    pid = cli._spawn_detached(
+        [sys.executable, "-c", "import os; print(os.getcwd(), flush=True)"],
+        log)
+    for _ in range(50):
+        if log.read_text().strip():
+            break
+        time.sleep(0.1)
+    assert log.read_text().strip() == str(pokoj)
