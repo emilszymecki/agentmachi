@@ -479,6 +479,14 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
                 continue
             if not isinstance(frame, dict):
                 continue  # defensywnie ignoruj nieznane/nie-obiektowe ramki
+            if (frame.get("type") == "membership_set"
+                    and frame.get("target") == nick
+                    and isinstance(frame.get("groups"), list)):
+                # Grupy z hello sa stanem z chwili wejscia. Hub pushuje
+                # zmiane na zywo — bez tego `$nowa` nie dawala sygnalu az do
+                # przypadkowego reconnectu (ta sama dziura co w `listen
+                # --wake`, claude2 2026-11-02).
+                groups = [g for g in frame["groups"] if isinstance(g, str)]
             if _should_wake(frame, nick, groups, state.last_wake_seq):
                 # SYGNAL, nie kontekst: zamknij i wroc do node_loop, ktore
                 # natychmiast reconnectuje (celowy powrot — nie wyjatek).

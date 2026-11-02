@@ -758,3 +758,39 @@ def test_wake_nie_wstrzykuje_kultury_agentmachi(tmp_path, srv):
     zakazane = ["zadeklaruj", "nizszy seq", "[koniec]", "obowiazuja rules"]
     trafienia = [s for s in zakazane if s in niski]
     assert not trafienia, f"wake wstrzykuje ustroj agentmachi: {trafienia}"
+
+
+def test_node_budzi_sie_na_GRUPE_nadana_w_trakcie_polaczenia(tmp_path, srv):
+    """Grupy node bral wylacznie z odpowiedzi na hello. Hub pushuje
+    `membership_set` na zywo, ale node go nie stosowal — wiec `$ekipa`
+    nadana w trakcie polaczenia nie dawala sygnalu i wzmianka czekala na
+    przypadkowy reconnect. Ta sama dziura, ktora claude2 znalazl 2026-11-02
+    w filtrze `listen --wake` (weryfikacja 47dd0eb)."""
+    from agentmachi.node import node_loop
+
+    async def run(server):
+        state_path = tmp_path / "node-state.json"
+        prompts = tmp_path / "prompts.txt"
+        rt = RecordingRuntime(prompts)
+        node = asyncio.ensure_future(node_loop(
+            url=f"ws://localhost:{PORT}", nick="beta", token="tb",
+            state_path=state_path, runtime=rt, humans={"emil"}))
+        await asyncio.sleep(0.3)  # node w live-loopie z grupami z hello
+        emil, _ = await hello("emil", "te", role="human")
+        await emil.send(json.dumps({"type": "membership_set", "from": "emil",
+                                    "ts": 0.0, "target": "beta",
+                                    "groups": ["ekipa"]}))
+        await asyncio.sleep(0.3)
+        await emil.send(json.dumps({"type": "chat", "from": "emil", "ts": 0.0,
+                                    "text": "$ekipa zrob taska"}))
+        try:
+            await _wait_for(lambda: prompts.exists(), timeout=3.0)
+        finally:
+            node.cancel()
+            try:
+                await node
+            except asyncio.CancelledError:
+                pass
+            await emil.close()
+        assert "$ekipa zrob taska" in prompts.read_text()
+    asyncio.run(srv(run))
