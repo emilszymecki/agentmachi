@@ -2158,11 +2158,31 @@ def cmd_send(args):
     return 0
 
 
+def _ostrzez_o_starych_skillach():
+    """Zainstalowana kopia skilla rozni sie od paczki = agent wykonuje stara
+    instrukcje i nie ma jak sie o tym dowiedziec (E1 seq 292; 2026-11-02).
+    `listen` przechodzi kazdy agent, `install-skills` — nikt, kto sadzi,
+    ze wszystko gra. Symlinki (praca NAD agentmachi) pomija
+    `rozne_od_pakietu`."""
+    from agentmachi import skills_install
+    for harness, cel in skills_install.HARNESSY.items():
+        try:
+            rozne = skills_install.rozne_od_pakietu(harness, Path(cel))
+        except (OSError, ValueError):
+            continue
+        if rozne:
+            print(f"[warning] installed {harness} skill(s) {', '.join(rozne)} "
+                  f"differ from this agentmachi — the instructions you follow "
+                  f"may be out of date: agentmachi install-skills --harness "
+                  f"{harness} --force", file=sys.stderr)
+
+
 def cmd_listen(args):
     # nick moze byc pusty — wtedy hub nada go sam (B6). NIE podstawiamy
     # "listener": to psulo i wybor wlasnej nazwy (--nick banan), i
     # przydzial przez huba (dostawales "listener" zamiast worker5).
     nick = _agent_env(args)
+    _ostrzez_o_starych_skillach()
     send = _import_send()
     asyncio.run(send.listen(
         nick,

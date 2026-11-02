@@ -205,3 +205,33 @@ def test_kolizja_z_force_nie_konczy_sie_samym_done(tmp_path, capsys):
 
     assert rc == 0
     assert "COLLISION" not in out
+
+
+def test_listen_OSTRZEGA_gdy_zainstalowany_skill_jest_stary(tmp_path,
+                                                           monkeypatch,
+                                                           capsys):
+    """Poprawka skilla w repo nie dociera do agenta, ktory je stara kopie
+    — a nikt tego nie widzi. Zmierzone dwa razy: E1 seq 292 ("Dzisiejsza
+    lata NIE DOCIERA DO NIKOGO") i 2026-11-02 (~/.claude/skills rozjechane
+    z paczka o SKILL.md, wake_filter i claude-code.md). `install-skills`
+    to wykrywa, ale nikt go nie odpala, kiedy sadzi, ze wszystko gra.
+    `listen` przechodzi kazdy agent — tam ostrzezenie trafi zawsze."""
+    from agentmachi import cli
+
+    stary = tmp_path / "claude"
+    skills_install.zainstaluj("claude", stary)
+    (stary / "agentmachi-join" / "SKILL.md").write_text("stara wersja\n")
+    swiezy = tmp_path / "codex"
+    skills_install.zainstaluj("codex", swiezy)
+    monkeypatch.setattr(skills_install, "HARNESSY",
+                        {"claude": stary, "codex": swiezy})
+
+    cli._ostrzez_o_starych_skillach()
+    err = capsys.readouterr().err
+    assert err.startswith("[warning]"), "wake_filter budzi na [warning]"
+    assert "agentmachi-join" in err and "--harness claude --force" in err
+    assert "codex" not in err, "zgodna kopia nie ma prawa halasowac"
+
+    skills_install.zainstaluj("claude", stary, nadpisz=True)
+    cli._ostrzez_o_starych_skillach()
+    assert capsys.readouterr().err == ""
