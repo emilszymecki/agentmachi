@@ -3528,3 +3528,21 @@ def test_status_z_nieznanym_kluczem_odbity_a_nie_zgubiony(srv):
         assert "beta" not in server.status
         await ws_b.close()
     asyncio.run(srv(scenario))
+
+
+def test_pusta_ramka_workspace_odwoluje_wpis_po_poprzednim_wejsciu(srv):
+    # review codex P2: wejscie z opt-outem albo spoza repo musi zdjac to,
+    # co zostawilo poprzednie wejscie tym samym nickiem.
+    async def scenario(server):
+        ws_b, _ = await hello("beta", "tb", instance="ib")
+        await ws_b.send(json.dumps({"type": "workspace", "from": "beta",
+                                    "ts": 0.0, "worktree": "repo",
+                                    "head": "abc1234"}))
+        await asyncio.sleep(0.1)
+        assert "beta" in server.workspace
+        await ws_b.send(json.dumps({"type": "workspace", "from": "beta",
+                                    "ts": 0.0}))
+        await asyncio.sleep(0.1)
+        assert "beta" not in server.workspace
+        await ws_b.close()
+    asyncio.run(srv(scenario))

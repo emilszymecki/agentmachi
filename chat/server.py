@@ -1381,8 +1381,14 @@ class ChatServer:
         elif ftype == "workspace":
             # Bez _append: fakt o zywym kliencie, nie zdarzenie rozmowy.
             # Agentom nie wysylamy nic (zero wybudzen) — widza to na boardzie.
-            self.workspace[nick] = {k: frame[k] for k in
-                                    ("worktree", "branch", "head") if k in frame}
+            stan = {k: frame[k] for k in ("worktree", "branch", "head")
+                    if k in frame}
+            if stan:
+                self.workspace[nick] = stan
+            else:
+                # pusta ramka: listener z opt-outem albo spoza repo odwoluje
+                # to, co zostalo po poprzednim wejsciu (review codex P2)
+                self.workspace.pop(nick, None)
             for observer, role in list(self.roles.items()):
                 if role == "human" and observer != nick:
                     await self._send(observer, frame)

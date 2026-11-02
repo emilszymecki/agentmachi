@@ -736,11 +736,18 @@ def workspace_now(cwd=None):
     head = _git("rev-parse", "--short", "HEAD", cwd=cwd)
     if not toplevel or not head:
         return None
-    ws = {"worktree": Path(toplevel).name, "head": head}
+    ws = {"worktree": _przytnij(Path(toplevel).name), "head": head}
     branch = _git("symbolic-ref", "--quiet", "--short", "HEAD", cwd=cwd)
     if branch:
-        ws["branch"] = branch[:100]
+        ws["branch"] = _przytnij(branch)
     return ws
+
+
+def _przytnij(napis, sufit=100):
+    """Do kontraktu protokolu (max 100), z WIDOCZNYM ucieciem — inaczej
+    legalny katalog o dlugiej nazwie dawalby ramke, ktora hub odbija
+    przy kazdym hello (review codex P2)."""
+    return napis if len(napis) <= sufit else napis[:sufit - 1] + "\u2026"
 
 
 def _hub_przyjmuje_workspace(reply):
@@ -763,8 +770,8 @@ async def _pilnuj_workspace(ws, nick, wyslany, poll=WORKSPACE_POLL):
     while True:
         await asyncio.sleep(poll)
         teraz = workspace_now()
-        if teraz and teraz != wyslany:
-            await _wyslij_workspace(ws, nick, teraz)
+        if teraz != wyslany:
+            await _wyslij_workspace(ws, nick, teraz or {})
             wyslany = teraz
 
 
@@ -880,14 +887,18 @@ async def listen(nick, context=None, once=False, as_json=False):
                     fresh_pending = False
                     _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
-                    stan = (workspace_now() if _hub_przyjmuje_workspace(reply)
-                            else None)
-                    if stan:
-                        await _wyslij_workspace(ws, nick, stan)
+                    stan = None
+                    if _hub_przyjmuje_workspace(reply):
+                        stan = workspace_now()
+                        # None tez idzie (jako pusta ramka): odwoluje wpis
+                        # po poprzednim wejsciu tym samym nickiem. Robi to
+                        # WYLACZNIE listen — read/board nie wysylaja nic.
+                        await _wyslij_workspace(ws, nick, stan or {})
                     if once and applied_from_hello:
                         return
                     straznik = (asyncio.create_task(
-                        _pilnuj_workspace(ws, nick, stan)) if stan else None)
+                        _pilnuj_workspace(ws, nick, stan))
+                        if _hub_przyjmuje_workspace(reply) else None)
                     try:
                         async for message in ws:
                             try:

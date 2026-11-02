@@ -56,3 +56,16 @@ def test_stary_hub_bez_klucza_workspace_nie_dostaje_ramki():
     nowy = {"participants": [{"nick": "a", "workspace": None}]}
     assert not send._hub_przyjmuje_workspace(stary)
     assert send._hub_przyjmuje_workspace(nowy)
+
+
+def test_dluga_nazwa_katalogu_przycieta_widocznie_i_zgodna_z_protokolem(
+        tmp_path, monkeypatch):
+    # review codex P2: legalny katalog 101 znakow dawal ramke odbijana
+    # przez wlasny protokol przy kazdym hello.
+    from chat import protocol
+    monkeypatch.delenv("AGENTMACHI_NO_WORKSPACE", raising=False)
+    d = _repo(tmp_path, "k" * 101)
+    ws = send.workspace_now(cwd=d)
+    assert len(ws["worktree"]) == 100 and ws["worktree"].endswith("…")
+    ramka = {"type": "workspace", "from": "a", "ts": 0.0, **ws}
+    assert protocol.validate(ramka) is None

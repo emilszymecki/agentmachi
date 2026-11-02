@@ -396,6 +396,8 @@ def _validate_body(frame, ftype):
                                  "head"}
         if nieznane:
             return f"workspace: unknown field(s): {', '.join(sorted(nieznane))}"
+        if not set(frame) - {"type", "from", "ts"}:
+            return None   # pusta ramka = listener odwoluje swoj workspace
         worktree, head = frame.get("worktree"), frame.get("head")
         if (not isinstance(worktree, str) or not worktree
                 or len(worktree) > 100 or "/" in worktree or "\\" in worktree):
