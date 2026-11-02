@@ -2046,20 +2046,23 @@ def test_board_oddaje_roster_z_surowymi_polami(tmp_path, monkeypatch):
             session = send._session("beta")
             async with websockets.connect(f"ws://localhost:{port}") as ws:
                 await _wejdz(ws, "beta", session.instance_id)
-                await ws.send(json.dumps({
-                    "type": "status", "from": "beta", "ts": 0.0,
-                    "state": "working", "subject": "board"}))
-                await _czekaj_na_seq(srv, 2)
                 for i in range(2):
                     await ws.send(json.dumps({"type": "chat", "from": "beta",
                                               "ts": 0.0, "text": f"r{i}"}))
+                await _czekaj_na_seq(srv, 3)
+                ostatnia_beta = srv.log.last_seq
+                # status PO rozmowie: przesuwa koniec logu, a nie last_seq
+                # bety — inaczej oba pola bylyby rowne i test by ich nie
+                # rozroznil
+                await ws.send(json.dumps({
+                    "type": "status", "from": "beta", "ts": 0.0,
+                    "state": "working", "subject": "board"}))
                 await _czekaj_na_seq(srv, 4)
                 # POLOWA PIERWSZA: na zywym sockecie nie ma boardu. Wlasny
                 # status tez nie wraca (echo tlumione po nicku), wiec agent
                 # po wejsciu nie ma zadnego zrodla tych pol.
                 with pytest.raises(asyncio.TimeoutError):
                     await asyncio.wait_for(ws.recv(), 0.4)
-                ostatnia_beta = srv.log.last_seq
                 # POLOWA DRUGA: `board` je oddaje, obok zywego nasluchu.
                 zebrane = []
                 ile = await send.read_board("beta", as_json=True,
@@ -2079,9 +2082,8 @@ def test_board_oddaje_roster_z_surowymi_polami(tmp_path, monkeypatch):
     # `last_seq` uczestnika to jego WLASNA ostatnia ramka, a nie koniec logu
     # — i ta roznica jest calym sensem tego pola: mowi, jak dawno ktos sie
     # odezwal, mierzone w zyciu kanalu. Rowne beda tylko wtedy, gdy ostatnia
-    # ramka na hubie nalezy do tej osoby. Tu nie naleza: samo hello `board`
-    # dopisuje event (mutacja tozsamosci jest trwala), wiec koniec logu jest
-    # o jeden dalej niz ostatnia ramka bety.
+    # ramka na hubie nalezy do tej osoby. Tu nie naleza: po rozmowie bety
+    # jest jeszcze jej status, wiec koniec logu jest o jeden dalej.
     assert wpis["last_seq"] == ostatnia_beta, \
         f"last_seq ma byc seq OSTATNIEJ ramki nadawcy: {wpis!r}"
     assert board["current_seq"] > wpis["last_seq"], \
@@ -2089,6 +2091,62 @@ def test_board_oddaje_roster_z_surowymi_polami(tmp_path, monkeypatch):
     assert wpis["status"] == {"state": "working", "subject": "board"}
     assert isinstance(wpis["status_seq"], int), \
         "bez status_seq board klamie zamiast milczec"
+
+
+def test_board_i_read_NIE_dopisuja_patrzacego_do_pokoju(tmp_path, monkeypatch):
+    """Patrzenie nie zmienia pokoju.
+
+    Bug zmierzony na zywym hubie: `board --nick carol` (carol nie istniala)
+    pokazal `carol connected=yes` i carol zostala w rejestrze na stale —
+    a potem `send "@carol"` nie dostawal juz ostrzezenia "unknown nick".
+    Literowka w nicku przy SAMYM PODGLADZIE gasila straznik literowek.
+    Kazde wywolanie dopisywalo tez event do logu, wiec samo patrzenie
+    postarzalo kazdy status na boardzie."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    _klient_na_hub(tmp_path, monkeypatch, port)
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "alfa", "ia")
+                await ws.send(json.dumps({"type": "chat", "from": "alfa",
+                                          "ts": 0.0, "text": "r0"}))
+                await _czekaj_na_seq(srv, 2)
+                przed = srv.log.last_seq
+                zebrane = []
+                await send.read_board("duch", as_json=True,
+                                      emit=zebrane.append)
+                await send.read_frames("upior", 1, emit=lambda _: None)
+                await asyncio.sleep(0.1)
+                return (przed, srv.log.last_seq, zebrane[0],
+                        set(srv.registry.roles),
+                        set(srv.conns))
+        finally:
+            await srv.stop()
+
+    przed, po, board, znani, polaczeni = asyncio.run(scenario())
+    nicki = {u["nick"] for u in board["participants"]}
+    assert "duch" not in nicki, f"board wpisal patrzacego: {nicki}"
+    assert not {"duch", "upior"} & znani, \
+        f"podglad zostawil nick-ducha w rejestrze: {znani}"
+    assert po == przed, f"podglad dopisal {po - przed} event(y) do logu"
+    assert polaczeni <= {"alfa"}, f"podglad wisi jako polaczony: {polaczeni}"
+    assert board["current_seq"] == przed
+
+
+def test_podglad_na_starym_hubie_OSTRZEGA_ze_wpisal(capsys):
+    """Hub sprzed `peek` ignoruje pole i robi pelne wejscie — po cichu.
+    Klient poznaje to po braku echa `peek` i mowi o tym, zamiast udawac,
+    ze podglad nie zostawil sladu. Na nowym hubie: cisza."""
+    send._ostrzez_gdy_hub_wpisal({"type": "ok", "last_seq": 3}, "duch")
+    assert "REGISTERED `duch`" in capsys.readouterr().err
+    send._ostrzez_gdy_hub_wpisal({"type": "ok", "peek": True}, "duch")
+    send._ostrzez_gdy_hub_wpisal({"type": "error", "text": "x"}, "duch")
+    assert capsys.readouterr().err == ""
 
 
 def test_board_NIE_wypiera_zywego_nasluchu(tmp_path, monkeypatch):

@@ -322,6 +322,11 @@ def validate(frame):
         ctx = frame.get("context")
         if ctx is not None and ctx not in ("full", "fresh"):
             return "context must be 'full' or 'fresh'"
+        # `peek` = podglad bez sladu (board/read). Nie-bool odrzucony, nie
+        # potraktowany jak False: klient, ktory prosil o podglad i dostal
+        # pelne wejscie, zostawilby w pokoju nick-ducha nie wiedzac o tym.
+        if "peek" in frame and not isinstance(frame["peek"], bool):
+            return "peek must be true or false"
     # wspolne: from niepusty string, ts liczba SKONCZONA (bool wykluczony)
     if "from" not in frame:
         # B6: hello w trybie otwartym moze NIE niesc nicka — agent prosi

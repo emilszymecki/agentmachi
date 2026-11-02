@@ -806,6 +806,63 @@ class ChatServer:
         return value
 
     # -- handler -----------------------------------------------------------
+    def _orientacja(self):
+        """rules/howto/participants — czesc odpowiedzi na hello, ktora nie
+        zalezy od kursora. Wspolna dla wejscia i podgladu (`peek`)."""
+        extra = {}
+        rules_text, rules_hash = self._load_rules()
+        if rules_text is not None:
+            extra["rules"] = rules_text
+            extra["rules_hash"] = rules_hash
+        howto_text = self._load_howto()
+        if howto_text is not None:
+            extra["howto"] = howto_text
+        # (t2 review + B4 agent-first) roster musi byc cursor-coherent
+        # i JAWNY dla kazdego uczestnika: czlowiek renderuje z niego TUI,
+        # agent czyta board ("kto tu jest, kto co robi") — starsze ramki
+        # status leza przed oknem kontekstu agenta, wiec snapshot w hello
+        # to jedyne zrodlo pelnego stanu. Live push do agentow pozostaje
+        # wylacznie wzmiankowy — to jest odpowiedz na hello, nie budzenie.
+        extra["participants"] = self._participants_snapshot()
+        return extra
+
+    async def _odpowiedz_podgladem(self, ws, nick, role, groups, last_seq,
+                                   generation):
+        """Hello `peek`: ta sama odpowiedz, ZERO sladu w pokoju.
+
+        `board` i `read` pytaja "kto tu jest" / "co jest w logu". Pelne
+        hello dopisywalo patrzacego do rejestru na stale (literowka w
+        `--nick` tworzyla nick-ducha, ktory gasil ostrzezenie "unknown
+        nick"), wpinalo go do `conns` (board pokazywal pytajacego jako
+        connected) i dopisywalo event do logu (patrzenie postarzalo kazdy
+        status). Tu: auth przeszedl na klonie, klon idzie do kosza, nic
+        nie trafia na dysk, socket nie wchodzi do `conns`, odpowiedz i koniec.
+
+        Stan wysylany przy resync to stan ZYWY, etykietowany `last_seq` logu —
+        durable-first gwarantuje, ze zywy stan to dokladnie stan po ostatnim
+        evencie, wiec etykieta jest prawdziwa bez pisania snapshotu."""
+        backlog = self.log.events_after(last_seq)
+        koniec = self.log.last_seq
+        # `peek=True` w odpowiedzi to POTWIERDZENIE: hub sprzed tej zmiany
+        # ignoruje pole i robi pelne wejscie, a klient bez echa nie odrozni
+        # podgladu od wejscia — patrz send._ostrzez_gdy_hub_wpisal.
+        wspolne = dict(nick=nick, generation=generation, role=role,
+                       groups=list(groups), peek=True, **self._orientacja())
+        if backlog is None:
+            reply = protocol.make_frame(
+                "resync_required", "server", time.time(),
+                snapshot_seq=koniec, state=self._stan_trwaly(),
+                conversation=[protocol.clamp_frame(e)
+                              for e in self.log.conversation_after(last_seq)],
+                **wspolne)
+        else:
+            reply = protocol.make_frame(
+                "ok", "server", time.time(),
+                backlog=[protocol.clamp_frame(e) for e in backlog
+                         if e.get("type") != "hello"],
+                last_seq=koniec, **wspolne)
+        await ws.send(protocol.dumps(reply))
+
     async def _handler(self, ws):
         nick = None
         try:
@@ -998,6 +1055,13 @@ class ChatServer:
             # ocenia to, co klient PRZYSLAL, a nie to, co mu podstawiamy.
             if frame.get("context") == "fresh":
                 last_seq = self.log.last_seq
+            if frame.get("peek") is True:
+                # Podglad: auth przeszedl na klonie, ktory tu porzucamy.
+                # Generacja ZYWA (old_gen), nie podbita na klonie.
+                await self._odpowiedz_podgladem(ws, nick, role, groups,
+                                                last_seq, old_gen)
+                nick = None   # finally nie ma czego wypinac z conns
+                return
             backlog = self.log.events_after(last_seq)
             # niezmiennik A + (Runda 7) DURABLE-FIRST: mutacja tozsamosci jest
             # TRWALA PRZED live-swapem i JAKIMKOLWIEK side-effectem. Durable
@@ -1072,21 +1136,7 @@ class ChatServer:
             self.conns.setdefault(nick, set()).add(ws)
             self.roles[nick] = role
             self.groups[nick] = set(groups)
-            rules_text, rules_hash = self._load_rules()
-            extra = {}
-            if rules_text is not None:
-                extra["rules"] = rules_text
-                extra["rules_hash"] = rules_hash
-            howto_text = self._load_howto()
-            if howto_text is not None:
-                extra["howto"] = howto_text
-            # (t2 review + B4 agent-first) roster musi byc cursor-coherent
-            # i JAWNY dla kazdego uczestnika: czlowiek renderuje z niego TUI,
-            # agent czyta board ("kto tu jest, kto co robi") — starsze ramki
-            # status leza przed oknem kontekstu agenta, wiec snapshot w hello
-            # to jedyne zrodlo pelnego stanu. Live push do agentow pozostaje
-            # wylacznie wzmiankowy — to jest odpowiedz na hello, nie budzenie.
-            extra["participants"] = self._participants_snapshot()
+            extra = self._orientacja()
             if backlog is None:
                 # niezmiennik B: resync spojny — snapshot_seq zwracany
                 # klientowi musi etykietowac DOKLADNIE ten state, ktory

@@ -105,7 +105,7 @@ class _BootIdentity:
 
 
 async def do_hello(ws, nick, session, token, role=None, context=None,
-                   return_errors=False):
+                   return_errors=False, peek=False):
     """`return_errors=True`: odmowa WRACA ramka zamiast konczyc proces.
 
     Domyslne zachowanie (print + sys.exit(1)) jest dobre dla wysylki
@@ -122,6 +122,8 @@ async def do_hello(ws, nick, session, token, role=None, context=None,
         "role": role or os.environ.get("CHAT_ROLE", "agent")}
     if context:
         hello["context"] = context   # "fresh" = wejscie bez historii rozmowy
+    if peek:
+        hello["peek"] = True         # podglad: hub odpowiada, nic nie zapisuje
     if nick:
         hello["from"] = nick         # bez nicka hub nada go sam (B6)
     if token:
@@ -1055,6 +1057,20 @@ def _koniec_logu_z_odmowy(reply):
     return int(dopasowanie.group(1)) if dopasowanie else None
 
 
+def _ostrzez_gdy_hub_wpisal(reply, nick):
+    """Hub bez `peek` w odpowiedzi zrobil PELNE wejscie, nie podglad.
+
+    Taki hub (sprzed podgladu) dopisal `nick` do pokoju na stale: literowka
+    w `--nick` zostaje tam jako duch i gasi ostrzezenie "unknown nick". Nie
+    da sie tego cofnac z klienta — mozna tylko nie milczec."""
+    if (isinstance(reply, dict) and reply.get("type") in ("ok",
+            "resync_required") and reply.get("peek") is not True):
+        print(f"[warn] this hub predates read-only peek: looking just "
+              f"REGISTERED `{nick}` as a participant. A mistyped nick now "
+              f"stays in the room. Fix: restart the hub on a current "
+              f"agentmachi.", file=sys.stderr)
+
+
 def _odczyt_albo_padnij(reply, nick, session, from_seq, naprawa=None):
     """Fail-closed dla ODCZYTU, gdy hub odmowil hello. Zwraca None albo rzuca.
 
@@ -1150,8 +1166,9 @@ async def read_frames(nick, from_seq, only_seq=None, emit=None):
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         reply = await do_hello(ws, nick,
                                _ReadIdentity(session, from_seq - 1), token,
-                               return_errors=True)
+                               return_errors=True, peek=True)
         _odczyt_albo_padnij(reply, nick, session, from_seq)
+        _ostrzez_gdy_hub_wpisal(reply, nick)
         if reply["type"] == "resync_required":
             # Legalna sciezka, nie awaria — ale wynik jest WEZSZY niz
             # pytanie i agent musi to uslyszec, inaczej uzna niepelna
@@ -1387,25 +1404,20 @@ async def read_board(nick, as_json=False, emit=None):
     Agent moze wiec zobaczyc, kto jest na kanale, wylacznie wchodzac od nowa
     — okolo 5k tokenow za rzecz, o ktora nie da sie zapytac.
 
-    Zero zmian w serwerze i zero w protokole: `chat/server.py`
-    `_participants_snapshot` liczy te pola od B5, a hello je odsyla. To jest
-    komenda, ktora POKAZUJE dane juz wysylane.
+    Pola liczy `chat/server.py` `_participants_snapshot` (od B5), a hello
+    je odsyla — ta komenda je POKAZUJE.
 
     Trzy rzeczy, ktorych ta droga nie robi — kontrakt wspolny z `read_frames`:
     - NIE bierze listener-locka (ma dzialac OBOK zywego `listen`),
     - NIE rusza kursora sesji (zero `advance`),
-    - NIE bumpuje generacji (instance_id z pliku sesji).
-
-    Czego ta droga NIE obiecuje, a co latwo jej przypisac: board jest
-    read-only wobec TWOJEJ SESJI, a nie wobec logu huba. Kazde hello dopisuje
-    trwaly event (mutacja tozsamosci), wiec samo pytanie "kto tu jest"
-    przesuwa koniec logu o jeden. Zmierzone w review f880849 na zywym pokoju:
-    dwa wywolania pod rzad oddaly `current_seq` 266 i 267. Nikogo to nie budzi
-    (hub nie klade `hello` na drut) i kompakcja te ramki usuwa, ale WIEK
-    deklaracji liczy sie w ramkach — wiec odpytywanie boardu w petli samo
-    postarza kazdy status na nim. Chcesz sledzic zmiany: patrz na
-    `status_seq`, ktory stoi w miejscu, a nie na wiek, ktory rosnie od
-    twojego wlasnego patrzenia.
+    - NIE zostawia sladu w pokoju: hello idzie z `peek` (serwer:
+      `_odpowiedz_podgladem`) — zero eventu w logu, zero wpisu w rejestrze,
+      zero gniazda w `conns`. Wczesniej pelne hello dopisywalo patrzacego na
+      stale: literowka w `--nick` zostawala w pokoju jako duch i gasila
+      ostrzezenie "unknown nick", a kazde wywolanie przesuwalo koniec logu
+      (review f880849: `current_seq` 266, potem 267), postarzajac kazdy
+      status od samego patrzenia. Hub sprzed `peek` nadal tak robi —
+      `_ostrzez_gdy_hub_wpisal` mowi o tym na stderr.
 
     Kursor w hello to STALE 0, a nie kursor sesji, i to nie jest skrot:
     `context="fresh"` kaze serwerowi policzyc backlog od konca logu, wiec
@@ -1417,9 +1429,11 @@ async def read_board(nick, as_json=False, emit=None):
     session = _session(nick)          # tylko zrodlo tozsamosci — zero zapisu
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         reply = await do_hello(ws, nick, _ReadIdentity(session, 0), token,
-                               context="fresh", return_errors=True)
+                               context="fresh", return_errors=True,
+                               peek=True)
         _odczyt_albo_padnij(reply, nick, session, 1,
                             naprawa=lambda n: f"agentmachi board --nick {n}")
+        _ostrzez_gdy_hub_wpisal(reply, nick)
         uczestnicy = reply.get("participants")
         biezacy_seq = (reply.get("last_seq") if reply.get("type") == "ok"
                        else reply.get("snapshot_seq"))
