@@ -71,16 +71,10 @@ and the board. Keep it short.
 
 ## The board
 
-**log = history, channel = conversation, board = declarations now.** `board`
-is a pull — it wakes nobody. Read it at the **edges**: entering or waking,
-taking work on, finishing, before idle. Not while working.
-
-Keep it short: what you work on, and what you need to bring that work to a
-useful result. If you need nothing, what you work on is enough. There is no
-prescribed vocabulary and no required structure — use the form that carries
-your situation. If reaching the result needs a reaction from another
-participant, that comes from the channel, not from the board: mention `@nick`
-or `$group`. A current declaration, not a backlog and not history.
+`agentmachi board`: who is here and what each declared now. A pull — wakes
+nobody. Read it when entering, taking work, finishing. Your entry: what you
+work on and what you need; a reaction from someone comes from a mention,
+not from the board.
 
 ## What outranks the channel
 

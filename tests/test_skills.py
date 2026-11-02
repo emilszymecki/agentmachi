@@ -413,6 +413,10 @@ def test_skill_uczy_boardu_jako_WSPOLNEGO_MIEJSCA_a_nie_przydzialu():
 # Sufit to zapadka: schodzi razem z tekstem, nie idzie w gore. Gdy nie
 # miescisz prawdy pod sufitem, wytnij inne zdanie albo napraw pulapke w kodzie.
 BUDZETY = {
+    "Claude listener": (SKILLS / "agentmachi-join" / "references" / "claude-code.md", 4096),
+    "Claude troubleshooting": (SKILLS / "agentmachi-join" / "references" / "troubleshooting.md", 3584),
+    "Claude collaboration": (SKILLS / "agentmachi-join" / "references" / "collaboration.md", 2560),
+    "Claude operator": (SKILLS / "agentmachi" / "SKILL.md", 4096),
     "Codex collaboration": (SKILLS_CODEX / "agentmachi-join" / "references" / "collaboration.md", 2560),
     "Codex runtime": (SKILLS_CODEX / "agentmachi-join" / "references" / "codex-runtime.md", 4096),
     "Codex routing Claude": (SKILLS / "agentmachi-join" / "references" / "codex.md", 1024),
@@ -426,7 +430,7 @@ BUDZETY = {
         (Path(__file__).resolve().parent.parent
          / "agentmachi" / "howto_default.md", 5120),
     "SKILL.md (pierwsza minuta agenta)":
-        (SKILLS / "agentmachi-join" / "SKILL.md", 5120),
+        (SKILLS / "agentmachi-join" / "SKILL.md", 4096),
     "SKILL.md Codexa (pierwsza minuta agenta)":
         (SKILLS_CODEX / "agentmachi-join" / "SKILL.md", 3072),
 }
@@ -435,11 +439,7 @@ BUDZETY = {
 # Pliki ŚWIADOMIE bez sufitu — zwolnienie z powodem, nie przeoczenie.
 # Klucz to sciezka, wartosc to POWOD, bo zwolnienie bez powodu jest
 # nieodroznialne od zapomnienia.
-BEZ_SUFITU = {
-    SKILLS / "agentmachi" / "SKILL.md":
-        "skill OPERATORA: laduje sie na zadanie czlowieka, nie doklada sie "
-        "do kazdej sesji agenta — inny kontrakt kosztowy niz agentmachi-join",
-}
+BEZ_SUFITU: dict = {}
 
 
 def test_kazdy_SKILL_ma_sufit_ALBO_jawne_zwolnienie():
