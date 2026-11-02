@@ -814,6 +814,10 @@ async def listen(nick, context=None, once=False, as_json=False):
     if session:
         session.acquire_listener_lock()
     backoff = BACKOFF_START
+    # Proby od ostatniego udanego hello. Filtr wybudzen budzi na PIERWSZE
+    # `[reconnect]` i polyka kolejne (inaczej martwy hub = ~120 wybudzen na
+    # godzine), wiec o KONCU awarii agent dowiaduje sie tylko z `[hub] back`.
+    proby = 0
     try:
         while True:
             try:
@@ -889,6 +893,11 @@ async def listen(nick, context=None, once=False, as_json=False):
                     fresh_pending = False
                     _warn_if_taken_over(reply, nick)
                     backoff = BACKOFF_START
+                    if proby:
+                        print(f"[hub] back on the channel after {proby} "
+                              f"reconnect attempt(s); what you missed comes "
+                              f"as backlog", file=sys.stderr)
+                        proby = 0
                     stan = None
                     if _hub_przyjmuje_workspace(reply):
                         stan = workspace_now()
@@ -936,6 +945,7 @@ async def listen(nick, context=None, once=False, as_json=False):
                 print(f"[reconnect] connection dropped ({e}); retrying in "
                       f"{backoff:.0f}s from cursor "
                       f"{session.last_applied_seq if session else 0}", file=sys.stderr)
+                proby += 1
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)
             except OSError as e:
@@ -945,6 +955,7 @@ async def listen(nick, context=None, once=False, as_json=False):
                 print(f"[reconnect] connection dropped ({e}); retrying in "
                       f"{backoff:.0f}s from cursor "
                       f"{session.last_applied_seq if session else 0}", file=sys.stderr)
+                proby += 1
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, BACKOFF_MAX)
     finally:

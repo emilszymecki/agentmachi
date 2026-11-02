@@ -563,6 +563,45 @@ def test_listener_smoke_gate_kill_offline_restart(tmp_path):
     asyncio.run(scenario())
 
 
+def test_listener_melduje_POWROT_huba_po_zerwaniu(tmp_path):
+    """Filtr wybudzen budzi raz na awarie i polyka kolejne `[reconnect]`.
+    Agent musi sie wiec dowiedziec, ze awaria MINELA — inaczej po jednym
+    "zerwane" siedzi przekonany, ze jest gluchy."""
+    from chat.server import ChatServer
+
+    port = _free_port()
+    env = {**os.environ, "CHAT_PORT": str(port), "CHAT_NICK": "beta",
+           "CHAT_SESSION_DIR": str(tmp_path / "sess"),
+           "PYTHONUNBUFFERED": "1"}
+    env.pop("CHAT_TOKEN", None)
+    env.pop("CHAT_URL", None)
+    listener = subprocess.Popen(
+        [sys.executable, str(REPO / "send.py"), "--listen"],
+        env=env, cwd=REPO, stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, text=True)
+
+    async def scenario():
+        await asyncio.sleep(2.5)          # hub martwy: >= 2 proby
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={},
+                         port=port)
+        await srv.start()
+        try:
+            await asyncio.sleep(5.0)      # backoff 4 s + hello
+        finally:
+            listener.terminate()
+            listener.wait(timeout=5)
+            await srv.stop()
+
+    try:
+        asyncio.run(scenario())
+        err = listener.stderr.read()
+    finally:
+        if listener.poll() is None:
+            listener.kill()
+    assert err.count("[reconnect]") >= 2, err
+    assert "[hub] back on the channel" in err, err
+
+
 def test_second_listener_rejected_lock(tmp_path):
     """Dokladnie jeden listener per hub+nick: drugi proces exit code 3."""
     port = _free_port()  # hub nie musi zyc — lock lapiemy przed connect

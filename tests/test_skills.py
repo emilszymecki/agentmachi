@@ -792,6 +792,22 @@ def test_wake_filter_budzi_na_DIAGNOSTYCE_klienta_bo_cisza_nie_jest_sukcesem():
         assert _przepuszcza(m, linia), f"filtr przespalby awarie: {linia!r}"
 
 
+def test_wake_filter_budzi_RAZ_na_awarie_a_nie_co_30_sekund():
+    """Martwy hub: `listen` melduje `[reconnect]` co 30 s (backoff do
+    BACKOFF_MAX), czyli ~120 wybudzen na godzine — kazde to pelna tura
+    agenta, ktora nic nie wnosi. Pierwsze budzi (agent ma wiedziec), kolejne
+    nie. Dowolna inna linia (powrot huba, ramka) konczy awarie, wiec
+    NASTEPNA awaria znow budzi."""
+    m = _wake_filter()
+    decyduj = m.zbuduj("agent_opus")
+    zerwanie = "[reconnect] connection dropped; retrying in 30s from cursor 7"
+    assert decyduj(zerwanie), "pierwsze zerwanie ma obudzic"
+    assert not any(decyduj(zerwanie) for _ in range(5)), \
+        "powtorki tej samej awarii budza agenta na nic"
+    assert decyduj("[hub] back on the channel after 6 reconnect attempt(s)")
+    assert decyduj(zerwanie), "nowa awaria po powrocie ma znow obudzic"
+
+
 def test_wake_filter_budzi_na_KICKU_bo_serwer_zrobil_z_niego_JEDYNY_wyjatek():
     """Zmierzone na zywym pokoju `poligon` 2026-08-13.
 

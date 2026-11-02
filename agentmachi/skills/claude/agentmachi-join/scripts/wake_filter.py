@@ -128,11 +128,21 @@ def zbuduj(nick, peer=None):
     # wiec wzorzec dotyczy juz tylko tresci.
     licz = re.compile(rf"^\s*(?:\d+\s*@{re.escape(nick)}"
                       rf"|@{re.escape(nick)}\s+\d+)\s*$") if peer else None
+    # Martwy hub = `[reconnect]` co 30 s, czyli ~120 wybudzen na godzine.
+    # Budzi PIERWSZE; kolejne az do dowolnej innej linii (`[hub] back`,
+    # ramka) sa ta sama awaria.
+    awaria = [False]
 
     def decyduj(linia):
         linia = linia.rstrip("\n")
         if not linia.strip():
             return False
+        if linia.startswith("[reconnect]"):
+            if awaria[0]:
+                return False
+            awaria[0] = True
+            return True
+        awaria[0] = False
         if DIAGNOSTYKA.match(linia):
             return True
         if RAMKA_CZYTELNA.match(linia):
