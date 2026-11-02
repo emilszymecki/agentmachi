@@ -236,10 +236,12 @@ def test_ANTYPRZYKLAD_w_bloku_jest_oznaczony_W_BLOKU():
     # gdyby ktos wstawil do howto blok, jeden straznik by go zobaczyl, a drugi
     # nie, i nikt by nie wiedzial dlaczego.
     sprawdzone = 0
+    bloki = 0
     for sciezka in sorted([*SKILLS.rglob("*.md"), *SKILLS_CODEX.rglob("*.md"),
                            Path(__file__).resolve().parent.parent
                            / "agentmachi" / "howto_default.md"]):
         for blok in _bloki_kodu(sciezka.read_text()):
+            bloki += 1
             for linia in blok.splitlines():
                 for forma, powod in zepsute.items():
                     if forma not in linia:
@@ -250,9 +252,10 @@ def test_ANTYPRZYKLAD_w_bloku_jest_oznaczony_W_BLOKU():
                         f"bez znacznika W TEJ LINII ({powod}). Proza obok "
                         f"bloku nie wystarcza — kopiuje sie blok:\n  {linia}")
 
-    assert sprawdzone >= 2, (
-        f"antyprzyklad `grep -m1` zniknal ze skilli ({sprawdzone} trafien) — "
-        f"albo go usunieto, albo test przestal patrzec tam, gdzie mysli")
+    # Kontraktem jest znacznik przy antyprzykladzie w bloku, nie obecnosc
+    # antyprzykladu: skill bez gotowca do skopiowania jest bezpieczniejszy.
+    # Sprawdzamy tylko, ze test w ogole widzi bloki kodu.
+    assert bloki >= 10, f"test widzi tylko {bloki} blokow kodu — patrzy nie tam"
 
 
 def test_wartosci_frontmattera_nie_udaja_zagniezdzonego_mapowania():
