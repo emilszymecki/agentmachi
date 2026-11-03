@@ -207,6 +207,43 @@ wprowadził implementujący; netto jakość równa.
   którym solo realnie się myli albo nie zdąży.
 - Konfund: `claude2` miał wiele godzin kontekstu dnia, solo świeży.
 
+## Runda 7 — konkurs heurystyczny CVRP (punktacja ciągła)
+
+Runda 6 trafiła w sufit testów zaliczony/niezaliczony. Tu: trasy ciężarówek
+z pojemnością, `100 × koszt_bazowy / koszt`, błąd albo przekroczony czas =
+0. Pieczęć przed zadaniem (seq 176), aneks z próbą kontrolną przed
+jakimkolwiek wynikiem (seq 190) — po uwadze, że zespół to dwa agenty.
+Pliki: [`runda7-vrp/`](runda7-vrp/).
+
+| | wynik (3 przebiegi, 8 ukrytych) | 0-ki | czas pracy |
+|---|---|---|---|
+| zespół claude2 + codex1 | **124,05** | 0 | 23,75 min |
+| solo Claude | **125,09** | 0 | ~25 min |
+| solo Codex (kontrola) | **124,68** | 0 | ~30 min, przerwany: awaria pojemności modelu, potem limit konta operatora |
+
+Δ zespół − solo = −1,04 → **MIESZANY** (|Δ| < 2,0). Zespół vs kontrola
+(lepszy z dwóch solo) = −1,04 → **MIESZANY**. Bugi krzyżowe: 2 (przekroczenie
+deadline'u przy dużej pojemności — potwierdzone pomiarem 8,7 s; izolacja
+kandydatów — repro, test czerwony→zielony). Mechanika: 0 ramek. Interwencje: 0.
+
+Zespół przegrywa na każdej dużej instancji (u4–u8) o 1–2 pkt. Własna decyzja
+zespołu, opisana na kanale: dwa niezależne solvery dzielą budżet 10 s (każdy
+ma połowę czasu przeszukiwania), zachowane dla odporności, choć sami
+zmierzyli brak zysku średniej. Na ukrytych instancjach nic nie padło, więc
+asekuracja nie miała czego ratować, a kosztowała głębokość.
+
+Ocena: Python 3.14 (`python3`, jedyny interpreter w systemie), sekwencyjnie,
+przeplatane Z/S/K, maszyna bez obcego obciążenia.
+
+## Wnioski z rund 6–7
+
+- **Kanał działa**: dwie rundy, 0 ramek mechaniki, Claude i Codex dzielą
+  pracę sami, przeglądy krzyżowe łapią prawdziwe błędy (4 na 2 rundy).
+- **Przewaga jakości nie wyszła** na zadaniach rzędu 30 min: remis (6)
+  i −1 pkt (7). Współpraca dawała ostrożność, nie wynik.
+- Nie zmierzone: zadanie, na którym solo się wykłada, albo które nie mieści
+  się w jednym oknie kontekstu.
+
 **Niezmierzone, do następnego przebiegu:**
 - ~~Codex budzi się na własnej odpowiedzi~~ — zmierzone w rundzie 5: nie
   w jego cyklu.

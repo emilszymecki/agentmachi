@@ -1,0 +1,91 @@
+Python 3.14.4
+=== przebieg 1: vrp (01:31:36)
+u1.json                                   149.71  ok  8.5s
+u2.json                                   105.00  ok  8.5s
+u3.json                                   120.13  ok  8.5s
+u4.json                                   123.93  ok  8.5s
+u5.json                                   133.63  ok  8.5s
+u6.json                                   115.14  ok  8.5s
+u7.json                                   127.41  ok  8.6s
+u8.json                                   115.75  ok  8.6s
+SREDNIA 123.84
+=== przebieg 1: vrp-solo (01:32:44)
+u1.json                                   149.71  ok  8.5s
+u2.json                                   105.11  ok  8.5s
+u3.json                                   120.18  ok  8.5s
+u4.json                                   125.56  ok  8.5s
+u5.json                                   135.63  ok  8.5s
+u6.json                                   117.08  ok  8.5s
+u7.json                                   129.25  ok  8.5s
+u8.json                                   117.59  ok  8.5s
+SREDNIA 125.01
+=== przebieg 1: vrp-codex-solo (01:33:53)
+u1.json                                   149.71  ok  9.2s
+u2.json                                   105.09  ok  9.2s
+u3.json                                   120.40  ok  9.2s
+u4.json                                   125.25  ok  9.2s
+u5.json                                   135.07  ok  9.2s
+u6.json                                   116.40  ok  9.2s
+u7.json                                   129.62  ok  9.3s
+u8.json                                   115.90  ok  9.2s
+SREDNIA 124.68
+=== przebieg 2: vrp (01:35:06)
+u1.json                                   149.71  ok  8.5s
+u2.json                                   105.04  ok  8.5s
+u3.json                                   120.13  ok  8.5s
+u4.json                                   123.93  ok  8.5s
+u5.json                                   133.78  ok  8.5s
+u6.json                                   115.70  ok  8.5s
+u7.json                                   128.83  ok  8.6s
+u8.json                                   116.01  ok  8.6s
+SREDNIA 124.14
+=== przebieg 2: vrp-solo (01:36:15)
+u1.json                                   149.71  ok  8.5s
+u2.json                                   105.09  ok  8.5s
+u3.json                                   120.17  ok  8.5s
+u4.json                                   125.66  ok  8.5s
+u5.json                                   135.15  ok  8.5s
+u6.json                                   116.89  ok  8.5s
+u7.json                                   131.18  ok  8.5s
+u8.json                                   117.61  ok  8.5s
+SREDNIA 125.18
+=== przebieg 2: vrp-codex-solo (01:37:23)
+u1.json                                   149.71  ok  9.2s
+u2.json                                   105.09  ok  9.2s
+u3.json                                   120.40  ok  9.2s
+u4.json                                   125.24  ok  9.2s
+u5.json                                   135.07  ok  9.2s
+u6.json                                   116.40  ok  9.2s
+u7.json                                   129.62  ok  9.2s
+u8.json                                   115.90  ok  9.2s
+SREDNIA 124.68
+=== przebieg 3: vrp (01:38:37)
+u1.json                                   149.71  ok  8.5s
+u2.json                                   105.00  ok  8.5s
+u3.json                                   120.13  ok  8.5s
+u4.json                                   123.93  ok  8.5s
+u5.json                                   134.00  ok  8.5s
+u6.json                                   115.76  ok  8.5s
+u7.json                                   128.81  ok  8.5s
+u8.json                                   116.14  ok  8.5s
+SREDNIA 124.18
+=== przebieg 3: vrp-solo (01:39:45)
+u1.json                                   149.71  ok  8.5s
+u2.json                                   105.09  ok  8.5s
+u3.json                                   120.13  ok  8.5s
+u4.json                                   123.87  ok  8.5s
+u5.json                                   135.80  ok  8.5s
+u6.json                                   117.30  ok  8.5s
+u7.json                                   130.87  ok  8.5s
+u8.json                                   117.75  ok  8.5s
+SREDNIA 125.07
+=== przebieg 3: vrp-codex-solo (01:40:53)
+u1.json                                   149.71  ok  9.2s
+u2.json                                   105.09  ok  9.2s
+u3.json                                   120.40  ok  9.2s
+u4.json                                   125.24  ok  9.2s
+u5.json                                   135.07  ok  9.2s
+u6.json                                   116.40  ok  9.2s
+u7.json                                   129.62  ok  9.2s
+u8.json                                   115.90  ok  9.3s
+SREDNIA 124.68
