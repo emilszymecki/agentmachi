@@ -8,15 +8,16 @@ Kontrakt kursorow (kolejnosc zapisow jest czescia kontraktu):
 
 Petla (node_loop -> _one_connection): polacz (hello z last_seq=
 last_context_seq) -> backlog. KONTRAKT OKNA KONTEKSTU: kontekst wake'a
-budowany jest WYLACZNIE z tego backlogu (niefiltrowanego),
-NIGDY z ramek live. Live push dostarcza agentowi wylacznie wzmianki
-(@nick/$grupa/@all — fizyka huba, agentmachi/chat/server.py._publish_chat), wiec
-zywa ramka jest tylko SYGNALEM: gdy przejdzie _should_wake (seq >
+budowany jest WYLACZNIE z odpowiedzi na hello (backlog bez filtra wzmianek,
+po kompakcji `conversation`), NIGDY z ramek live. Live push niesie agentowi
+tylko wzmianki (@nick/$grupa/@all — fizyka huba,
+agentmachi/chat/server.py._publish_chat) plus kick i wlasny membership_set,
+wiec zywa ramka jest tylko SYGNALEM: gdy przejdzie _should_wake (seq >
 last_wake_seq), node zamyka polaczenie i wraca do node_loop, ktory
 NATYCHMIAST (bez eskalacji backoffu — to nie jest blad) reconnectuje;
-swiezy hello zwraca w backlogu pelna rozmowe razem z budzaca wzmianka
+swiezy hello zwraca rozmowe od kursora razem z budzaca wzmianka
 (trwalosc-przed-publikacja gwarantuje, ze jest juz w logu), i wake
-obsluzy sie ta sama scieszka backlogu. Budowanie kontekstu z okna
+obsluzy sie ta sama scieszka. Budowanie kontekstu z okna
 backlog+live byloby amnezja tylnymi drzwiami: chat bez wzmianki wyslany PO
 polaczeniu node'a nigdy nie dociera live. Koszt: jeden reconnect na
 wake — pomijalny przy limicie kilku wake'ow/h.
@@ -189,8 +190,8 @@ class _SubprocessRuntime:
             except OSError:
                 # Dziecko, ktore pada/nie czyta stdin, zamyka
                 # swoj koniec pipe'u — feed() dostaje wtedy surowy
-                # BrokenPipeError (OSError) bez return_exceptions=True,
-                # a proc.wait() ponizej NIGDY sie nie wykonuje (zombie).
+                # BrokenPipeError (OSError). Bez tego except proc.wait()
+                # by sie nie wykonal (zombie).
                 # kill() zamiast terminate(): dziecko juz najczesciej martwe,
                 # ProcessLookupError tolerowany; wait() reapuje w kazdym razie.
                 try:
@@ -233,10 +234,8 @@ class ClaudeRuntime(_SubprocessRuntime):
 class CodexRuntime(_SubprocessRuntime):
     """Adapter Codex CLI (`codex exec`).
 
-    Powod istnienia: kanal ma byc neutralny wobec harnessu. Bez drugiego
-    adaptera agent na Codeksie musi recznie pollowac `listen` i przegapia
-    polecenia — proces zyje, gniazdo jest ESTAB, kursor sie przesuwa, a model
-    nie widzi ani jednej ramki.
+    Powod istnienia: kanal ma byc neutralny wobec harnessu — node budzi tez
+    Codeksa (headless `codex exec`), nie tylko Claude.
 
     Roznice wobec Claude:
       * prompt idzie przez stdin (`-`), bo dlugi kontekst wake'a nie miesci
@@ -280,12 +279,12 @@ def _is_wake(frame, nick, groups):
     if frame.get("type") != "chat":
         return False
     if frame.get("from") == nick:
-        # Backlog jest niefiltrowany i zawiera WLASNE ramki agenta
-        # (np. "@all zrobione") — nie moga wywolywac spurious wake po
-        # reconnect + spam rate-limited (cooldown nie dotyczy, bo
-        # from == nick nie jest w `humans`). Kontekst dalej je zawiera
-        # (budowany osobno z last_context_seq, bez filtra _is_wake) —
-        # tylko GATE wake'a ma je odrzucac.
+        # Backlog zawiera WLASNE ramki agenta (np. "@all zrobione") — bez
+        # tego filtra budzilyby go po reconnect albo konczyly sie spamem
+        # "rate-limited" (wlasny nick nie jest w `humans`, wiec limiter go
+        # dotyczy). Kontekst dalej je zawiera (budowany osobno
+        # z last_context_seq, bez filtra _is_wake) — tylko GATE wake'a ma
+        # je odrzucac.
         return False
     text = frame.get("text", "")
     mentions = protocol.parse_mentions(text)
@@ -405,14 +404,15 @@ async def _handle_wake(ws, nick, frame, state, state_path, runtime, humans,
 async def _one_connection(url, nick, token, state_path, runtime, humans,
                           limiter, now, instance_id=None):
     """KONTRAKT OKNA KONTEKSTU: kontekst wake'a budowany jest WYLACZNIE
-    z backlogu tego hello (niefiltrowanego). Live push dostarcza agentowi
-    tylko wzmianki, wiec zywa ramka jest wylacznie SYGNALEM: gdy przejdzie
-    _should_wake, node NIE buduje z niej kontekstu — zamyka polaczenie
-    (return, bez wyjatku) i node_loop natychmiast reconnectuje (bez
-    eskalacji backoffu, bo to nie jest blad). Swiezy hello(last_context_seq)
-    zwraca w backlogu PELNA rozmowe razem z budzaca wzmianka
-    (trwalosc-przed-publikacja gwarantuje, ze jest juz w logu), i wake
-    obsluzy sie ponizsza scieszka backlogu.
+    z odpowiedzi na hello (backlog bez filtra wzmianek, po kompakcji
+    `conversation`), NIGDY z ramek live. Live push niesie agentowi tylko
+    wzmianki (plus kick i wlasny membership_set), wiec zywa ramka jest
+    wylacznie SYGNALEM: gdy przejdzie _should_wake, node NIE buduje z niej
+    kontekstu — zamyka polaczenie (return, bez wyjatku) i node_loop
+    natychmiast reconnectuje (bez eskalacji backoffu, bo to nie jest blad).
+    Swiezy hello(last_context_seq) zwraca rozmowe od kursora razem
+    z budzaca wzmianka (trwalosc-przed-publikacja gwarantuje, ze jest juz
+    w logu), i wake obsluzy sie ponizsza scieszka.
     Budowanie kontekstu z okna backlog+live byloby amnezja tylnymi drzwiami:
     chat bez wzmianki, wyslany PO polaczeniu node'a, nigdy nie dociera live
     (fizyka huba — patrz chat/server.py._publish_chat)."""
@@ -439,10 +439,9 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
             if budzace:
                 # OSTATNIA, nie pierwsza. Swiezy node ma last_wake_seq=0, wiec
                 # po resyncu pasuje mu KAZDA historyczna wzmianka — obudzony
-                # pierwsza dostaje w preambule "obudzila cie ramka seq=3"
-                # sprzed godzin, mimo ze realnym sygnalem bylo ostatnie seq —
-                # i deklaruje prace na podstawie nieaktualnego okna. Kontekst
-                # i tak obejmuje cala `rozmowa`.
+                # pierwsza dostalby kontekst uciety na niej (messages <= jej
+                # seq) i deklarowal prace na podstawie nieaktualnego okna.
+                # Przy ostatniej kontekst siega od last_context_seq do niej.
                 await _handle_wake(ws, nick, budzace[-1], state, state_path,
                                    runtime, humans, limiter, now, groups,
                                    rules, participants, rozmowa, hub=url)

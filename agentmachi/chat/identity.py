@@ -123,9 +123,9 @@ class Registry:
         # dostaje wpis dla kazdego posiadacza tokenu (__init__) ORAZ dla
         # kazdego, kto wszedl w trybie otwartym (open_hello). Przy `tokens`
         # grupy dawaloby sie nadac wylacznie posiadaczom sekretu — a swiezy
-        # pokoj ma w tokens.json sam `human`, czyli NIKOMU. `admin` nadaje
-        # sie wylacznie ta droga, wiec jedyne przejscie do uprawnien byloby
-        # zamkniete.
+        # pokoj ma w tokens.json sam `human`, czyli NIKOMU. Agentowi spoza
+        # pliku `admin` nadaje sie wylacznie ta droga, wiec jedyne przejscie
+        # do uprawnien byloby zamkniete.
         if not isinstance(nick, str) or not nick or nick not in self.roles:
             raise AuthError(f"unknown target: {nick!r}")
         if not isinstance(groups, list) or not all(
@@ -285,9 +285,10 @@ class Registry:
         registry._gen = dict(data.get("gen", {}))
         registry._instance = dict(data.get("instance", {}))
         # cls(tokens) zna wylacznie tozsamosci z pliku, a swiezy pokoj ma
-        # w tokens.json sam `human`, wiec KAZDY agent jest spoza pliku. Jedynym
-        # sladem po nim w snapshocie jest wpis w `gen` — udane hello zawsze
-        # bumpuje generacje. Rola: patrz replay_hello (log nie nadaje human).
+        # w tokens.json sam `human`, wiec KAZDY agent jest spoza pliku. Kazdy,
+        # kto choc raz wszedl, ma wpis w `gen` (pierwsze hello nadaje
+        # generacje 1) — po nim odtwarzamy role: patrz replay_hello (log
+        # nie nadaje human).
         for nick in registry._gen:
             if isinstance(nick, str) and nick and nick not in registry.roles:
                 registry.roles[nick] = "agent"

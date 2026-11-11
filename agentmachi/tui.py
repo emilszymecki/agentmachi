@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Minimalne TUI human-operatora dla autorytatywnego huba agentmachi.
 
-Pod `agentmachi tui` adres i tokeny ustawia CLI. Bez CLI (gole `python3
-tui.py` z katalogu repo) czyta jedynego humana z hub.tokens.json i laczy
-sie z ws://localhost:8766. Trwaly kursor, instance_id,
+Pod `agentmachi tui` adres i tokeny ustawia CLI. Bez CLI (`python3 -m
+agentmachi.tui` z katalogu repo) czyta jedynego humana z hub.tokens.json
+i laczy sie z ws://localhost:8766. Trwaly kursor, instance_id,
 lock listenera i fail-closed uszkodzonej sesji zapewnia chat.client_session.
 """
 
@@ -31,8 +31,8 @@ from agentmachi.chat import protocol
 from agentmachi.chat.client_session import ListenerLockHeld, Session, SessionError
 from agentmachi.send import MAX_HUB_FRAME, bezpieczna_jedna_linia, hub_id_from_url
 
-# CLI agentmachi ustawia CHAT_PORT i AGENTMACHI_TOKENS; gołe `python3
-# tui.py` w repo zachowuje stare defaulty (hub.tokens.json + 8766)
+# CLI agentmachi ustawia CHAT_PORT i AGENTMACHI_TOKENS; gole `python3 -m
+# agentmachi.tui` w repo zachowuje stare defaulty (hub.tokens.json + 8766)
 _PORT = os.environ.get("CHAT_PORT", "8766")
 HUB_URI = os.environ.get("CHAT_URL", f"ws://localhost:{_PORT}")
 HUB_ID = hub_id_from_url(HUB_URI)
@@ -332,10 +332,10 @@ class HubAdapter:
             for frame in backlog:
                 await apply_resumable_frame(self.session, frame, on_frame)
             # Kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
-            # ramce z drutu: serwer wycina z backlogu ramki `hello` (bywaja
-            # ponad polowa backlogu), wiec klient ufajacy tylko ramkom
-            # zostaje z kursorem sprzed filtra i przy kazdym reconnekcie
-            # zjezdza na sciezke resync. Tak samo w `send.py`.
+            # ramce z drutu: serwer wycina z backlogu ramki `hello` (wg
+            # pomiaru bywaja ponad polowa backlogu), wiec klient ufajacy
+            # tylko ramkom zostaje z kursorem sprzed filtra i przy kazdym
+            # reconnekcie zjezdza na sciezke resync. Tak samo w `send.py`.
             wire_last_seq = reply.get("last_seq")
             if (isinstance(wire_last_seq, bool)
                     or not isinstance(wire_last_seq, int)
@@ -359,8 +359,8 @@ class HubAdapter:
         # `state` odtwarza rejestr i board, ale rozmowy nie odtworzy nic.
         # Bez tego operator po kompakcji dostaje PUSTY panel czatu mimo
         # dostarczonej rozmowy (send.py i node.py czytaja to tak samo).
-        # SUROWO, nie przez apply_resumable_frame: te ramki maja seq NIZSZE
-        # niz snapshot_seq, wiec dedup by je wyciol (tak samo send.py).
+        # SUROWO, jak send.py: kursor przesuwa jedno advance(snapshot_seq)
+        # nizej, nie kazda ramka z osobna.
         rozmowa = reply.get("conversation")
         if isinstance(rozmowa, list):
             for ramka in rozmowa:
@@ -719,7 +719,9 @@ class AgentmachiApp(App):
             # uczestnika byloby falszywym wpisem, a `\x1b[2A` kasowalby wpis
             # prawdziwy. Czytelnikiem jest MODERATOR i to on decyduje o kicku,
             # patrzac tutaj. `nick` nie jest bezpieczniejszy od reszty:
-            # `agentmachi/chat/identity.py` przyjmuje kazdy niepusty string.
+            # ksztalt sprawdza tylko wejscie otwarte (identity.py,
+            # `sprawdz_ksztalt_nicka`); nick z tokens.json i ze starego logu
+            # przechodzi bez kontroli.
             lines.append(f"● {bezpieczna_jedna_linia(nick)}", style="bold")
             lines.append(f"  role={bezpieczna_jedna_linia(participant.role)}"
                          f"  groups={bezpieczna_jedna_linia(groups)}")
@@ -1063,8 +1065,8 @@ class AgentmachiApp(App):
             # `/kick` w galezi membership_set wywalilby handler na
             # KeyError('groups') — ramka kick pola groups nie ma — i ekran
             # moderatora zgaslby (return_code 1) DOKLADNIE w sekundzie
-            # moderowania. Testy tego nie widza: test_parse_kick sprawdza
-            # PARSOWANIE, a testy aplikacji jada na atrapie adaptera.
+            # moderowania. Pilnuje tego tests/test_tui_e2e.py (kick z ekranu
+            # na zywym hubie); test_parse_kick sprawdza tylko PARSOWANIE.
             #
             # Fallback, a nie `elif` na sam kick — z tego samego powodu, dla
             # ktorego `apply_hub_frame` ma na koncu `else`: nowa komenda ma

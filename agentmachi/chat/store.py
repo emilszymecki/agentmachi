@@ -21,13 +21,15 @@ def _reject_json_constant(value):
 class ForeignWriterError(RuntimeError):
     """Ktos inny pisze do naszego events.jsonl — split-brain.
 
-    Dwa huby na jednym katalogu danych: starszy przy `stop()` robi snapshot
-    ze SWOIM stanem i przepisuje log, kasujac ramki nowszego. Kompakcja jest
-    jedyna operacja, ktora przepisuje log w calosci — zapora stoi tutaj."""
+    Dwa huby na jednym katalogu danych: starszy przy `stop()` zrobilby
+    snapshot ze SWOIM stanem i przepisal log, kasujac ramki nowszego.
+    Kompakcja jest jedyna operacja, ktora przepisuje log w calosci — zapora
+    stoi tutaj."""
 
 
-# Typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji. Reszta
-# (hello/status) ma swoj stan w snapshocie i moze zniknac.
+# Typy ramek, ktore sa PAMIECIA kanalu: kompakcja zostawia ostatnie
+# CONVERSATION_KEEP z nich. Reszta (hello/status/membership_set) ma swoj
+# stan w snapshocie i moze zniknac.
 # - takeover: stan mowi "kto jest teraz", slad — "dlaczego kolega zamilkl".
 # - fyi (send --quiet): nie budzi, ale ma dac sie przeczytac pozniej. Typ
 #   spoza tej listy nie wraca w `conversation` przy hello, a kompakcja usuwa
@@ -150,8 +152,9 @@ class EventLog:
 
         Kanal JEST pamiecia agenta — inaczej niz stan huba (registry,
         status), ktory da sie odtworzyc ze snapshotu, rozmowy nie da sie
-        odtworzyc z niczego. Dlatego kompakcja jej nie rusza (save_snapshot
-        nizej), a tu podajemy ja niezaleznie od kursora i snapshot_seq.
+        odtworzyc z niczego. Dlatego kompakcja zostawia jej okno
+        CONVERSATION_KEEP (save_snapshot nizej), a tu podajemy ja niezaleznie
+        od kursora i snapshot_seq.
         Czytamy z pliku, nie z RAM: log rozmowy rosnie liniowo z historia
         projektu i nie ma powodu trzymac go w pamieci huba (zmierzone:
         22 ms dla 10k ramek). limit=None oddaje calosc; domyslnie tniemy
@@ -220,9 +223,10 @@ class EventLog:
         # (WinError 183), gdy cel istnieje — hub padal tam w teardown.
         tmp.replace(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
         self.snapshot_seq = seq
-        # Rozmowa NIE podlega kompakcji (patrz conversation_after). Czytamy
-        # zachowana historie z dysku PRZED nadpisaniem pliku i skladamy
-        # z ogonem po snapshocie; kompaktujemy wylacznie ramki sluzbowe.
+        # Rozmowa przezywa kompakcje w oknie CONVERSATION_KEEP (patrz
+        # conversation_after). Czytamy zachowana historie z dysku PRZED
+        # nadpisaniem pliku i skladamy z ogonem po snapshocie; ramki
+        # sluzbowe znikaja w calosci.
         conversation = self.conversation_after(0, limit=CONVERSATION_KEEP)
         self._events = [e for e in self._events if e["seq"] > seq]
         tail_seqs = {e["seq"] for e in self._events}

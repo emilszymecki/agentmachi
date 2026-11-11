@@ -27,8 +27,8 @@ import uuid
 from pathlib import Path
 
 # fcntl istnieje tylko na Unixie, a klient ma dzialac cross-platform:
-# `import fcntl` na Windows zabija `agentmachi listen` przy ladowaniu modulu,
-# zanim cokolwiek zrobi (`--help` przechodzi). Oba locki (listener-lock
+# goly `import fcntl` wywala na Windows import tego modulu, a z nim cale
+# `agentmachi` (cli.py importuje go na starcie). Oba locki (listener-lock
 # i state-lock) ida przez cienka abstrakcje: flock na Unixie, msvcrt.locking
 # na Windows. Semantyka zachowana: exclusive lock per plik; wariant
 # non-blocking rzuca BlockingIOError — a dokladnie to lapie
@@ -61,9 +61,9 @@ if sys.platform == "win32":
     def _fsync_dir(path):
         # Windows nie pozwala os.open(katalog) (PermissionError) i nie zna
         # POSIX-owego fsync katalogu: os.replace jest tam atomowe, a trwalosc
-        # wpisu daje NTFS. fsync DANYCH pliku (nizej w _atomic_write) zostaje na
-        # obu OS — to ON trzyma inwariant "trwalosc przed publikacja", nie
-        # fsync katalogu.
+        # wpisu daje NTFS. fsync DANYCH pliku (nizej w _atomic_write_0600)
+        # zostaje na obu OS — to ON trzyma inwariant "trwalosc przed
+        # publikacja", nie fsync katalogu.
         pass
 else:
     import fcntl

@@ -20,9 +20,8 @@ def utf8_safe(obj):
     zwraca go jako zwykly znak w stringu — ale UTF-8 takiego znaku nie ma,
     wiec `.encode("utf-8")` rzuca. Pytamy o to PRZED wpuszczeniem ramki,
     bo `chat` jest trwaly PRZED publikacja: raz zapisana taka ramka zostaje
-    w events.jsonl i wywala handler przy KAZDYM nastepnym hello, ktorego
-    backlog ja obejmuje: pokoj oddaje 1011 kazdemu wznawiajacemu sie, wiec
-    dowolny uczestnik moze go trwale zabic jedna ramka."""
+    w events.jsonl na zawsze, a bez awaryjnej sciezki w `dumps` wywalalaby
+    handler (1011) przy KAZDYM hello, ktorego backlog ja obejmuje."""
     try:
         json.dumps(obj, ensure_ascii=False).encode("utf-8")
     except UnicodeEncodeError:
@@ -92,7 +91,8 @@ def clamp_frame(frame):
     3. pola spoza rdzenia, od najwiekszego — usuwane, nazwy trafiaja do
        `dropped`. Krok istnieje, bo ramke moze rozdymac pole, o ktorym ten
        kod nie wie: stary log przepuszczal dowolne dodatkowe pola do 1 MiB.
-       60 takich ramek zostaje 55 MB po przycieciu samego `text`.
+       Kilkadziesiat takich ramek to nadal dziesiatki MB po przycieciu
+       samego `text`.
 
     Miara to `frame_bytes` GOTOWEJ ramki, nie dlugosc prefiksu: `dumps`
     escapuje znaki sterujace, wiec NUL rosnie z 1 bajtu do szesciu.
@@ -125,8 +125,8 @@ def clamp_frame(frame):
     # (b) Odejmujemy koszt od biezacego rozmiaru zamiast serializowac cala
     #     ramke po KAZDYM usunieciu. Tamto jest kwadratowe i SYNCHRONICZNE
     #     w petli zdarzeń: legalna ramka sprzed sufitu (8000 malych pol,
-    #     905 KiB) zamraza CALY hub na 18,7 s przy czyimkolwiek hello.
-    #     Nie "jeden klient sie nie wznowi" — wszyscy stoja.
+    #     905 KiB) zamraza CALY hub na kilkanascie sekund przy czyimkolwiek
+    #     hello. Nie "jeden klient sie nie wznowi" — wszyscy stoja.
     koszt = {k: len(dumps(k).encode("utf-8"))
                 + len(dumps(out[k]).encode("utf-8")) + 2 for k in kandydaci}
     kandydaci.sort(key=lambda k: koszt[k], reverse=True)
@@ -222,10 +222,10 @@ def _przytnij_pole(out, pole, wartosc, wymus=False):
             hi = srodek - 1
     _miesci(lo, ogon)
 
-# INBOUND to jedyne typy, ktore klient moze przyslac. OUTBOUND to typy
-# WYLACZNIE serwerowe, generowane w locie (backlog/resync_required/error/ok).
+# INBOUND to jedyne typy, ktore klient moze przyslac; OUTBOUND nadaje
+# wylacznie serwer (odpowiedzi i presence w locie, takeover trwale).
 # Serwer nie planuje pracy — typy zadaniowe (task_*, heartbeat, oferty)
-# wycofano celowo; board to state/subject/note.
+# wycofano celowo; deklaracja statusu to state/subject/note.
 INBOUND_FRAME_TYPES = {
     "hello", "chat", "fyi", "status", "membership_set", "kick",
     "workspace",  # efemeryczny (bez seq): gdzie pracuje klient — patrz _validate_body
@@ -254,11 +254,10 @@ FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 STATUS_STATES = frozenset(
     {"sleeping", "idle", "working", "blocked", "review", "done"})
 
-# Myslnik NALEZY do nicka. Hub przyjmuje kazdy niepusty string jako nick
-# (identity.py), a nicki pomocnicze bywaja prefiksowane — "tester-worker3".
-# Przy samym \w takie wzmianki rozpadaja sie cicho: "@tester-worker3"
-# parsuje sie do "tester", ktorego nikt nie trzyma, wiec adresat NIE JEST
-# budzony, a nadawca nie dostaje zadnego bledu.
+# Myslnik NALEZY do nicka: nicki pomocnicze bywaja prefiksowane —
+# "tester-worker3". Przy samym \w "@tester-worker3" parsuje sie do
+# "tester": adresat NIE JEST budzony, a nadawca dostaje co najwyzej
+# ostrzezenie o INNYM nicku (`unknown nick: tester`).
 #
 # Myslnik tylko MIEDZY segmentami: "@nick-" na koncu zdania albo "@nick-,"
 # ma dac "nick", nie "nick-". Ta sama zasada dla grup.
@@ -282,7 +281,7 @@ def make_frame(ftype, frm, ts, **fields):
 
 def validate(frame):
     # Walidacja INBOUND ze SCHEMATEM PER TYP: wspolne pola + per-typ.
-    # Wejscie klienckie musi przejsc tu ZANIM dotknie logu/kolejki.
+    # Wejscie klienckie musi przejsc tu ZANIM dotknie rejestru/logu.
     if "type" not in frame:
         return "missing type"
     ftype = frame["type"]
@@ -326,7 +325,7 @@ def validate(frame):
         return "missing ts"
     ts = frame["ts"]
     # ts musi byc liczba SKONCZONA — NaN/inf przechodza isinstance(float)
-    # i trafilyby do logu jako niestandardowy JSON.
+    # (inf wchodzi jako 1e999 mimo strict JSON).
     # math.isfinite wolamy TYLKO dla float: math.isfinite(10**400) rzuca
     # OverflowError (int za duzy na konwersje do float) i wysypuje cala
     # walidacje. int sprawdzamy zakresowo BEZ konwersji (porownanie int<->float
@@ -355,14 +354,14 @@ def _validate_body(frame, ftype):
             return ("status: state required (non-empty string, "
                     "max 32 characters)")
         # task_id (zastapione przez subject) odrzucamy JAWNIE, z podpowiedzia:
-        # handler _append(frame) utrwalilby cala ramke do logu i broadcastu
-        # do ludzi, zanim board-projekcja by je odsiala.
+        # handler statusu utrwalilby cala ramke (_append_durable) i rozeslal
+        # ja ludziom, zanim board-projekcja by je odsiala.
         if "task_id" in frame:
             return "status: task_id is retired; use subject"
         # Nieznany klucz odbity, nie zgubiony: handler utrwala cala ramke,
         # a board projektuje tylko state/subject/note — agent dostaje
-        # "(sent)" i mysli, ze zadeklarowal cos (np. `text` zamiast
-        # `subject`), czego nikt nie zobaczy.
+        # potwierdzenie wysylki i mysli, ze zadeklarowal cos (np. `text`
+        # zamiast `subject`), czego nikt nie zobaczy.
         nieznane = set(frame) - {"type", "from", "ts", "state", "subject",
                                  "note", "target"}
         if nieznane:
@@ -399,9 +398,10 @@ def _validate_body(frame, ftype):
             return "workspace: branch if given must be a non-empty string (max 100)"
         return None
     if ftype == "kick":
-        # Moderacja czlowieka. Zadnych pol poza target — powod, ban,
-        # czas trwania to stan, ktorego nie potrzebujemy (kick nie jest
-        # banem: wyrzucony moze wrocic, a moderator moze go wyrzucic znowu).
+        # Moderacja (human albo grupa admin). Schemat zna tylko target,
+        # nadmiarowe pola serwer pomija — powod, ban, czas trwania to stan,
+        # ktorego nie potrzebujemy (kick nie jest banem: wyrzucony moze
+        # wrocic, a moderator moze go wyrzucic znowu).
         target = frame.get("target")
         if not isinstance(target, str) or not target:
             return "kick: target required (non-empty string)"
