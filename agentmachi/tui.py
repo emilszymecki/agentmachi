@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Minimalne TUI human-operatora dla autorytatywnego huba agentmachi B1.
+"""Minimalne TUI human-operatora dla autorytatywnego huba agentmachi.
 
-Zero konfiguracji: uruchamiane z katalogu repo, czyta jedynego humana z
-hub.tokens.json i laczy sie z ws://localhost:8766. Trwaly kursor, instance_id,
+Pod `agentmachi tui` adres i tokeny ustawia CLI. Bez CLI (gole `python3
+tui.py` z katalogu repo) czyta jedynego humana z hub.tokens.json i laczy
+sie z ws://localhost:8766. Trwaly kursor, instance_id,
 lock listenera i fail-closed uszkodzonej sesji zapewnia chat.client_session.
 """
 
@@ -61,17 +62,15 @@ class HumanIdentity:
 def _opis_deklaracji(zrodlo):
     """`subject` I `note` razem, tym samym separatorem co `board`.
 
-    Bylo `subject or note`, czyli JEDNO z dwoch pol — a `_opis_statusu`
-    w send.py doklada oba. Agent deklarowal trzy pola, board pokazywal trzy,
-    czlowiek widzial dwa i nie mial jak zauwazyc, ze trzeciego brakuje.
-    Zgloszone przez operatora przy TUI 2026-08-13 zdaniem "to, co macie na
-    boardzie, powinno byc 1:1 z tym, co widze", zmierzone na zywych statusach:
-    board mowil `idle — poligon zamkniety — czekam na sonde Dowodu B`, TUI
-    `idle (poligon zamkniety)`.
+    TUI ma byc 1:1 z `board` (`_opis_statusu` w send.py doklada oba pola).
+    `subject or note` pokazuje JEDNO z dwoch: agent deklaruje trzy pola,
+    board pokazuje trzy, czlowiek widzi dwa i nie ma jak zauwazyc, ze
+    trzeciego brakuje.
 
-    Ginelo `note` — wolny tekst, jedyne miejsce, w ktorym agent mowi czlowiekowi
-    cos, czego nie da sie zakodowac w stanie. I ginelo akurat u tego odbiorcy,
-    ktory nie ma alternatywy: agent doczyta sobie `board`, czlowiek ma TUI.
+    Ginie wtedy `note` — wolny tekst, jedyne miejsce, w ktorym agent mowi
+    czlowiekowi cos, czego nie da sie zakodowac w stanie. I ginie akurat
+    u tego odbiorcy, ktory nie ma alternatywy: agent doczyta sobie `board`,
+    czlowiek ma TUI.
     """
     czesci = []
     for pole in ("subject", "note"):
@@ -90,7 +89,7 @@ class Participant:
     status: str = ""      # wolny tekst umowny: sleeping|idle|working|blocked|
                            # review|done, ale server nie waliduje enuma ("" = nieznany)
     status_note: str = ""  # subject / note z ostatniej deklaracji
-    last_seq: int = 0      # ostatnia ramka, ktora ten uczestnik WYSLAL
+    last_seq: int = 0      # ostatnia ramka ROZMOWY tego uczestnika
     status_seq: int = 0    # ramka, w ktorej powstala deklaracja statusu
 
 
@@ -152,13 +151,9 @@ def history_pick(history, pos, direction):
     (nie zawija — zawijanie gubi to, co wlasnie chciales znalezc).
     None = nie ma czego podstawic Z HISTORII, nie dotykaj pola.
 
-    W DOL NIE ZWRACA JUZ `""` i to jest zmiana kontraktu, nie poprawka
-    literowki. Zgloszone przez operatora przy zywym TUI 2026-08-13: pisal
-    wiadomosc, nacisnal strzalke w dol i pole sie WYCZYSCILO. Stary kontrakt
-    mowil „w dol wraca do pustego szkicu" i mylil dwie rozne rzeczy — „wroc
-    do szkicu" z „szkic jest pusty". Szkic nie jest pusty; szkic to jest to,
-    co czlowiek wlasnie pisze, a czego jeszcze nie ma w historii. `""`
-    kasowalo mu to bez odwolania.
+    W DOL NIE ZWRACA `""`: „wroc do szkicu" to nie „szkic jest pusty".
+    Szkic to jest to, co czlowiek wlasnie pisze, a czego jeszcze nie ma
+    w historii — `""` czysci mu pole strzalka w dol, bez odwolania.
 
     Rozdzial odpowiedzialnosci: ta funkcja wie tylko o historii, wiec przy
     powrocie do szkicu mowi None. Tekst szkicu zna wylacznie widget, ktory go
@@ -171,7 +166,7 @@ def history_pick(history, pos, direction):
         return nowy, history[nowy]
     if pos >= len(history):
         # Juz w szkicu. Przyszlosci nie ma i nie wolno niczego podstawiac —
-        # to jest dokladnie ten przypadek, ktory kasowal wpisywana wiadomosc.
+        # podstawienie tutaj skasowaloby wpisywana wiadomosc.
         return len(history), None
     nowy = pos + 1
     if nowy >= len(history):
@@ -209,8 +204,8 @@ def parse_user_input(value):
             raise TuiError("usage: /reset-cursor (no arguments)")
         return {"type": "local", "action": "reset-cursor"}
     if text.startswith("/kick"):
-        # B6: wyrzucenie uczestnika. Uprawnienie WYLACZNIE humana — serwer
-        # i tak to egzekwuje, ale nie udajemy tu, ze to zwykla komenda.
+        # Wyrzucenie uczestnika. Uprawnienie (human albo grupa admin)
+        # egzekwuje serwer, ale nie udajemy tu, ze to zwykla komenda.
         parts = text.split()
         if len(parts) != 2 or not parts[1]:
             raise TuiError("usage: /kick <nick>")
@@ -337,11 +332,10 @@ class HubAdapter:
             for frame in backlog:
                 await apply_resumable_frame(self.session, frame, on_frame)
             # Kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
-            # ramce z drutu: serwer wycina z backlogu ramki `hello` (54%
-            # backlogu w pomiarze B5), wiec klient ufajacy tylko ramkom
+            # ramce z drutu: serwer wycina z backlogu ramki `hello` (bywaja
+            # ponad polowa backlogu), wiec klient ufajacy tylko ramkom
             # zostaje z kursorem sprzed filtra i przy kazdym reconnekcie
-            # zjezdza na sciezke resync. `send.py` ma to od dawna; TUI nie
-            # czytalo `last_seq` w ogole (zlapane 2026-07-31).
+            # zjezdza na sciezke resync. Tak samo w `send.py`.
             wire_last_seq = reply.get("last_seq")
             if (isinstance(wire_last_seq, bool)
                     or not isinstance(wire_last_seq, int)
@@ -363,10 +357,10 @@ class HubAdapter:
         await _maybe_await(on_frame({"type": "resync_state", "state": state}))
         # PAMIEC KANALU. Serwer dokleja do resync do 200 ramek rozmowy, bo
         # `state` odtwarza rejestr i board, ale rozmowy nie odtworzy nic.
-        # send.py i node.py to czytaja; TUI nie czytalo, wiec operator po
-        # kompakcji dostawal PUSTY panel czatu mimo dostarczonej rozmowy.
+        # Bez tego operator po kompakcji dostaje PUSTY panel czatu mimo
+        # dostarczonej rozmowy (send.py i node.py czytaja to tak samo).
         # SUROWO, nie przez apply_resumable_frame: te ramki maja seq NIZSZE
-        # niz snapshot_seq, wiec dedup by je wyciol (tak samo send.py:280).
+        # niz snapshot_seq, wiec dedup by je wyciol (tak samo send.py).
         rozmowa = reply.get("conversation")
         if isinstance(rozmowa, list):
             for ramka in rozmowa:
@@ -418,8 +412,8 @@ class HubAdapter:
                     # Pasek statusu to JEDNA linia — dluzszy powod odmowy
                     # zostaje w nim uciety i czlowiek widzi "hello odrzucone:"
                     # bez tresci. Ten sam tekst leci wiec do logu wiadomosci,
-                    # ktory zawija. Zlapane na zywym pokoju 2026-07-26:
-                    # operator widzial pusty pokoj i zadnej przyczyny.
+                    # ktory zawija — inaczej operator widzi pusty pokoj
+                    # i zadnej przyczyny.
                     await _maybe_await(on_frame({
                         "type": "error", "from": "client",
                         "text": f"FAIL-CLOSED: {exc}"}))
@@ -466,29 +460,28 @@ class HubAdapter:
 class MessageInput(TextArea):
     """Wieloliniowy input operatora (czat + komendy slash).
 
-    TextArea zamiast jednoliniowego Input: Emil moze wkleic tekst z
-    newline'ami i komponowac w wielu liniach. Uklad klawiszy jak w Claude
+    TextArea zamiast jednoliniowego Input: czlowiek moze wkleic tekst
+    z newline'ami i komponowac w wielu liniach. Uklad klawiszy jak w Claude
     Code — Enter wysyla, Shift+Enter lamie linie. Emituje wlasna ramke
-    Submitted z pelnym tekstem, zeby App nie znala szczegolow edytora
-    (ta sama sciezka wysylki co dawny Input.Submitted)."""
+    Submitted z pelnym tekstem, zeby App nie znala szczegolow edytora."""
 
     # UKLAD JAK W CLAUDE CODE: Enter wysyla, Shift+Enter lamie linie.
     #
     # `enter` MUSI miec priority=True. Bez tego binding nie odpala WCALE:
     # Enter jest w insert_values TextArei, wiec jej `_on_key` polyka go przed
-    # rozwiazaniem bindingow (zmierzone sonda przez pilot: submit=0, w polu
-    # ladowal "\n"). Priorytet odwraca kolejnosc i znak nie jest wstawiany.
+    # rozwiazaniem bindingow (submit nie odpala, w polu laduje "\n").
+    # Priorytet odwraca kolejnosc i znak nie jest wstawiany.
     #
     # NOWA LINIA ma trzy nazwy, bo to jeden klawisz kodowany roznie:
     #   `ctrl+j`     — goly LF (\n). W Textualu ODREBNY klawisz (alias
     #                  `newline`), bo Enter to CR (\r) = `enter`/`ctrl+m`
     #                  (patrz keys.KEY_ALIASES). Tu trafia Shift+Enter
-    #                  w Windows Terminal / WSL — ZMIERZONE na zywym TUI.
+    #                  w Windows Terminal / WSL.
     #   `shift+enter`— terminale z protokolem kitty/CSI-u (kitty, WezTerm,
     #                  foot, Ghostty) nazywaja go wprost.
     #   `ctrl+o`     — bezpiecznik. Sa terminale, ktore Shift+Enter wysylaja
     #                  bajt w bajt jak Enter; tam OBIE powyzsze drogi znikaja
-    #                  i bez trzeciej nie dalo by sie napisac drugiej linii
+    #                  i bez trzeciej nie daloby sie napisac drugiej linii
     #                  w ogole. Ctrl+O jest nieprintowalny i wolny w TextArea.
     #
     # Dlaczego Enter=wysylka jest tu BEZPIECZNE mimo wieloliniowosci:
@@ -652,8 +645,8 @@ class AgentmachiApp(App):
         self.rules_text = ""
         # Czytane przez tests/test_tui.py — punkt obserwacyjny na to, co
         # naprawde trafilo do czatu. RichLog nie daje sie odpytac o tresc,
-        # wiec bez tego nie da sie zweryfikowac renderowania ramki. Audyt
-        # 2026-07-31 wzial to za martwy kod (grep tylko po tui.py) — NIE JEST.
+        # wiec bez tego nie da sie zweryfikowac renderowania ramki. To NIE
+        # jest martwy kod, choc grep po samym tui.py tak go pokazuje.
         self.history = []
         self.connected = False
 
@@ -671,11 +664,10 @@ class AgentmachiApp(App):
             with VerticalScroll(id="participants-panel", classes="panel"):
                 yield Label("Participants / groups", classes="panel-title")
                 # Stan polaczenia zostaje TUTAJ, a nie w panelu Rules, bo
-                # panel Rules jest domyslnie schowany (prosba operatora
-                # 2026-08-13). Gdyby stan poszedl razem z nim, czlowiek
-                # traciby jedyna linie mowiaca, ze hub padl — a milczenie
-                # wyglada wtedy jak spokojny kanal. Regula z tego samego dnia,
-                # z zupelnie innego miejsca produktu: cisza nie jest sukcesem.
+                # panel Rules jest domyslnie schowany. Gdyby stan poszedl
+                # razem z nim, czlowiek tracilby jedyna linie mowiaca, ze hub
+                # padl — a milczenie wyglada wtedy jak spokojny kanal. Cisza
+                # nie jest sukcesem.
                 yield Static("connecting...", id="connection-status")
                 yield Static("", id="participants")
             with VerticalScroll(id="rules-panel", classes="panel"):
@@ -685,7 +677,7 @@ class AgentmachiApp(App):
 
     def on_mount(self):
         # Rules sa dluga, statyczna sciana tekstu, ktora czlowiek czyta raz.
-        # Domyslnie schowane na prosbe operatora (2026-08-13); Ctrl+R pokazuje.
+        # Domyslnie schowane; Ctrl+R pokazuje.
         self.query_one("#rules-panel").display = False
         self.query_one("#message-input", MessageInput).disabled = True
         self._render_participants()
@@ -716,19 +708,15 @@ class AgentmachiApp(App):
             participant = self.roster[nick]
             if index:
                 lines.append("\n")
-            # ROLA i GRUPY podpisane, a nie tylko postawione obok siebie.
-            # Do 2026-08-13 wiersz brzmial `agent  [—]` i czlowiek przeczytal
-            # `agent` jako nazwe grupy — napisal `$agent` i dostal z huba
-            # `unknown group`. Zapytal wtedy "czy tak ma byc", bo widok
-            # sugerowal, ze grupa istnieje. Zachowanie huba bylo poprawne;
-            # mylil WIDOK. `board` ma `role=` i `groups=` od poczatku i nikt
-            # sie na nim nie pomylil — to ta sama roznica co przy `note`
-            # gubionym ze statusu, tego samego dnia.
+            # ROLA i GRUPY podpisane (`role=`, `groups=` jak w `board`), a nie
+            # tylko postawione obok siebie: w wierszu `agent  [—]` czlowiek
+            # czyta `agent` jako nazwe grupy, pisze `$agent` i dostaje z huba
+            # `unknown group`. Hub ma racje — myli WIDOK.
             groups = ",".join(participant.groups) or "—"
             # Tresc uczestnika nie sklada tego panelu — patrz
             # `send.bezpieczna_jedna_linia`. Wpis to tu JEDNA linia (`●` na
             # poczatku jest jego jedynym wyroznikiem), wiec kazde lamanie od
-            # uczestnika bylo falszywym wpisem, a `\x1b[2A` kasowal wpis
+            # uczestnika byloby falszywym wpisem, a `\x1b[2A` kasowalby wpis
             # prawdziwy. Czytelnikiem jest MODERATOR i to on decyduje o kicku,
             # patrzac tutaj. `nick` nie jest bezpieczniejszy od reszty:
             # `agentmachi/chat/identity.py` przyjmuje kazdy niepusty string.
@@ -738,7 +726,7 @@ class AgentmachiApp(App):
             # "cicho od N" odroznia siedzacego cicho od tego, kto oglochl.
             # `connected` mowi tylko, ze gniazdo jest otwarte — a proces
             # potrafi zyc godzinami, nie dostarczajac modelowi ani jednej
-            # ramki (zmierzone w dogfoodzie kinas-machine).
+            # ramki.
             biezacy = max((self.roster[n].last_seq for n in self.roster),
                           default=0)
             zaleglosc = max(0, biezacy - participant.last_seq)
@@ -754,9 +742,8 @@ class AgentmachiApp(App):
                     f"  {bezpieczna_jedna_linia(participant.status)}{note}",
                     style=style)
                 # Wiek deklaracji. Bez tego board KLAMIE zamiast milczec:
-                # po dogfoodzie kinas-machine pokazywal "worker1: idle"
-                # (pracowal bez przerwy) i "worker2: working, buduje polowe
-                # A" (skonczyl ja godziny wczesniej). Prog 20 ramek jest
+                # `idle` u kogos, kto pracuje bez przerwy, `working` u kogos,
+                # kto skonczyl godziny temu. Prog 20 ramek jest
                 # ten sam co przy "cicho od" — ponizej niego status jest
                 # na tyle swiezy, ze liczba tylko zaszumia widok.
                 wiek = max(0, biezacy - participant.status_seq)
@@ -882,8 +869,8 @@ class AgentmachiApp(App):
                 self._apply_registry_state(state)
         elif kind == "takeover":
             # Serwer pushuje te ramke NA ZYWO WYLACZNIE do ludzi — bo to oni
-            # reaguja na widmo (restart, ubicie klienta). Jedyny adresat, do
-            # ktorego celuje, zjadal ja bez sladu (zlapane 2026-07-31).
+            # reaguja na widmo (restart, ubicie klienta). Bez tej galezi
+            # jedyny adresat, do ktorego celuje, zjadalby ja bez sladu.
             self._log("server", frame.get(
                 "text", f"{frame.get('nick')}: taken over by a newer hello"),
                 style="bold red")
@@ -891,9 +878,9 @@ class AgentmachiApp(App):
             self._log("server", frame.get("text", "error"),
                       style="bold red")
         else:
-            # Bez tego `else` KAZDY nowy typ OUTBOUND znika po cichu — tak
-            # wlasnie zgubil sie `takeover`. Lepiej pokazac czlowiekowi ramke,
-            # ktorej nie rozumiemy, niz udawac, ze nie przyszla.
+            # Bez tego `else` KAZDY nowy typ OUTBOUND znika po cichu. Lepiej
+            # pokazac czlowiekowi ramke, ktorej nie rozumiemy, niz udawac,
+            # ze nie przyszla.
             self._log("server", f"unhandled frame {kind!r}: {frame}",
                       style="dim yellow")
 
@@ -1062,7 +1049,7 @@ class AgentmachiApp(App):
                       style="bold green")
             # Fizyka kanalu: chat bez wzmianki trafia wylacznie do humanow
             # (sen agenta jest darmowy) — czlowiek piszacy do agentow bez
-            # @nicka dostalby cisze i nie wiedzialby dlaczego (dogfood B3).
+            # @nicka dostalby cisze i nie wiedzialby dlaczego.
             if not (protocol.parse_mentions(frame["text"])
                     or protocol.parse_groups(frame["text"])):
                 self._log("client",
@@ -1073,15 +1060,11 @@ class AgentmachiApp(App):
             self._log("client", f"sent groups {frame['target']} = {groups}",
                       style="bold yellow")
         else:
-            # `/kick` wpadal tu do galezi membership_set i wywalal handler na
-            # KeyError('groups') — ramka kick pola groups nie ma. Skutek byl
-            # gorszy, niz wyglada: ekran moderatora gasl (return_code 1)
-            # DOKLADNIE w sekundzie moderowania, jego socket sie zamykal,
-            # a serwer w `_on_kick` ma ACK do moderatora PRZED wyrzuceniem
-            # celu — wiec kick zostawal w logu jako trwaly, a wyrzucany
-            # siedzial dalej na kanale. Zlapane E2E 2026-08-01 (kick nigdy
-            # nie przeszedl przez ten handler w zadnym tescie: test_parse_kick
-            # sprawdza PARSOWANIE, a testy aplikacji jada na atrapie adaptera).
+            # `/kick` w galezi membership_set wywalilby handler na
+            # KeyError('groups') — ramka kick pola groups nie ma — i ekran
+            # moderatora zgaslby (return_code 1) DOKLADNIE w sekundzie
+            # moderowania. Testy tego nie widza: test_parse_kick sprawdza
+            # PARSOWANIE, a testy aplikacji jada na atrapie adaptera.
             #
             # Fallback, a nie `elif` na sam kick — z tego samego powodu, dla
             # ktorego `apply_hub_frame` ma na koncu `else`: nowa komenda ma
