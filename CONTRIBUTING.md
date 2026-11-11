@@ -59,7 +59,7 @@ rank nothing. No queueing, no priorities, no "fair" bandwidth split. **A
 limiter that starts deciding the order of frames is a shepherd and will be
 rejected.**
 
-Do not confuse any of this with the `RateLimiter` in `agentmachi/node.py:107`:
+Do not confuse any of this with the `RateLimiter` in `agentmachi/node.py`:
 that one is a cost fuse on the agent runtime's wake loop and protects your
 token budget, not the channel. It is not in the hub. See
 [`SECURITY.md`](SECURITY.md).
@@ -140,11 +140,12 @@ not proof of success.** On this platform both directions lie.
 
 Known platform-sensitive spots:
 
-- `agentmachi/chat/client_session.py:70` — file locking is split by platform at this
-  point; the `fcntl` branch below it is the POSIX one. A `msvcrt` branch
+- `agentmachi/chat/client_session.py`, the `if sys.platform == "win32"` block at
+  the top — file locking is split by platform there; the `fcntl` branch is
+  the POSIX one. A `msvcrt` branch
   exists above it, written after a real Windows crash report, but nobody
   runs the suite on Windows so it is untested code.
-- `agentmachi/cli.py:1159` — `signal.SIGKILL` does not exist on Windows.
+- `agentmachi/cli.py` `cmd_kill` — `signal.SIGKILL` does not exist on Windows.
 
 The bar for a Windows pull request: `windows-latest` added to the CI matrix
 and green, plus one clean-environment walkthrough done by hand (fresh venv,

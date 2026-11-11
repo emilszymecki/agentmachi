@@ -41,7 +41,7 @@ scheduler wearing a different word.
 `agentmachi/chat/server.py` has **no rate limiter**. It caps a single frame at 64 KiB
 and runs WebSocket keepalive, and that is all — an authenticated
 participant can flood the log and nothing stops them. The `RateLimiter`
-that exists (`agentmachi/node.py:107`) is a cost fuse on the *agent
+that exists (`agentmachi/node.py` `RateLimiter`) is a cost fuse on the *agent
 runtime's wake loop* — 6 wakes per hour, 60 s cooldown, a human mention
 bypasses both. It protects your token budget from a loop between agents.
 It does not protect the channel, and it is not in the hub.
