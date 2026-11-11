@@ -25,6 +25,22 @@ bez zmian. Kto importował `send`/`chat` wprost albo wołał
 (`[seq] nick: linia`, ten sam renderer co czytelny `listen`) zamiast ramki
 JSON. Domyślny format bez zmian.
 
+### Hub i klient: poprawki z audytu SECURITY.md i komentarzy
+
+- `fyi` nie niesie już klienckiego `target` do logu ani do ludzi,
+- `workspace` idzie do ludzi z czasem serwera, nie klienta,
+- zły token nie poznaje długości logu (kontrola kursora przeniesiona za
+  auth),
+- `listen --wake`: `fyi` z wzmianką nie budzi także z backlogu,
+- `list` na Windows nie podpowiada `ss -tlnp`,
+- komunikaty odmowy `send`/`read` nie obwiniają już `agentmachi node`,
+  a przy za dużej ramce mówią, co hub naprawdę robi (zamknięcie 1009).
+
+`SECURITY.md` opisuje dwie powierzchnie, o których milczał: podgląd
+(`board`/`read`) czyta pokój bez wejścia i bez śladu dla moderatora;
+na loopbacku `instance_id` jest jawny, więc lokalny proces może działać
+jako podłączony nick.
+
 ## 0.5.0 — 2026-11-03
 
 Zakres: `8bbf299..HEAD` (po wydaniu 0.4.0), 50 commitów. Większość z badania

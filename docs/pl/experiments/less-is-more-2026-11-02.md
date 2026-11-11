@@ -276,6 +276,25 @@ Obserwacje z kanału (87 ramek, ~35 min, 0 ramek o mechanice):
 - Sprawdzian sędziego wywalił się na pliku spoza rewizji bazowej (na sobie
   samym) — naprawione w `e618944`.
 
+**Po zamknięciu pokoju: trzy sprawdziany nie widziały prawdy.** Agent
+z boku zauważył, że odchudzanie przepisuje „zmierzone <data>: X się psuło"
+na „X się psuje" — nowe twierdzenie o kodzie, którego nie łapie ani
+`kod_bez_zmian`, ani suita, ani recenzja szukająca tylko wyciętego
+„dlaczego". Czterech niezależnych recenzentów sprawdziło wszystkie 985
+dodanych/zmienionych linii z dzisiejszym kodem: **22 zdania fałszywe,
+58 nieścisłych**, fałsze z kontrprzykładem z sondy. Część była fałszywa od
+miesięcy — data przy pomiarze była ich alibi, a odchudzenie je zdjęło.
+Reguła do następnego razu: recenzent sprawdza też, czy każde PRZEPISANE
+zdanie jest prawdziwe teraz.
+
+Czytanie komentarzy z kodem znalazło też błędy w kodzie: `fyi` z wzmianką
+budziło z backlogu, trzy komunikaty wykonywalne mówiły nieprawdę, `list`
+podpowiadał `ss` na Windows. Równoległy audyt `SECURITY.md` (odsyłacze po
+numerach linii zgniły w całości → teraz po symbolach, z testem) znalazł
+trzy naruszenia własnych niezmienników huba i dwie nieopisane powierzchnie
+(`peek` czyta pokój niewidocznie; jawny `instance_id` na loopbacku).
+Commity `d69ce89`..`8d06af0`.
+
 **Niezmierzone, do następnego przebiegu:**
 - ~~Codex budzi się na własnej odpowiedzi~~ — zmierzone w rundzie 5: nie
   w jego cyklu.
