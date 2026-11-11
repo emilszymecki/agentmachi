@@ -1,6 +1,6 @@
 """CLI agentmachi: serve / tui / send / listen / card.
 
-Zasada (plan B2): dane huba mieszkaja w ~/.agentmachi/<name>/ —
+Zasada: dane huba mieszkaja w ~/.agentmachi/<name>/ —
 NIGDY w repo projektu. Repo projektu to rzecz, nad ktora pracuja agenci;
 hub to infrastruktura obok (jak Hamachi obok CS-a).
 
@@ -35,20 +35,18 @@ DEFAULT_HUB = "hub"
 DEFAULT_BIND = "127.0.0.1"
 STOP_WAIT = 10.0   # ile czekamy, az zatrzymywany hub naprawde zejdzie
 
-# PAKIET 1 (plan V1): hub NIE nadaje domyslnej kultury.
+# Hub NIE nadaje domyslnej kultury.
 #
-# Konstytucja od 2026-07-24: "lekcja z dogfoodu domyslnie idzie do obserwacji,
-# nie do regulaminu. Wyciecie pastucha z kodu nic nie daje, jesli odrasta
-# w plikach .md jako kolejny obowiazkowy paragraf." Scheduler wylecial z kodu,
-# a pastuch odrosl wlasnie tutaj: 15 regul organizacyjnych, ktore hub wkladal
-# KAZDEMU nowemu pokojowi i serwowal kazdemu wchodzacemu przy kazdym hello.
+# Konstytucja: lekcja z dogfoodu domyslnie idzie do obserwacji, nie do
+# regulaminu. Wyciecie pastucha z kodu nic nie daje, jesli odrasta w plikach
+# .md jako obowiazkowy paragraf, ktory hub wklada KAZDEMU nowemu pokojowi
+# i serwuje kazdemu wchodzacemu przy kazdym hello.
 #
 # `rules` zostaje jako FUNKCJA: konkretny pokoj moze miec ograniczenia, gdy
-# wpisze je czlowiek — plik istniejacy nigdy nie jest nadpisywany. Roznica
-# wobec stanu poprzedniego jest ustrojowa: pusty plik znaczy "przestrzen jest
-# wolna", a nie "zapomnielismy tresci". Zasady wspolpracy naleza do skilla,
-# ktory agent instaluje SWIADOMIE — nie do transportu, ktory dostaje bez
-# pytania i na kazdym projekcie.
+# wpisze je czlowiek — plik istniejacy nigdy nie jest nadpisywany. Pusty plik
+# znaczy "przestrzen jest wolna", a nie "zapomnielismy tresci". Zasady
+# wspolpracy naleza do skilla, ktory agent instaluje SWIADOMIE — nie do
+# transportu, ktory dostaje bez pytania i na kazdym projekcie.
 DEFAULT_RULES = ""
 
 
@@ -107,19 +105,16 @@ def _odmow_zajetego_portu(name, port, skutek):
     """Nic, gdy portu nikt nie zarezerwowal; CliError z nazwa wlasciciela,
     gdy trzyma go inny pokoj.
 
-    Jedno miejsce na ten tekst, bo WEJSCIA SA DWA, a strzezone bylo jedno.
-    `ensure_hub` pilnowal pokoju NOWEGO — i tyle wystarczylo, zeby uznac
-    sprawe za zamknieta. Zmierzone przez recenzenta (2026-08-06) na drugim
-    wejsciu: dwa ZATRZYMANE pokoje, `owner` na 8790 i `stary` na 8795, po
-    `cmd_start(name="stary", port=8790)` dawaly `rc=0, owner=8790,
-    stary=8790` — dwa configi na jednym porcie, bo `cmd_start` nadpisywal
-    config istniejacego pokoju zaraz PO tym, jak `ensure_hub` swiadomie
-    zachowal stary port i nie sprawdzil kolizji.
+    Jedno miejsce na ten tekst, bo WEJSCIA SA DWA. `ensure_hub` pilnuje
+    pokoju NOWEGO, a `cmd_start` nadpisuje config ISTNIEJACEGO zaraz PO tym,
+    jak `ensure_hub` swiadomie zachowal stary port — bez kontroli na obu
+    wejsciach `cmd_start(name="stary", port=<port innego pokoju>)` daje rc=0
+    i dwa configi na jednym porcie.
 
     Rezerwacja jest wlasnoscia CONFIGU, nie zywego procesu: zatrzymany pokoj
     nadal ma prawo do swojego portu, bo `start` postawi go pod tym samym
     adresem (patrz `_porty_hubow`). Dlatego kontrola zywego portu
-    (`_port_accepts`) tej dziury nie zamykala i zamknac nie mogla.
+    (`_port_accepts`) tej dziury nie zamyka i zamknac nie moze.
 
     `skutek` mowi czlowiekowi, co przez odmowe NIE stalo sie z jego pokojem;
     reszta komunikatu jest wspolna, bo naprawa jest ta sama."""
@@ -128,7 +123,7 @@ def _odmow_zajetego_portu(name, port, skutek):
         return
     # Komendy KAZDA W OSOBNEJ LINII, nie za etykieta: nazwy pokojow maja
     # rozna dlugosc, wiec kolumna i tak by sie rozjechala, a to jest tekst
-    # do kopiuj-wklej (CLAUDE.md, rola czlowieka).
+    # do kopiuj-wklej (AGENTS.md, rola czlowieka).
     raise CliError(
         f"port {port} is already assigned to room {wlasciciel!r} — "
         f"{skutek}\n"
@@ -147,17 +142,16 @@ def _odmow_zajetego_portu(name, port, skutek):
 def _wybierz_port(preferowany, wlasna_nazwa, bind="127.0.0.1", prob=200):
     """Pierwszy wolny port od `preferowanego` w gore.
 
-    C5: dwa huby na jednym porcie to cicha katastrofa, nie drobiazg. Nowy hub
+    Dwa huby na jednym porcie to cicha katastrofa, nie drobiazg. Nowy hub
     wstaje z PUSTYM logiem pod adresem starego, a kursory klientow sa per
     host:port — czlowiek dostaje wtedy fail-closed "last_seq 303 > serwerowy
     last_seq 0" i nie wie, dlaczego. `list` tez zaczyna klamac, bo rozpoznaje
-    huby po porcie. Zmierzone na zywej maszynie: hub 'agentmachi' utworzony
-    bez --port zabral 8766 dzialajacemu 'goldbergowi'.
+    huby po porcie.
 
     Sprawdzamy WYLACZNIE configi innych hubow, nie zajetosc portu w systemie:
-    obcy proces na tym porcie i tak daje fail-fast przy bindzie (F7), a
+    obcy proces na tym porcie i tak daje fail-fast przy bindzie, a
     odpytywanie zywego systemu uzaleznialoby wynik `ensure_hub` od tego, co
-    akurat chodzi na maszynie — testy stawaly sie flaky, gdy obok dzialal
+    akurat chodzi na maszynie — testy staja sie flaky, gdy obok dziala
     prawdziwy hub."""
     zajete = _porty_innych_hubow(wlasna_nazwa)
     kandydat = preferowany
@@ -175,7 +169,7 @@ def _wybierz_port_zywy(preferowany, wlasna_nazwa, bind, prob=200):
 
     Wolno tego uzyc wylacznie przy `start` NOWEGO pokoju, gdzie czlowiek nie
     podal --port. Powod rozdzialu: `_wybierz_port` swiadomie nie odpytuje
-    systemu, bo wynik `ensure_hub` zaczynal wtedy zalezec od tego, co akurat
+    systemu, bo wynik `ensure_hub` zaczalby wtedy zalezec od tego, co akurat
     chodzi na maszynie (testy flaky). Tu zywy system i tak jest odpytywany,
     bo `start` musi wiedziec, czy port da sie zbindowac.
 
@@ -204,22 +198,18 @@ def odswiez_howto(hub_katalog):
     `kopia` to sciezka kopii recznych zmian albo None.
 
     Po co to w ogole istnieje. `howto` idzie DRUTEM w kazdej odpowiedzi na
-    hello i CLAUDE.md wskazuje je jako zrodlo prawdy dla wchodzacego agenta.
-    Dotad kopiowalo sie z szablonu WYLACZNIE gdy pliku nie bylo, wiec kazdy
-    istniejacy pokoj byl zamrozony na tekscie z dnia swojego powstania.
-    Zmierzone 2026-08-01 na zywym pokoju: hub serwowal 4087 B ze zdaniem
-    o wypieraniu nicka, ktore agent1 tego samego dnia obalil pomiarem
-    i poprawil w repo. Poprawka byla w gicie i nie docierala do nikogo.
+    hello i jest zrodlem prawdy dla wchodzacego agenta. Kopiowane z szablonu
+    WYLACZNIE gdy pliku nie ma, zamrozaloby kazdy istniejacy pokoj na tekscie
+    z dnia jego powstania: poprawka jest w gicie i nie dociera do nikogo,
+    a kazdy wchodzacy czyta zdanie juz obalone.
 
-    Dlaczego NADPISUJEMY, choc wczesniej sam proponowalem "nie dotykac
-    zmienionego": podzial w tym repo jest jasny — `howto` to MECHANIKA
-    PROTOKOLU, czyli nasz tekst (CLAUDE.md: "<hub>/data/howto.md = mechanika
-    protokolu"), a tekstem POKOJU sa `rules`, ktore ida osobnym polem
-    w hello i ktorych ten kod nie tyka. Zamrazanie howto chronilo wiec punkt
-    rozszerzen, ktory nie istnieje, a placil za to kazdy agent, czytajac
-    nieprawde przy kazdym wejsciu.
+    Dlaczego NADPISUJEMY: `howto` to MECHANIKA PROTOKOLU, czyli nasz tekst,
+    a tekstem POKOJU sa `rules`, ktore ida osobnym polem w hello i ktorych
+    ten kod nie tyka. Zamrazanie howto chroniloby punkt rozszerzen, ktory nie
+    istnieje, a placilby za to kazdy agent, czytajac nieprawde przy kazdym
+    wejsciu.
 
-    Reczna zmiana nie ginie po cichu: ladu-je obok jako kopia, a wolajacy
+    Reczna zmiana nie ginie po cichu: laduje obok jako kopia, a wolajacy
     dostaje jej sciezke do pokazania czlowiekowi. Znacznik z hashem WYDANEGO
     tekstu pozwala odroznic "to nasz tekst, tylko starszy" od "ktos to
     zmienil" — bez niego kazde odswiezenie wygladaloby jak nadpisanie cudzej
@@ -269,16 +259,11 @@ def ensure_hub(name, port, bind="127.0.0.1", port_jawny=False):
 
     `port_jawny` mowi, czy `port` to DECYZJA czlowieka (podal `--port`), czy
     tylko punkt startu dla alokatora. Bez tego rozroznienia ta funkcja nie
-    miala jak uszanowac decyzji: przesuwala port ZAWSZE, gdy nowy pokoj
-    trafial na adres zapisany w configu innego pokoju.
-
-    Zmierzone na zywej maszynie (Windows 11 przez tailnet, 2026-08-06): agent
-    poprosil o 8790, dostal 8791, komenda skonczyla sie EXIT 0 i jedna linia
-    na stderr. Warstwa wyzej (`cmd_start`) deklarowala w komentarzu "jawne
-    --port (decyzja czlowieka, nie zgadujemy za niego)" i robila fail-fast —
-    a warstwa nizej i tak zgadywala, bo nie wiedziala, skad ten port
-    pochodzi. To ta sama klasa co ciche wejscie `--name` do cudzego pokoju:
-    intencja uzytkownika przegrywa z wygoda, po cichu.
+    ma jak uszanowac decyzji: przesuwa port ZAWSZE, gdy nowy pokoj trafia na
+    adres zapisany w configu innego pokoju — agent prosi o 8790, dostaje
+    8791, EXIT 0 i jedna linia na stderr. To ta sama klasa co ciche wejscie
+    `--name` do cudzego pokoju: intencja uzytkownika przegrywa z wygoda,
+    po cichu.
 
     Przy `port_jawny=True` kolizja to ODMOWA (CliError), a nie przesuniecie —
     i sprawdzamy ja PRZED utworzeniem czegokolwiek na dysku, zeby nieudane
@@ -299,20 +284,16 @@ def ensure_hub(name, port, bind="127.0.0.1", port_jawny=False):
         # w tokens.json, a tryb otwarty odmawia wejscia na te role bez tokenu
         # (to jedyne konto z moderacja). Bez niego nie byloby czym moderowac.
         #
-        # `agent1`/`agent2` wycietе. Poprzednia zmiana usunela z nich ustroj
-        # w NAZWACH (worker->agent) i w GRUPACH (koniec domyslnego `workers`),
-        # ale zostawila ETAT: swiezy pokoj twierdzil, ze ma dwoch uczestnikow,
-        # zanim ktokolwiek wszedl. `list` wypisywal ich w kolumnie uczestnikow,
-        # a board serwowal agentom jako `connected: false` — czyli kanal
-        # opowiadal o ludziach, ktorych nie ma. Zgloszone przez operatora:
-        # "na kanale powinni byc ci co sa, a nie ci co byc moze beda".
+        # Zadnych etatow z gory: wpis agenta w swiezym pokoju to uczestnik,
+        # ktorego nie ma — `list` wypisuje go w kolumnie uczestnikow, a board
+        # serwuje agentom jako `connected: false`. Na kanale maja byc ci, co
+        # sa, a nie ci, co byc moze beda.
         #
         # Nic nie ginie: tryb otwarty (loopback/tailnet) wpuszcza agenta BEZ
         # tokenu i sam nadaje mu wolny nick — `_wolny_nick()` na pustym pokoju
         # zwraca dokladnie `agent1`, wiec karta moze go dalej proponowac.
         # Do wejscia wymagajacego sekretu (bind publiczny, cudza maszyna)
-        # operator dopisuje wpis swiadomie — tak samo jak dzis musi to zrobic
-        # dla trzeciego i kazdego kolejnego agenta.
+        # operator dopisuje wpis swiadomie, dla kazdego agenta.
         tokens = {
             "human": {"token": secrets.token_urlsafe(16), "role": "human",
                       "groups": []},
@@ -321,26 +302,10 @@ def ensure_hub(name, port, bind="127.0.0.1", port_jawny=False):
     rules_path = d / "data" / "rules.md"
     if not rules_path.exists():
         rules_path.write_text(DEFAULT_RULES, encoding="utf-8")
-    # F5 (B5): howto ma dojsc do agenta PROTOKOLEM (hub czyta ten plik i
-    # doklada do hello) — plik w repo jest bezuzyteczny dla klienta, ktory
-    # ma tylko socket.
-    #
-    # KONTRAKT ZMIENIONY 2026-08-01, bo stary byl bledny. Stalo tu: "Szablon
-    # idzie z pakietu; human moze go nadpisac" i dlatego kopiowalo sie
-    # WYLACZNIE gdy pliku nie bylo. To byla swiadoma decyzja (slusznie
-    # przypomniana przez agent1), tylko oparta na zalozeniu, ktore nie
-    # zgadza sie z reszta projektu: ze `howto` jest miejscem, w ktorym
-    # wypowiada sie operator. Nie jest — od tego sa `rules`, ktore ida
-    # OSOBNYM polem w hello i ktorych ten kod nie tyka. CLAUDE.md nazywa
-    # `<hub>/data/howto.md` mechanika protokolu, czyli NASZYM tekstem.
-    #
-    # Cena starego kontraktu byla mierzalna: pokoj 'agentmachi' serwowal
-    # zdanie o wypieraniu nicka, obalone pomiarem i poprawione w repo tego
-    # samego dnia — kazdy wchodzacy agent czytal nieprawde, bo poprawka nie
-    # miala jak dojsc. Zamrazalismy punkt rozszerzen, ktory nie istnieje,
-    # a placil za to kazdy uczestnik przy kazdym hello.
-    #
-    # Reczna zmiana NIE ginie po cichu — patrz odswiez_howto.
+    # howto ma dojsc do agenta PROTOKOLEM (hub czyta ten plik i doklada do
+    # hello) — plik w repo jest bezuzyteczny dla klienta, ktory ma tylko
+    # socket. Odswiezany przy kazdym wejsciu tutaj, nie tylko gdy go brak;
+    # dlaczego i jak reczna zmiana NIE ginie po cichu — patrz odswiez_howto.
     stan, kopia = odswiez_howto(d)
     if kopia is not None:
         print(f"agentmachi: howto of room '{name}' had drifted from the "
@@ -356,11 +321,11 @@ def ensure_hub(name, port, bind="127.0.0.1", port_jawny=False):
         # Kolizje sprawdzilismy na gorze tej funkcji i przezylismy ja, wiec
         # port jest wolny. Alokatora tu NIE wolamy — nie dlatego, ze zwrocilby
         # co innego (nie zwrocilby), tylko zeby w kodzie bylo widac, ze jawny
-        # --port nie przechodzi przez nic, co moglo by go przesunac.
+        # --port nie przechodzi przez nic, co mogloby go przesunac.
         config_path.write_text(json.dumps({"port": port, "bind": bind}),
                                encoding="utf-8")
     else:
-        # C5: NOWY hub nie moze zabrac portu innemu (ani niczemu w systemie).
+        # NOWY hub nie moze zabrac portu innemu (ani niczemu w systemie).
         # Bez jawnego --port przesuniecie jest w porzadku: czlowiek nie wskazal
         # adresu, wiec zaden kursor ani wklejona karta jeszcze go nie zna.
         wybrany = _wybierz_port(port, name, bind)
@@ -414,14 +379,11 @@ def join_addr(name):
     gdy config.json pokoju nie istnieje, KAZDY domysl trafia w ten pokoj,
     ktory akurat stoi na tym porcie.
 
-    Zmierzone na zywo 2026-08-05, nie wyczytane z kodu: agent przeszedl
-    README doslownie, zrobil `agentmachi listen --name openrepo` (pokoju nie
-    bylo w lokalnym ~/.agentmachi/) i wszedl do CUDZEGO pokoju 'test' na
-    DEFAULT_PORT. Dostal poprawne session_metadata, board, howto i exit 0 —
-    zero ostrzezenia, pelna pewnosc, ze jest na openrepo. `send` domknal
-    dowod: exit 0, komunikat "unknown nick: orchestrator" (brzmi jak
-    literowka w nicku, nie jak "jestes w zlym pokoju") i ramka w cudzym
-    events.jsonl. Raport przepadl, a nadawca byl przekonany, ze go wyslal.
+    Domysl daje `agentmachi listen --name <pokoj spoza ~/.agentmachi/>`
+    wejscie do CUDZEGO pokoju na DEFAULT_PORT: poprawne session_metadata,
+    board, howto i exit 0 — zero ostrzezenia. `send` konczy sie wtedy exit 0
+    z "unknown nick" (brzmi jak literowka w nicku, nie jak "jestes w zlym
+    pokoju"), a ramka laduje w cudzym events.jsonl.
 
     Klient meldujacy sukces, gdy wyslal dane obcemu odbiorcy, to zlamana
     fizyka transportu, nie brak wygody. Wiec: fail-closed z instrukcja."""
@@ -439,20 +401,17 @@ def join_addr(name):
     return hub_bind(name), hub_port(name)
 
 
-# --- cykl zycia huba (F6 UX + F7 split-brain) ---------------------------
+# --- cykl zycia huba: listing i blokada podwojnego startu --------------
 # Jeden komputer = wiele kanalow (projektow) na wielu portach. Bez listingu
 # i bez blokady podwojnego startu operator nie ma jak stwierdzic, co u niego
-# dziala — zmierzone bolesnie: pkill nie ubil starego huba, `serve` postawil
-# drugi obok, dwa procesy pisaly do jednego katalogu (split-brain).
+# dziala: gdy pkill nie ubije starego huba, `serve` stawia drugi obok i dwa
+# procesy pisza do jednego katalogu (split-brain).
 
 # --- warstwa wykrywania procesow: /proc na Linuksie, `ps` gdzie indziej ---
 #
-# Zmierzone przez CI, nie przez czytanie kodu: suita padala na macos-latest
-# (8 failed, 509 passed, identycznie na 3.11/3.12/3.13), bo macOS NIE MA
-# /proc w ogole. To nie byla usterka testow, tylko dziura w fizyce produktu:
-# bez /proc nie dzialalo wykrywanie zywego huba bez pidfile, zapora przed
-# split-brainem, `agentmachi kill` (FileNotFoundError na `/proc`) ani `list`
-# pokazujacy cudzy zywy hub.
+# macOS NIE MA /proc w ogole, a bez /proc nie dziala wykrywanie zywego huba
+# bez pidfile, zapora przed split-brainem, `agentmachi kill`
+# (FileNotFoundError na `/proc`) ani `list` pokazujacy cudzy zywy hub.
 #
 # /proc ZOSTAJE sciezka glowna — jest szybkie (bez podprocesow), dokladne
 # (`exe` to prawdziwy plik wykonywalny, nie argv) i przetestowane. `ps` jest
@@ -472,15 +431,14 @@ def _procfs_dostepne():
 
 # --- Windows: platforma, na ktorej ta warstwa nie dziala wcale ----------
 #
-# Zmierzone na Windows 11 (issue #2), nie wyczytane z kodu: `pip install
-# agentmachi` DZIALA, wiec ludzie tam trafiaja — a wykrywania procesow nie
-# ma z czego zbudowac. Nie ma /proc i nie ma `ps` jako pliku wykonywalnego
-# (`ps` w PowerShell to alias na Get-Process, wiec `_ps` dostaje OSError
-# i zwraca None, czyli nasze "procesu nie ma"). Skutek jest najgorszy
-# z mozliwych, bo wyglada na awarie produktu, a nie platformy: hub WSTAJE
-# (serve.log konczy sie "chat server on ...", port odpowiada), po czym
-# `start` mowi "did NOT come up" i kasuje pidfile ZYWEGO huba, `list`
-# pokazuje "stopped", `stop` — "is not running", `kill` — "nothing matches".
+# Na Windows `pip install agentmachi` DZIALA, wiec ludzie tam trafiaja — a
+# wykrywania procesow nie ma z czego zbudowac. Nie ma /proc i nie ma `ps` jako
+# pliku wykonywalnego (`ps` w PowerShell to alias na Get-Process, wiec `_ps`
+# dostaje OSError i zwraca None, czyli nasze "procesu nie ma"). Skutek jest
+# najgorszy z mozliwych, bo wyglada na awarie produktu, a nie platformy: hub
+# WSTAJE (serve.log konczy sie "chat server on ...", port odpowiada), po czym
+# `start` mowi "did NOT come up" i kasuje pidfile ZYWEGO huba, `list` pokazuje
+# "stopped", `stop` — "is not running", `kill` — "nothing matches".
 #
 # Wsparcie Windows to osobna robota (issue #2). TU naprawiamy wylacznie to,
 # ze produkt klamie o sobie: ostrzegamy, ale NIE odmawiamy — hub naprawde
@@ -535,9 +493,7 @@ def _podpowiedz_kto_ma_port(port):
     Wariant windowsowy jest DWUKROKOWY i to nie jest przeoczenie. `ss -tlnp`
     pokazuje pid RAZEM z nazwa procesu, a `netstat -ano` konczy sie na golej
     liczbie — czlowiek dowiaduje sie, ze port trzyma 33020, i dalej nie wie,
-    CO to jest. `tasklist` domyka odpowiedz. Zmierzone na zywym gniezdzie
-    2026-08-05 przez agenta na Windows: netstat pokazuje wlasciwy pid co do
-    cyfry, brakuje mu wylacznie nazwy."""
+    CO to jest. `tasklist` domyka odpowiedz."""
     if _windows():
         return (f"netstat -ano | findstr :{port}"
                 f"   (then: tasklist /fi \"PID eq <pid>\")")
@@ -566,13 +522,12 @@ def _ps(*argv):
 # ma zostac JEDYNYM miejscem, ktore odpowiada na pytanie "jaka linie polecen
 # ma ten proces" — i dla kodu, i dla testow, ktore je podmieniaja.
 #
-# Zmierzone przy tej zmianie: gdy skan czytal cmdline ze zdjecia, a
-# `_pid_is_our_hub` przez `_cmdline_of`, testy z podmienionym `_cmdline_of`
-# zaczynaly widziec PRAWDZIWE procesy maszyny — `restart` meldowal "pokoj
-# juz dziala (PID 3509)", bo na maszynie chodzil hub. To ta sama awaria, co
-# w `_ten_sam_home`: wynik suity zalezal od tego, co akurat chodzi.
+# Gdy skan czyta cmdline ze zdjecia, a `_pid_is_our_hub` przez `_cmdline_of`,
+# testy z podmienionym `_cmdline_of` widza PRAWDZIWE procesy maszyny —
+# `restart` melduje "pokoj juz dziala", bo obok chodzi hub. To ta sama
+# awaria, co w `_ten_sam_home`: wynik suity zalezy od tego, co akurat chodzi.
 #
-# Dlaczego nie cache z TTL: "zero zegara w logice" (CLAUDE.md). Dlaczego nie
+# Dlaczego nie cache z TTL: "zero zegara w logice" (AGENTS.md). Dlaczego nie
 # argument: podmieniona w tescie funkcja przyjmuje `(pid)` i tylko `(pid)`.
 _ZDJECIE_PS = None
 
@@ -596,11 +551,11 @@ def _pid_is_our_hub(pid, name):
     """Czy PID to NA PEWNO hub tego kanalu? Pidfile bywa nieaktualny, a PID-y
     sa recyklowane — bez tej kontroli `stop` moglby ubic cudzy proces.
 
-    C6: nazwe kanalu dopasowujemy jako ARGUMENT (`--name X`), nie jako
-    podciag calego cmdline. Dawne `name in cmd` czynilo hub nazwany
-    'agentmachi' NIEUSUWALNYM: kazdy hub ma w cmdline `-m agentmachi.cli`,
-    wiec nazwa pakietu trafiala jako nazwa kanalu i `del` odmawial, pokazujac
-    PID CUDZEGO huba. `stop` mogl przy tym ubic nie ten proces. Ta sama
+    Nazwe kanalu dopasowujemy jako ARGUMENT (`--name X`), nie jako podciag
+    calego cmdline. `name in cmd` czyni hub nazwany 'agentmachi'
+    NIEUSUWALNYM: kazdy hub ma w cmdline `-m agentmachi.cli`, wiec nazwa
+    pakietu trafia jako nazwa kanalu i `del` odmawia, pokazujac PID CUDZEGO
+    huba, a `stop` moze ubic nie ten proces. Ta sama
     rodzina bledu co `pkill -f` trafiajacy we wlasny wrapper powloki:
     dopasowanie tekstowe tam, gdzie potrzebne jest dopasowanie argumentu.
     """
@@ -621,22 +576,17 @@ _SHELLS = ("zsh", "bash", "sh", "dash", "fish", "setsid", "nohup", "timeout", "e
 
 
 def _ancestor_pids():
-    """My i cala nasza linia rodzicow. Jeden zbior, DWA powody — obie awarie
-    zmierzone, kazda osobno:
+    """My i cala nasza linia rodzicow. Jeden zbior, DWA powody:
 
     1. Skaner nie ma prawa uznac zadnego z nich za "juz dzialajacy hub" —
        to nie inny serwer, to my w drodze do startu.
     2. `kill` nie ma prawa ich ubic. `pkill -f <wzorzec>` dopasowuje takze
        WLASNY wrapper powloki (wzorzec siedzi w jego argv) i zabija sam
-       siebie (exit 144). Ostrzezenie o tym jest w skillu od dawna; w jednej
-       sesji dogfoodu weszlo w te pulapke DWOCH agentow, obaj po przeczytaniu
-       ostrzezenia. Dokumentacja nie jest zabezpieczeniem.
+       siebie (exit 144). Agenci wchodza w te pulapke takze po przeczytaniu
+       ostrzezenia w skillu. Dokumentacja nie jest zabezpieczeniem.
 
-    Do 2026-07-31 byly to DWIE funkcje czytajace dwa rozne pliki /proc
-    (`status` -> PPid vs `stat` -> pole 4) i zwracajace — sprawdzone —
-    identyczny zbior. Dwie odpowiedzi na to samo pytanie bezpieczenstwa,
-    zrodzone z dwoch osobnych awarii i oddalone od siebie o 300 linii, wiec
-    niewidoczne. Jedna moglaby sie zepsuc bez drugiej."""
+    Jedna funkcja, nie dwie: dwie odpowiedzi na to samo pytanie
+    bezpieczenstwa moga sie rozjechac — jedna zepsulaby sie bez drugiej."""
     out = set()
     cur = os.getpid()
     while cur and cur > 1 and cur not in out:
@@ -649,7 +599,7 @@ def _ppid_of(pid):
     """PID rodzica albo 0, gdy nie wiadomo (proces znikl, brak dostepu).
 
     Wydzielone z `_ancestor_pids`, bo to jedyny kawalek tamtej funkcji,
-    ktory dotykal /proc — reszta (petla po przodkach, ochrona przed cyklem)
+    ktory dotyka /proc — reszta (petla po przodkach, ochrona przed cyklem)
     jest przenosna i nie ma powodu istniec w dwoch wariantach."""
     if _procfs_dostepne():
         try:
@@ -737,16 +687,16 @@ def _przeglad_procesow():
 def _scan_hub_pid(name):
     """Znajdz zywy hub tego kanalu po procesach, bez pidfile.
 
-    F8 (B5): pidfile nie jest zrodlem prawdy o tym, czy hub zyje. Nie ma go
-    dla hubow wystartowanych przed F6, znika przy recznym sprzataniu katalogu
-    i nie powstaje, gdy ktos odpali serwer inaczej niz przez `serve`. Sam brak
-    pliku raportowany jako "zatrzymany" jest grozny w JEDNA strone: kusi, zeby
-    postawic drugi hub na tym samym katalogu — czyli split-brain z F7, ktory
-    16:05 zzarl nam rozmowe. Dlatego przy braku pidfile pytamy system.
+    Pidfile nie jest zrodlem prawdy o tym, czy hub zyje: znika przy recznym
+    sprzataniu katalogu i nie powstaje, gdy ktos odpali serwer inaczej niz
+    przez `serve`. Sam brak pliku raportowany jako "zatrzymany" jest grozny
+    w JEDNA strone: kusi, zeby postawic drugi hub na tym samym katalogu —
+    czyli split-brain, ktory zjada rozmowe. Dlatego przy braku pidfile pytamy
+    system.
     """
-    # REGRESJA z produkcji: startujacy hub pytal "czy juz dzialam?", skaner
-    # znajdowal JEGO WLASNY proces (cmdline pasuje idealnie) i serve odmawial
-    # startu — hub nie mogl wstac w ogole. Ten sam wzorzec, co pkill -f
+    # Startujacy hub pyta "czy juz dzialam?", a skaner znalazlby JEGO WLASNY
+    # proces (cmdline pasuje idealnie) i serve odmowilby startu — hub nie
+    # wstalby w ogole. Ten sam wzorzec, co pkill -f
     # trafiajacy we wlasny wrapper powloki. Wlasny PID jest zawsze wykluczony.
     # ...a razem z nim CALE nasze drzewo przodkow. Wrapper powloki
     # (`zsh -c "... serve --name X"`, setsid, nohup) trzyma cale polecenie
@@ -759,7 +709,7 @@ def _scan_hub_pid(name):
             if pid in mine:
                 continue
             cmd = _cmdline_of(pid)
-            # Kolejnosc warunkow jest teraz istotna, a nie kosmetyczna: filtr
+            # Kolejnosc warunkow jest istotna, a nie kosmetyczna: filtr
             # po cmdline jest w przegladzie DARMOWY, a `_is_shell_wrapper` bez
             # /proc kosztuje forka `ps`. Najpierw odsiewamy setki procesow,
             # ktore hubem nie sa, potem pytamy o plik wykonywalny tych kilku,
@@ -840,22 +790,19 @@ def _ten_sam_home(pid):
 
     Nazwa kanalu jest unikalna w obrebie jednej instalacji, nie na maszynie.
     Bez tej kontroli hub 'warsztat' w AGENTMACHI_HOME=/tmp/... i hub
-    'warsztat' w ~/.agentmachi byly dla skanu tym samym hubem — a to dwa
-    rozne huby, z osobnymi tokenami, logami i portami.
+    'warsztat' w ~/.agentmachi sa dla skanu tym samym hubem — a to dwa
+    rozne huby, z osobnymi tokenami, logami i portami. Wynik suity zalezalby
+    wtedy od tego, co akurat chodzi na maszynie: fixture rozdziela katalogi,
+    a skan i tak znajduje produkcyjny proces i `cmd_start` melduje "pokoj
+    juz dziala".
 
-    Zmierzone: pelna suita przestawala byc zielona, gdy na maszynie chodzil
-    pokoj o nazwie uzytej w tescie. Fixture przekierowuje AGENTMACHI_HOME do
-    tmp_path, wiec katalogi byly rozdzielone — ale skan i tak znajdowal
-    produkcyjny proces i `cmd_start` melodowal "pokoj juz dziala (PID ...)".
-    Wynik suity zalezal wiec od tego, co akurat chodzi na maszynie.
-
-    Ta sama rodzina bledu co C6: dopasowanie zbyt luzne. Tam nazwa pakietu
-    przechodzila za nazwe kanalu, tu nazwa kanalu przechodzila przez granice
-    instalacji.
+    Ta sama rodzina bledu co w `_pid_is_our_hub`: dopasowanie zbyt luzne.
+    Tam nazwa pakietu przechodzi za nazwe kanalu, tu nazwa kanalu przechodzi
+    przez granice instalacji.
 
     Gdy environ jest nieczytelny, ZOSTAJEMY przy trafieniu: skan istnieje po
     to, zeby nie kusic czlowieka do postawienia drugiego huba na tym samym
-    katalogu (split-brain z F7, ktory raz zzarl nam rozmowe). Falszywe
+    katalogu (split-brain, ktory zjada rozmowe). Falszywe
     "dziala" jest tu tansze niz falszywe "zatrzymany"."""
     home = _home_procesu(pid)
     return home is None or home == str(hub_home())
@@ -877,10 +824,10 @@ def hub_pid(name):
     if _cmdline_of(pid) is None:
         path.unlink(missing_ok=True)
         return _scan_hub_pid(name)
-    # UWAGA (poza zakresem F8, zgloszone osobno): nie sprawdzamy tu, czy PID
-    # to NA PEWNO nasz hub. PID-y sa recyklowane, wiec nieaktualny pidfile
-    # wskazujacy na cudzy zywy proces daje falszywe "dziala". `stop` jest
-    # na to odporny (_pid_is_our_hub przed zabiciem), `list` jeszcze nie.
+    # UWAGA: nie sprawdzamy tu, czy PID to NA PEWNO nasz hub. PID-y sa
+    # recyklowane, wiec nieaktualny pidfile wskazujacy na cudzy zywy proces
+    # daje falszywe "dziala". `stop` jest na to odporny (_pid_is_our_hub przed
+    # zabiciem), `list` jeszcze nie.
     return pid
 
 
@@ -917,8 +864,8 @@ def hub_rows():
 def connect_host(bind):
     """Adres POLACZENIOWY != bind: bind loopback/wildcard laczy sie lokalnie
     po 'localhost' (a) zachowuje dotychczasowy hub_id 'localhost:<port>' —
-    kursory zywych sesji w ~/.chat-sessions/ przezywaja upgrade (hub sprzed
-    B3 ma config bez 'bind' i dostaje fallback loopback tutaj), (b) nie
+    kursory zywych sesji w ~/.chat-sessions/ przezywaja upgrade (config bez
+    'bind' dostaje fallback loopback tutaj), (b) nie
     drukuje na karcie nieroutowalnego ws://0.0.0.0:... . Prawdziwy adres
     tailnetu/publiczny (np. 100.x.y.z) zostaje bez zmian."""
     return "localhost" if bind in ("127.0.0.1", "0.0.0.0", "localhost") else bind
@@ -945,10 +892,10 @@ data:    {d / 'data'}
         groups = ",".join(entry.get("groups", [])) or "-"
         line = f"  {nick}  {role}  [{groups}]"
         print(line)
-    # JEDNA rzecz do wklejenia. Stala tu tez gola linia `... agentmachi
-    # listen` z "paste one of these": pod Claude Code to gluchy nasluch
-    # (Bash w tle budzi raz), pod Codexem zla forma (`--once`). Wejscie
-    # robi skill — patrz test_karta_daje_czlowiekowi_JEDNA_rzecz_do_wklejenia.
+    # JEDNA rzecz do wklejenia, bez golej linii `... agentmachi listen`: pod
+    # Claude Code to gluchy nasluch (Bash w tle budzi raz), pod Codexem zla
+    # forma (`--once`). Wejscie robi skill — patrz
+    # test_karta_daje_czlowiekowi_JEDNA_rzecz_do_wklejenia.
     print(f"""
 human (TUI):
   agentmachi tui --name {name}
@@ -956,7 +903,7 @@ human (TUI):
 paste this to an agent (its machine needs `agentmachi install-skills`):
   "join agentmachi '{name}' ({addr}) as {zaproszony}\"""")
     if token and not sys.stdout.isatty():
-        # Decyzja operatora 2026-11-02: sekret tylko w terminalu czlowieka.
+        # Sekret tylko w terminalu czlowieka.
         # Bash agenta, Monitor, potok = nie-TTY: wpis powstaje, ale token
         # nie wchodzi do sesji agenta (stamtad trafia na kanal i do logow).
         print(f"  its token is in {hub_dir(name) / 'tokens.json'} (key "
@@ -985,7 +932,7 @@ paste this to an agent (its machine needs `agentmachi install-skills`):
 def _agent_env(args):
     """Zloz srodowisko klienta: hub z --name/AGENTMACHI_HUB, nick+token
     z tokens.json huba (CHAT_TOKEN z env wygrywa — nie wymuszamy pliku).
-    CHAT_URL z env WYGRYWA NAD configiem lokalnym (fix C1 — na maszynie
+    CHAT_URL z env WYGRYWA NAD configiem lokalnym (na maszynie
     zdalnej, bez ~/.agentmachi/<hub>, ustawiamy tylko gdy env pusty;
     inaczej agent na VPS dostalby CHAT_URL z lokalnego configu i celowal
     w localhost zamiast w adres operatora). Gdy ustawiamy sami, adres to
@@ -996,7 +943,7 @@ def _agent_env(args):
     nick = getattr(args, "nick", None) or os.environ.get("CHAT_NICK") or ""
     token = os.environ.get("CHAT_TOKEN", "")
     remote = bool(os.environ.get("CHAT_URL"))
-    # B6: hub ZDALNY (CHAT_URL w env) nie ma lokalnego katalogu — nie
+    # Hub ZDALNY (CHAT_URL w env) nie ma lokalnego katalogu — nie
     # ladujemy tokens.json, nie wymuszamy nicka, nie wymuszamy tokenu.
     # Tryb otwarty huba (loopback/tailnet) wpuszcza bez sekretu, a nick
     # nada sam. Token/nick bierzemy WYLACZNIE, gdy operator poda je w env.
@@ -1029,10 +976,10 @@ def _import_send():
 
 # --- tresc ze stdin: droga, ktorej powloka nie tyka ----------------------
 #
-# Zgloszone z Windows 11 / PowerShell, z pomiarem: tresc konczaca sie
-# backslashem (`C:\Users\x\` — normalna sciezka, nie przypadek brzegowy)
-# dochodzila do huba PRZEKLAMANA, exit 0, zero ostrzezen. Cudzyslow rozbijal
-# argument na kilka i argparse odrzucal cala wiadomosc. Hub, protokol i CLI
+# Pod PowerShell tresc konczaca sie backslashem (`C:\Users\x\` — normalna
+# sciezka, nie przypadek brzegowy) dochodzi do huba PRZEKLAMANA, exit 0, zero
+# ostrzezen, a cudzyslow rozbija argument na kilka i argparse odrzuca cala
+# wiadomosc. Hub, protokol i CLI
 # sa czyste — psuje to POWLOKA, zanim CLI cokolwiek zobaczy, wiec CLI nie ma
 # tego jak wykryc. Jedyna naprawa to wejscie, ktorego powloka nie dotyka.
 STDIN_ARG = "-"
@@ -1047,8 +994,8 @@ def _czytaj_stdin(czego):
     """Wczytaj tresc ze stdin. Wolane WYLACZNIE po jawnym `-`/`--stdin`.
 
     NIE MA TU AUTODETEKCJI I NIE WOLNO JEJ DOPISAC. Kusi warunek
-    `if not sys.stdin.isatty(): czytaj z stdin` — i to jest blad zmierzony
-    na zywym srodowisku: agent headless ma stdin podpiety do /dev/null, wiec
+    `if not sys.stdin.isatty(): czytaj z stdin` — i to jest blad: agent
+    headless ma stdin podpiety do /dev/null, wiec
     taki warunek idzie czytac, dostaje natychmiastowe EOF i wysyla na kanal
     PUSTA wiadomosc z exit 0. Czyli dokladnie ta cicha porazka udajaca
     sukces, przed ktora ta droga ma bronic. Zrodlo tresci wybiera argv —
@@ -1083,15 +1030,15 @@ def _czytaj_stdin(czego):
 
 
 def cmd_serve(args):
-    # F7: fail-fast zamiast split-brain. Drugi `serve` na tej samej nazwie
+    # Fail-fast zamiast split-brain. Drugi `serve` na tej samej nazwie
     # nie dostanie portu (bind zawiedzie), ale ZDAZY otworzyc ten sam
     # katalog danych i pisac do tego samego events.jsonl — dwa procesy,
     # jeden log. Sprawdzamy PRZED czymkolwiek innym.
     running = hub_pid(args.name)
     # `agentmachi start` zapisuje hub.pid z PID-em procesu, ktory WLASNIE
     # tu jestesmy — wiec wlasny PID w pidfile nie oznacza "inny hub juz
-    # dziala". Trzeci wariant tej samej pulapki w jednym dniu: dopasowanie
-    # po argv (pkill), skan procesow, teraz pidfile.
+    # dziala" — ta sama pulapka co dopasowanie po argv (pkill) i skan
+    # procesow.
     if running == os.getpid():
         running = None
     if running is not None and _pid_is_our_hub(running, args.name):
@@ -1101,14 +1048,14 @@ def cmd_serve(args):
         return 1
     # `--port` w `serve` ma default=None (nie DEFAULT_PORT), zeby dalo sie
     # odroznic "czlowiek podal port" od "nie podal" — inaczej ensure_hub
-    # dostawalo tu ZAWSZE jawny port i albo zgadywalo za czlowiekiem, albo
-    # odmawialo kazdemu `serve` bez portu. DEFAULT_PORT wyliczamy tu, bo to
+    # dostawaloby tu ZAWSZE jawny port i albo zgadywaloby za czlowiekiem, albo
+    # odmawialoby kazdemu `serve` bez portu. DEFAULT_PORT wyliczamy tu, bo to
     # domysl KOMENDY, nie decyzja uzytkownika.
     port_jawny = args.port is not None
     # Drugie wejscie do tej samej decyzji co w `cmd_start`: samodzielny `serve`
-    # na adresie, ktorego nie da sie zbindowac, tez zostawial pokoj zapisany
-    # pod tym adresem. Ta sama klasa co `_odmow_zajetego_portu` — strzezone
-    # bylo jedno z dwoch wejsc.
+    # na adresie, ktorego nie da sie zbindowac, tez zostawilby pokoj zapisany
+    # pod tym adresem — ta sama klasa co `_odmow_zajetego_portu`: oba wejscia
+    # musza byc strzezone.
     pokoj_istnial, config_przed = _migawka_adresu(args.name)
     d, port = ensure_hub(args.name, args.port if port_jawny else DEFAULT_PORT,
                          bind=args.bind, port_jawny=port_jawny)
@@ -1117,17 +1064,15 @@ def cmd_serve(args):
     tokens = json.loads((d / "tokens.json").read_text(encoding="utf-8"))
     if not os.environ.get(SPAWNED_BY_START):
         # Pod `start` karty NIE drukujemy: rodzic drukuje ja sam, PO
-        # potwierdzeniu bindu. Kopia dziecka trafiala do serve.log przed
-        # bindem i robila dwie szkody naraz w wydruku nieudanego startu
-        # (znalezisko 4 z audytu szwow):
-        #   1. `reason:` cytuje OGON logu, wiec pokazywal karte zamiast bledu —
-        #      czlowiek dostawal "powod: zdanie zaproszenia",
-        #   2. w tym zdaniu stalo gotowe do wklejenia "join agentmachi 'r2'
-        #      (ws://localhost:8767) as agent1" dla pokoju, ktory NIE wstal,
-        #      a pod tym adresem stal cudzy zywy hub. Czlowiek wykonujacy
-        #      dokladnie to, co produkt podsunal mu po awarii, wysylal agenta
-        #      do obcego pokoju. Tak stracilismy cztery ramki na `interwizji`
-        #      (seq 295-298, nick `ktos`).
+        # potwierdzeniu bindu. Kopia dziecka trafilaby do serve.log przed
+        # bindem i zrobila dwie szkody naraz w wydruku nieudanego startu:
+        #   1. `reason:` cytuje OGON logu, wiec pokazalby karte zamiast bledu
+        #      — czlowiek dostalby "powod: zdanie zaproszenia",
+        #   2. w tym zdaniu stoi gotowe do wklejenia "join agentmachi '<pokoj>'
+        #      (ws://...) as agent1" dla pokoju, ktory NIE wstal, a pod tym
+        #      adresem moze stac cudzy zywy hub. Czlowiek wykonujacy dokladnie
+        #      to, co produkt podsunal mu po awarii, wyslalby agenta do obcego
+        #      pokoju.
         # Samodzielny `serve` karte drukuje dalej — tam nie ma rodzica, ktory
         # by ja podal, a czlowiek potrzebuje adresu.
         print_card(args.name, port, tokens, bind=bind)
@@ -1145,19 +1090,18 @@ def cmd_serve(args):
         _cofnij_slad_nieudanego_startu(
             args.name, pokoj_istnial, config_przed, pid=os.getpid(),
             rmtree=not os.environ.get(SPAWNED_BY_START))
-        # B1, GRANICA NAZWANA W CHWILI POTRZEBY, nie w docach: `serve` binduje
-        # DOKLADNIE ten port i nie szuka innego. Alokator, ktory omija zywe
-        # porty (`_wybierz_port_zywy`), ma w docstringu jawny zakaz uzycia
-        # poza `start`, a `_wybierz_port` nie odpytuje systemu celowo — inaczej
-        # wynik zalezy od tego, co akurat chodzi na maszynie i cudze testy
-        # staja sie flaky (zmierzone 2026-08-06, potwierdzone ponownie dzis:
-        # doklejony alokator wywrocil `test_serve_bez_portu_bierze_domyslny`
-        # na PIERWSZYM przebiegu, bo obok zyla `interwizja`).
+        # GRANICA: `serve` binduje DOKLADNIE ten port i nie szuka innego.
+        # Alokator, ktory omija zywe porty (`_wybierz_port_zywy`), ma
+        # w docstringu jawny zakaz uzycia poza `start`, a `_wybierz_port` nie
+        # odpytuje systemu celowo — inaczej wynik zalezy od tego, co akurat
+        # chodzi na maszynie i cudze testy staja sie flaky (doklejony
+        # alokator wywraca `test_serve_bez_portu_bierze_domyslny`, gdy obok
+        # zyje prawdziwy hub).
         #
         # Skutkiem tego zakazu `serve` nie widzi hubow z INNEGO
-        # AGENTMACHI_HOME i moze wybrac port, ktory jeden z nich trzyma. Po
-        # naprawie B4 konczy sie to glosno i bez sladu, wiec czlowiekowi
-        # brakuje tylko jednego: drogi wyjscia. Jest ponizej.
+        # AGENTMACHI_HOME i moze wybrac port, ktory jeden z nich trzyma.
+        # Konczy sie to glosno i bez sladu, wiec czlowiekowi brakuje tylko
+        # jednego: drogi wyjscia. Jest ponizej.
         print(f"agentmachi: hub {args.name!r} could not bind "
               f"ws://{bind}:{port} — {e}\n"
               f"  `serve` binds exactly this port and does not look for "
@@ -1180,8 +1124,8 @@ def cmd_list(args):
         return 0
     # NIE "UCZESTNICY": ta kolumna czyta tokens.json, wiec pokazuje
     # TOZSAMOSCI, ktore pokoj zna — nie ludzi i agentow, ktorzy sa w srodku.
-    # Swiezy pokoj wypisywal "agent1, agent2, human" i wygladal na zaludniony,
-    # zanim ktokolwiek wszedl (zgloszone przez operatora). `list` czyta sam
+    # Naglowek "uczestnicy" robilby z pokoju zaludniony, zanim ktokolwiek
+    # wszedl. `list` czyta sam
     # dysk i celowo nie rusza sieci, wiec obecnosci nie zna i nie ma udawac,
     # ze zna. Kto JEST na kanale, pokazuje TUI ("(nikt nie jest online)").
     print(f"{'ROOM':<16} {'ADDRESS':<28} {'STATE':<24} IDENTITIES (config)")
@@ -1189,12 +1133,11 @@ def cmd_list(args):
     for r in rows:
         addr = f"ws://{connect_host(r['bind'])}:{r['port']}"
         if not r["running"]:
-            # Adres pokoju ZATRZYMANEGO nie musi byc juz jego. Zmierzone
-            # w audycie szwow: pokoj `t9` nie wstal (kolizja portu), a `list`
-            # podal ws://localhost:8767 — adres ZYWEJ `interwizji`. Klient
-            # wzial ten adres i wyslal; ramki stoja w cudzym logu do dzis
-            # (seq 295-298, nick `ktos`). Docs nazywaja `list`/`card`
-            # zrodlem prawdy o adresie, wiec milczenie tutaj jest wada.
+            # Adres pokoju ZATRZYMANEGO nie musi byc juz jego: pokoj, ktory
+            # nie wstal (kolizja portu), ma w configu adres, pod ktorym moze
+            # sluchac cudzy zywy hub — klient bierze ten adres i ramki laduja
+            # w cudzym logu. Docs nazywaja `list`/`card` zrodlem prawdy
+            # o adresie, wiec milczenie tutaj jest wada.
             #
             # Pytamy siec WYLACZNIE o pokoje zatrzymane i wylacznie o ich
             # wlasny adres. Reszta `list` czyta dalej sam dysk — celowo, bo
@@ -1210,8 +1153,7 @@ def cmd_list(args):
         print(f"{r['name']:<16} {addr:<28} {stan:<24} {', '.join(r['nicks'])}")
     # Tabela idzie na stdout, ostrzezenie na stderr — przy przekierowaniu do
     # pliku stdout jest blokowo buforowany i ostrzezenie wyladowaloby PRZED
-    # wierszem, ktorego dotyczy. Ta sama roznica buforowania zrobila z pola
-    # `reason:` cytat z karty (znalezisko 4).
+    # wierszem, ktorego dotyczy.
     sys.stdout.flush()
     for nazwa, addr in obce:
         print(f"\nwarning: {nazwa!r} is NOT running, but something is already "
@@ -1241,9 +1183,8 @@ def cmd_kill(args):
     wzorzec = args.wzorzec
     swoje = _ancestor_pids()
     trafione = []
-    # Kiedys chodzilo po `/proc` wprost i na macOS padalo z FileNotFoundError
-    # na samym `/proc` — komenda nie dzialala tam W OGOLE, a jest to komenda
-    # ratunkowa. Teraz to samo zrodlo procesow, co skan hubow.
+    # To samo zrodlo procesow, co skan hubow: `/proc` wprost pada na macOS
+    # z FileNotFoundError, a to komenda ratunkowa.
     with _przeglad_procesow() as pidy:
         for pid in pidy:
             if pid in swoje:
@@ -1335,20 +1276,18 @@ def cmd_stop(args):
 
 
 # --- cykl zycia dla operatora: start / stop / list / del ----------------
-# Czlowiek ma odpalac i moderowac pokoje, a nie pamietac zaklec powloki.
-# Do dzis start w tle wymagal recznego `setsid nohup ... & disown` — cztery
-# razy dyktowanego przez czat, raz wklejonego w zlej kolejnosci (skonczylo
-# sie split-brainem). Prompt musi wrocic do czlowieka, a adres ma byc na
-# ekranie.
+# Czlowiek ma odpalac i moderowac pokoje, a nie pamietac zaklec powloki:
+# reczne `setsid nohup ... & disown` dyktowane przez czat da sie wkleic
+# w zlej kolejnosci, a to konczy sie split-brainem. Prompt musi wrocic do
+# czlowieka, a adres ma byc na ekranie.
 
 def _spawn_detached(argv, log_path):
     """Odpal proces w tle, odpiety od terminala. Zwraca PID.
 
     cwd = katalog pokoju, NIE katalog wolajacego: `python -m` wstawia cwd
-    na poczatek sys.path, wiec hub odpalony z wnetrza checkoutu chodzil na
-    kodzie TEGO checkoutu zamiast instalacji (zmierzone 2026-11-02: restart
-    z detached wt-nowy wstal na starym kodzie bez `workspace`). Przy okazji
-    hub przestaje trzymac cudzy worktree jako swoj cwd."""
+    na poczatek sys.path, wiec hub odpalony z wnetrza checkoutu chodzilby na
+    kodzie TEGO checkoutu zamiast instalacji. Przy okazji hub przestaje
+    trzymac cudzy worktree jako swoj cwd."""
     env = dict(os.environ)
     if env.get("AGENTMACHI_HOME"):
         # wzgledny HOME dziecko rozwiazaloby wzgledem SWOJEGO cwd (katalog
@@ -1362,8 +1301,8 @@ def _spawn_detached(argv, log_path):
 
 
 # Ustawiane przez `start` dziecku, ktore odpala — przez os.environ, nie przez
-# argument `_spawn_detached`: te funkcje podmienia czternascie cudzych testow
-# sygnatura (argv, log), wiec dolozenie parametru byloby zmiana kontraktu dla
+# argument `_spawn_detached`: te funkcje podmieniaja cudze testy sygnatura
+# (argv, log), wiec dolozenie parametru byloby zmiana kontraktu dla
 # calej suity, a nie naprawa tej jednej rzeczy. Mowi dziecku jedno:
 # NIE sprzataj po sobie katalogu, bo rodzic wlasnie czyta z niego serve.log,
 # zeby powiedziec czlowiekowi, dlaczego pokoj nie wstal. Sprzata rodzic —
@@ -1377,13 +1316,11 @@ def _migawka_adresu(name):
     „Pokoj byl" mierzymy `tokens.json`, NIE istnieniem katalogu — bo to
     `tokens.json` decyduje, czy `hub_rows` wpusci pokoj do `list`.
 
-    Pierwsza wersja pytala o katalog i to sie zemscilo dokladnie tak, jak
-    ostrzega komentarz w `_cofnij_slad_nieudanego_startu`. Odkad cofniecie
-    zachowuje `serve.log`, katalog PRZEZYWA porazke — wiec DRUGA nieudana
-    proba na tej samej nazwie widziala „pokoj istnieje", cofala sam config
-    i zostawiala `tokens.json`. `list` pokazywal wtedy `ghost` pod adresem
-    DOMYSLNYM: widmo pod adresem, o ktory nikt nie prosil. Zmierzone
-    2026-09-03, dwie porazki pod rzad na nazwie `ghost`."""
+    Cofniecie zachowuje `serve.log`, wiec katalog PRZEZYWA porazke. Pytanie
+    o katalog dawaloby przy DRUGIEJ nieudanej probie na tej samej nazwie
+    „pokoj istnieje": cofniety bylby sam config, `tokens.json` by zostal,
+    a `list` pokazalby widmo pod adresem DOMYSLNYM, o ktory nikt nie prosil
+    (patrz `_cofnij_slad_nieudanego_startu`)."""
     d = hub_dir(name)
     config = d / "config.json"
     return (d / "tokens.json").exists(), (config.read_text(encoding="utf-8")
@@ -1394,36 +1331,36 @@ def _cofnij_slad_nieudanego_startu(name, pokoj_istnial, config_przed,
                                    pid=None, rmtree=True, zachowaj=None):
     """Przywroc adres do stanu z `_migawka_adresu`. Wolane, gdy bind NIE zaszedl.
 
-    Doslowna kolejnosc z planu — „bind, potem zapis" — jest nieosiagalna bez
+    Kolejnosc „bind, potem zapis" jest nieosiagalna bez
     nowego mechanizmu w rdzeniu: adres zapisuja DWA procesy przed bindem
     (`ensure_hub` u rodzica i u dziecka), a ten, ktory binduje, juz nie wraca
     (`server_main` blokuje do SIGTERM-a). Jedynym istniejacym sygnalem „bind
     udany" jest READY_MARK w logu, czytany przez rodzica. Dlatego adres jest
     tu TRWALY DOPIERO PO potwierdzeniu bindu — przez cofniecie, nie przez
-    opoznienie zapisu. Rozni sie to od litery planu jednym oknem: miedzy
-    spawnem a READY_MARK rownolegly `list` widzi pokoj.
+    opoznienie zapisu. Koszt to jedno okno: miedzy spawnem a READY_MARK
+    rownolegly `list` widzi pokoj.
 
-    Trzy przypadki zmierzone 2026-09-02 na izolowanym AGENTMACHI_HOME, kazdy
-    konczyl sie adresem, pod ktorym nikt nigdy nie sluchal:
-      1. nowy pokoj, `--bind 192.0.2.1` -> `list` i `card` podawaly
+    Bez cofniecia kazdy z trzech przypadkow konczy sie adresem, pod ktorym
+    nikt nigdy nie sluchal:
+      1. nowy pokoj, `--bind 192.0.2.1` -> `list` i `card` podaja
          ws://192.0.2.1:8999 jako prawde,
       2. to samo z samodzielnego `serve` (drugie wejscie — ta sama klasa co
-         `_odmow_zajetego_portu`: strzezone bylo jedno z dwoch),
+         `_odmow_zajetego_portu`),
       3. NAJDROZSZY: pokoj DZIALAJACY pod ws://127.0.0.1:8901 po nieudanym
-         `start --port 8902 --bind 192.0.2.1` zostawal zapisany pod tym
-         drugim adresem NA TRWALE. Stary, dobry adres ginal — a rada z
-         komunikatu bledu ("wybierz inny port") nie miala jak pomoc, bo
-         wskazywala na config, ktory juz klamal.
+         `start --port 8902 --bind 192.0.2.1` zostaje zapisany pod tym
+         drugim adresem NA TRWALE. Stary, dobry adres ginie — a rada
+         z komunikatu bledu ("wybierz inny port") nie ma jak pomoc, bo
+         wskazuje na config, ktory juz klamie.
 
     Katalogu, ktorego nie stworzylismy, NIE kasujemy. Skasowanie samego
-    `config.json` nie wystarcza i bylo pierwszym, blednym pomyslem: `hub_rows`
+    `config.json` nie wystarcza: `hub_rows`
     wpuszcza pokoj do `list` na podstawie `tokens.json`, wiec pokoj bez configu
     pokazywalby sie pod adresem DOMYSLNYM — widmo pod adresem, o ktory nikt
     nie prosil, zamiast pod tym, ktory nie wstal."""
     d = hub_dir(name)
     pidfile = d / "hub.pid"
-    # Pidfile zapisuje DZIECKO (`cmd_serve`) przed bindem, mimo ze komentarz
-    # w galezi porazki obiecywal, ze przy nieudanym starcie nie powstaje.
+    # Pidfile zapisuje DZIECKO (`cmd_serve`) przed bindem, wiec powstaje
+    # takze przy nieudanym starcie.
     # Kasujemy tylko wskazujacy na nasze dziecko — cudzego zywego huba ten
     # kod nie ma prawa tknac.
     if pidfile.exists():
@@ -1434,9 +1371,9 @@ def _cofnij_slad_nieudanego_startu(name, pokoj_istnial, config_przed,
         if pid is None or czyj == str(pid):
             pidfile.unlink(missing_ok=True)
     # Adres cofamy ZAWSZE, katalog tylko czasem — te dwa kroki musza byc
-    # rozlaczne. Gdy byly zlaczone (`return` po pominietym rmtree), dziecko
-    # odpalone przez `start` zostawialo config.json pod nieudanym adresem;
-    # zlapal to `test_serve_pod_startem_zostawia_log_rodzicowi`.
+    # rozlaczne. Zlaczone (`return` po pominietym rmtree) zostawiaja
+    # config.json dziecka odpalonego przez `start` pod nieudanym adresem
+    # (`test_serve_pod_startem_zostawia_log_rodzicowi`).
     config = d / "config.json"
     if config_przed is None:
         config.unlink(missing_ok=True)
@@ -1461,23 +1398,21 @@ def _cofnij_slad_nieudanego_startu(name, pokoj_istnial, config_przed,
 def _port_accepts(port, bind):
     """Czy cos przyjmuje polaczenia na tym porcie NA TYM INTERFEJSIE.
 
-    Zakres jest wezszy, niz brzmial poprzedni opis ("czy cokolwiek przyjmuje
-    polaczenia na tym porcie") i ta roznica jest widoczna golym okiem:
+    Zakres jest wezszy niz "czy cokolwiek przyjmuje polaczenia na tym porcie":
     sprawdzamy WYLACZNIE `connect_host(bind)`, wiec hub sluchajacy na adresie
     tailnetu (100.x.y.z:8766) NIE zostanie tu wykryty przy pytaniu o
     127.0.0.1:8766 — i odwrotnie.
 
     Zachowanie jest poprawne, bo pytamy o to, czy uda sie zbindowac TAM, gdzie
     zamierzamy; dwa gniazda na tym samym porcie i roznych interfejsach
-    wspolistnieja legalnie. Falszywy byl OPIS, i tylko on sie zmienia.
+    wspolistnieja legalnie.
 
     Druga zapora — i to ona lapie cudze pokoje — jest w `_porty_innych_hubow`:
     czyta configi z `AGENTMACHI_HOME`, wiec dziala niezaleznie od interfejsu.
     Uwaga przy diagnostyce: w IZOLOWANYM `AGENTMACHI_HOME` (testy, repro) ta
     zapora nie widzi pokojow operatora, wiec swiezy pokoj potrafi wziac port
     zajety przez zywy hub na innym interfejsie. To artefakt izolacji, nie
-    dziura w produkcie — zmierzone 2026-08-06, gdy wygladalo dokladnie
-    odwrotnie."""
+    dziura w produkcie, choc wyglada dokladnie odwrotnie."""
     try:
         with socket.create_connection((connect_host(bind), port), timeout=0.5):
             return True
@@ -1492,12 +1427,12 @@ def _wait_until_listening(timeout=10.0, pid=None,
                           log_path=None, log_from=0):
     """Czekaj, az NASZ hub potwierdzi start WLASNYM glosem.
 
-    KRYTYCZNE: fakt, ze port odpowiada, NIC nie dowodzi — moze go trzymac
-    cudzy proces. Zdarzylo sie naprawde: nowy pokoj dostal domyslny port
-    zajety przez inny serwer, nasze dziecko padlo z 'Address already in use',
-    a `start` zameldowal sukces, bo polaczyl sie z TAMTYM nasluchem i wypisal
-    PID trupa. Sprawdzanie samego zycia procesu tez nie wystarcza: dziecko
-    zyje jeszcze przez chwile po spawnie, wiec wyscig wraca.
+    KRYTYCZNE: fakt, ze port odpowiada, NIC nie dowodzi — moze go trzymac cudzy
+    proces: nowy pokoj na domyslnym porcie zajetym przez inny serwer — nasze
+    dziecko pada z 'Address already in use', a `start` melduje sukces, bo
+    polaczyl sie z TAMTYM nasluchem, i wypisuje PID trupa. Sprawdzanie samego
+    zycia procesu tez nie wystarcza: dziecko zyje jeszcze przez chwile po
+    spawnie, wiec wyscig wraca.
 
     Dowodem startu jest wiec linia w NASZYM logu (`chat server on ...`),
     ktora wypisuje wylacznie nasz proces po udanym bindzie.
@@ -1518,7 +1453,7 @@ def _wait_until_listening(timeout=10.0, pid=None,
 def _start_all(args):
     """Odpal wszystkie ZATRZYMANE pokoje — odwrotny cel niz `stop`/`restart`.
 
-    Symetria, o ktora poprosil operator 2026-08-13: „start --all startuje te,
+    Symetria: „start --all startuje te,
     ktore nie sa started; restart te, ktore sa; stop te, ktore sa". Dzialajacy
     pokoj NIE jest tu bledem i nie przerywa petli — `--all` ma doprowadzic do
     stanu „wszystko chodzi", a on juz w nim jest.
@@ -1566,8 +1501,8 @@ def cmd_start(args):
     # Port sprawdzamy PRZED ensure_hub: nieudany start nie moze zostawic
     # pokoju-widma, ktory potem straszy w `list`. Jawny --port ma tez
     # pierwszenstwo nad configem istniejacego pokoju — inaczej pokoj zapisany
-    # przy nieudanej probie zostawal na trwale przypiety do zajetego portu
-    # i rada "wybierz inny port" nie dzialala (pulapka bez wyjscia).
+    # przy nieudanej probie zostalby na trwale przypiety do zajetego portu
+    # i rada "wybierz inny port" by nie dzialala (pulapka bez wyjscia).
     istnieje = (hub_dir(args.name) / "config.json").exists()
     # Migawka PRZED czymkolwiek, co pisze na dysk. Od tego miejsca kazde
     # wyjscie przez blad musi umiec wrocic — patrz _cofnij_slad_nieudanego_startu.
@@ -1596,19 +1531,17 @@ def cmd_start(args):
               f"gets {wybrany}", file=sys.stderr)
         port = wybrany
     # Ta sama decyzja idzie DO ensure_hub, nie tylko do gornej galezi: bez
-    # tego argumentu warstwa nizej przesuwala jawny port mimo fail-fastu tuz
-    # wyzej (agent prosil o 8790, dostawal 8791, exit 0).
+    # tego argumentu warstwa nizej przesuwalaby jawny port mimo fail-fastu
+    # tuz wyzej (prosba o 8790, wynik 8791, exit 0).
     d, port = ensure_hub(args.name, port, bind=bind,
                          port_jawny=args.port is not None)
     if istnieje and args.port is not None and hub_port(args.name) != args.port:
         # Przepiecie ISTNIEJACEGO pokoju to drugie wejscie do tej samej
-        # decyzji co w `ensure_hub` — i przez pol dnia jedyne niestrzezone.
-        # `ensure_hub` dla istniejacego pokoju swiadomie zachowuje stary port
-        # i kolizji nie sprawdza, wiec ten blok nadpisywal config zyczeniem
-        # uzytkownika bez zadnej kontroli: `owner` 8790 + `stary` 8795 ->
-        # `start --name stary --port 8790` konczylo sie `rc=0, owner=8790,
-        # stary=8790`. Odmawiamy PRZED zapisem, wiec configi OBU pokoi
-        # zostaja nietkniete.
+        # decyzji co w `ensure_hub`. `ensure_hub` dla istniejacego pokoju
+        # swiadomie zachowuje stary port i kolizji nie sprawdza, wiec bez
+        # kontroli tutaj ten blok nadpisalby config zyczeniem uzytkownika:
+        # dwa pokoje na jednym porcie, rc=0. Odmawiamy PRZED zapisem, wiec
+        # configi OBU pokoi zostaja nietkniete.
         _odmow_zajetego_portu(args.name, args.port,
                               f"room {args.name!r} keeps its port "
                               f"{hub_port(args.name)} and was NOT moved.")
@@ -1647,29 +1580,28 @@ def cmd_start(args):
                 f.seek(log_before)
                 ogon = f.read().strip().splitlines()
             if ogon:
-                # -5, nie -3: komunikat dziecka o nieudanym bindzie ma teraz
+                # -5, nie -3: komunikat dziecka o nieudanym bindzie ma
                 # cztery linie (blad + granica + dwie drogi wyjscia), wiec
-                # okno na trzy ucinalo linie z samym `OSError` — czyli
+                # okno na trzy ucina linie z samym `OSError` — czyli
                 # jedyna, ktora mowi, CO sie stalo. Okno musi byc szersze niz
                 # najdluzszy komunikat, ktory ma sie w nim zmiescic.
                 powod = "\n  reason: " + "\n          ".join(ogon[-5:])
-        # Log PRZEZYWA cofniecie, nawet gdy pokoj znika. Zglosil to weryfikator
-        # (agent1): operator zostawal bez powodu i bez logu naraz. `serve.log`
+        # Log PRZEZYWA cofniecie, nawet gdy pokoj znika — inaczej operator
+        # zostaje bez powodu i bez logu naraz. `serve.log`
         # nie klamie o zadnym adresie, a `hub_rows` wpuszcza pokoj do `list`
         # po `tokens.json` — katalog z samym logiem jest wiec niewidoczny
         # tam, gdzie widocznosc szkodzi, i dostepny tam, gdzie pomaga.
         zachowaj = {log_path.name} if not pokoj_istnial else None
         # Adres nie przezywa niepotwierdzonego bindu. Pidfile tez nie: zapisuje
-        # go dziecko PRZED bindem, a stary komentarz w tym miejscu obiecywal,
-        # ze przy nieudanym starcie nie powstaje. Powstawal.
+        # go dziecko PRZED bindem, wiec powstaje takze przy nieudanym starcie.
         _cofnij_slad_nieudanego_startu(args.name, pokoj_istnial,
                                        config_przed, pid=pid, zachowaj=zachowaj)
         # NIE "is port N free: agentmachi list". `list` czyta configi pokojow,
-        # wiec o zajetosci PORTU nie umie powiedziec nic — byl to sprawdzian,
-        # ktory nie mogl wypasc negatywnie, i odsylal po weryfikacje do
-        # narzedzia potwierdzajacego ten sam bledny adres (znalezisko 4).
-        # Druga poprawka z tego samego zgloszenia: nie doradzamy tu "wybierz
-        # inny PORT", bo przy niebindowalnym BINDZIE port nie jest problemem.
+        # wiec o zajetosci PORTU nie umie powiedziec nic — to sprawdzian,
+        # ktory nie moze wypasc negatywnie: odsyla po weryfikacje do
+        # narzedzia potwierdzajacego ten sam bledny adres. Nie doradzamy tez
+        # "wybierz inny PORT", bo przy niebindowalnym BINDZIE port nie jest
+        # problemem.
         print(f"agentmachi: room {args.name!r} did NOT come up.{powod}\n"
               f"  full log: {log_path}\n"
               f"  who holds {port}:  {_podpowiedz_kto_ma_port(port)}\n"
@@ -1690,9 +1622,9 @@ def cmd_start(args):
 
 
 def cmd_restart(args):
-    """Jeden czasownik zamiast trzech komend. Restart to najczestsza operacja
-    operatora (nowy nick w tokens.json, nowy kod, zawieszony proces), a do
-    dzis wymagal sekwencji stop -> start -> list, dyktowanej przez czat.
+    """Jeden czasownik zamiast trzech komend (stop -> start -> list).
+    Restart to najczestsza operacja operatora (nowy nick w tokens.json, nowy
+    kod, zawieszony proces).
     Czekamy, az stary proces NAPRAWDE zejdzie — inaczej `start` zobaczy
     wlasny, jeszcze zajety port i odmowi."""
     if _all_kontra_name(args):
@@ -1727,11 +1659,6 @@ def cmd_restart(args):
     # niczego nie zmienila, zostawia operatora z zatrzymanym hubem. "Chcialem
     # przepiac, dostalem martwy pokoj" to nie jest odmowa, tylko szkoda
     # wyrzadzona przy okazji.
-    #
-    # Zgloszone przez subagenta jako znane ograniczenie wlasnej naprawy
-    # (2026-08-06) — czyli dokladnie ten przypadek, w ktorym latwo powiedziec
-    # "poprawne, bo nic nie kradnie" i zostawic. Nie kradnie. Po prostu placi
-    # za odmowe cudzym dzialajacym pokojem.
     if getattr(args, "port", None) is not None:
         _odmow_zajetego_portu(
             args.name, args.port,
@@ -1826,26 +1753,16 @@ def _pisownie_adresu(name):
     jeden hub slucha pod wiecej niz jedna nazwa (bind z configu, forma
     polaczeniowa z `connect_host`, loopback wpisany recznie).
 
-    Zmierzone przez operatora 2026-08-10: `del test_agentmachi` (bind
-    tailnetowy) zabral dziewiec plikow dla `100.84.163.11:8766`, a kursor
-    `localhost:8766` przezyl, przechwycil nastepny pokoj na tym porcie
-    i wywalil mu wejscie komunikatem `last_seq 92 > server last_seq 0`.
-
-    **Skad sie wzial:** operator potwierdza, ze pokoj byl restartowany, a kod
-    daje na to mechanizm — `cmd_restart` konczy sie `return cmd_start(args)`,
-    wiec `restart --bind X` PRZEPISUJE config przed startem. Adres
-    polaczeniowy pokoju zmienia sie wtedy w locie, a kursory sprzed i po
-    ladują pod roznymi kluczami, choc pokoj jest ten sam. Zwykly `restart`
-    bez argumentow zachowuje zapisany bind i tego nie robi — **jesli restart
-    szedl bez zmiany bindu, mechanizm zostaje nadal otwarty.**
-
-    Opis tego miejsca zmienial sie dwa razy i warto wiedziec dlaczego.
-    Najpierw wskazywal `_tui_env` ("TUI laczy sie fallbackiem przez
-    localhost") — obalone: dzisiejszy `_tui_env` bierze `CHAT_URL` z
-    `connect_host(bind)`, wiec TUI pokoju tailnetowego celuje w tailnet.
-    Potem mowil "NIE JEST USTALONE" — i to bylo uczciwe dopoki nie doszlo
-    swiadectwo operatora. Pomiar (kursor istnial) byl prawdziwy przez caly
-    czas; zmienialo sie wylacznie to, co doklejalismy jako przyczyne.
+    Kasowanie jednej pisowni zostawia kursor pod inna — np. `del` pokoju
+    z bindem tailnetowym zabiera pliki dla `100.x.y.z:8766`, a kursor
+    `localhost:8766` przezywa, przechwytuje nastepny pokoj na tym porcie
+    i wywala mu wejscie komunikatem `last_seq N > server last_seq 0`.
+    Jeden znany mechanizm: `cmd_restart` konczy sie `return cmd_start(args)`,
+    wiec `restart --bind X` PRZEPISUJE config przed startem — adres
+    polaczeniowy pokoju zmienia sie w locie, a kursory sprzed i po laduja pod
+    roznymi kluczami, choc pokoj jest ten sam. Zwykly `restart` zachowuje
+    bind i tego nie robi; kursor pod druga pisownia bez zmiany bindu nie ma
+    ustalonej przyczyny.
 
     Lista jest BEST-EFFORT i tak trzeba ja czytac. `_slug` jest hashem
     jednokierunkowym, a plik sesji nie zapisuje adresu, wiec z samego dysku
@@ -1881,10 +1798,7 @@ def purge_cursors(name):
     Kursor klienta jest per host:port, a port po skasowanym pokoju wraca do
     puli — wiec kursor, ktory przezyl swoj log, trafia na NASTEPNY hub pod
     tym adresem i wywala go komunikatem "last_seq N > serwerowy last_seq 0".
-    Zmierzone trzy razy: 2026-07-26 na zywym pokoju, raz przez operatora
-    przy pierwszym uruchomieniu po sprzataniu i 2026-08-10 — ten ostatni raz
-    juz PO tej funkcji, bo kasowala tylko jedna pisownie adresu (patrz
-    `_pisownie_adresu`).
+    Jedna pisownia adresu nie wystarcza — patrz `_pisownie_adresu`.
 
     Wolane z delete_hub PRZED rmtree — po nim nie ma juz skad wziac nickow."""
     if not hub_istnieje_lokalnie(name):
@@ -1931,8 +1845,8 @@ def _potwierdzenia(wartosc):
     """Znormalizuj `--yes-delete` do LISTY nazw.
 
     CLI daje liste (flaga jest powtarzalna), ale `cmd_del` wolaja tez testy
-    i kod, ktore podaja pojedynczy string — i ten kontrakt nie byl bledny,
-    wiec go nie lamiemy. Bez tej normalizacji `list("pokoj")` daje piec liter
+    i kod, ktore podaja pojedynczy string — i ten kontrakt zostaje. Bez tej
+    normalizacji `list("pokoj")` daje piec liter
     i komenda odmawia z bledu, ktorego nikt nie popelnil.
     """
     if wartosc is None:
@@ -1946,7 +1860,7 @@ def _cele_all(dzialajace):
     """Nazwy pokoi w zadanym stanie, w kolejnosci z `hub_rows()`.
 
     Jedno zrodlo dla `--all` i dla `list`, zeby czlowiek nie mogl zobaczyc
-    w jednym czegos innego niz w drugim. Prosba operatora 2026-08-13.
+    w jednym czegos innego niz w drugim.
     """
     return [r["name"] for r in hub_rows() if bool(r["running"]) is dzialajace]
 
@@ -1960,15 +1874,15 @@ def _all_kontra_name(args):
     Port i bind: JEDNA wartosc dla WSZYSTKICH pokoi. `start --all --port 9000`
     probowalby wsadzic kazdy pokoj na ten sam port, wiec wstalby najwyzej
     jeden, a reszta zglosilaby kolizje. To nie jest ostroznosc, to jest blad
-    czekajacy na wpisanie. Zgloszone przez recenzenta na kanale 2026-08-13.
+    czekajacy na wpisanie.
     """
     if not getattr(args, "all", False):
         return False
     if args.name is not None:
-        # JAWNOSC, nie wartosc. Porownanie z DEFAULT_HUB przepuszczalo
+        # JAWNOSC, nie wartosc. Porownanie z DEFAULT_HUB przepuszczaloby
         # `--all --name <dokladnie DEFAULT_HUB>` — a sprzecznosc jest ta sama
         # niezaleznie od tego, jaka nazwe czlowiek wpisal. Liczy sie to, ZE ja
-        # wpisal. Zgloszone przez recenzenta na kanale 2026-08-13.
+        # wpisal.
         print(f"agentmachi: --all and --name {args.name!r} contradict each "
               f"other; pick one", file=sys.stderr)
         return True
@@ -1987,25 +1901,23 @@ def _del_all(args):
     `--yes-delete` co przy jednym pokoju i ta sama zasada: wpisz to, co
     zniknie. Niezgodnosc z biezacym stanem = odmowa.
 
-    Pierwsza wersja (2026-08-13) brala tu LICZBE i to bylo zle. Zarzut zglosil
-    recenzent na kanale i jest nie do obrony: liczba wiaze sie z LICZNOSCIA,
-    nie z TOZSAMOSCIA. Gdy miedzy `list` a komenda jeden pokoj zniknie,
-    a pojawi sie inny, N dalej sie zgadza — i kasujemy zestaw, ktorego czlowiek
-    nigdy nie widzial. Dokladnie ten przypadek mial byc chroniony.
+    Nie LICZBA: liczba wiaze sie z LICZNOSCIA, nie z TOZSAMOSCIA. Gdy miedzy
+    `list` a komenda jeden pokoj zniknie, a pojawi sie inny, N dalej sie zgadza
+    — i kasujemy zestaw, ktorego czlowiek nigdy nie widzial. Dokladnie ten
+    przypadek mial byc chroniony.
     """
     zatrzymane = sorted(_cele_all(False))
     dzialajace = sorted(_cele_all(True))
     # POWTARZALNA flaga, nie sklejanie przecinkiem. `hub_dir` odrzuca slash
     # i poczatkowa kropke, ale NIE przecinek — wiec jeden pokoj `a,b` i zestaw
-    # {a, b} dawaly te sama komende potwierdzajaca. Przy operacji
+    # {a, b} dawalyby te sama komende potwierdzajaca. Przy operacji
     # nieodwracalnej dwuznacznosc potwierdzenia jest sama w sobie usterka.
     # `shlex.quote` bo nazwa moze zawierac spacje i metaznaki powloki, a to
-    # zdanie czlowiek kopiuje do terminala. Zgloszone przez recenzenta.
+    # zdanie czlowiek kopiuje do terminala.
     # Cytujemy CALY argument razem z nazwa flagi. `hub_dir` nie zabrania
     # nazwy zaczynajacej sie od myslnika, wiec pokoj moze nazywac sie `--all`:
     # osobno cytowana wartosc po utracie cudzyslowow zostaje odczytana przez
-    # powloke i argparse jako OPCJA, nie jako nazwa. Zgloszone przez
-    # recenzenta razem z testem round-trip gotowej komendy.
+    # powloke i argparse jako OPCJA, nie jako nazwa.
     kanoniczna = " ".join(shlex.quote(f"--yes-delete={n}") for n in zatrzymane)
     if not zatrzymane:
         print("agentmachi: no stopped rooms to delete")
@@ -2100,10 +2012,10 @@ def cmd_card(args):
 
 def _tui_env(name):
     """Zloz srodowisko TUI (wydzielone z cmd_tui — testowalne bez Textuala).
-    I3 fix: CHAT_URL musi isc z bindu huba (connect_host(hub_bind(name))),
+    CHAT_URL musi isc z bindu huba (connect_host(hub_bind(name))),
     nie tylko CHAT_PORT — inaczej tui.py fallbackuje do ws://localhost i
     nie polaczy sie z hubem bindowanym na adres tailnetowy. Env CHAT_URL
-    WYGRYWA nad configiem lokalnym (symetrycznie do C1 w _agent_env)."""
+    WYGRYWA nad configiem lokalnym (symetrycznie do _agent_env)."""
     tokens_path = hub_dir(name) / "tokens.json"
     if not tokens_path.exists():
         raise CliError(f"hub {name!r} does not exist; first run: "
@@ -2127,8 +2039,8 @@ def cmd_tui(args):
     try:
         from agentmachi import tui
     except ModuleNotFoundError as e:
-        # TUI to extra (`textual`, z nim `rich`). Sam `pip install
-        # agentmachi` z README dawal tu stos (czysty venv, 2026-11-02).
+        # TUI to extra (`textual`, z nim `rich`). Sam `pip install agentmachi`
+        # z README dalby tu inaczej stos wywolan.
         if e.name not in ("textual", "rich"):
             raise
         print(f"agentmachi tui: the TUI is an extra and `{e.name}` is not "
@@ -2151,7 +2063,7 @@ def cmd_send(args):
               f"({podany!r}) and via --stdin/-. Pick ONE source; nothing was "
               f"sent.", file=sys.stderr)
         return 2
-    # C3: dwa pozycyjne argumenty = dawna skladnia `send <nick> "tekst"`,
+    # Dwa pozycyjne argumenty = dawna skladnia `send <nick> "tekst"`,
     # w ktorej <nick> byl NADAWCA, choc czytal sie jak adresat. Fail-closed
     # z instrukcja zamiast wyslania w cudzym imieniu.
     if getattr(args, "legacy_text", None) is not None:
@@ -2215,15 +2127,15 @@ def cmd_send(args):
 
 def _ostrzez_o_starych_skillach():
     """Zainstalowana kopia skilla rozni sie od paczki = agent wykonuje stara
-    instrukcje i nie ma jak sie o tym dowiedziec (E1 seq 292; 2026-11-02).
+    instrukcje i nie ma jak sie o tym dowiedziec.
     `listen` przechodzi kazdy agent, `install-skills` — nikt, kto sadzi,
     ze wszystko gra. Symlinki (praca NAD agentmachi) pomija
     `rozne_od_pakietu`.
 
     Pod Claude Code (`CLAUDECODE=1`) tylko skill Claude'a: inaczej stara
-    kopia skilla Codexa budzila agenta Claude'a pod `--wake` i kazala mu
-    nadpisac cudzy katalog (weryfikacja 7d92bd7, 2026-11-02). Codex nie ma
-    zmierzonego sygnalu (`CODEX_*` ustawia tu nawet plugin w Claude Code),
+    kopia skilla Codexa budzi agenta Claude'a pod `--wake` i kaze mu
+    nadpisac cudzy katalog. Codex nie ma zmierzonego sygnalu (`CODEX_*`
+    ustawia tu nawet plugin w Claude Code),
     wiec poza Claude Code — oba, jak dotad."""
     from agentmachi import skills_install
     harnessy = skills_install.HARNESSY
@@ -2242,9 +2154,9 @@ def _ostrzez_o_starych_skillach():
 
 
 def cmd_listen(args):
-    # nick moze byc pusty — wtedy hub nada go sam (B6). NIE podstawiamy
-    # "listener": to psulo i wybor wlasnej nazwy (--nick banan), i
-    # przydzial przez huba (dostawales "listener" zamiast worker5).
+    # nick moze byc pusty — wtedy hub nada go sam. NIE podstawiamy
+    # "listener": psuloby to i wybor wlasnej nazwy (--nick banan), i
+    # przydzial przez huba ("listener" zamiast wolnego nicka).
     nick = _agent_env(args)
     budzik = getattr(args, "wake", False)
     raz = getattr(args, "once", False)
@@ -2268,7 +2180,7 @@ def cmd_listen(args):
                     as_json=budzik or getattr(args, "json", False)))
                 # `--once --wake`: wlasna ramka i rozmowa bez wzmianki to
                 # tez "zastosowana ramka", ale nie powod, by wracac do
-                # modelu (claude2: subagent budzil sie wlasna odpowiedzia).
+                # modelu (subagent budzilby sie wlasna odpowiedzia).
                 # Kursor jest trwale przesuniety, wiec nastepny obieg
                 # czeka na NOWA ramke.
                 if (not (budzik and raz) or licznik["ramek"] > przed
@@ -2277,8 +2189,8 @@ def cmd_listen(args):
                 swiezo = False
                 nick = licznik["stan"]["nick"] or nick
         except send.ListenerLockHeld as e:
-            # Traceback zamiast zdania (dogfood ka 2026-11-02): handler
-            # istnial w send.py, ale ta sciezka go omijala.
+            # Zdanie zamiast tracebacku: handler z send.py tej sciezki nie
+            # obejmuje.
             print(f"[warning] {e} — your own old listener? stop it "
                   f"(TaskStop); one you cannot trace goes to @human",
                   file=sys.stderr)
@@ -2289,11 +2201,9 @@ def cmd_listen(args):
 def cmd_read(args):
     """Odczyt logu kanalu przez drut — patrz send.read_frames.
 
-    Istnieje, bo agent na ZDALNYM hubie nie mial zadnej drogi do wlasnej
+    Istnieje, bo bez niej agent na ZDALNYM hubie nie ma drogi do wlasnej
     ramki: serwer tlumi echo po nicku, kursor nasluchu przeskakuje za nia,
-    a `events.jsonl` ma wylacznie operator huba. Zmierzone 2026-08-06 —
-    agent musial prosic czlowieka o zajrzenie w TUI, zeby zweryfikowac
-    WLASNY dowod."""
+    a `events.jsonl` ma wylacznie operator huba."""
     # Zakres ma DOKLADNIE jedno zrodlo i wybiera je argv (wzorzec z cmd_send).
     # Cichy wybor jednego z dwoch bylby ta sama klasa bledu, ktora ta komenda
     # naprawia: wolajacy dostaje wynik i nie wie, o co zapytal.
@@ -2334,8 +2244,8 @@ def cmd_board(args):
 
     Istnieje, bo board dociera do agenta WYLACZNIE w `session_metadata`,
     a filtr nasluchu musi te ramke ciac po typie (bez tego howto w jej
-    srodku przebija filtr wzmianek). Jedyna droga do boardu byla wiec
-    ponowne wejscie na kanal — okolo 5k tokenow za odpowiedz na pytanie
+    srodku przebija filtr wzmianek). Bez tej komendy jedyna droga do boardu
+    to ponowne wejscie na kanal — okolo 5k tokenow za odpowiedz na pytanie
     "kto tu jest"."""
     nick = _agent_env(args)   # moze byc pusty: peek nie zostawia sladu
     send = _import_send()
@@ -2394,7 +2304,7 @@ def cmd_frame(args):
 
 
 def cmd_node(args):
-    """Headless node: budzi/wznawia runtime agenta na wzmianke (Task 3).
+    """Headless node: budzi/wznawia runtime agenta na wzmianke.
 
     Token/URL jak _agent_env (CHAT_TOKEN z env wygrywa nad tokens.json).
     Stan w hub_dir(hub)/nodes/<nick>/state.json (katalog 0700).
@@ -2413,10 +2323,9 @@ def cmd_node(args):
         return 2
     # Blokada ZOSTAJE: bez niej literowka w nicku wpada w nieskonczona petle
     # reconnect zamiast dac blad (patrz test_cli.py, komentarz przy
-    # test_node_cmd_wires_runtime). C4 zmienia natomiast KOMUNIKAT: dawny
-    # mowil tylko "nieznany" i zostawial agenta bez wyjscia — zmierzone na
-    # kanale rube, gdzie Codex utknal na kilkanascie minut, szukajac po
-    # kodzie sposobu na dodanie sobie nicka. Teraz odmowa niesie naprawe.
+    # test_node_cmd_wires_runtime). Odmowa niesie naprawe, nie samo
+    # "nieznany" — inaczej agent utyka, szukajac po kodzie sposobu na
+    # dodanie sobie nicka.
     try:
         tokens, _ = load_tokens(args.hub)
         if not os.environ.get("CHAT_TOKEN") and nick not in tokens:
@@ -2450,11 +2359,10 @@ def cmd_node(args):
         print(f"agentmachi node: unknown runtime {args.runtime!r}; "
               f"available: {', '.join(sorted(RUNTIMES))}", file=sys.stderr)
         return 2
-    # Node jest listenerem tej samej logicznej sesji co send/frame. Wczesniej
-    # wchodzil na swiezym `node-<uuid>`, wiec budzony runtime nie mogl
-    # odpowiedziec jako ten sam nick bez takeoveru/odmowy. Na warsztacie
-    # Codex uruchomil przez to drugi listen i podniosl sie jako worker3;
-    # node czekal na jego dluga runde, a kolejne @codex lezalo w logu.
+    # Node jest listenerem tej samej logicznej sesji co send/frame. Na
+    # swiezym `node-<uuid>` budzony runtime nie moze odpowiedziec jako ten sam
+    # nick bez takeoveru/odmowy: podnosi drugi listen pod innym nickiem, node
+    # czeka na jego dluga runde, a kolejne wzmianki leza w logu.
     send = _import_send()
     try:
         session = send._session(nick)
@@ -2487,8 +2395,7 @@ def cmd_install_skills(args) -> int:
     # nazwana NIEZALEZNIE od `--force`: bez niego drugi harness jest
     # pomijany (a porownanie z paczka mierzy roznice miedzy harnessami,
     # nie nieaktualnosc), z nim — NADPISUJE cudze skille i konczy na
-    # `done`, czyli po cichu. Zmierzyl to `agent4` przy weryfikacji
-    # `c4db1ea`: katalog claude'a trzymal skille codeksa, bez slowa.
+    # `done`, czyli po cichu.
     pierwszy_w: dict[Path, str] = {}
     for harness in harnessy:
         cel = (
@@ -2526,8 +2433,8 @@ def cmd_install_skills(args) -> int:
         if not zainstalowane and not rozne:
             print(f"{harness}: nothing new in {cel_pokazany} (copies match the package)")
         if rozne:
-            # "nothing new" bez tej linii bylo zdaniem falszywym na starej
-            # kopii — agent dostawal potwierdzenie, ze nie ma czego robic.
+            # "nothing new" bez tej linii byloby zdaniem falszywym na starej
+            # kopii — agent dostalby potwierdzenie, ze nie ma czego robic.
             print(
                 f"{harness}: OUT OF DATE in {cel_pokazany} — "
                 f"{', '.join(rozne)} differ(s) from the package; "
@@ -2652,11 +2559,10 @@ def _build_parser():
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_tui)
 
-    # C3: skladnia ZLAMANA swiadomie. Dawne `send <nick> "tekst"` czytalo sie
-    # jak "wyslij DO nicka", a bylo podpisem NADAWCY — pomylka kosztowala
-    # ramke 4244 znakow wyslana w cudzym imieniu na zywym kanale (goldberg
-    # seq 275, sprostowanie w seq 281). Stary wariant NIE zostaje "dla
-    # kompatybilnosci": dopoki istnieje, pulapka istnieje razem z nim.
+    # Skladnia ZLAMANA swiadomie. `send <nick> "tekst"` czyta sie jak "wyslij
+    # DO nicka", a byloby podpisem NADAWCY — ramka wyslana w cudzym imieniu.
+    # Stary wariant NIE wraca "dla kompatybilnosci": dopoki istnieje,
+    # pulapka istnieje razem z nim.
     #   --as <nick>        = KIM jestem
     #   @nick w tresci     = DO KOGO mowie
     p = sub.add_parser("send", help="send a message (you address it with an "
@@ -2671,7 +2577,7 @@ def _build_parser():
                         "(C:\\Users\\x\\), quotes and newlines survive. One "
                         "trailing newline is dropped. Never implicit: "
                         "without --stdin (or `-`) stdin is not read at all.")
-    # Wylapuje DAWNE uzycie `send <nick> "tekst"`: bez tego argparse mowi
+    # Wylapuje stare uzycie `send <nick> "tekst"`: bez tego argparse mowi
     # tylko "unrecognized arguments", a agent nie dowiaduje sie, ze wlasnie
     # o wlos nie podpisal sie cudzym nickiem.
     p.add_argument("legacy_text", nargs="?", default=None,
@@ -2816,10 +2722,10 @@ def _force_utf8_output(*streams):
 
     Windows: konsola/plik koduja wyjscie wg codepage systemu (np. cp1250 na
     polskim Windows), a log kanalu niesie znaki spoza niego (mojibake, emoji,
-    obce nazwy) — _print_event (send.py) padal wtedy na UnicodeEncodeError i
-    UBIJAL listener. Zlapane na Windows Bartka przez codeksa: `agentmachi
-    listen` czytal resync i wychodzil z EXIT 1 na U+FF82. errors=replace daje
-    poprawne znaki tam, gdzie codepage je zna, i znak zastepczy zamiast crashu.
+    obce nazwy) — _print_event (send.py) pada wtedy na UnicodeEncodeError
+    i UBIJA listener (EXIT 1 na pierwszym takim znaku w resyncu).
+    errors=replace daje poprawne znaki tam, gdzie codepage je zna, i znak
+    zastepczy zamiast crashu.
     No-op tam, gdzie strumien nie wspiera reconfigure (starszy/owiniety)."""
     for stream in streams:
         try:
