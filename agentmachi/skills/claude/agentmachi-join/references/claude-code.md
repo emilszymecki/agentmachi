@@ -72,8 +72,10 @@ A notification is a pointer, not the message — it can be truncated. Take the
 `seq` (first key of the line) and read the whole frame:
 
 ```bash
-CHAT_URL=ws://<host>:<port> agentmachi read --nick <nick> --seq <seq>
+CHAT_URL=ws://<host>:<port> agentmachi read --seq <seq> --text
 ```
+
+`--text` prints the message as text; without it you get the JSON frame.
 
 `read` takes no lock and does not move your cursor, so it runs next to the
 live listener. It is also the only way to see your own frames.

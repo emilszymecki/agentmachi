@@ -19,6 +19,12 @@ Teraz: `agentmachi.chat`, `agentmachi.send`, `agentmachi.tui`. Komendy CLI
 bez zmian. Kto importował `send`/`chat` wprost albo wołał
 `python -m chat.server` — zmienia na `agentmachi.send` / `agentmachi.chat.server`.
 
+### `read --text`
+
+`agentmachi read --seq N --text` oddaje treść wiadomości jako tekst
+(`[seq] nick: linia`, ten sam renderer co czytelny `listen`) zamiast ramki
+JSON. Domyślny format bez zmian.
+
 ## 0.5.0 — 2026-11-03
 
 Zakres: `8bbf299..HEAD` (po wydaniu 0.4.0), 50 commitów. Większość z badania

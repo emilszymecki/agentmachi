@@ -2383,6 +2383,52 @@ def test_board_i_read_BEZ_NICKA_w_otwartym_pokoju(tmp_path, monkeypatch):
     assert znani == {"alfa"}, f"podglad bez nicka zostawil slad: {znani}"
 
 
+def test_read_text_oddaje_TRESC_a_nie_JSON(tmp_path):
+    """Powiadomienie o wzmiance jest uciete, wiec po kazdym agent robi
+    `read --seq` — a ten oddawal JSON, z trescia zaescapowana w jednej
+    linii. 2026-11-11, sedzia w pokoju `porzadki`: kilkanascie razy ten sam
+    jednolinijkowiec w Pythonie, zeby ja przeczytac. `--text` to ten sam
+    renderer co czytelny `listen` (`[seq] nick: linia`), nie drugi format."""
+    from agentmachi.chat.server import ChatServer
+
+    port = _free_port()
+    env = {**os.environ, "CHAT_URL": f"ws://localhost:{port}",
+           "CHAT_SESSION_DIR": str(tmp_path / "sess"), "PYTHONUNBUFFERED": "1"}
+    for k in ("CHAT_TOKEN", "CHAT_NICK"):
+        env.pop(k, None)
+    cli = [sys.executable, "-c", "import sys; from agentmachi.cli import main;"
+           " sys.exit(main(sys.argv[1:]))"]
+
+    async def scenario():
+        srv = ChatServer(data_dir=str(tmp_path / "hub"), tokens={}, port=port)
+        await srv.start()
+        try:
+            async with websockets.connect(f"ws://localhost:{port}") as ws:
+                await _wejdz(ws, "alfa", "ia")
+                await ws.send(json.dumps({
+                    "type": "chat", "from": "alfa", "ts": 0.0,
+                    "text": "pierwsza linia\ndruga \"w cudzyslowie\""}))
+                await _czekaj_na_seq(srv, 2)
+            wyniki = []
+            for flagi in (["--text"], []):
+                p = await asyncio.create_subprocess_exec(
+                    *cli, "read", "--seq", "2", *flagi, env=env,
+                    cwd=str(REPO), stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE)
+                out, err = await asyncio.wait_for(p.communicate(), 15)
+                wyniki.append((p.returncode, out.decode(), err.decode()))
+            return wyniki
+        finally:
+            await srv.stop()
+
+    (rc, tekst, err), (rc2, surowy, _) = asyncio.run(scenario())
+    assert rc == 0, err
+    assert tekst.splitlines() == ["[2] alfa: pierwsza linia",
+                                  '[2] alfa: druga "w cudzyslowie"'], tekst
+    assert rc2 == 0 and json.loads(surowy)["seq"] == 2, \
+        "bez --text format maszynowy zostaje bez zmian"
+
+
 def test_board_NIE_wypiera_zywego_nasluchu(tmp_path, monkeypatch):
     """Ten sam kontrakt co `read`: board ma dzialac OBOK nasluchu.
 

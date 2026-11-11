@@ -2225,7 +2225,11 @@ def cmd_read(args):
     send = _import_send()
     from_seq = args.seq if args.seq is not None else args.from_seq
     try:
-        asyncio.run(send.read_frames(nick, from_seq, only_seq=args.seq))
+        # --text: ten sam renderer co czytelny `listen`, zeby nie powstal
+        # drugi format. Bez flagi argument `emit` nie idzie wcale.
+        jak = {"emit": send._print_event} if args.text else {}
+        asyncio.run(send.read_frames(nick, from_seq, only_seq=args.seq,
+                                     **jak))
     except send.SessionError as e:
         # Ta sama granica co w cmd_send/cmd_frame: jedna czytelna linia dla
         # agenta zamiast stosu wywolan, ktory zjada mu kontekst i niczego nie
@@ -2645,6 +2649,11 @@ def _build_parser():
                         "a confirmation here.")
     p.add_argument("--from-seq", dest="from_seq", type=int, default=None,
                    help="everything from this seq up")
+    p.add_argument("--text", action="store_true",
+                   help="print the message as text — `[seq] nick: line`, the "
+                        "marker on every line — instead of JSON. For READING "
+                        "a frame; the JSON default stays the source for "
+                        "arbitration and for anything that parses.")
     p.add_argument("--nick", default=None)
     p.add_argument("--name", default=None)
     p.set_defaults(fn=cmd_read)
