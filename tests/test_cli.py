@@ -2828,6 +2828,20 @@ def test_linux_nie_ostrzega_o_platformie(argv, home, monkeypatch, capsys,
     assert "not supported" not in err
 
 
+def test_windows_list_tez_nie_podpowiada_ss_tlnp(home, monkeypatch, capsys):
+    """Ostrzezenie `list` o cudzym adresie mialo `ss -tlnp` na sztywno,
+    obok `_podpowiedz_kto_ma_port`, ktora istnieje wlasnie po to (audyt
+    komentarzy cli.py, 2026-11-11)."""
+    cli.ensure_hub("t9", 8767)
+    monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
+    monkeypatch.setattr(cli, "hub_pid", lambda name: None)
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    assert cli.cmd_list(argparse.Namespace()) == 0
+    err = capsys.readouterr().err
+    assert "does not belong to this room" in err
+    assert "ss -tlnp" not in err and "netstat" in err, err
+
+
 def test_windows_nie_podpowiada_ss_tlnp(home, monkeypatch, capsys,
                                         _start_bez_spawnu):
     """`ss` nie istnieje na Windows — podpowiedz z nieistniejaca komenda jest

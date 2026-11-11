@@ -110,6 +110,10 @@ def zbuduj(nick):
             return False
         if typ in TYPY_BUDZACE:
             return True
+        if typ != "chat":
+            # `fyi` to publikacja bez budzenia; na zywo hub jej nie pcha,
+            # ale backlog ja niesie. Ta sama regula co node._is_wake.
+            return False
         tresc = ramka.get("text")
         return isinstance(tresc, str) and do_mnie(tresc)
 

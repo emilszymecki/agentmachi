@@ -947,3 +947,16 @@ def test_wake_KICK_zamknieciem_konczy_czekanie_once():
     assert not d.stan.get("wyrzucony")
     assert d("[kick] kicked off the channel by a moderator — ending the listen")
     assert d.stan["wyrzucony"]
+
+
+def test_wake_FYI_z_wzmianka_NIE_budzi_takze_z_backlogu():
+    """`fyi` (send --quiet) to publikacja: hub nie pcha jej agentom na zywo.
+    Ale backlog po reconnekcie ja niesie, a filtr nie patrzyl na typ — wiec
+    cicha notatka z `@nick` budzila przy kazdym ponownym wejsciu. `node`
+    wymaga `chat` od dawna (`_is_wake`); filtr nie wymagal (audyt komentarzy
+    2026-11-11, sonda na send.py)."""
+    m = _wake_filter()
+    d = m.zbuduj("beta")
+    assert not d(_ramka(type="fyi", **{"from": "alfa"}, text="@beta do wiadomosci"))
+    assert not d(_ramka(type="fyi", **{"from": "alfa"}, text="@all do wiadomosci"))
+    assert d(_ramka(type="chat", **{"from": "alfa"}, text="@beta zrob"))
