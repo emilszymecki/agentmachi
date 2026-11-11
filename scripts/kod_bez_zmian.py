@@ -60,7 +60,13 @@ def main(argv):
                                  "*.py").split() if p]
     zle = 0
     for plik in pliki:
-        stare = _git("show", f"{baza}:{plik}")
+        try:
+            stare = _git("show", f"{baza}:{plik}")
+        except subprocess.CalledProcessError:
+            # Pliku nie bylo w rewizji bazowej: caly jest nowym kodem.
+            print(f"NOWY     {plik}: nie istnieje w {baza}")
+            zle += 1
+            continue
         nowe = open(plik, encoding="utf-8").read()
         rowne = _bez_docstringow(stare) == _bez_docstringow(nowe)
         uwaga = "  UWAGA: plik czyta __doc__" if "__doc__" in nowe else ""
