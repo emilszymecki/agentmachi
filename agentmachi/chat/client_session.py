@@ -1,6 +1,6 @@
 """Sesja klienta: tozsamosc + kursor per hub+nick. Zero sieci.
 
-Kontrakt (wsad b2-task-resumowalny-klient + review-guard codexa):
+Kontrakt:
 - plik sesji per (hub, nick): namespace przez bezpieczny slug + hash,
   NIGDY surowy URI/nick w nazwie pliku,
 - zapis atomowy (tmp + fsync + os.replace + fsync katalogu), tryb 0600,
@@ -26,13 +26,13 @@ import sys
 import uuid
 from pathlib import Path
 
-# fcntl istnieje tylko na Unixie; klient ma dzialac cross-platform (zlapane,
-# gdy PIERWSZY klient Windows padl na `import fcntl` przy ladowaniu modulu —
-# `agentmachi listen` umieral, zanim cokolwiek zrobil, mimo ze `--help`
-# przechodzil). Oba locki (listener-lock i state-lock) ida przez cienka
-# abstrakcje: flock na Unixie, msvcrt.locking na Windows. Semantyka zachowana:
-# exclusive lock per plik; wariant non-blocking rzuca BlockingIOError — a
-# dokladnie to lapie acquire_listener_lock, zamieniajac na ListenerLockHeld.
+# fcntl istnieje tylko na Unixie, a klient ma dzialac cross-platform:
+# `import fcntl` na Windows zabija `agentmachi listen` przy ladowaniu modulu,
+# zanim cokolwiek zrobi (`--help` przechodzi). Oba locki (listener-lock
+# i state-lock) ida przez cienka abstrakcje: flock na Unixie, msvcrt.locking
+# na Windows. Semantyka zachowana: exclusive lock per plik; wariant
+# non-blocking rzuca BlockingIOError — a dokladnie to lapie
+# acquire_listener_lock, zamieniajac na ListenerLockHeld.
 if sys.platform == "win32":
     import msvcrt
 
@@ -63,8 +63,7 @@ if sys.platform == "win32":
         # POSIX-owego fsync katalogu: os.replace jest tam atomowe, a trwalosc
         # wpisu daje NTFS. fsync DANYCH pliku (nizej w _atomic_write) zostaje na
         # obu OS — to ON trzyma inwariant "trwalosc przed publikacja", nie
-        # fsync katalogu. Zlapane, gdy pierwszy klient Windows padl tu po
-        # przejsciu locka (druga warstwa tego samego cross-platform buga).
+        # fsync katalogu.
         pass
 else:
     import fcntl
@@ -264,16 +263,13 @@ class Session:
 
         Migracja dotyczy JEDNEGO klienta: przed podzialem na sesje per
         hub+nick istnial jeden `.chat-session.json`, wiec jego tozsamosc
-        nalezy do tego, kto przyjdzie pierwszy. Wczesniej plik byl tylko
-        CZYTANY i nigdy nie znikal, wiec kazda nowa sesja — dowolny nick,
-        dowolny hub — dostawala ten sam instance_id.
-
-        Skutek zmierzony na zywym hubie 2026-08-03: `human` z TUI i wszyscy
-        agenci miel identyczny instance_id (`send.py` i `tui.py` wskazuja
-        na ten sam plik). Serwer odmawia wejscia na zywy nick TYLKO wtedy,
-        gdy instance_id jest INNY, wiec obrona przed kolizja dostawala
-        falszywa informacje, ze to ten sam klient wraca — i dwoch roznych
-        agentow siedzialo pod `agent1` naraz, nie widzac sie nawzajem.
+        nalezy do tego, kto przyjdzie pierwszy. Plik tylko CZYTANY (nigdy nie
+        znikajacy) daje KAZDEJ nowej sesji — dowolny nick, dowolny hub — ten
+        sam instance_id (`send.py` i `tui.py` wskazuja na ten sam plik).
+        Serwer odmawia wejscia na zywy nick TYLKO wtedy, gdy instance_id jest
+        INNY, wiec obrona przed kolizja dostaje falszywa informacje, ze to ten
+        sam klient wraca — i dwoch roznych agentow siedzi pod jednym nickiem
+        naraz, nie widzac sie nawzajem.
 
         Zabranie idzie przez `os.replace`, nie read+unlink: dwa klienty
         startujace jednoczesnie to DOKLADNIE ten przypadek, w ktorym bug
@@ -344,7 +340,7 @@ class Session:
     def adopt_boot_identity(self, instance_id):
         """Przejmij tozsamosc, ktora POSZLA JUZ NA DRUT. Zwraca instance_id.
 
-        Dotyczy wejscia BEZ nicka (B6): nick nadaje hub, wiec plik sesji da
+        Dotyczy wejscia BEZ nicka: nick nadaje hub, wiec plik sesji da
         sie zalozyc dopiero PO hello — a hello poszlo z tozsamoscia
         tymczasowa. Bez przejecia sesja dostaje swiezy losowy instance_id
         i rozjezdza sie z tym, co zna serwer. Skutek: pierwszy
