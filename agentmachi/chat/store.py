@@ -21,40 +21,23 @@ def _reject_json_constant(value):
 class ForeignWriterError(RuntimeError):
     """Ktos inny pisze do naszego events.jsonl — split-brain.
 
-    Zmierzone dwukrotnie na produkcji: `pkill` nie ubil starego huba, drugi
-    `serve` wstal obok i oba procesy trzymaly ten sam katalog danych. Gdy
-    starszy dostal SIGTERM, jego `stop()` zrobil snapshot ze SWOIM
-    (nieaktualnym) stanem i przepisal events.jsonl — kasujac wszystko, co
-    w miedzyczasie zapisal nowszy proces. Kompakcja jest jedyna operacja,
-    ktora przepisuje log w calosci, wiec to tutaj musi stanac zapora."""
+    Dwa huby na jednym katalogu danych: starszy przy `stop()` robi snapshot
+    ze SWOIM stanem i przepisuje log, kasujac ramki nowszego. Kompakcja jest
+    jedyna operacja, ktora przepisuje log w calosci — zapora stoi tutaj."""
 
 
-# F1 (B5): typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji.
-# Reszta (hello/status) ma swoj stan w snapshocie i moze zniknac.
-# F3 (B5): takeover jest czescia PAMIECI kanalu, nie stanem maszyny — stan
-# mowi "kto jest teraz", a slad odpowiada na pytanie "dlaczego kolega
-# zamilkl". Kompakcja go wiec nie rusza, tak jak rozmowy.
-# `fyi` NALEZY tu tak samo jak `chat`. To PUBLIKACJA (send --quiet): ramka,
-# ktora nie budzi agentow, ale ma zostac przeczytana, gdy sami zajrza. Bez
-# tego wpisu byla trwala tylko z pozoru — nie wracala w `conversation` przy
-# hello, a kompakcja usuwala ja z events.jsonl BEZPOWROTNIE (keep budowane
-# jest wylacznie z conversation_after).
-#
-# Zmierzone: agent wszedl na kanal po kompakcji wlasnego kontekstu, dostal
-# resync i NIE zobaczyl openingu wyslanego przez --quiet; zglosil to, a autor
-# openingu (ten sam, ktory dopisal --quiet do skilla jako "publikacja do logu")
-# odrzucil zgloszenie, bo sprawdzil events.jsonl PRZED kompakcja i ramke tam
-# zastal. Obie obserwacje byly prawdziwe i opisywaly dwa rozne momenty.
-#
-# Test tego zachowania istnial od poczatku i asertowal obecnosc `fyi`
-# w conversation — ale nigdy sie nie wykonywal (scenariusz odpalany bez
-# asyncio.run), wiec rozbieznosc miedzy intencja a kodem nie mogla wyjsc.
+# Typy ramek, ktore sa PAMIECIA kanalu i nie podlegaja kompakcji. Reszta
+# (hello/status) ma swoj stan w snapshocie i moze zniknac.
+# - takeover: stan mowi "kto jest teraz", slad — "dlaczego kolega zamilkl".
+# - fyi (send --quiet): nie budzi, ale ma dac sie przeczytac pozniej. Typ
+#   spoza tej listy nie wraca w `conversation` przy hello, a kompakcja usuwa
+#   go z events.jsonl BEZPOWROTNIE (keep = wylacznie conversation_after).
 CONVERSATION_TYPES = frozenset({"chat", "fyi", "takeover", "kick"})
 CONVERSATION_LIMIT = 200      # ile ostatnich ramek rozmowy serwujemy
 # Ile ramek rozmowy przezywa kompakcje. Kanal to DYSKUSJA, nie archiwum:
 # trzymamy okno wznowienia (zeby wracajacy agent nie stracil watku), a nie
 # cala historie. Twarda wiedza mieszka w plikach .md pisanych swiadomie —
-# log ma byc buforem, nie baza wiedzy (korekta F1 po uwadze operatora).
+# log ma byc buforem, nie baza wiedzy.
 CONVERSATION_KEEP = 500
 
 
@@ -163,7 +146,7 @@ class EventLog:
         return [e for e in self._events if e["seq"] > seq]
 
     def conversation_after(self, seq, limit=CONVERSATION_LIMIT):
-        """F1 (B5): rozmowa o seq > podanym, prosto z dysku.
+        """Rozmowa o seq > podanym, prosto z dysku.
 
         Kanal JEST pamiecia agenta — inaczej niz stan huba (registry,
         status), ktory da sie odtworzyc ze snapshotu, rozmowy nie da sie
@@ -213,7 +196,7 @@ class EventLog:
         return top
 
     def save_snapshot(self, state):
-        # F7: nie przepisuj logu, ktorego nie jestes jedynym autorem. Seq na
+        # Nie przepisuj logu, ktorego nie jestes jedynym autorem. Seq na
         # dysku wyzszy niz nasz last_seq oznacza, ze pisal tam inny proces —
         # kompakcja skasowalaby jego ramki. Fail-fast zostawia plik nietkniety.
         disk_top = self._max_seq_on_disk()
@@ -233,17 +216,13 @@ class EventLog:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
-        # os.replace (Path.replace), nie rename: nadpisuje istniejacy cel
-        # atomowo na Unix I Windows. rename na Windows rzucal FileExistsError
-        # (WinError 183), gdy snapshot.json juz istnial — hub padal w teardown
-        # na Windows (zlapane przez codeksa). Atomowosc zachowana na obu OS.
+        # replace, nie rename: rename na Windows rzuca FileExistsError
+        # (WinError 183), gdy cel istnieje — hub padal tam w teardown.
         tmp.replace(self.snapshot_path)  # atomowo; dopiero teraz kompakcja
         self.snapshot_seq = seq
-        # F1 (B5): rozmowa NIE podlega kompakcji. Stan maszyny odtwarza sie
-        # ze snapshotu, rozmowy nie odtworzy nic — a to ona jest pamiecia
-        # agentow. Czytamy zachowana historie z dysku PRZED nadpisaniem
-        # pliku (poprzednie kompakcje juz ja tam zostawily) i skladamy z
-        # ogonem po snapshocie. Kompaktujemy wylacznie ramki sluzbowe.
+        # Rozmowa NIE podlega kompakcji (patrz conversation_after). Czytamy
+        # zachowana historie z dysku PRZED nadpisaniem pliku i skladamy
+        # z ogonem po snapshocie; kompaktujemy wylacznie ramki sluzbowe.
         conversation = self.conversation_after(0, limit=CONVERSATION_KEEP)
         self._events = [e for e in self._events if e["seq"] > seq]
         tail_seqs = {e["seq"] for e in self._events}
@@ -258,7 +237,8 @@ class EventLog:
                 f.write(json.dumps(e, allow_nan=False) + "\n")
             f.flush()
             os.fsync(f.fileno())
-        events_tmp.replace(self.events_path)  # atomowo (os.replace: nadpisuje na Unix I Windows; rename rzucal WinError 183); crash w polowie nie obcina eventow
+        # atomowo: crash w polowie nie obcina eventow
+        events_tmp.replace(self.events_path)
 
     def load_snapshot(self):
         if not self.snapshot_path.exists():
