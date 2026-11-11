@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Klient CLI czatu agentow — RESUMOWALNY (Task 7 / t1).
+"""Klient CLI czatu agentow — RESUMOWALNY.
 
-Domyslnie protokol B1 (agentmachi/chat/server.py): hello + token + trwaly kursor.
+Protokol huba (agentmachi/chat/server.py): hello + opcjonalny token
++ trwaly kursor.
   python3 -m agentmachi.send --as <nick> "@ktos tekst"  -> hello (kursor TYLKO czytany), chat, wyjscie
   python3 -m agentmachi.send --listen         -> hello od kursora, apply+advance, reconnect
 
-Env: CHAT_PORT (8765), CHAT_TOKEN (B1, wymagany — brak = fail-fast),
-CHAT_NICK (dla --listen), CHAT_ROLE (default "agent"),
+Env: CHAT_PORT (8765), CHAT_TOKEN (opcjonalny — hub zada go tylko na
+publicznym bindzie), CHAT_NICK (dla --listen), CHAT_ROLE (default "agent"),
 CHAT_SESSION_DIR (default ~/.chat-sessions).
 
-Semantyka resumowalnosci (wsad b2 + review-guard):
+Semantyka resumowalnosci:
 - sesja per hub+nick (agentmachi/chat/client_session.py): instance_id + kursor,
 - TYLKO listener przesuwa kursor, PO zastosowaniu ramki (at-least-once;
   duplikaty tlumione po seq, wybudzenia dodatkowo po activation_id),
@@ -48,11 +49,9 @@ def hub_id_from_url(url):
     (port domyslny schematu, gdy brak w URL — wss za tunelem publicznym nie
     niesie :443 jawnie).
 
-    Loopback ma JEDNA nazwe. Do 2026-11-02 `127.0.0.1` i `localhost` to
-    byly dwie sesje: drugi `listen` omijal lock, a `send` szedl z innym
-    instance_id i wypieral wlasny nasluch albo wchodzil pod nadanym nickiem
-    (bug opisany w AGENTS.md, troubleshooting i howto). Koszt zmiany: kto
-    wchodzil przez `127.0.0.1`, raz dostanie backlog od zera.
+    Loopback ma JEDNA nazwe: inaczej `127.0.0.1` i `localhost` to dwie
+    sesje — drugi `listen` omija lock, a `send` idzie z innym instance_id
+    i wypiera wlasny nasluch albo wchodzi pod nadanym nickiem.
     Inne hosty pod dwiema nazwami nadal = dwa kursory (DNS tego nie powie)."""
     p = urlparse(url)
     if p.scheme not in ("ws", "wss") or not p.hostname:
@@ -68,16 +67,15 @@ def hub_id_from_url(url):
 
 # Ile MAKSYMALNIE przyjmiemy w jednej ramce OD HUBA. Jawnie, bo domyslny
 # 1 MiB websockets lezy PONIZEJ tego, co hub legalnie wysyla: odpowiedz na
-# hello niesie caly backlog od kursora w jednej ramce. Zmierzone na zywym
-# hubie: 6000 ramek rozmowy = 772 KB (tuz pod progiem), 9000 = rozlaczenie
-# kodem 1006, czyli agent wraca po przerwie i wypada.
+# hello niesie caly backlog od kursora w jednej ramce. Przy 9000 ramek
+# rozmowy klient rozlaczal sie kodem 1006, czyli agent wracal po przerwie
+# i wypadal.
 #
-# Liczone Z ARYTMETYKI, nie z sufitu wzietego z powietrza: najgorsza legalna
-# odpowiedz to okno rozmowy (CONVERSATION_LIMIT) razy sufit jednej ramki,
-# plus snapshot stanu i howto. Mnoznik 4 to zapas na te dodatki. Warunek
-# `protocol.dumps` (ensure_ascii=False) jest tu istotny — bez niego kazda
-# ramka spoza ASCII puchla na wyjsciu 3x i arytmetyka sie nie domykala
-# (piate review Codexa: 200 ramek emoji = 37 MB przy sufitcie 32 MB).
+# Najgorsza legalna odpowiedz to okno rozmowy (CONVERSATION_LIMIT) razy
+# sufit jednej ramki, plus snapshot stanu i howto; mnoznik 4 to zapas na te
+# dodatki. Arytmetyka domyka sie tylko przy `protocol.dumps`
+# (ensure_ascii=False) — inaczej ramka spoza ASCII puchnie na wyjsciu 3x
+# (200 ramek emoji = 37 MB przy sufitcie 32 MB).
 # Asymetria wobec huba jest celowa: hub ogranicza WEJSCIE, bo broni sie
 # przed uczestnikami; klient ufa hubowi, do ktorego SAM wszedl.
 MAX_HUB_FRAME = 4 * store.CONVERSATION_LIMIT * protocol.MAX_FRAME_BYTES
@@ -85,18 +83,18 @@ MAX_HUB_FRAME = 4 * store.CONVERSATION_LIMIT * protocol.MAX_FRAME_BYTES
 URI = os.environ.get("CHAT_URL", f"ws://localhost:{PORT}")
 HUB_ID = hub_id_from_url(URI)
 HELLO_TIMEOUT = 10.0
-# B6: kod zamkniecia, ktorym serwer sygnalizuje wyrzucenie przez moderatora
+# Kod zamkniecia, ktorym serwer sygnalizuje wyrzucenie przez moderatora
 KICKED_CODE = 4003
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
 LEGACY_SESSION_FILE = Path(__file__).with_name(".chat-session.json")
 
 
 def _require_token():
-    # B6: token jest OPCJONALNY. Hub w trybie otwartym (loopback/tailnet)
+    # Token jest OPCJONALNY. Hub w trybie otwartym (loopback/tailnet)
     # przyjmuje agenta bez sekretu — wymuszanie tokenu po stronie klienta
-    # blokowalo dokladnie to, co serwer wlasnie dopuscil (ta sama rodzina
-    # bledu co F10: jedna strona drutu pozwala, druga zabrania). Pusty
-    # string = "wejdz bez tokenu"; hub zada go tylko, gdy stoi na 0.0.0.0.
+    # blokowaloby to, co serwer dopuszcza (jedna strona drutu pozwala, druga
+    # zabrania). Pusty string = "wejdz bez tokenu"; hub zada go tylko, gdy
+    # stoi na 0.0.0.0.
     return os.environ.get("CHAT_TOKEN", "")
 
 
@@ -106,10 +104,10 @@ def _session(nick):
 
 class _BootIdentity:
     """Tozsamosc TYMCZASOWA na pierwsze hello, gdy nick nada dopiero hub
-    (B6/B7 open mode). NIE dotyka dysku: Session pod pustym nickiem nie
+    (tryb otwarty). NIE dotyka dysku: Session pod pustym nickiem nie
     istnieje (client_session.py fail-closed odrzuca ''), a kursor+lock
-    zakladamy DOPIERO pod nadanym nickiem. Bez tego cala sciezka
-    'wejscie bez nicka' padala na _session('') zanim hello wyszlo."""
+    zakladamy DOPIERO pod nadanym nickiem. Bez tego wejscie bez nicka pada
+    na _session('') zanim hello wyjdzie."""
     def __init__(self):
         self.instance_id = uuid.uuid4().hex
         self.last_applied_seq = 0
@@ -118,10 +116,9 @@ class _BootIdentity:
 def _tozsamosc_podgladu(nick):
     """Z nickiem i ISTNIEJACYM plikiem sesji: tozsamosc z pliku (ten sam
     instance_id co nasluch). Inaczej jednorazowa — `peek` nie zostawia na
-    hubie sladu, wiec nie ma czego chronic (dawniej wymog nicka; patrz test
-    BEZ_NICKA). Brak pliku = na tej maszynie nie ma nasluchu tego nicka
-    (listen zaklada plik na starcie), a `_session` zalozylby go za kazde
-    `board --nick <literowka>` (weryfikacja 4258477, 2026-11-02)."""
+    hubie sladu, wiec nie ma czego chronic. Brak pliku = na tej maszynie nie
+    ma nasluchu tego nicka (listen zaklada plik na starcie), a `_session`
+    zalozylby go za kazde `board --nick <literowka>`."""
     if nick and session_files(HUB_ID, nick)[0].exists():
         return _session(nick)
     boot = _BootIdentity()
@@ -139,8 +136,7 @@ async def do_hello(ws, nick, session, token, role=None, context=None,
     poza pokazaniem. Dla ODCZYTU (`read_frames`) jest zle: surowy tekst
     serwera przy kursorze spoza logu niesie NAPRAWE NIEPRAWDZIWA (kaze
     skasowac plik sesji, choc kursor przyszedl z argumentu `--seq`), wiec
-    wolajacy musi ja podmienic na wlasna. Wartosc domyslna zostaje stara —
-    zaden istniejacy wolajacy nie zmienia zachowania."""
+    wolajacy musi ja podmienic na wlasna."""
     hello = {
         "type": "hello", "ts": 0.0,
         "instance_id": session.instance_id,
@@ -151,7 +147,7 @@ async def do_hello(ws, nick, session, token, role=None, context=None,
     if peek:
         hello["peek"] = True         # podglad: hub odpowiada, nic nie zapisuje
     if nick:
-        hello["from"] = nick         # bez nicka hub nada go sam (B6)
+        hello["from"] = nick         # bez nicka hub nada go sam
     if token:
         hello["token"] = token       # tylko gdy jest — pusty wymusil sciezke
     await ws.send(json.dumps(hello)) # tokenowa po stronie huba (bad token)
@@ -165,7 +161,7 @@ async def do_hello(ws, nick, session, token, role=None, context=None,
     if not isinstance(reply, dict) or reply.get("type") == "error":
         if return_errors:
             return reply
-        # C4: odmowa "nick zajety" niesie POLE `suggested_nick`. Dla NASLUCHU
+        # Odmowa "nick zajety" niesie POLE `suggested_nick`. Dla NASLUCHU
         # to nie jest blad koncowy — wolajacy (listen) podnosi sie pod tym
         # nickiem. Zwracamy wiec ramke zamiast umierac; decyzje podejmuje
         # listen, bo dla WYSYLKI podmiana nadawcy byla by podszyciem.
@@ -203,21 +199,17 @@ ZNACZNIK_RESYNC = "[resync_state]"
 def _czytelne_metadane(data):
     """`session_metadata` po ludzku. Zwraca linie BEZ znacznika.
 
-    Tryb czytelny obiecuje `[seq] nadawca: linia`, a zaczynal sie od JEDNEJ
-    linii surowego JSON-a na ~18 tys. znakow: rules + board + cale howto
-    razem, z `\\u2014` i `\\n` zamiast tekstu. To pierwsza rzecz, jaka widzi
-    kazdy wchodzacy, i jedyna, ktora dostaje ZAWSZE — obietnica „czytelny"
-    byla nieprawdziwa dokladnie tam, gdzie czyta sie od pierwszego wiersza.
+    To pierwsza rzecz, jaka widzi kazdy wchodzacy, i jedyna, ktora dostaje
+    ZAWSZE. Jako surowy JSON (rules + board + cale howto, ~18 tys. znakow
+    w jednej linii, `\\u2014` i `\\n` zamiast tekstu) lamalaby obietnice
+    `[seq] nadawca: linia` od pierwszego wiersza.
 
     Znacznik powtarza sie na KAZDEJ linii z tego samego powodu, dla ktorego
-    `[seq]` powtarza sie w `_print_event`, i jeszcze jednego, mocniejszego:
-    dokumentowany filtr agenta to `grep -v session_metadata` PRZED filtrem
-    wzmianek, bo slowa lapiace wzmianki (`@all`, `takeover`, `4003`) siedza
-    w tresci howto i przebijaja sie przy kazdym reconnect
-    (`references/claude-code.md`). Gdyby znacznik stal tylko w pierwszej
-    linii, rozbicie na linie ZEPSULOBY ten filtr: odpadlby naglowek, a howto
-    przeszloby dalej. Z znacznikiem w kazdej linii ta sama, niezmieniona
-    komenda odsiewa calosc."""
+    `[seq]` powtarza sie w `_print_event`, i jeszcze jednego: KAZDY filtr
+    po liniach odsiewa `session_metadata` PRZED filtrem wzmianek, bo slowa
+    lapiace wzmianki (`@all`, `takeover`, `4003`) siedza w tresci howto
+    i przebijaja sie przy kazdym reconnect. Znacznik tylko w pierwszej linii
+    przepuscilby howto dalej."""
     linie = []
     grupy = ", ".join(data.get("groups") or []) or "-"
     linie.append(f"you are: role={data.get('role', '?')}  groups={grupy}  "
@@ -266,10 +258,10 @@ def _print_event(data):
     Dlaczego znacznik idzie na kazda linie, a nie tylko na pierwsza:
     agenci budza sie przez filtr po tresci, a filtr dopasowuje LINIE.
     Wiadomosci maja tu po 20+ linii, wiec prefiks tylko na pierwszej dawalby
-    `seq` tam, gdzie nikt go nie szuka, i nie dawal tam, gdzie filtr trafil.
-    Zmierzone 2026-08-05: z 22-linijkowej wiadomosci agent dostal JEDEN
-    akapit, akurat o wymowie ODWROTNEJ do calosci. Ucicie widac —
-    odwrocenie sensu wyglada jak kompletna wypowiedz.
+    `seq` tam, gdzie nikt go nie szuka, i nie dawal tam, gdzie filtr trafil:
+    z 22-linijkowej wiadomosci agent dostal JEDEN akapit, o wymowie
+    ODWROTNEJ do calosci. Uciecie widac — odwrocenie sensu wyglada jak
+    kompletna wypowiedz.
 
     Ramka bez `text` (snapshot) leci calym JSON-em: `seq` jest juz w srodku,
     a tresci do rozbicia na linie nie ma. WYJATKIEM jest `session_metadata` —
@@ -284,12 +276,12 @@ def _print_event(data):
                   else ZNACZNIK_METADANYCH, flush=True)
         return
     if data.get("type") == "resync_state":
-        # Druga i ostatnia ramka bez `text`, ktora audyt wymienil obok
-        # `session_metadata` jako nierenderowany blok JSON w trybie czytelnym.
-        # Ksztalt `state` jest dowolny (sklada go hub), wiec rozbijamy go na
-        # klucze najwyzszego poziomu — jeden na linie, wartosc zwarta. Nie
-        # `indent=2`: wielolinijkowa wartosc rozjezdza sie ze znacznikiem,
-        # a to znacznik, nie wciecie, niesie tu filtr.
+        # Druga, obok `session_metadata`, ramka bez `text`, ktora w trybie
+        # czytelnym bylaby surowym blokiem JSON. Ksztalt `state` jest dowolny
+        # (sklada go hub), wiec rozbijamy go na klucze najwyzszego poziomu —
+        # jeden na linie, wartosc zwarta. Nie `indent=2`: wielolinijkowa
+        # wartosc rozjezdza sie ze znacznikiem, a to znacznik, nie wciecie,
+        # niesie tu filtr.
         stan = data.get("state")
         pary = (stan.items() if isinstance(stan, dict)
                 else [("state", stan)])
@@ -321,18 +313,15 @@ def _print_json(data):
     `seq` idzie PIERWSZY, i to jest ten sam warunek co prefiks na kazdej
     linii w `_print_event`, tylko przeniesiony na format, ktory ma jedna
     linie na ramke. Serwer sklada ramke `make_frame` ({type, from, ts,
-    **fields}) i dopiero potem robi `frame["seq"] = seq`
-    (`agentmachi/chat/server.py:711-712`), a `json.dumps` zachowuje kolejnosc
-    wstawiania — bez przestawienia `seq` lezy na samym koncu, ZA trescia.
+    **fields}) i dopiero potem robi `frame["seq"] = seq`, a `json.dumps`
+    zachowuje kolejnosc wstawiania — bez przestawienia `seq` lezy na samym
+    koncu, ZA trescia.
 
-    Zmierzone na zywym pokoju meadow2, 2026-08-22, 8 ramek konwersacyjnych:
-    `"seq"` zaczynal sie na 95.1-99.8% dlugosci linii (ogon za nim: 9-10
-    bajtow), a harness obcinal notyfikacje na 500 znakach — trzy razy, co
-    do znaku. **7 ramek z 8 obudzilo odbiorce bez wlasnego numeru.** Numer
-    jest jedynym wejsciem do `agentmachi read --seq`, czyli do tresci,
-    ktora wlasnie zostala obcieta: mechanizm ratunkowy ginal razem z tym,
-    przed czym ratuje. Obaj agenci w pokoju trafili na to niezaleznie, tego
-    samego dnia.
+    Harness obcina notyfikacje (500 znakow), a `"seq"` na koncu linii ginal
+    razem z ogonem: 7 ramek z 8 budzilo odbiorce bez wlasnego numeru. Numer
+    jest jedynym wejsciem do `agentmachi read --seq`, czyli do tresci, ktora
+    wlasnie zostala obcieta — mechanizm ratunkowy ginal razem z tym, przed
+    czym ratuje.
 
     Kolejnosc kluczy nie jest czescia protokolu (JSON-owy obiekt jest
     nieuporzadkowany, `json.loads` po drugiej stronie nie widzi roznicy),
@@ -404,10 +393,9 @@ def _emit_session_metadata(reply, emit=None):
     widzi kontekst, zanim poplyna eventy. Bez cache: kazde hello emituje
     aktualny stan z serwera.
 
-    F10 (B5): przekazujemy TAKZE `participants` (board — kto istnieje, kto
-    polaczony, co robi) i `howto` (instrukcja obslugi kanalu). Hub wysyla
-    oba od B4/F5, ale listener je gubil — agent wchodzacy jedyna
-    udokumentowana droga nie dostawal ani boardu, ani instrukcji. Obietnica
+    Przekazujemy TAKZE `participants` (board — kto istnieje, kto polaczony,
+    co robi) i `howto` (instrukcja obslugi kanalu): bez nich agent wchodzacy
+    przez `listen` nie dostaje ani boardu, ani instrukcji. Obietnica
     protokolu musi docierac do odbiorcy, nie tylko na drut."""
     meta = {k: reply[k] for k in ("rules", "rules_hash", "role", "groups",
                                   "generation", "participants", "howto")
@@ -419,11 +407,10 @@ def _emit_session_metadata(reply, emit=None):
 def _warn_if_taken_over(reply, nick):
     """Powiedz agentowi, ze ktos siedzial na jego nicku.
 
-    F3 dal slad po takeoverze LUDZIOM (push do TUI) — ale ofiara nie
+    Slad po takeoverze idzie na zywo do LUDZI (push do TUI) — ofiara nie
     dostaje nic: w chwili wyparcia jej socket jest wlasnie zamykany,
-    a po powrocie ramka jest juz historia, ktorej nikt jej nie pokazuje.
-    Zmierzone na produkcji: 40 wyparc worker1 w osiem sekund i ani jedno
-    nie dotarlo do wypartego — dowiedzial sie od czlowieka.
+    a po powrocie ramka jest juz historia, ktorej nikt jej nie pokazuje
+    (40 wyparc w osiem sekund i ani jedno nie dotarlo do wypartego).
 
     `takeover` jest w CONVERSATION_TYPES, wiec wraca w `conversation`
     przy hello. Wystarczy je przefiltrowac po wlasnym nicku — zero zmian
@@ -459,7 +446,7 @@ def _apply_hello_reply(session, reply, emit=None):
         applied = False
         for frame in reply.get("backlog", []):
             applied = apply_frame(session, frame, emit) or applied
-        # C2: kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
+        # Kursor konczy na AUTORYTATYWNYM koncu logu, nie na ostatniej
         # ramce backlogu. Roznica to (a) ramki celowo niewyslane na drucie —
         # serwer filtruje cudze hello, ale w `last_seq` podaje prawdziwy
         # koniec (por. test_reconnect_with_wire_last_seq_gives_empty_backlog_
@@ -497,7 +484,7 @@ def _apply_hello_reply(session, reply, emit=None):
                 "check the hub version or reconnect")
         # APPLY stanu PRZED przesunieciem kursora
         (emit or _print_event)({"type": "resync_state", "state": state})
-        # F1+F10: po kompakcji rozmowa wraca w `conversation`. Bez tego
+        # Po kompakcji rozmowa wraca w `conversation`. Bez tego
         # wracajacy agent widzi kanal, na ktorym "nic sie nie wydarzylo".
         for frame in reply.get("conversation", []):
             if isinstance(frame, dict):
@@ -516,21 +503,14 @@ def _wysylka_albo_padnij(reply, nick, session):
 
     `do_hello` celowo NIE umiera przy odmowie niosacej `suggested_nick` —
     zwraca ramke, bo dla NASLUCHU to nie jest blad koncowy (listen podnosi
-    sie pod proponowanym nickiem, 7ea4130). Ale wolajacy z drugiej strony,
-    `send_once`/`oneshot_frame`, tej zwrotki nie sprawdzal i lecial dalej:
-    wysylal ramke na sockecie, ktory hub wlasnie zamykal, po czym konczyl
-    sie ZEREM. Komenda meldowala sukces, ramki nie bylo nigdzie.
+    sie pod proponowanym nickiem). Wysylka, ktora tej zwrotki nie sprawdzi,
+    leci dalej: wysyla ramke na sockecie, ktory hub wlasnie zamyka, i konczy
+    sie ZEREM — komenda melduje sukces, ramki nie ma nigdzie.
 
-    Zmierzone na zywym kanale przez drugiego agenta (Codex): dwa
-    `send --as codex` skonczyly sie 0, zadnego nie ma w logu huba. Powod
-    byl systemowy, nie przypadkowy — `agentmachi node` nadaje instance_id
-    per polaczenie (node.py:317), a `send` bierze tozsamosc z pliku sesji,
-    wiec pod dzialajacym nodem KAZDA wysylka trafiala w te sciezke.
-
-    To najgorsza klasa bledu, jaka ten produkt ma: cichy false-success.
-    Ta sama, ktora dala "start zameldowal sukces PID-em trupa" i "list
-    pokazywal dwa huby jako dzialajace". Wysylka nie ma prawa udawac, ze
-    poszla.
+    To nie przypadek brzegowy: dopoki nick trzyma klient z inna tozsamoscia
+    niz plik sesji (`node` sprzed wspolnej Session, drugi listen), KAZDA
+    wysylka trafia w te sciezke. Cichy false-success to najgorsza klasa bledu
+    tego produktu; wysylka nie ma prawa udawac, ze poszla.
 
     Nadawcy NIE podstawiamy, nawet gdy hub podal wolny nick: przy nasluchu
     zmiana nazwy jest ratunkiem, przy wysylce byloby podpisaniem sie cudza
@@ -568,13 +548,13 @@ def _sprawdz_rozmiar(wire):
     kontekstu websockets polyka to zamkniecie — bez tej kontroli
     `agentmachi send` konczy sie ZEREM, a wiadomosci nie ma ani w logu, ani
     u nikogo. Cicha utrata jest gorsza niz odmowa: agent idzie dalej
-    przekonany, ze powiedzial (zlapane 2026-07-31, piate review Codexa)."""
+    przekonany, ze powiedzial."""
     # Surogat PRZED rozmiarem: `protocol.dumps` dla takiej ramki wraca do
     # escapowania i NIE rzuca, wiec sam pomiar rozmiaru jej nie wykryje.
     # Hub odbija ja na wejsciu, ale `chat` nie ma ACK — czyli dokladnie ta
     # cicha utrata, dla ktorej ten przedlot powstal. Zrodlem bywa argv
     # zdekodowane przez `surrogateescape` (nazwa pliku spoza UTF-8), wiec
-    # agent nie musi tego robic celowo (dziewiate review Codexa).
+    # agent nie musi tego robic celowo.
     if not protocol.utf8_safe(wire):
         raise SendTooLarge(
             "the frame contains a lone surrogate (\\udXXX) — it cannot be "
@@ -593,14 +573,11 @@ def _sprawdz_rozmiar(wire):
     return wire
 
 
-# Ile czekamy na ewentualne `error` po wyslaniu chat/fyi. ZMIERZONE na zywym
-# hubie, nie zgadniete: ostrzezenie wraca w 2.4-5.6 ms (piec prob, loopback),
-# bo serwer wysyla je PRZED zapisem ramki. 250 ms to ~45x zapas nad pomiarem
-# i mieszczi sie w nim takze hub w tailnecie. Pierwsza wersja miala 1.0 s
-# i to byl blad w rozumowaniu: napisalem, ze "sciezka szczesliwa placi tylko
-# gdy serwer milczy", a CISZA JEST sciezka szczesliwa — czyli kazda zwykla
-# wysylka placila pelna sekunde. Za krotkie okno gubi ostrzezenie, czyli
-# wraca do stanu sprzed tej zmiany; za dlugie spowalnia KAZDA wysylke.
+# Ile czekamy na ewentualne `error` po wyslaniu chat/fyi. Zmierzone, nie
+# zgadniete: ostrzezenie wraca w 2.4-5.6 ms (loopback); 250 ms to ~45x zapas
+# i miesci sie w nim takze hub w tailnecie. Okno trwa w CALOSCI przy kazdej
+# wysylce, bo CISZA JEST sciezka szczesliwa: za krotkie gubi ostrzezenie,
+# za dlugie spowalnia KAZDA wysylke.
 OKNO_OSTRZEZENIA = 0.25
 
 
@@ -621,47 +598,28 @@ class WysylkaNieznana(SessionError):
 async def _pokaz_ostrzezenie_serwera(ws):
     """Po wyslaniu chat/fyi poczekaj CHWILE na ewentualne `error` i wypisz je.
 
-    `chat` nie ma ACK, wiec dotad `send` konczyl sie zerem niezaleznie od
-    tego, co serwer o tej ramce sadzil. Ostrzezenia (nieznany nick, nieznana
-    grupa) leca WYLACZNIE na zywo i NIE sa utrwalane — zmierzone przez
-    agent1: w events.jsonl nie ma ani jednej ramki `error`. Kto wysyla
-    jednorazowo, bez podniesionego nasluchu, nie mial ich wiec SKAD
-    przeczytac: hub mowil do sciany.
-
-    Dlaczego nie utrwalamy `error` w logu, choc taka byla pierwsza
-    propozycja: ramka jest adresowana do JEDNEGO nadawcy, a log czyta kazdy
-    przy wznowieniu. Zamiast tego pytamy o nia tam, gdzie powstala.
+    `chat` nie ma ACK. Ostrzezenia (nieznany nick, nieznana grupa) leca
+    WYLACZNIE na zywo i NIE sa utrwalane, wiec kto wysyla jednorazowo, bez
+    podniesionego nasluchu, nie ma ich SKAD przeczytac. Nie utrwalamy `error`
+    w logu, bo ramka jest adresowana do JEDNEGO nadawcy, a log czyta kazdy
+    przy wznowieniu — pytamy o nia tam, gdzie powstala.
 
     Okno trwa DO KONCA niezaleznie od tego, co przyjdzie — takze po
-    ostrzezeniu. Kiedys konczylo sie na pierwszym `error` i to bylo zle
-    z tego samego powodu, dla ktorego zamkniety socket nie jest cisza:
-    ramka `error` NIE ODROZNIA ostrzezenia od odmowy. Oba maja ten sam typ
-    i tylko tresc w srodku, wiec klient nie umie z niej orzec, czy ramka
-    wyladowala w logu: "unknown nick" znaczy "zapisano mimo to", a "invalid
-    json" znaczy "odrzucono". Wczesny powrot zamykal wiec okno na dowodzie,
-    ktory niczego nie dowodzil, i gubil pad transportu przychodzacy chwile
-    pozniej. Cisza i tak trwa pelne okno, a wysylek z uwaga jest malo, wiec
-    sciezka szczesliwa nie placi nic. Okno jest krotkie i oparte na pomiarze
-    (patrz OKNO_OSTRZEZENIA).
-
-    Do 2026-08-16 stalo tu uzasadnienie MOCNIEJSZE i wtedy prawdziwe:
-    "serwer wysyla ostrzezenie PRZED trwalym zapisem ramki". Przestalo byc —
-    `ee3f784` przenioslo oba ostrzezenia pod `_append`, bo niezmiennik
-    trwalosci dotyczy takze ich. Zachowanie sie nie zmienia, uzasadnienie
-    owszem: przezylo mechanizm, z ktorego wyroslo. Zlapala to gamma w review,
-    czytajac pliki, ktorych sam przenos nie ruszyl — sam commit byl poprawny
-    i suita zielona.
+    ostrzezeniu — z tego samego powodu, dla ktorego zamkniety socket nie
+    jest cisza: ramka `error` NIE ODROZNIA ostrzezenia od odmowy. Oba maja
+    ten sam typ i tylko tresc w srodku, wiec klient nie umie z niej orzec,
+    czy ramka wyladowala w logu: "unknown nick" znaczy "zapisano mimo to",
+    a "invalid json" znaczy "odrzucono". Wczesny powrot zamykalby okno na
+    dowodzie, ktory niczego nie dowodzi, i gubil pad transportu przychodzacy
+    chwile pozniej. Cisza i tak trwa pelne okno, a wysylek z uwaga jest malo,
+    wiec sciezka szczesliwa nie placi nic (patrz OKNO_OSTRZEZENIA).
 
     Kod wyjscia zostaje ZERO — bo ostrzezenie to nie odmowa, a skrypt
-    czytajacy niezero jako "nie wyslano" dostalby falszywy sygnal.
-
-    Stalo tu uzasadnienie "Ramka doszla do logu i do ludzi" i przeczylo
-    akapitowi wyzej w tej samej funkcji: skoro ostrzezenie znaczy
-    "widzialem", nie "zapisalem", to nie moze byc jednoczesnie dowodem, ze
-    ramka jest w logu. Bez receipt okno daje wylacznie BRAK SKARGI w swoim
-    czasie — i to jest cala tresc zera na tej sciezce. Zlapane w review
-    dd8aa91; dwa zdania o tym samym mechanizmie, sprzeczne, dziesiec linii
-    od siebie.
+    czytajacy niezero jako "nie wyslano" dostalby falszywy sygnal. Dla
+    klienta ostrzezenie nie jest dowodem, ze ramka jest w logu, bo nie umie
+    go odroznic od odmowy (patrz komentarz w petli nizej): bez receipt okno
+    daje wylacznie BRAK SKARGI w swoim czasie — i to jest cala tresc zera na
+    tej sciezce.
 
     Cudze ramki moga tu wpasc, bo `send_once` dzieli instance_id z nasluchem
     i serwer pcha do WSZYSTKICH socketow nicka — pomijamy je i nic nie ginie:
@@ -682,19 +640,16 @@ async def _pokaz_ostrzezenie_serwera(ws):
             # Okno uplynelo na ZYWYM gniezdzie — sprawdzenie sie odbylo.
             # `ostrzezenie`, nie None: dwa wyjscia z tej petli musza zwracac
             # to samo, bo `wait_for` wygasa zwykle WCZESNIEJ niz warunek
-            # `zostalo <= 0` u gory. Zwracanie None tutaj kasowalo uwage,
-            # ktora hub zdazyl przyslac — zlapane wlasnym testem tuz po
-            # dodaniu akumulatora.
+            # `zostalo <= 0` u gory. Zwracanie None tutaj kasowaloby uwage,
+            # ktora hub zdazyl przyslac.
             return ostrzezenie
         except websockets.exceptions.ConnectionClosed as e:
-            # ZAMKNIETY SOCKET TO NIE CISZA. Stalo tu jedno `except` na oba,
-            # wiec pad transportu szedl ta sama sciezka co udana wysylka —
-            # `send` konczyl sie ZEREM dla ramki, ktora mogla nigdy nie
-            # trafic do logu. To nie brak gwarancji (chat swiadomie nie ma
-            # ACK), tylko FALSZYWE TWIERDZENIE o gwarancji, ktora mamy:
-            # kontraktem jest "zadna skarga nie przyszla w ciagu okna",
-            # a gdy gniazdo padlo, OKNO SIE NIE ODBYLO. Klient raportowal
-            # wynik sprawdzenia, ktorego nie wykonal.
+            # ZAMKNIETY SOCKET TO NIE CISZA. Wspolne `except` z timeoutem
+            # dawaloby ZERO dla ramki, ktora mogla nigdy nie trafic do logu.
+            # To nie brak gwarancji (chat swiadomie nie ma ACK), tylko
+            # FALSZYWE TWIERDZENIE o gwarancji, ktora mamy: kontraktem jest
+            # "zadna skarga nie przyszla w ciagu okna", a gdy gniazdo padlo,
+            # OKNO SIE NIE ODBYLO.
             raise WysylkaNieznana(
                 f"the connection closed before the warning window ended "
                 f"({e}). The frame MAY OR MAY NOT be in the hub's log — this "
@@ -711,29 +666,26 @@ async def _pokaz_ostrzezenie_serwera(ws):
         if isinstance(ramka, dict) and ramka.get("type") == "error":
             print(f"hub: {ramka.get('text', '(no text)')}", file=sys.stderr)
             ostrzezenie = ramka
-            # NIE wracamy tu od razu, choc pierwsza wersja wracala. `error`
-            # NIE ODROZNIA ostrzezenia od odmowy — typ jest ten sam, rozni je
-            # wylacznie tresc — wiec ta ramka NIE JEST dowodem, ze frame
-            # wyladowal w logu. (Od `ee3f784` ostrzezenia o wzmiankach wychodza
-            # PO `_append`, wiec akurat one dowodem sa; klient tego nie ugra,
-            # bo nie umie ich odroznic od "invalid json" bez parsowania tresci
-            # huba, a to jest kontrakt, ktorego nie mamy.)
-            # Wczesny powrot znaczyl "widzialem uwage, konczymy sukcesem"
-            # i gubil pad transportu, ktory przyszedl chwile pozniej — czyli
-            # dokladnie ta sama luka, ktora zamyka galaz ConnectionClosed
-            # wyzej, tylko w drugim odgalezieniu. Zlapane w review 84e69ee.
-            # Koszt: reszta okna przy wysylce, ktora i tak dostala uwage —
-            # a takie sa rzadkie, wiec sciezka szczesliwa nic nie placi.
+            # NIE wracamy tu od razu. `error` NIE ODROZNIA ostrzezenia od
+            # odmowy — typ jest ten sam, rozni je wylacznie tresc — wiec ta
+            # ramka NIE JEST dowodem, ze frame wyladowal w logu. (Ostrzezenia
+            # o wzmiankach wychodza PO `_append`, wiec akurat one dowodem sa;
+            # klient tego nie ugra, bo nie umie ich odroznic od "invalid json"
+            # bez parsowania tresci huba, a to jest kontrakt, ktorego nie
+            # mamy.) Wczesny powrot gubilby pad transportu, ktory przyszedl
+            # chwile pozniej — ta sama luka, ktora zamyka galaz
+            # ConnectionClosed wyzej. Koszt: reszta okna przy wysylce, ktora
+            # i tak dostala uwage — a takie sa rzadkie.
             continue
         # cokolwiek innego to cudzy ruch na wspolnym nicku — nie nasza sprawa
 
 
 # --- workspace: gdzie pracuje agent, bez recznej deklaracji -----------------
 #
-# Zmierzone 2026-11-02: przez cala sesje zaden agent nie mial na boardzie
-# galezi ani worktree — deklaracja reczna nie dziala, bo nikt nie ma powodu
-# jej odswiezac. Klient `listen` zyje w katalogu roboczym agenta, wiec zna
-# te fakty sam. Wysylamy je przy hello i przy kazdej zmianie.
+# Deklaracja reczna nie dziala — nikt nie ma powodu jej odswiezac, wiec
+# board nie mial niczyjej galezi ani worktree. Klient `listen` zyje
+# w katalogu roboczym agenta, wiec zna te fakty sam. Wysylamy je przy hello
+# i przy kazdej zmianie.
 
 WORKSPACE_POLL = 15.0   # sekundy; git rev-parse to milisekundy, sieci zero
 
@@ -757,8 +709,8 @@ def workspace_now(cwd=None):
         return None
     # `listen` zna tylko SWOJ katalog. Agent pracujacy gdzie indziej (inny
     # worktree) wskazuje go raz przy wejsciu — dalej idzie samo, lacznie ze
-    # zmiana galezi. Bez tego board mowilby nieprawde (zlapane 2026-11-02:
-    # nasluch w wt-nowy, praca w wt-board).
+    # zmiana galezi. Bez tego board mowilby nieprawde (nasluch w jednym
+    # worktree, praca w drugim).
     cwd = cwd or os.environ.get("AGENTMACHI_WORKSPACE") or None
     toplevel = _git("rev-parse", "--show-toplevel", cwd=cwd)
     head = _git("rev-parse", "--short", "HEAD", cwd=cwd)
@@ -774,7 +726,7 @@ def workspace_now(cwd=None):
 def _przytnij(napis, sufit=100):
     """Do kontraktu protokolu (max 100), z WIDOCZNYM ucieciem — inaczej
     legalny katalog o dlugiej nazwie dawalby ramke, ktora hub odbija
-    przy kazdym hello (review codex P2)."""
+    przy kazdym hello."""
     return napis if len(napis) <= sufit else napis[:sufit - 1] + "\u2026"
 
 
@@ -811,9 +763,8 @@ async def send_once(nick, text, quiet=False):
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         _wysylka_albo_padnij(await do_hello(ws, nick, session, token),
                              nick, session)
-        # quiet -> typ `fyi`, ktory istnieje od planu B1: laduje w logu
-        # i dociera do ludzi, ale NIE budzi agentow. Nie dodajemy drugiego
-        # mechanizmu obok istniejacego — brakowalo tylko wygodnego wejscia.
+        # quiet -> typ `fyi`: laduje w logu i dociera do ludzi, ale NIE budzi
+        # agentow. Drugi mechanizm obok istniejacego nie jest potrzebny.
         await ws.send(protocol.dumps(_sprawdz_rozmiar({
             "type": "fyi" if quiet else "chat",
             "from": nick, "ts": 0.0, "text": text})))
@@ -826,13 +777,13 @@ async def listen(nick, context=None, once=False, as_json=False):
     # przy kazdej emisji (testy podmieniaja `send._print_event`), a --json
     # jest jawnym wyborem, wiec wolno go zwiazac tutaj raz.
     emit = _print_json if as_json else None
-    # C2: `fresh` to JEDNORAZOWA decyzja przy starcie procesu, nie tryb
+    # `fresh` to JEDNORAZOWA decyzja przy starcie procesu, nie tryb
     # polaczenia. Gdyby leciala przy kazdym obiegu petli reconnectu, kursor
     # przeskakiwalby na koniec logu po kazdym zerwaniu — a wiadomosci z okna
     # rozlaczenia gineliby bezpowrotnie. Gasimy flage dopiero PO zastosowaniu
     # poprawnej odpowiedzi (nizej), zeby pad przed nia nie zjadl intencji.
     fresh_pending = context == "fresh"
-    # B6: nick moze byc pusty — wtedy hub nada go sam i odesle w hello.
+    # Nick moze byc pusty — wtedy hub nada go sam i odesle w hello.
     # Sesje (kursor + lock) tworzymy DOPIERO gdy znamy tozsamosc, zeby
     # kursor byl trwaly per przydzielony nick, a nie per "" przy kazdym
     # reconnekcie. Do pierwszego hello uzywamy sesji tymczasowej.
@@ -845,8 +796,8 @@ async def listen(nick, context=None, once=False, as_json=False):
     # godzine), wiec o KONCU awarii agent dowiaduje sie tylko z `[hub] back`.
     proby = 0
     # Zly adres i martwy hub daja ten sam blad. Roznica: przez zly adres
-    # nie polaczyles sie NIGDY. Zmierzone 2026-11-02 — nasluch z pamieci na
-    # 8766 zamiast 8769 z karty wygladal jak zwykla awaria.
+    # nie polaczyles sie NIGDY — nasluch na porcie z pamieci zamiast z karty
+    # wyglada jak zwykla awaria.
     polaczony_kiedys = False
     try:
         while True:
@@ -856,14 +807,12 @@ async def listen(nick, context=None, once=False, as_json=False):
                     reply = await do_hello(
                         ws, nick, boot, token,
                         context="fresh" if fresh_pending else None)
-                    # C4: nick zajal KTOS INNY — podnosimy sie pod nickiem,
+                    # Nick zajal KTOS INNY — podnosimy sie pod nickiem,
                     # ktory hub podal w `suggested_nick`, zamiast umierac.
                     # Agent bez nicka jest gluchy i niemy, wiec wejscie pod
                     # inna nazwa jest zawsze lepsze niz brak wejscia. Hub
                     # decyduje, ktory nick jest wolny; klient tylko przestaje
-                    # sie o to rozbijac. Zmierzone na kanale rube: agent
-                    # stracil nick, dostal propozycje w TRESCI bledu i utknal
-                    # na kilkanascie minut, bo nie mial jej z czego odczytac.
+                    # sie o to rozbijac.
                     if (isinstance(reply, dict)
                             and reply.get("type") == "error"
                             and reply.get("suggested_nick")):
@@ -891,8 +840,7 @@ async def listen(nick, context=None, once=False, as_json=False):
                         # pierwsza, odrzucony proces zdazylby nadpisac CUDZY
                         # plik sesji (tozsamosc + wyzerowany kursor) i zabrac
                         # temu listenerowi trwaly kursor. Kolejnosc jest
-                        # jedyna ochrona: adoptujemy dopiero to, co nasze
-                        # (zlapane 2026-07-31, drugie review Codexa).
+                        # jedyna ochrona: adoptujemy dopiero to, co nasze.
                         session.acquire_listener_lock()
                         # Tozsamosc bierzemy z _BootIdentity, bo TA jest juz
                         # zarejestrowana na hubie (poszla w hello). Swiezy
@@ -908,8 +856,8 @@ async def listen(nick, context=None, once=False, as_json=False):
                         # kursora, wiec nie da sie na nim trzymac sesji.
                         # Fail-closed z czytelnym komunikatem zamiast
                         # AttributeError przy version-skew z hubem, ktory
-                        # przyjmuje nickless hello, ale nicka nie nadaje
-                        # (review worker2). Tozsamosci nie zgadujemy —
+                        # przyjmuje nickless hello, ale nicka nie nadaje.
+                        # Tozsamosci nie zgadujemy —
                         # nick jest autorytatywnie od huba.
                         print("hello: the hub accepted entry without a nick "
                               "but did not assign one in the reply — I cannot "
@@ -962,12 +910,12 @@ async def listen(nick, context=None, once=False, as_json=False):
                         if straznik:
                             straznik.cancel()
             except websockets.exceptions.ConnectionClosed as e:
-                # B6: 4003 = wyrzucony przez czlowieka. Reconnect jest tu
+                # 4003 = wyrzucony przez czlowieka. Reconnect jest tu
                 # ODWROTNOSCIA intencji: serwer mowi "wyjdz", a klient
                 # wracalby po sekundzie — moderator klikalby kick w kolko
-                # i nic by nie wskoral (zmierzone na zywym pokoju).
-                # Pozostale kody (1006 zerwana siec itd.) reconnectuja jak
-                # dotad; wyrzucenie to DECYZJA, a nie awaria transportu.
+                # i nic by nie wskoral. Pozostale kody (1006 zerwana siec
+                # itd.) reconnectuja; wyrzucenie to DECYZJA, a nie awaria
+                # transportu.
                 if getattr(e, "rcvd", None) is not None and e.rcvd.code == KICKED_CODE:
                     print("[kick] kicked off the channel by a moderator — "
                           "ending the listen. To come back, start it again.",
@@ -1005,15 +953,15 @@ async def listen(nick, context=None, once=False, as_json=False):
 async def oneshot_frame(nick, frame):
     """Jednorazowa ramka NIE-chat (status/membership_set/kick) na TOZSAMOSCI
     SESJI — ten sam instance_id co listener, wiec ZERO takeoveru i
-    zero ping-ponga generacji (bug znaleziony testem skilla: one-shot
-    z innym instance wypieral listener i gubil lease). Kursora nie rusza.
+    zero ping-ponga generacji (one-shot z innym instance wypiera listener
+    i gubi lease). Kursora nie rusza.
     Zwraca odpowiedz serwera (ok/error) albo None (np. status bez ACK)."""
     token = _require_token()
     session = _session(nick)
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
         # Ta sama dziura co w send_once, tylko lepiej zamaskowana: po odmowie
-        # hello ramka szla na zamykany socket, ACK nie przychodzil, a brak
-        # ACK jest tu LEGALNY (status go nie dostaje) — wiec funkcja zwracala
+        # hello ramka szlaby na zamykany socket, ACK by nie przyszedl, a brak
+        # ACK jest tu LEGALNY (status go nie dostaje) — wiec funkcja zwrocilaby
         # None, czyli "sukces".
         _wysylka_albo_padnij(await do_hello(ws, nick, session, token),
                              nick, session)
@@ -1031,28 +979,23 @@ async def oneshot_frame(nick, frame):
 
 # --- odczyt logu przez drut: jedyna droga agenta do WLASNEJ ramki ---------
 #
-# Zmierzone 2026-08-06: agent na ZDALNYM hubie nie ma jak przeczytac tego, co
-# sam powiedzial, ani doczytac cudzej ramki w calosci. Zlozylo sie na to kilka
-# poprawnych z osobna decyzji: serwer tlumi echo po nicku (server.py
-# `_publish_chat`: `- {sender}`), wiec nasluch nigdy nie widzi wlasnych ramek;
-# kursor nasluchu przeskakuje ZA wlasna ramke przy pierwszej cudzej o wyzszym
-# seq, wiec backlog jej juz nie odda; `events.jsonl` ma WYLACZNIE operator
-# huba, wiec agent na innej maszynie nie ma go wcale. Skutek: agent nie moze
-# zweryfikowac wlasnego dowodu i prosi czlowieka o zajrzenie w TUI.
+# Bez tej drogi agent na ZDALNYM hubie nie ma jak przeczytac tego, co sam
+# powiedzial, ani doczytac cudzej ramki w calosci: serwer tlumi echo po nicku
+# (`_publish_chat`), wiec nasluch nigdy nie widzi wlasnych ramek; kursor
+# nasluchu przeskakuje ZA wlasna ramke przy pierwszej cudzej o wyzszym seq,
+# wiec backlog jej juz nie odda; `events.jsonl` ma WYLACZNIE operator huba.
 #
 # LOG TE RAMKI MA — `events_after` nie filtruje nadawcy, a `wire_backlog`
-# wycina tylko `hello`. Brakowalo wylacznie komendy, ktora o nie poprosi, nie
-# psujac przy tym stanu sesji.
+# wycina tylko `hello`. Trzeba tylko o nie poprosic, nie psujac stanu sesji.
 
 
 class ReadRefused(SessionError):
     """`read` NIE oddal tego, o co poproszono. Dziedziczy po SessionError,
     wiec kod wyjscia jest niezerowy.
 
-    Cisza z kodem 0 byla by tu najgorszym mozliwym wynikiem: wyglada
+    Cisza z kodem 0 bylaby tu najgorszym mozliwym wynikiem: wyglada
     identycznie jak "ramka jest pusta", jak "zapytalem o zly seq" i jak
-    "hub mnie nie wpuscil". To ta sama klasa bledu, ktora dala "start
-    zameldowal sukces PID-em trupa"."""
+    "hub mnie nie wpuscil"."""
 
 
 class _ReadIdentity:
@@ -1084,12 +1027,11 @@ def _koniec_logu_z_odmowy(reply):
     (kursor przyszedl z argumentu `--seq`). Odeslanie agenta do kasowania
     kursora WLASNEGO nasluchu byloby szkoda wyrzadzona przez komunikat bledu.
 
-    ZRODLEM JEST POLE `server_last_seq`, nie zdanie. Pierwsza wersja
-    wylapywala liczbe regexem z tekstu pisanego dla czlowieka — czyli robila
-    to, czego to repo zakazuje wprost przy formacie czytelnym `listen`.
-    Przeredagowanie tamtego zdania w server.py cicho degradowaloby `read` do
-    odmowy ogolnej i zaden test po stronie serwera by nie spuchl. Pole jest
-    kontraktem (agentmachi/chat/server.py, CursorBeyondLog); zdanie nie jest.
+    ZRODLEM JEST POLE `server_last_seq`, nie zdanie. Liczba wylapana regexem
+    z tekstu pisanego dla czlowieka cicho zdegradowalaby `read` do odmowy
+    ogolnej przy przeredagowaniu tamtego zdania w server.py, a zaden test po
+    stronie serwera by nie spuchl. Pole jest kontraktem
+    (agentmachi/chat/server.py, CursorBeyondLog); zdanie nie jest.
 
     Regex zostaje WYLACZNIE jako most do starszego huba, ktory pola jeszcze
     nie wysyla — klient bywa nowszy od serwera, do ktorego wchodzi."""
@@ -1127,9 +1069,9 @@ def _odczyt_albo_padnij(reply, nick, session, from_seq, naprawa=None):
     znacza dla wolajacego dokladnie to samo, co udany odczyt pustego zakresu.
 
     `naprawa` to gotowa komenda do przepisania, gdy hub proponuje inny nick.
-    Jest argumentem, bo tej sciezki uzywa juz DRUGI wolajacy (`read_board`),
-    a komunikat, ktory kaze uruchomic nie te komende co trzeba, jest gorszy
-    niz brak komunikatu: agent robi dokladnie to, co przeczytal.
+    Jest argumentem, bo tej sciezki uzywa takze `read_board`, a komunikat,
+    ktory kaze uruchomic nie te komende co trzeba, jest gorszy niz brak
+    komunikatu: agent robi dokladnie to, co przeczytal.
     """
     if isinstance(reply, dict) and reply.get("type") in ("ok",
                                                          "resync_required"):
@@ -1160,7 +1102,7 @@ def _odczyt_albo_padnij(reply, nick, session, from_seq, naprawa=None):
             f"      {naprawa(proponowany) if naprawa else f'agentmachi read --nick {proponowany} --from-seq {from_seq}'}")
     if not nick:
         # Bez nicka odmawia tylko hub z tokenami (token wymaga nicka, do
-        # ktorego nalezy). Bez tej linii odmowa byla slepym zaulkiem:
+        # ktorego nalezy). Bez tej linii odmowa jest slepym zaulkiem:
         # "invalid nick" przy nicku, ktorego nikt nie podal.
         raise ReadRefused(
             f"the hub REJECTED hello without a nick — nothing was read.\n"
@@ -1273,20 +1215,18 @@ def _wiek_deklaracji(status_seq, biezacy_seq):
     """Ile RAMEK temu powstala deklaracja statusu. None = nigdy nie zadeklarowal.
 
     Jednostka jest tu czescia wyniku, nie ozdoba: to ramki, nie sekundy.
-    Board klamie najgorzej wtedy, gdy wyglada na swiezy — snapshot huba po
-    dogfoodzie kinas-machine pokazywal `worker1: idle` przez cala jego prace
-    (patrz agentmachi/chat/server.py:401). Wiek nie mowi, czy ktos utknal; mowi, ile
-    kanal przezyl od czasu, gdy to zdanie bylo prawda. Wniosek nalezy do
-    czytajacego — hub go nie wyciaga."""
+    Board klamie najgorzej wtedy, gdy wyglada na swiezy — `idle` potrafi
+    wisiec przez cala prace, ktora je zdezaktualizowala. Wiek nie mowi, czy
+    ktos utknal; mowi, ile kanal przezyl od czasu, gdy to zdanie bylo
+    prawda. Wniosek nalezy do czytajacego — hub go nie wyciaga."""
     if (isinstance(status_seq, bool) or not isinstance(status_seq, int)
             or isinstance(biezacy_seq, bool)
             or not isinstance(biezacy_seq, int)):
         return None
     # status_seq ZA koncem logu = stan niespojny, nie "swiezutka deklaracja".
-    # Bylo tu `max(..., 0)` i to maskowanie klamalo dokladnie w tym jednym
-    # przypadku, w ktorym w ogole sie odpalalo: drukowalo "declared right
-    # now" o czyms, czego umiejscowic nie umiemy. None znaczy "nie wiem"
-    # i tak sie wypisuje (review f880849: "unknown byloby bezpieczniejsze").
+    # `max(..., 0)` klamaloby dokladnie w tym jednym przypadku, w ktorym
+    # w ogole sie odpala: "declared right now" o czyms, czego umiejscowic
+    # nie umiemy. None znaczy "nie wiem" i tak sie wypisuje.
     if status_seq > biezacy_seq:
         return None
     return biezacy_seq - status_seq
@@ -1325,10 +1265,8 @@ _STERUJACE[0x7f] = "\\x7f"
 # terminal wyswietla to, co po nich stoi, same nie zajmujac miejsca. Nick
 # `beta\u202etnega=elor` wyswietla sie jako `betarole=agent`: struktura
 # wiersza jest nienaruszona, a wyglada na inna, niz jest. To ta sama choroba
-# co `\n` (tresc uczestnika udaje pola od serwera), tylko bez lamania linii —
-# i dlatego pierwsza wersja tego fixu jej NIE lapala, choc jej docstring
-# twierdzil, ze tresc uczestnika nie steruje wyjsciem. Sfalsyfikowane tu
-# samo, godzine po napisaniu.
+# co `\n` (tresc uczestnika udaje pola od serwera), tylko bez lamania linii,
+# wiec filtr samych znakow lamiacych wiersz jej nie lapie.
 #
 # GRANICA, ktora te tabela swiadomie ma: bierzemy override/embedding/isolate,
 # czyli znaki sterujace UKLADEM. Nie bierzemy ZWSP (U+200B) ani homoglifow —
@@ -1355,11 +1293,10 @@ def bezpieczne_linie(tekst):
     `split("\\n")` przepuscilby `\\r` (wraca do kolumny 0 i NADPISUJE
     wciecie, wiec jest pelnoprawnym wstrzykiem wiersza), a takze `\\x0b`,
     `\\x85` i U+2028. Roznica jest niewidoczna, dopoki ktos nie wysle
-    ktoregos z nich — zmierzone przez agent2 w adwersarialnej weryfikacji
-    c9c7371, na klasie, ktorej autor fixu nie zglosil.
+    ktoregos z nich.
 
     Nic nie jest polykane: zneutralizowany bajt zostaje WIDOCZNY jako
-    `\\xNN`. Cichy wyciety znak byl by ta sama klasa bledu, ktora ta funkcja
+    `\\xNN`. Cichy wyciety znak bylby ta sama klasa bledu, ktora ta funkcja
     naprawia — czytajacy zobaczylby tekst, ktorego nikt nie napisal, i nie
     mial z czego poznac, ze cos usunieto."""
     if not isinstance(tekst, str):
@@ -1389,19 +1326,14 @@ def _wypisz_board(uczestnicy, biezacy_seq):
     agenci wklejaja sobie nawzajem jego fragmenty na kanal, wiec cytat
     wyglada w nim dokladnie jak prawda.
 
-    Do 2026-08-22 to ostrzezenie bylo tu SAMO — przy `listen` ta sama klasa
-    bledu byla rozwiazana w kodzie (`[seq] nadawca:` na kazdej linii), a tu
-    zostal komentarz. Kosztowalo to wiecej niz czytelnosc: `state` przechodzi
-    walidacje z `\n` w srodku (`agentmachi/chat/protocol.py` sprawdza typ, niepustosc
-    i 32 znaki), a renderer wcinal tylko PIERWSZA linie opisu — wiec board
-    z JEDNYM uczestnikiem wypisywal dwa wiersze, i drugi przedstawial sie
-    jako `human`. Naglowek mowil "1 participant(s)", cialo pokazywalo dwoch.
+    Samo ostrzezenie nie wystarcza: `state` przechodzi walidacje z `\n`
+    w srodku (`agentmachi/chat/protocol.py` sprawdza typ, niepustosc i 32
+    znaki), a `note` jest legalnie wielolinijkowy i ma nim zostac. Renderer
+    wcinajacy tylko PIERWSZA linie opisu wypisuje board z JEDNYM uczestnikiem
+    w dwoch wierszach, z ktorych drugi przedstawia sie jako `human` —
+    naglowek mowi "1 participant(s)", cialo pokazuje dwoch.
 
-    Znalezione przez zrobienie tego, o co prosily `rules` pokoju `meadow1`:
-    czterech rubryk w `note`. Pokoj PROSIL o wpis, ktory rozbijal jego wlasny
-    board — a `note` jest legalnie wielolinijkowy i ma nim zostac.
-
-    Dlatego przez `_bezpieczne_linie` ida WSZYSTKIE pola wiersza, nie samo
+    Dlatego przez `bezpieczne_linie` ida WSZYSTKIE pola wiersza, nie samo
     `status`. `nick` jest walidowany jako "niepusty string" i nic wiecej
     (`agentmachi/chat/identity.py`), wiec pole nadawane przez serwer nie jest tu
     bezpieczniejsze od tresci uczestnika. Latanie pola po polu zostawialoby
@@ -1445,7 +1377,7 @@ def _wypisz_board(uczestnicy, biezacy_seq):
     # Puste `addr` u WSZYSTKICH czyta sie jak zepsuta kolumna, a jest
     # odmowa: hub oddaje host peera tylko przy bindzie na tailnet, bo na
     # loopbacku nie rozroznia podmiotow i wolal milczec niz zmyslic
-    # (agentmachi/chat/server.py:415). Bez tego zdania czytajacy zglosilby buga.
+    # (agentmachi/chat/server.py). Bez tego zdania czytajacy zglosilby buga.
     if uczestnicy and not any(u.get("addr") for u in uczestnicy):
         print("\n(addr is blank for everyone: the hub reports a peer host "
               "only on a tailnet bind — on loopback it would not tell "
@@ -1455,13 +1387,12 @@ def _wypisz_board(uczestnicy, biezacy_seq):
 async def read_board(nick, as_json=False, emit=None, zasady=False):
     """Kto jest na kanale — board PRZEZ DRUT, bez historii. Zwraca liczbe wpisow.
 
-    Istnieje, bo nasza WLASNA wymagana praktyka wyrzuca board do kosza:
-    filtr nasluchu musi ciac `session_metadata` po typie ramki
-    (skills/.../claude-code.md), a board jedzie wlasnie w srodku tej ramki.
-    Agent moze wiec zobaczyc, kto jest na kanale, wylacznie wchodzac od nowa
-    — okolo 5k tokenow za rzecz, o ktora nie da sie zapytac.
+    Istnieje, bo filtr wybudzen tnie `session_metadata` po typie ramki,
+    a board jedzie wlasnie w srodku tej ramki. Bez tej komendy agent widzi,
+    kto jest na kanale, wylacznie wchodzac od nowa — okolo 5k tokenow za
+    rzecz, o ktora nie da sie zapytac.
 
-    Pola liczy `agentmachi/chat/server.py` `_participants_snapshot` (od B5), a hello
+    Pola liczy `agentmachi/chat/server.py` `_participants_snapshot`, a hello
     je odsyla — ta komenda je POKAZUJE.
 
     Trzy rzeczy, ktorych ta droga nie robi — kontrakt wspolny z `read_frames`:
@@ -1469,11 +1400,10 @@ async def read_board(nick, as_json=False, emit=None, zasady=False):
     - NIE rusza kursora sesji (zero `advance`),
     - NIE zostawia sladu w pokoju: hello idzie z `peek` (serwer:
       `_odpowiedz_podgladem`) — zero eventu w logu, zero wpisu w rejestrze,
-      zero gniazda w `conns`. Wczesniej pelne hello dopisywalo patrzacego na
-      stale: literowka w `--nick` zostawala w pokoju jako duch i gasila
-      ostrzezenie "unknown nick", a kazde wywolanie przesuwalo koniec logu
-      (review f880849: `current_seq` 266, potem 267), postarzajac kazdy
-      status od samego patrzenia. Hub sprzed `peek` nadal tak robi —
+      zero gniazda w `conns`. Pelne hello dopisaloby patrzacego na stale:
+      literowka w `--nick` zostalaby w pokoju jako duch i gasila ostrzezenie
+      "unknown nick", a kazde wywolanie przesuwaloby koniec logu, postarzajac
+      kazdy status od samego patrzenia. Hub sprzed `peek` nadal tak robi —
       `_ostrzez_gdy_hub_wpisal` mowi o tym na stderr.
 
     Kursor w hello to STALE 0, a nie kursor sesji, i to nie jest skrot:
@@ -1515,11 +1445,10 @@ async def read_board(nick, as_json=False, emit=None, zasady=False):
             f"  check what it is: agentmachi card --name <hub>")
     zle = [(i, u) for i, u in enumerate(uczestnicy) if not isinstance(u, dict)]
     if zle:
-        # FAIL-CLOSED NA KAZDYM WPISIE, nie filtr. Stal tu
-        # `[u for u in uczestnicy if isinstance(u, dict)]` i cichy filtr byl
-        # gorszy niz brak walidacji: `[poprawny, "bad"]` wychodzilo kodem 0
-        # jako board WIARYGODNY, tylko niepelny — a niepelny roster czyta sie
-        # jako "tego kogos tu nie ma". Zlapane w review f880849 (Codex).
+        # FAIL-CLOSED NA KAZDYM WPISIE, nie filtr. Cichy filtr jest gorszy
+        # niz brak walidacji: `[poprawny, "bad"]` wychodziloby kodem 0 jako
+        # board WIARYGODNY, tylko niepelny — a niepelny roster czyta sie
+        # jako "tego kogos tu nie ma".
         i, u = zle[0]
         raise ReadRefused(
             f"the hub's board contains {len(zle)} entry/entries that are not "
@@ -1530,8 +1459,8 @@ async def read_board(nick, as_json=False, emit=None, zasady=False):
     if (isinstance(biezacy_seq, bool) or not isinstance(biezacy_seq, int)
             or biezacy_seq < 0):
         # `current_seq` to JEDYNY punkt odniesienia wieku kazdej deklaracji.
-        # Bez niego JSON wychodzil kodem 0 z `current_seq: null`, a tekst
-        # drukowal "hub at seq None" — czyli board udawal, ze odpowiedzial.
+        # Bez niego JSON wychodzilby kodem 0 z `current_seq: null`, a tekst
+        # drukowalby "hub at seq None" — board udawalby, ze odpowiedzial.
         raise ReadRefused(
             f"the hub replied without a usable log position "
             f"({'last_seq' if reply.get('type') == 'ok' else 'snapshot_seq'}"
@@ -1568,10 +1497,9 @@ def main():
                 sys.exit(1)
             asyncio.run(send_once(nick, args[0]))
         else:
-            # C3: dawne `send.py <nick> "tekst"` USUNIETE. <nick> byl
-            # NADAWCA, a czytal sie jak adresat — na zywym kanale kosztowalo
-            # to ramke wyslana w cudzym imieniu. Wariant nie zostaje
-            # "dla kompatybilnosci": dopoki dziala, pulapka dziala z nim.
+            # Bez wariantu `send.py <nick> "tekst"`: <nick> bylby NADAWCA,
+            # a czyta sie jak adresat — to ramka wyslana w cudzym imieniu.
+            # Nie wraca "dla kompatybilnosci": dopoki dziala, pulapka dziala.
             print('usage: send.py --as <nick> "@someone text"  |  '
                   'CHAT_NICK=<nick> send.py "@someone text"  |  '
                   'send.py --listen\n'
