@@ -10,7 +10,7 @@ Petla (node_loop -> _one_connection): polacz (hello z last_seq=
 last_context_seq) -> backlog. KONTRAKT OKNA KONTEKSTU: kontekst wake'a
 budowany jest WYLACZNIE z tego backlogu (niefiltrowanego — zadanie 2),
 NIGDY z ramek live. Live push dostarcza agentowi wylacznie wzmianki
-(@nick/$grupa/@all — fizyka huba, chat/server.py._publish_chat), wiec
+(@nick/$grupa/@all — fizyka huba, agentmachi/chat/server.py._publish_chat), wiec
 zywa ramka jest tylko SYGNALEM: gdy przejdzie _should_wake (seq >
 last_wake_seq), node zamyka polaczenie i wraca do node_loop, ktory
 NATYCHMIAST (bez eskalacji backoffu — to nie jest blad) reconnectuje;
@@ -45,10 +45,10 @@ from pathlib import Path
 
 import websockets
 
-from send import KICKED_CODE as _KICKED_CODE
-from send import MAX_HUB_FRAME as _MAX_HUB_FRAME
+from agentmachi.send import KICKED_CODE as _KICKED_CODE
+from agentmachi.send import MAX_HUB_FRAME as _MAX_HUB_FRAME
 
-from chat import protocol
+from agentmachi.chat import protocol
 
 BACKOFF_START, BACKOFF_MAX = 1.0, 30.0
 HELLO_TIMEOUT = 10.0
@@ -436,7 +436,7 @@ async def _one_connection(url, nick, token, state_path, runtime, humans,
         if reply.get("type") == "resync_required":
             # Historia skompaktowana. Hub NIE zostawia nas wtedy bez pamieci:
             # resync niesie rozmowe w polu `conversation` (F1/B5 —
-            # chat/server.py). Wczesniej node czytal wylacznie `backlog`,
+            # agentmachi/chat/server.py). Wczesniej node czytal wylacznie `backlog`,
             # przesuwal kursor na snapshot_seq i szedl dalej — czyli KAZDA
             # wzmianka z okresu objetego resyncem przepadala bez sladu.
             #

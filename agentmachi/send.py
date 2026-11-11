@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Klient CLI czatu agentow — RESUMOWALNY (Task 7 / t1).
 
-Domyslnie protokol B1 (chat/server.py): hello + token + trwaly kursor.
-  python3 send.py --as <nick> "@ktos tekst"  -> hello (kursor TYLKO czytany), chat, wyjscie
-  python3 send.py --listen         -> hello od kursora, apply+advance, reconnect
+Domyslnie protokol B1 (agentmachi/chat/server.py): hello + token + trwaly kursor.
+  python3 -m agentmachi.send --as <nick> "@ktos tekst"  -> hello (kursor TYLKO czytany), chat, wyjscie
+  python3 -m agentmachi.send --listen         -> hello od kursora, apply+advance, reconnect
 
 Env: CHAT_PORT (8765), CHAT_TOKEN (B1, wymagany — brak = fail-fast),
 CHAT_NICK (dla --listen), CHAT_ROLE (default "agent"),
 CHAT_SESSION_DIR (default ~/.chat-sessions).
 
 Semantyka resumowalnosci (wsad b2 + review-guard):
-- sesja per hub+nick (chat/client_session.py): instance_id + kursor,
+- sesja per hub+nick (agentmachi/chat/client_session.py): instance_id + kursor,
 - TYLKO listener przesuwa kursor, PO zastosowaniu ramki (at-least-once;
   duplikaty tlumione po seq, wybudzenia dodatkowo po activation_id),
 - send_once wspoldzieli instance_id (zero takeover wlasnego listenera),
@@ -33,8 +33,8 @@ from urllib.parse import urlparse
 
 import websockets
 
-from chat import protocol, store
-from chat.client_session import (ListenerLockHeld, Session, SessionError,
+from agentmachi.chat import protocol, store
+from agentmachi.chat.client_session import (ListenerLockHeld, Session, SessionError,
                                  session_files)
 
 PORT = os.environ.get("CHAT_PORT", "8765")
@@ -322,7 +322,7 @@ def _print_json(data):
     linii w `_print_event`, tylko przeniesiony na format, ktory ma jedna
     linie na ramke. Serwer sklada ramke `make_frame` ({type, from, ts,
     **fields}) i dopiero potem robi `frame["seq"] = seq`
-    (`chat/server.py:711-712`), a `json.dumps` zachowuje kolejnosc
+    (`agentmachi/chat/server.py:711-712`), a `json.dumps` zachowuje kolejnosc
     wstawiania — bez przestawienia `seq` lezy na samym koncu, ZA trescia.
 
     Zmierzone na zywym pokoju meadow2, 2026-08-22, 8 ramek konwersacyjnych:
@@ -805,7 +805,7 @@ async def _pilnuj_workspace(ws, nick, wyslany, poll=WORKSPACE_POLL):
 
 async def send_once(nick, text, quiet=False):
     """quiet=True: ramka trafia do logu i do ludzi, ale NIE budzi agentow.
-    Publikacja zamiast zawolania — patrz chat/server.py._publish_chat."""
+    Publikacja zamiast zawolania — patrz agentmachi/chat/server.py._publish_chat."""
     token = _require_token()
     session = _session(nick)  # kursor tylko do odczytu — nie ruszamy go
     async with websockets.connect(URI, max_size=MAX_HUB_FRAME) as ws:
@@ -1089,7 +1089,7 @@ def _koniec_logu_z_odmowy(reply):
     to, czego to repo zakazuje wprost przy formacie czytelnym `listen`.
     Przeredagowanie tamtego zdania w server.py cicho degradowaloby `read` do
     odmowy ogolnej i zaden test po stronie serwera by nie spuchl. Pole jest
-    kontraktem (chat/server.py, CursorBeyondLog); zdanie nie jest.
+    kontraktem (agentmachi/chat/server.py, CursorBeyondLog); zdanie nie jest.
 
     Regex zostaje WYLACZNIE jako most do starszego huba, ktory pola jeszcze
     nie wysyla — klient bywa nowszy od serwera, do ktorego wchodzi."""
@@ -1275,7 +1275,7 @@ def _wiek_deklaracji(status_seq, biezacy_seq):
     Jednostka jest tu czescia wyniku, nie ozdoba: to ramki, nie sekundy.
     Board klamie najgorzej wtedy, gdy wyglada na swiezy — snapshot huba po
     dogfoodzie kinas-machine pokazywal `worker1: idle` przez cala jego prace
-    (patrz chat/server.py:401). Wiek nie mowi, czy ktos utknal; mowi, ile
+    (patrz agentmachi/chat/server.py:401). Wiek nie mowi, czy ktos utknal; mowi, ile
     kanal przezyl od czasu, gdy to zdanie bylo prawda. Wniosek nalezy do
     czytajacego — hub go nie wyciaga."""
     if (isinstance(status_seq, bool) or not isinstance(status_seq, int)
@@ -1334,7 +1334,7 @@ _STERUJACE[0x7f] = "\\x7f"
 # czyli znaki sterujace UKLADEM. Nie bierzemy ZWSP (U+200B) ani homoglifow —
 # `be\u200bta` wyglada jak `beta` i jest podszyciem pod CUDZY NICK, a nie
 # psuciem wiersza. Tego nie da sie naprawic w rendererze: rozstrzyga sie to
-# przy NADAWANIU nicka (`chat/identity.py`), inaczej kazdy widok musialby
+# przy NADAWANIU nicka (`agentmachi/chat/identity.py`), inaczej kazdy widok musialby
 # powtarzac te sama normalizacje i kazdy zrobilby ja troche inaczej.
 for _znak in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069":
     _STERUJACE[ord(_znak)] = f"\\u{ord(_znak):04x}"
@@ -1392,7 +1392,7 @@ def _wypisz_board(uczestnicy, biezacy_seq):
     Do 2026-08-22 to ostrzezenie bylo tu SAMO — przy `listen` ta sama klasa
     bledu byla rozwiazana w kodzie (`[seq] nadawca:` na kazdej linii), a tu
     zostal komentarz. Kosztowalo to wiecej niz czytelnosc: `state` przechodzi
-    walidacje z `\n` w srodku (`chat/protocol.py` sprawdza typ, niepustosc
+    walidacje z `\n` w srodku (`agentmachi/chat/protocol.py` sprawdza typ, niepustosc
     i 32 znaki), a renderer wcinal tylko PIERWSZA linie opisu — wiec board
     z JEDNYM uczestnikiem wypisywal dwa wiersze, i drugi przedstawial sie
     jako `human`. Naglowek mowil "1 participant(s)", cialo pokazywalo dwoch.
@@ -1403,7 +1403,7 @@ def _wypisz_board(uczestnicy, biezacy_seq):
 
     Dlatego przez `_bezpieczne_linie` ida WSZYSTKIE pola wiersza, nie samo
     `status`. `nick` jest walidowany jako "niepusty string" i nic wiecej
-    (`chat/identity.py`), wiec pole nadawane przez serwer nie jest tu
+    (`agentmachi/chat/identity.py`), wiec pole nadawane przez serwer nie jest tu
     bezpieczniejsze od tresci uczestnika. Latanie pola po polu zostawialoby
     pytanie "czy na pewno wszystkie?" przy kazdej przyszlej kolumnie; jedno
     przejscie na wyjsciu nie zostawia."""
@@ -1445,7 +1445,7 @@ def _wypisz_board(uczestnicy, biezacy_seq):
     # Puste `addr` u WSZYSTKICH czyta sie jak zepsuta kolumna, a jest
     # odmowa: hub oddaje host peera tylko przy bindzie na tailnet, bo na
     # loopbacku nie rozroznia podmiotow i wolal milczec niz zmyslic
-    # (chat/server.py:415). Bez tego zdania czytajacy zglosilby buga.
+    # (agentmachi/chat/server.py:415). Bez tego zdania czytajacy zglosilby buga.
     if uczestnicy and not any(u.get("addr") for u in uczestnicy):
         print("\n(addr is blank for everyone: the hub reports a peer host "
               "only on a tailnet bind — on loopback it would not tell "
@@ -1461,7 +1461,7 @@ async def read_board(nick, as_json=False, emit=None, zasady=False):
     Agent moze wiec zobaczyc, kto jest na kanale, wylacznie wchodzac od nowa
     — okolo 5k tokenow za rzecz, o ktora nie da sie zapytac.
 
-    Pola liczy `chat/server.py` `_participants_snapshot` (od B5), a hello
+    Pola liczy `agentmachi/chat/server.py` `_participants_snapshot` (od B5), a hello
     je odsyla — ta komenda je POKAZUJE.
 
     Trzy rzeczy, ktorych ta droga nie robi — kontrakt wspolny z `read_frames`:

@@ -1,7 +1,7 @@
 import json
 import pytest
 
-from chat import protocol
+from agentmachi.chat import protocol
 
 
 def test_parse_mentions():
@@ -33,7 +33,7 @@ def test_myslnik_nalezy_do_nicka_i_do_grupy():
 
 
 def test_parse_groups_ignores_uppercase_shell_variables():
-    from chat import protocol
+    from agentmachi.chat import protocol
     assert protocol.parse_groups("check $HOME and $PATH on that machine") == set()
     assert protocol.parse_groups("$workers and $HOME") == {"workers"}
 

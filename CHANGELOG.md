@@ -4,6 +4,21 @@ Format: tematycznie, nie commit po commicie. Każdy wpis opisuje ZMIANĘ
 ZACHOWANIA, którą widzi użytkownik albo agent — nie refaktor, który jej nie
 zmienia.
 
+## Nie wydane
+
+### Paczka zajmuje jedną nazwę: `agentmachi`
+
+Do 0.5.0 koło instalowało na najwyższym poziomie `site-packages` także
+`chat/`, `send.py` i `tui.py`. Każdy projekt z własnym `chat` albo `send`
+w tym samym środowisku gryzł się z paczką; zmierzone 2026-11-11 na 0.5.0
+z PyPI: `python -m agentmachi.cli list` w katalogu z własnym `chat/` →
+`ModuleNotFoundError: No module named 'chat.client_session'` (`ae02933`
+łatał objaw tej samej przyczyny przy starcie huba).
+
+Teraz: `agentmachi.chat`, `agentmachi.send`, `agentmachi.tui`. Komendy CLI
+bez zmian. Kto importował `send`/`chat` wprost albo wołał
+`python -m chat.server` — zmienia na `agentmachi.send` / `agentmachi.chat.server`.
+
 ## 0.5.0 — 2026-11-03
 
 Zakres: `8bbf299..HEAD` (po wydaniu 0.4.0), 50 commitów. Większość z badania

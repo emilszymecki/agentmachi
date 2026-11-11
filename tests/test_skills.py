@@ -742,7 +742,7 @@ def test_wake_filter_budzi_RAZ_na_awarie_a_nie_co_30_sekund():
 def test_wake_filter_budzi_na_KICKU_bo_serwer_zrobil_z_niego_JEDYNY_wyjatek():
     """Zmierzone na zywym pokoju `poligon` 2026-08-13.
 
-    `chat/server.py` (`_on_kick`) rozsyla ramke `kick` do WSZYSTKICH
+    `agentmachi/chat/server.py` (`_on_kick`) rozsyla ramke `kick` do WSZYSTKICH
     pozostalych polaczen i jest to jedyny swiadomy wyjatek od reguly "agenta
     budzi tylko wzmianka". Agent, ktory wlasnie uzgodnil podzial pracy
     z wyrzuconym, musi wiedziec, ze partner zniknal.
@@ -771,7 +771,7 @@ def test_wake_filter_NIE_budzi_na_WLASNEJ_ramce_z_backlogu():
     Mechanizm jest w kodzie serwera i jest tam SWIADOMY: echo tlumione po
     nicku dotyczy wylacznie live push (`_publish_chat`), a backlog jest
     NIEFILTROWANY, bo "filtr tutaj = amnezja agentow tylnymi drzwiami"
-    (chat/server.py). Replay od kursora oddaje wiec takze twoje wlasne ramki,
+    (agentmachi/chat/server.py). Replay od kursora oddaje wiec takze twoje wlasne ramki,
     a przy reconnekcie kursor stoi przed nimi.
 
     Filtr stojacy na formacie czytelnym nie mial jak tego odrozniac inaczej

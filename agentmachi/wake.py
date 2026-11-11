@@ -26,7 +26,7 @@ import re
 import signal
 import sys
 
-from chat import protocol
+from agentmachi.chat import protocol
 
 DIAGNOSTYKA = re.compile(r"^\[(hub|kick|nick|read|resync|warning)\]")
 NADANY = re.compile(r"^\[hub\] assigned nick: (\S+)")

@@ -157,7 +157,7 @@ PORT = _free_port()
 
 @pytest.fixture()
 def srv(tmp_path):
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     async def _run(coro):
         server = ChatServer(data_dir=tmp_path / "hub-data", tokens=TOKENS,
@@ -587,7 +587,7 @@ def test_state_zapisuje_nazwe_realnego_runtime(tmp_path):
 def test_node_budzi_sie_raz_o_NAJNOWSZA_wzmianke_po_resync(srv, tmp_path):
     """REGRESJA ZE ZYWEGO KANALU: po kompakcji logu hub odpowiada na hello
     ramka `resync_required`, ktora NIESIE rozmowe w polu `conversation`
-    (F1/B5, chat/server.py). Node czytal wylacznie `backlog`, wiec na tej
+    (F1/B5, agentmachi/chat/server.py). Node czytal wylacznie `backlog`, wiec na tej
     sciezce przesuwal tylko kursor i szedl dalej — KAZDA wzmianka z okresu
     objetego resyncem przepadala.
 

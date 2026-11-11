@@ -6,9 +6,9 @@ import pytest
 pytest.importorskip("textual", reason="TUI wymaga textual — "
                     "uv run --with textual ... (patrz README)")
 
-import tui  # noqa: E402
-from chat.client_session import Session
-from tui import (HubAdapter, HumanIdentity, TuiError, apply_resumable_frame,
+from agentmachi import tui  # noqa: E402
+from agentmachi.chat.client_session import Session
+from agentmachi.tui import (HubAdapter, HumanIdentity, TuiError, apply_resumable_frame,
                  load_human_identity, parse_user_input)
 
 
@@ -220,7 +220,7 @@ def test_apply_hello_participants_before_backlog(session):
     TUI fail-closes na jego braku — tak samo jak send.py. Precedens jest
     dokladnie ten sam: tests/test_send.py dostal te poprawke z komentarzem
     'ramka bez niego nie istnieje na drucie'. Serwer ZAWSZE wysyla `last_seq`
-    w galezi `ok` (chat/server.py, protocol.make_frame przy budowie reply),
+    w galezi `ok` (agentmachi/chat/server.py, protocol.make_frame przy budowie reply),
     wiec odpowiedz bez niego byla fikcja testowa, nie realnym wejsciem."""
     adapter = _adapter(session)
     order = []
@@ -934,7 +934,7 @@ def test_takeover_i_nieznany_typ_nie_gina_po_cichu(tmp_path):
 def test_panel_uczestnikow_NIE_daje_sie_rozbic_nickiem(tmp_path):
     """Nick z `\\n` dokladal falszywy wpis do panelu moderatora.
 
-    `chat/identity.py` przyjmuje kazdy niepusty string jako nick i nic
+    `agentmachi/chat/identity.py` przyjmuje kazdy niepusty string jako nick i nic
     wiecej nie sprawdza (linie 56, 105, 140), wiec wektor nie wymaga nawet
     ramki `status` — wystarczy wejsc pod taka nazwa.
 

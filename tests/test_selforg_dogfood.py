@@ -13,7 +13,7 @@ import socket
 import pytest
 import websockets
 
-from chat.server import ChatServer
+from agentmachi.chat.server import ChatServer
 
 TOKENS = {
     "alfa": "ta",

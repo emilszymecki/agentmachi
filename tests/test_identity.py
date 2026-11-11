@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from chat.identity import Registry, AuthError
+from agentmachi.chat.identity import Registry, AuthError
 
 TOKENS = {"alfa": "tok-a", "beta": "tok-b"}
 

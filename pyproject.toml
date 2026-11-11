@@ -37,8 +37,7 @@ Issues = "https://github.com/emilszymecki/agentmachi/issues"
 agentmachi = "agentmachi.cli:main"
 
 [tool.setuptools]
-packages = ["chat", "agentmachi"]
-py-modules = ["send", "tui"]
+packages = ["agentmachi", "agentmachi.chat"]
 
 # howto_default.md NIE jest opcjonalne: ensure_hub czyta je bezwarunkowo przy
 # tworzeniu KAZDEGO pokoju (agentmachi/cli.py, "Szablon idzie z pakietu").

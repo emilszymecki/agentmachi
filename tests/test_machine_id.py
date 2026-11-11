@@ -8,7 +8,7 @@
 # IP robimy recznie na zywym hubie; tu utrwalamy KONTRAKT logiki _peer_host.
 import socket
 
-from chat.server import ChatServer
+from agentmachi.chat.server import ChatServer
 
 
 def _free_port():

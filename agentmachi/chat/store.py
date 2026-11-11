@@ -1,4 +1,4 @@
-# chat/store.py
+# agentmachi/chat/store.py
 """Trwaly log zdarzen pokoju: room_seq, snapshot, kompakcja.
 
 Kolejnosc trwalosci (spec): przy mutacji najpierw trwaly event, potem

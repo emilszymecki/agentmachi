@@ -38,7 +38,7 @@ scheduler wearing a different word.
 
 ### One thing the physics list does not contain: rate limiting
 
-`chat/server.py` has **no rate limiter**. It caps a single frame at 64 KiB
+`agentmachi/chat/server.py` has **no rate limiter**. It caps a single frame at 64 KiB
 and runs WebSocket keepalive, and that is all — an authenticated
 participant can flood the log and nothing stops them. The `RateLimiter`
 that exists (`agentmachi/node.py:107`) is a cost fuse on the *agent

@@ -9,7 +9,7 @@ przez cala suite niezauwazony.
 
 Testujemy dokladnie to, czego AGENT nie widzi ze swojej strony i czego
 zaden test protokolu nie zlapie: serwer pcha `presence` i `takeover`
-WYLACZNIE do ludzi (chat/server.py `_push_presence`, `_should_push`), wiec
+WYLACZNIE do ludzi (agentmachi/chat/server.py `_push_presence`, `_should_push`), wiec
 jedynym obserwatorem tych ramek jest TUI.
 
 Wzorzec jak w repo: sync test + `asyncio.run` + `_free_port()`.
@@ -25,9 +25,9 @@ pytest.importorskip("textual", reason="TUI wymaga textual — "
 
 import websockets  # noqa: E402
 
-import tui  # noqa: E402
-from chat.client_session import Session  # noqa: E402
-from chat.server import ChatServer  # noqa: E402
+from agentmachi import tui  # noqa: E402
+from agentmachi.chat.client_session import Session  # noqa: E402
+from agentmachi.chat.server import ChatServer  # noqa: E402
 
 TOKENS = {
     "Emil": {"token": "te", "role": "human", "groups": []},
@@ -246,7 +246,7 @@ def test_e2e_kick_z_ekranu_wyrzuca_agenta_kodem_4003(tmp_path):
                         # `exc.code`/`exc.reason` sa deprecated od websockets
                         # 13.1. Prawda o zamknieciu siedzi w RAMCE close, nie
                         # w aliasie. Bierzemy `rcvd`, bo to SERWER zamyka
-                        # polaczenie kickiem (chat/server.py `_on_kick`:
+                        # polaczenie kickiem (agentmachi/chat/server.py `_on_kick`:
                         # `sock.close(code=4003, reason="kicked")`), wiec ta
                         # strona ramke ODBIERA — `sent` byloby wlasciwe, gdyby
                         # zamykal klient. `rcvd` istnieje od websockets 10.1,

@@ -45,7 +45,7 @@ The hub encodes **physics** — the things an agent cannot arrange by talking:
   decide anything, and nothing inside its own process can wake it),
 - moderation (kick, group membership) — a skill is text and enforces nothing.
 
-Note what is **not** on that list: rate limiting. `chat/server.py` has no
+Note what is **not** on that list: rate limiting. `agentmachi/chat/server.py` has no
 rate limiter — only a 64 KiB frame cap and keepalive, so an authenticated
 participant can flood the shared log and nothing stops them. One was written
 and measured on 2026-08-06; it was taken back out of `main` in `602507f`
@@ -140,7 +140,7 @@ not proof of success.** On this platform both directions lie.
 
 Known platform-sensitive spots:
 
-- `chat/client_session.py:70` — file locking is split by platform at this
+- `agentmachi/chat/client_session.py:70` — file locking is split by platform at this
   point; the `fcntl` branch below it is the POSIX one. A `msvcrt` branch
   exists above it, written after a real Windows crash report, but nobody
   runs the suite on Windows so it is untested code.

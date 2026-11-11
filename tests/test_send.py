@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 import websockets
 
-import send
-from chat.client_session import Session
+from agentmachi import send
+from agentmachi.chat.client_session import Session
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -281,7 +281,7 @@ def test_json_daje_jedna_parsowalna_ramke_na_linie(capsys):
 # filtr trafil. Migracja na `--json` (2026-08-13) zabrala ten warunek ze soba
 # i go zgubila: w `--json` cala ramka jest JEDNA linia, a `seq` dokleja sie
 # na jej KONCU, bo serwer robi `frame["seq"] = seq` PO zlozeniu ramki
-# (`chat/server.py:711-712`) i `json.dumps` zachowuje kolejnosc wstawiania.
+# (`agentmachi/chat/server.py:711-712`) i `json.dumps` zachowuje kolejnosc wstawiania.
 #
 # Zmierzone na zywym pokoju meadow2, 2026-08-22, 8 ramek konwersacyjnych:
 # `"seq"` zaczyna sie na 95.1-99.8% dlugosci linii, a ogon za nim ma 9-10
@@ -295,8 +295,8 @@ def test_json_daje_jedna_parsowalna_ramke_na_linie(capsys):
 
 def _ramka_z_drutu(text, **extra):
     """Ramka DOKLADNIE w kolejnosci, w ktorej sklada ja serwer: najpierw
-    `make_frame` ({type, from, ts, **fields} — `chat/protocol.py:293`),
-    potem `frame["seq"] = seq` (`chat/server.py:712`), czyli `seq` na koncu.
+    `make_frame` ({type, from, ts, **fields} — `agentmachi/chat/protocol.py:293`),
+    potem `frame["seq"] = seq` (`agentmachi/chat/server.py:712`), czyli `seq` na koncu.
 
     Ten helper istnieje, bo pierwsza wersja tych testow podawala `seq` przed
     `text` w literale i przechodzila na NIENAPRAWIONYM kodzie — mierzyla
@@ -418,7 +418,7 @@ def test_apply_hello_resync_emits_state_before_cursor(session, capsys):
 def test_apply_hello_resync_without_state_fails_closed(session, capsys):
     """Finisz codexa (1): resync BEZ dict state = SessionError, kursor STOI —
     advance bez zastosowanego stanu deklarowalby posiadanie utraconego."""
-    from chat.client_session import SessionError
+    from agentmachi.chat.client_session import SessionError
     with pytest.raises(SessionError):
         send._apply_hello_reply(session, {"type": "resync_required",
                                           "snapshot_seq": 42})
@@ -430,7 +430,7 @@ def test_hello_ok_emits_session_metadata_before_backlog(session, capsys):
     ramka session_metadata PRZED backlogiem."""
     # C2: `last_seq` dopisane do ramki — nie zmiana intencji testu (broni
     # KOLEJNOSCI emisji), tylko urealnienie wejscia. Serwer w galezi `ok`
-    # ZAWSZE niesie last_seq (chat/server.py, reply "ok"), wiec ramka bez
+    # ZAWSZE niesie last_seq (agentmachi/chat/server.py, reply "ok"), wiec ramka bez
     # niego nie istnieje na drucie; od C2 klient fail-closes na jej brak,
     # bo to jedyny autorytatywny koniec logu.
     send._apply_hello_reply(session, {
@@ -479,7 +479,7 @@ def test_token_is_optional_in_open_mode(monkeypatch):
 # --- hub_id_from_url (Task 1: CHAT_URL / zdalne hub-y) --------------------
 
 def test_hub_id_from_url():
-    import send
+    from agentmachi import send
     assert send.hub_id_from_url("ws://localhost:8766") == "localhost:8766"
     assert send.hub_id_from_url("wss://hub.tailnet.ts.net:8766") == \
         "hub.tailnet.ts.net:8766"
@@ -533,7 +533,7 @@ def test_drugi_listen_konczy_sie_KOMUNIKATEM_nie_tracebackiem(tmp_path):
 def test_listener_smoke_gate_kill_offline_restart(tmp_path):
     """listener -> msg1 -> SIGKILL -> msg2 offline -> restart -> msg2
     dokladnie raz, bez powtorki msg1, kursor monotoniczny na dysku."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     tokens = {"beta": {"token": "tok-b", "role": "agent", "groups": []},
@@ -544,7 +544,7 @@ def test_listener_smoke_gate_kill_offline_restart(tmp_path):
 
     def start_listener():
         return subprocess.Popen(
-            [sys.executable, str(REPO / "send.py"), "--listen"],
+            [sys.executable, "-m", "agentmachi.send", "--listen"],
             env=env, cwd=REPO, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True)
 
@@ -602,7 +602,7 @@ def test_listener_melduje_POWROT_huba_po_zerwaniu(tmp_path):
     """Filtr wybudzen budzi raz na awarie i polyka kolejne `[reconnect]`.
     Agent musi sie wiec dowiedziec, ze awaria MINELA — inaczej po jednym
     "zerwane" siedzi przekonany, ze jest gluchy."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     env = {**os.environ, "CHAT_PORT": str(port), "CHAT_NICK": "beta",
@@ -611,7 +611,7 @@ def test_listener_melduje_POWROT_huba_po_zerwaniu(tmp_path):
     env.pop("CHAT_TOKEN", None)
     env.pop("CHAT_URL", None)
     listener = subprocess.Popen(
-        [sys.executable, str(REPO / "send.py"), "--listen"],
+        [sys.executable, "-m", "agentmachi.send", "--listen"],
         env=env, cwd=REPO, stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE, text=True)
 
@@ -648,7 +648,7 @@ def test_listen_ktory_NIGDY_sie_nie_polaczyl_podejrzewa_ADRES(tmp_path):
            "CHAT_NICK": "beta", "CHAT_SESSION_DIR": str(tmp_path / "sess"),
            "PYTHONUNBUFFERED": "1"}
     env.pop("CHAT_TOKEN", None)
-    p = subprocess.Popen([sys.executable, str(REPO / "send.py"), "--listen"],
+    p = subprocess.Popen([sys.executable, "-m", "agentmachi.send", "--listen"],
                          env=env, cwd=REPO, stdout=subprocess.DEVNULL,
                          stderr=subprocess.PIPE, text=True)
     try:
@@ -689,7 +689,7 @@ def test_listen_once_wake_czeka_na_ramke_KTORA_BUDZI(tmp_path):
     bez wzmianki. Subagent, ktory odpowiada i wraca do --once, budzil sie
     od razu wlasna odpowiedzia. Pokoj ma zasady: linia o nich wraca przy
     kazdym hello i tez nie moze konczyc czekania."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     env = {**os.environ, "CHAT_URL": f"ws://localhost:{port}",
@@ -746,13 +746,13 @@ def test_second_listener_rejected_lock(tmp_path):
     env = {**os.environ, "CHAT_PORT": str(port), "CHAT_NICK": "beta",
            "CHAT_TOKEN": "tok-b", "CHAT_SESSION_DIR": str(tmp_path / "sess"),
            "PYTHONUNBUFFERED": "1"}
-    p1 = subprocess.Popen([sys.executable, str(REPO / "send.py"), "--listen"],
+    p1 = subprocess.Popen([sys.executable, "-m", "agentmachi.send", "--listen"],
                           env=env, cwd=REPO, stdout=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL)
     try:
         time.sleep(1.0)  # p1 trzyma lock (i probuje reconnectowac do huba)
         p2 = subprocess.run(
-            [sys.executable, str(REPO / "send.py"), "--listen"],
+            [sys.executable, "-m", "agentmachi.send", "--listen"],
             env=env, cwd=REPO, capture_output=True, text=True, timeout=10)
         assert p2.returncode == 3
         assert "listener" in p2.stderr
@@ -767,7 +767,7 @@ def test_corrupt_session_fail_closed_exit_code(tmp_path):
     s.path.write_text("{urwane")
     env = {**os.environ, "CHAT_PORT": "7777", "CHAT_NICK": "beta",
            "CHAT_TOKEN": "tok-b", "CHAT_SESSION_DIR": str(sess_dir)}
-    p = subprocess.run([sys.executable, str(REPO / "send.py"), "--listen"],
+    p = subprocess.run([sys.executable, "-m", "agentmachi.send", "--listen"],
                        env=env, cwd=REPO, capture_output=True, text=True,
                        timeout=10)
     assert p.returncode == 4
@@ -779,7 +779,7 @@ def test_corrupt_session_fail_closed_exit_code(tmp_path):
 def test_oneshot_frame_uses_session_identity(tmp_path, monkeypatch):
     """Regresja bugu z testu skilla: one-shot MUSI współdzielić instance_id
     z listenerem (zero takeoveru/ping-ponga generacji gubiącego lease)."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     tokens = {"beta": {"token": "tok-b", "role": "agent", "groups": []}}
@@ -821,7 +821,7 @@ def test_oneshot_frame_uses_session_identity(tmp_path, monkeypatch):
 # wcale. Obietnica protokolu musi docierac do odbiorcy.
 
 def test_session_metadata_carries_board_and_howto():
-    import send
+    from agentmachi import send
     printed = []
     original = send._print_event
     send._print_event = printed.append
@@ -846,8 +846,8 @@ def test_resync_reply_also_carries_conversation():
     """Po kompakcji rozmowa wraca w `conversation` (F1) — listener ma ja
     pokazac, inaczej wracajacy agent widzi kanal, na ktorym 'nic sie nie
     wydarzylo'."""
-    import send
-    from chat.client_session import Session
+    from agentmachi import send
+    from agentmachi.chat.client_session import Session
     import tempfile
     printed = []
     original = send._print_event
@@ -893,7 +893,7 @@ def test_nickless_listen_enters_open_hub_and_gets_assigned_nick(
     wejsc — hub nadaje nick, klient go przyjmuje i zaklada pod nim sesje.
     Dowod calej drogi: powstaje plik sesji nazwany NADANYM nickiem (z pustym
     nickiem Session by rzucila i pliku by nie bylo) + stderr niesie nadanie."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)   # open mode: bez sekretu
     monkeypatch.delenv("CHAT_NICK", raising=False)
@@ -973,7 +973,7 @@ def test_hello_ok_z_pustym_backlogiem_przesuwa_kursor_na_wire_last_seq(session):
 
 def test_hello_ok_last_seq_zero_nie_wywraca_wejscia(session):
     """PUSTY log: Session.advance rzuca SessionError dla seq < 1
-    (chat/client_session.py:221), wiec bezwarunkowe advance wysypywaloby
+    (agentmachi/chat/client_session.py:221), wiec bezwarunkowe advance wysypywaloby
     wejscie na swiezym kanale. Zero jest legalne — po prostu nie ma czego
     przesuwac."""
     send._apply_hello_reply(session, {
@@ -986,7 +986,7 @@ def test_hello_ok_bez_poprawnego_last_seq_failcloses(session):
     znaczy 'nie wiem, gdzie jestem'. Ciche pominiecie przesuniecia to
     pozniejsza powodz duplikatow albo luka, ktorej nikt nie powiaze
     z tym wejsciem."""
-    from chat.client_session import SessionError
+    from agentmachi.chat.client_session import SessionError
     with pytest.raises(SessionError):
         send._apply_hello_reply(session, {"type": "ok", "backlog": []})
     with pytest.raises(SessionError):
@@ -1286,7 +1286,7 @@ def test_nickless_listen_nie_zamyka_sobie_ust(tmp_path, monkeypatch):
 
     Dowod idzie przez DRUT, nie przez pole w obiekcie: druga ramka leci
     tozsamoscia z pliku sesji i musi trafic do logu huba."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.delenv("CHAT_NICK", raising=False)
@@ -1341,7 +1341,7 @@ def test_nickless_listen_nie_dziedziczy_kursora_po_poprzednim_agencie(
     kursor. Hello poszlo z last_seq=0 sesji tymczasowej, wiec backlog
     przyszedl od poczatku — a apply_frame tnie po `seq <= last_applied_seq`
     i zjadlby wlasnie dostarczona historie."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.delenv("CHAT_NICK", raising=False)
@@ -1381,7 +1381,7 @@ def test_nickless_listen_nie_niszczy_sesji_cudzego_listenera(tmp_path, monkeypat
     cudzy plik sesji: obca tozsamosc + wyzerowany kursor. Ofiara traci
     trwaly kursor, ktory kontrakt klienta obiecuje utrzymac
     (zlapane 2026-07-31, drugie review Codexa)."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.delenv("CHAT_NICK", raising=False)
@@ -1423,8 +1423,8 @@ def test_send_odmawia_zamiast_gubic_po_cichu(tmp_path, monkeypatch):
 
     Cicha utrata jest gorsza niz odmowa, wiec klient ma powiedziec NIE sam
     (zlapane 2026-07-31, piate review Codexa)."""
-    from chat.server import ChatServer
-    from chat import protocol
+    from agentmachi.chat.server import ChatServer
+    from agentmachi.chat import protocol
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
@@ -1453,7 +1453,7 @@ def test_sufit_klienta_pokrywa_najgorsza_legalna_odpowiedz():
     najgorsza legalna odpowiedz to okno rozmowy razy sufit jednej ramki.
     Gdyby ktos podniosl CONVERSATION_LIMIT albo MAX_FRAME_BYTES i zapomnial
     o kliencie, wracajacy agent znow wypadalby na wlasnym backlogu."""
-    from chat import protocol, store
+    from agentmachi.chat import protocol, store
     assert send.MAX_HUB_FRAME >= store.CONVERSATION_LIMIT * protocol.MAX_FRAME_BYTES
 
 
@@ -1463,7 +1463,7 @@ def test_dumps_nie_rozpycha_znakow_spoza_ascii():
     przeszla sufit WEJSCIA, wracala w odpowiedzi trzy razy wieksza i sufit
     wyjscia gonilby wejscie w nieskonczonosc."""
     import json
-    from chat import protocol
+    from agentmachi.chat import protocol
     ramka = {"type": "chat", "from": "a", "ts": 0.0, "text": "😀" * 1000}
     assert protocol.frame_bytes(ramka) < len(json.dumps(ramka).encode()) / 2.5
     assert json.loads(protocol.dumps(ramka)) == ramka
@@ -1478,7 +1478,7 @@ def test_send_odmawia_surogatu_zamiast_gubic_po_cichu(tmp_path, monkeypatch):
 
     Zrodlem bywa argv zdekodowane przez `surrogateescape` (nazwa pliku spoza
     UTF-8), wiec agent nie musi tego robic celowo (dziewiate review)."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
@@ -1509,7 +1509,7 @@ def test_send_pokazuje_ostrzezenie_serwera_bez_nasluchu(tmp_path, monkeypatch, c
     Nie utrwalamy `error` w logu (taka byla pierwsza propozycja), bo ramka
     jest adresowana do JEDNEGO nadawcy, a log czyta kazdy przy wznowieniu.
     Pytamy o nia tam, gdzie powstala."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
@@ -1549,7 +1549,7 @@ def test_ostrzezenie_o_grupie_dociera_do_nadawcy_W_CALOSCI(tmp_path, monkeypatch
     Trzy niezalezne fakty naraz, bo tylko razem znacza "ostrzezenie, nie
     odmowa": tresc dociera cala, ramka `chat` jest w logu, a ramki `error`
     w logu NIE MA (decyzja z `test_send_pokazuje_ostrzezenie_serwera...`)."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
@@ -1579,7 +1579,7 @@ def test_send_bez_ostrzezenia_nie_placi_pelnego_okna(tmp_path, monkeypatch):
     """Cisza jest sciezka SZCZESLIWA, wiec kazda zwykla wysylka placi pelne
     okno. Pierwsza wersja miala 1.0 s i spowalniala wszystko; okno jest
     oparte na pomiarze (2.4-5.6 ms na zywym hubie), nie na ostroznosci."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     port = _free_port()
     monkeypatch.delenv("CHAT_TOKEN", raising=False)
     monkeypatch.setenv("CHAT_SESSION_DIR", str(tmp_path / "sess"))
@@ -1640,7 +1640,7 @@ def test_cli_send_stdin_dostarcza_tresc_bajt_w_bajt(tmp_path):
     zanim CLI cokolwiek zobaczylo. Testy jednostkowe stdin (test_cli.py)
     sprawdzaja kontrakt argumentow; ten sprawdza, ze bajty przezywaja
     granice procesu, protokol i zapis na dysk."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     tresc = ('raport z "C:\\Users\\test\\" i \'apostrofu\'\n'
@@ -1682,7 +1682,7 @@ def test_cli_send_bez_stdin_i_bez_tresci_nie_wysyla_pustki(tmp_path):
     z `not isatty()`, dostaloby natychmiastowe EOF i wyslalo PUSTA
     wiadomosc z exit 0 — cicha porazka udajaca sukces. Dowod na zywym
     procesie ze stdin=/dev/null, bo to jest to samo srodowisko."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     env = {**os.environ,
@@ -1760,7 +1760,7 @@ def test_read_oddaje_WLASNA_ramke_nadawcy(tmp_path, monkeypatch):
     (echo tlumione po nicku — asercja na timeout), a dopiero potem, ze
     `read` ja oddaje. Bez pierwszej polowy test przechodzilby takze wtedy,
     gdyby problem nigdy nie istnial."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -1801,7 +1801,7 @@ def test_read_nie_rusza_kursora_sesji(tmp_path, monkeypatch):
     zabralby nasluchowi ramki, ktorych ten nigdy nie zobaczyl — i nikt by
     sie o tym nie dowiedzial, bo strata wyglada jak cisza na kanale.
     Czytamy stan z DYSKU przed i po, nie z obiektu w pamieci."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -1847,8 +1847,8 @@ def test_read_dziala_obok_zywego_nasluchu_trzymajacego_lock(tmp_path,
     wlasny dowod ma w tej chwili podniesiony nasluch. Gdyby `read` siegal po
     listener-lock, dostawalby ListenerLockHeld dokladnie wtedy, kiedy jest
     potrzebny."""
-    from chat.client_session import ListenerLockHeld
-    from chat.server import ChatServer
+    from agentmachi.chat.client_session import ListenerLockHeld
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -1895,7 +1895,7 @@ def test_read_resync_nie_wypycha_nastepnego_listen_once(tmp_path,
     persisted snapshotowi: read dostaje swieza etykiete wire, granica Store
     zostaje w miejscu, a listener konczy sie dopiero na prawdziwej wzmiance.
     """
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -1960,7 +1960,7 @@ def test_read_seq_ktorego_nie_ma_w_zwrocie_konczy_sie_bledem(tmp_path,
     `hello`, ktora serwer wycina z backlogu. Pusty stdout z kodem 0 znaczylby
     tu naraz "ramka jest pusta", "wypadla z okna" i "pytasz o zly zakres";
     komunikat ma powiedziec, w CZYM jej nie bylo."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -1997,7 +1997,7 @@ def test_read_seq_spoza_logu_nie_odsyla_do_kasowania_pliku_sesji(tmp_path,
     Surowy tekst tej odmowy niesie NAPRAWE NIEPRAWDZIWA — kaze skasowac plik
     sesji, choc kursor przyszedl z argumentu `--seq`, a nie z pliku. Agent,
     ktory posluchalby dosłownie, straciłby kursor WLASNEGO nasluchu."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2031,7 +2031,7 @@ def test_read_po_kompakcji_mowi_ze_zakres_jest_PRZYCIETY(tmp_path, monkeypatch,
     """`resync_required` to legalna sciezka, nie blad — ale wynik jest WEZSZY
     niz pytanie. Bez ostrzezenia agent uzna niepelna odpowiedz za pelna, co
     jest gorsze niz brak odpowiedzi: nie ma sladu, ze czegos brakuje."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2069,7 +2069,7 @@ def test_cli_read_nieistniejacy_seq_konczy_sie_NIEZEROWO(tmp_path):
     `python -m agentmachi.cli read`, prawdziwy hub, prawdziwy kod wyjscia.
     Cichy exit 0 z pustym stdout to dokladnie ta klasa bledu, ktora dala
     'start zameldowal sukces PID-em trupa'."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     env = {**os.environ,
@@ -2107,7 +2107,7 @@ def test_cli_read_oddaje_pelne_ramki_JSON_po_jednej_na_linie(tmp_path):
     stratny (agenci wklejaja sobie logi, wiec cytat wyglada jak ramka)
     i tutaj nie wolno go uzyc: `read` istnieje po to, zeby dalo sie na nim
     oprzec arbitraz po `seq`."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     env = {**os.environ,
@@ -2159,7 +2159,7 @@ def test_read_nie_bumpuje_generacji_i_nie_wypiera_nasluchu(tmp_path,
     zabijalby wtedy WLASNY nasluch — i to na sciezce TOKENOWEJ, gdzie hub nie
     odmawia, tylko po cichu wypiera (w trybie otwartym odmowa jest widoczna
     od razu)."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     tokens = {"beta": {"token": "tok-b", "role": "agent", "groups": []}}
@@ -2211,7 +2211,7 @@ def test_board_oddaje_roster_z_surowymi_polami(tmp_path, monkeypatch):
     ktora filtr musi ciac po typie), a dopiero potem, ze `board` je oddaje.
     Bez pierwszej polowy test przechodzilby takze wtedy, gdyby komenda byla
     zbedna."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2279,7 +2279,7 @@ def test_board_i_read_NIE_dopisuja_patrzacego_do_pokoju(tmp_path, monkeypatch):
     Literowka w nicku przy SAMYM PODGLADZIE gasila straznik literowek.
     Kazde wywolanie dopisywalo tez event do logu, wiec samo patrzenie
     postarzalo kazdy status na boardzie."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2329,7 +2329,7 @@ def test_podglad_na_starym_hubie_OSTRZEGA_ze_wpisal(capsys):
 def test_board_rules_oddaje_ZASADY_i_howto_pokoju(tmp_path, monkeypatch,
                                                 capsys):
     """Jedyna droga zdalnego agenta do zasad pokoju bez czytelnego listen."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2356,7 +2356,7 @@ def test_board_i_read_BEZ_NICKA_w_otwartym_pokoju(tmp_path, monkeypatch):
     hubie nowa tozsamosc obok wlasnego nasluchu. Po `peek` podglad nie
     zostawia sladu, wiec wymog byl szczatkowy — a kosztowal: dogfood
     2026-11-02, 3 odbite wywolania u dwoch agentow w 3 minuty."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2389,7 +2389,7 @@ def test_board_NIE_wypiera_zywego_nasluchu(tmp_path, monkeypatch):
     Gdyby hello boardu bumpnelo generacje, agent placilby za sprawdzenie
     'kto tu jest' utrata wlasnego nasluchu — i dowiedzialby sie o tym
     dopiero po tym, jak przestalby cokolwiek slyszec."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2423,7 +2423,7 @@ def test_board_nie_rusza_kursora_sesji(tmp_path, monkeypatch):
     Czytamy stan z DYSKU przed i po, nie z obiektu w pamieci: przesuniecie
     kursora zabraloby nasluchowi ramki, ktorych nigdy nie zobaczyl, a strata
     wygladalaby jak cisza na kanale."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2559,13 +2559,13 @@ def test_board_last_seq_liczy_ROZMOWE_a_status_go_nie_rusza(tmp_path,
                                                             monkeypatch):
     """Pinuje semantyke pola, ktore `board` pokazuje.
 
-    `status` nie jest w CONVERSATION_TYPES (chat/store.py:52), wiec
+    `status` nie jest w CONVERSATION_TYPES (agentmachi/chat/store.py:52), wiec
     deklaracja statusu NIE przesuwa `last_seq` — przesuwa `status_seq`.
     Zachowanie jest sluszne (to dwa rozne pytania: kiedy sie odezwal vs
     kiedy zadeklarowal), ale komentarz w hubie mowil "ostatniej ramki,
     ktora wyslal" i byl o klase za szeroki. Bez tego testu ktos zobaczy
     rozjazd miedzy nazwa a wartoscia i "naprawi" go w druga strone."""
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
 
     port = _free_port()
     _klient_na_hub(tmp_path, monkeypatch, port)
@@ -2742,7 +2742,7 @@ def _wiersze_uczestnikow(out):
 def test_board_status_NIE_MOZE_udawac_wiersza_uczestnika(capsys):
     """`state` przechodzi walidacje z `\\n` w srodku i wstrzykuje wiersz.
 
-    `chat/protocol.py` sprawdza dla `state` typ, niepustosc i 32 znaki —
+    `agentmachi/chat/protocol.py` sprawdza dla `state` typ, niepustosc i 32 znaki —
     o znaku nowej linii nie mowi nic, i slusznie: to granica RENDERU, nie
     protokolu. Ale renderer wcinal tylko PIERWSZA linie opisu, wiec reszta
     ladowala w kolumnie nicka. Zmierzone: board z JEDNYM uczestnikiem
@@ -2774,7 +2774,7 @@ def test_board_status_NIE_MOZE_udawac_wiersza_uczestnika(capsys):
 def test_board_wcina_KAZDA_linie_wielolinijkowego_note(capsys):
     """Cztery rubryki, o ktore prosil `meadow1` — dokladnie ten wpis.
 
-    Wielolinijkowy `note` jest LEGALNY (`chat/protocol.py` wymaga tylko
+    Wielolinijkowy `note` jest LEGALNY (`agentmachi/chat/protocol.py` wymaga tylko
     niepustego stringa) i bywa wprost zamawiany przez `rules` pokoju. Fix
     nie ma go zabraniac — ma sprawic, zeby nie rozbijal boardu."""
     note = ("teraz: orientacja, HEAD a90c376\n"
@@ -2841,7 +2841,7 @@ def test_bezpieczne_linie_NIE_udaje_ze_lapie_homoglify(capsys):
     widok powtarzalby te sama normalizacje i kazdy zrobilby ja inaczej.
 
     Gdyby ktos kiedys dolozyl tu ZWSP, ten test padnie i kaze mu najpierw
-    odpowiedziec na pytanie o `chat/identity.py`."""
+    odpowiedziec na pytanie o `agentmachi/chat/identity.py`."""
     assert send.bezpieczne_linie("be​ta") == ["be​ta"]
     # U+FEFF (BOM/ZWNBSP) tak samo — znalezione przez agent2 obok
     # ZWSP. Ta sama granica i ten sam powod: niewidoczny znak
@@ -2853,7 +2853,7 @@ def test_board_chroni_TAKZE_pola_od_serwera_nie_tylko_status(capsys):
     """`nick` nie jest tu bezpieczniejszy od tresci uczestnika.
 
     Inwariant "pola autorytatywne nadaje serwer" mowi, kto je USTALA — nie
-    mowi, ze przechodza walidacje ksztaltu. `chat/identity.py` przyjmuje
+    mowi, ze przechodza walidacje ksztaltu. `agentmachi/chat/identity.py` przyjmuje
     kazdy niepusty string jako nick i nic wiecej nie sprawdza, wiec nick
     z `\n` rozbija wiersz tak samo jak `state`.
 

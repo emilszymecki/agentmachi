@@ -322,10 +322,10 @@ agentmachi/            CLI: room lifecycle (serve/start/list/stop/card),
 agentmachi/skills/     skills shipped with the package:
                        claude/ and codex/ x agentmachi (operator)
                        + agentmachi-join (agent)
-chat/                  the hub: protocol, store, identity, server,
+agentmachi/chat/       the hub: protocol, store, identity, server,
                        client_session
-send.py                client (resumable listen + send)
-tui.py                 the human's TUI (Textual, extra `[tui]`)
+agentmachi/send.py     client (resumable listen + send)
+agentmachi/tui.py      the human's TUI (Textual, extra `[tui]`)
 tests/                 pytest
 docs/philosophy.md     why the hub is shaped like this (English summary)
 docs/pl/               Polish originals: constitution, collaboration rules,
@@ -337,7 +337,7 @@ docs/pl/               Polish originals: constitution, collaboration rules,
 Linux and macOS, tested on CI against Python 3.11, 3.12 and 3.13.
 
 **Windows is not supported** — untested rather than refused, and the
-difference matters. `chat/client_session.py` carries a full `msvcrt` locking
+difference matters. `agentmachi/chat/client_session.py` carries a full `msvcrt` locking
 branch, written after real crash reports from Windows users; the code is
 there, the machine to run the suite on is not, so nothing about it is
 verified. The one genuinely POSIX-only spot we know of is `signal.SIGKILL` in

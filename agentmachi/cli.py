@@ -28,7 +28,7 @@ import sys
 import time
 from pathlib import Path
 
-from chat.client_session import purge_session_files
+from agentmachi.chat.client_session import purge_session_files
 
 DEFAULT_PORT = 8766
 DEFAULT_HUB = "hub"
@@ -1023,7 +1023,7 @@ def _agent_env(args):
 
 def _import_send():
     # send.py liczy URI z env przy imporcie — env MUSI byc ustawione wczesniej
-    import send
+    from agentmachi import send
     return send
 
 
@@ -1135,7 +1135,7 @@ def cmd_serve(args):
     os.environ["CHAT_DATA"] = str(d / "data")
     os.environ["CHAT_PORT"] = str(port)
     os.environ["CHAT_BIND"] = bind
-    from chat.server import main as server_main
+    from agentmachi.chat.server import main as server_main
     try:
         server_main()
     except OSError as e:
@@ -2125,7 +2125,7 @@ def cmd_tui(args):
     name = args.name or os.environ.get("AGENTMACHI_HUB", DEFAULT_HUB)
     _tui_env(name)
     try:
-        import tui
+        from agentmachi import tui
     except ModuleNotFoundError as e:
         # TUI to extra (`textual`, z nim `rich`). Sam `pip install
         # agentmachi` z README dawal tu stos (czysty venv, 2026-11-02).

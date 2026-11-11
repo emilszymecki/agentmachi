@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from chat.client_session import (ListenerLockHeld, Session, SessionError,
+from agentmachi.chat.client_session import (ListenerLockHeld, Session, SessionError,
                                  MAX_ACTIVATIONS, _slug, purge_session_files,
                                  session_files)
 

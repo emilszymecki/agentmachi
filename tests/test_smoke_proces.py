@@ -127,7 +127,7 @@ def chat_server(tmp_path_factory):
     env["CHAT_TOKENS"] = str(tokens_path)
     env["CHAT_DATA"] = str(data_dir)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "chat.server"],
+        [sys.executable, "-m", "agentmachi.chat.server"],
         cwd=REPO_DIR,
         env=env,
         stdout=subprocess.PIPE,
@@ -164,7 +164,8 @@ def send_env(token):
 def run_send_py(args, token, timeout=5):
     """Odpala send.py <args> jako subprocess (z CHAT_TOKEN), zwraca CompletedProcess."""
     return subprocess.run(
-        [sys.executable, os.path.join(REPO_DIR, "send.py"), *args],
+        [sys.executable, "-m", "agentmachi.send", *args],
+        cwd=REPO_DIR,
         env=send_env(token),
         capture_output=True,
         text=True,
@@ -195,7 +196,7 @@ else:
 
 
 async def hello(nick, token, instance="i1", last_seq=0, role="agent"):
-    """Kazdy klient najpierw musi wyslac hello (kontrakt chat/server.py)."""
+    """Kazdy klient najpierw musi wyslac hello (kontrakt agentmachi/chat/server.py)."""
     ws = await websockets.connect(URI)
     await ws.send(json.dumps({"type": "hello", "from": nick, "ts": 0.0,
                               "instance_id": instance, "token": token,
@@ -296,7 +297,7 @@ def test_send_py_fails_when_server_down():
     assert not _port_open(dead_port), "port powinien byc wolny do tego testu"
 
     result = subprocess.run(
-        [sys.executable, os.path.join(REPO_DIR, "send.py"), "alfa", "hello"],
+        [sys.executable, "-m", "agentmachi.send", "alfa", "hello"],
         env=env,
         capture_output=True,
         text=True,
@@ -354,7 +355,7 @@ def test_sigterm_clean_shutdown_writes_snapshot(tmp_path):
     env["CHAT_TOKENS"] = str(tokens_path)
     env["CHAT_DATA"] = str(data_dir)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "chat.server"],
+        [sys.executable, "-m", "agentmachi.chat.server"],
         cwd=REPO_DIR,
         env=env,
         stdout=subprocess.PIPE,

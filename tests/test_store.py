@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from chat.store import EventLog, ForeignWriterError
+from agentmachi.chat.store import EventLog, ForeignWriterError
 
 
 def test_append_assigns_monotonic_seq(tmp_path):
@@ -267,7 +267,7 @@ def test_save_snapshot_works_when_we_are_the_only_writer(tmp_path):
 # watku), a twarda wiedza mieszka w plikach .md pisanych swiadomie.
 
 def test_compaction_keeps_only_resume_window(tmp_path, monkeypatch):
-    monkeypatch.setattr("chat.store.CONVERSATION_KEEP", 5)
+    monkeypatch.setattr("agentmachi.chat.store.CONVERSATION_KEEP", 5)
     log = EventLog(tmp_path)
     for i in range(12):
         log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"m{i}"})
@@ -317,7 +317,7 @@ def test_publikacja_fyi_przezywa_kompakcje_tak_samo_jak_chat(tmp_path):
 
 def test_resume_window_never_drops_frames_after_snapshot(tmp_path, monkeypatch):
     """Ogon po snapshocie to stan biezacy — przycinamy tylko HISTORIE."""
-    monkeypatch.setattr("chat.store.CONVERSATION_KEEP", 2)
+    monkeypatch.setattr("agentmachi.chat.store.CONVERSATION_KEEP", 2)
     log = EventLog(tmp_path)
     for i in range(4):
         log.append({"type": "chat", "from": "w1", "ts": 0.0, "text": f"stare{i}"})

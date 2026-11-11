@@ -174,7 +174,7 @@ def test_agent_env_upgrade_hub_without_bind_in_config_keeps_localhost(
         nick = "worker1"
     cli._agent_env(Args())
     assert os.environ["CHAT_URL"] == "ws://localhost:8931"
-    import send
+    from agentmachi import send
     assert send.hub_id_from_url(os.environ["CHAT_URL"]) == "localhost:8931"
 
 
@@ -675,8 +675,8 @@ def test_serve_does_not_treat_its_own_pidfile_as_another_hub(home, monkeypatch,
         started["ran"] = True
         raise Boom()
 
-    import chat.server
-    monkeypatch.setattr(chat.server, "main", fake_server_main)
+    import agentmachi.chat.server
+    monkeypatch.setattr(agentmachi.chat.server, "main", fake_server_main)
     try:
         cli.cmd_serve(argparse.Namespace(name="pokoj", port=8961,
                                          bind="127.0.0.1"))
@@ -896,13 +896,12 @@ def test_serve_nie_zostawia_adresu_gdy_bind_zawiodl(home, monkeypatch, capsys):
     bo strzezone bylo jedno z dwoch wejsc — tu jest tak samo: samodzielny
     `serve` na adresie nie do zbindowania zostawial pokoj zapisany pod tym
     adresem, mimo ze `start` juz nie."""
-    import chat.server
-
+    import agentmachi.chat.server
     def main_ktory_nie_zbinduje():
         raise OSError("could not bind on any address out of "
                       "[('192.0.2.1', 8998)]")
 
-    monkeypatch.setattr(chat.server, "main", main_ktory_nie_zbinduje)
+    monkeypatch.setattr(agentmachi.chat.server, "main", main_ktory_nie_zbinduje)
     rc = cli.cmd_serve(argparse.Namespace(name="serveghost", port=8998,
                                           bind="192.0.2.1"))
     assert rc == 1
@@ -916,9 +915,9 @@ def test_serve_pod_startem_zostawia_log_rodzicowi(home, monkeypatch, capsys):
     """Dziecko odpalone przez `start` NIE sprzata katalogu — rodzic czyta
     z niego `serve.log`, zeby powiedziec czlowiekowi POWOD. Gdyby dziecko
     kasowalo katalog, rodzic drukowalby 'did NOT come up' bez przyczyny."""
-    import chat.server
+    import agentmachi.chat.server
     monkeypatch.setenv(cli.SPAWNED_BY_START, "1")
-    monkeypatch.setattr(chat.server, "main",
+    monkeypatch.setattr(agentmachi.chat.server, "main",
                         lambda: (_ for _ in ()).throw(OSError("bind failed")))
     rc = cli.cmd_serve(argparse.Namespace(name="pod-startem", port=8997,
                                           bind="192.0.2.1"))
@@ -962,8 +961,8 @@ def test_nieudany_bind_serve_podaje_droge_wyjscia(home, monkeypatch, capsys):
 
     Po B4 taki `serve` konczy sie glosno i bez sladu. Czlowiekowi brakowalo
     juz tylko drogi wyjscia, i tego pilnuje ten test."""
-    import chat.server
-    monkeypatch.setattr(chat.server, "main",
+    import agentmachi.chat.server
+    monkeypatch.setattr(agentmachi.chat.server, "main",
                         lambda: (_ for _ in ()).throw(OSError("in use")))
     assert cli.cmd_serve(argparse.Namespace(name="x5", port=8940,
                                             bind="127.0.0.1")) == 1
@@ -978,9 +977,9 @@ def test_serve_z_jawnym_portem_NIE_przesuwa_sie_po_cichu(home, monkeypatch):
     """Kontrola do B1: jawny --port jest DECYZJA czlowieka. Zajety port ma
     skonczyc sie odmowa bindu, nie cichym wyladowaniem gdzie indziej — inaczej
     czlowiek wkleja agentom adres, ktorego pokoj nie dostal."""
-    import chat.server
+    import agentmachi.chat.server
     monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
-    monkeypatch.setattr(chat.server, "main",
+    monkeypatch.setattr(agentmachi.chat.server, "main",
                         lambda: (_ for _ in ()).throw(OSError("in use")))
     assert cli.cmd_serve(argparse.Namespace(name="x6", port=8940,
                                             bind="127.0.0.1")) == 1
@@ -991,10 +990,10 @@ def test_serve_istniejacego_pokoju_nie_rusza_jego_adresu(home, monkeypatch):
     """Druga kontrola: alokator zywy wolno wolac WYLACZNIE dla pokoju nowego.
     Kursory klientow sa per host:port, wiec przesuniecie istniejacego znaczy
     pusty log pod adresem, ktory ludzie juz maja wklejony."""
-    import chat.server
+    import agentmachi.chat.server
     cli.ensure_hub("stary", 8931)
     monkeypatch.setattr(cli, "_port_accepts", lambda port, bind: True)
-    monkeypatch.setattr(chat.server, "main", lambda: None)
+    monkeypatch.setattr(agentmachi.chat.server, "main", lambda: None)
     assert cli.cmd_serve(argparse.Namespace(name="stary", port=None,
                                             bind="127.0.0.1")) == 0
     assert cli.hub_port("stary") == 8931
@@ -1046,9 +1045,9 @@ def test_serve_pod_startem_nie_drukuje_karty(home, monkeypatch, capsys):
     zaproszenia", a w tym zdaniu gotowe do wklejenia
     `join agentmachi 'r2' (ws://localhost:8767) as agent1` — dla pokoju,
     ktory NIE wstal, pod adresem cudzego zywego huba."""
-    import chat.server
+    import agentmachi.chat.server
     monkeypatch.setenv(cli.SPAWNED_BY_START, "1")
-    monkeypatch.setattr(chat.server, "main",
+    monkeypatch.setattr(agentmachi.chat.server, "main",
                         lambda: (_ for _ in ()).throw(OSError("bind failed")))
     cli.cmd_serve(argparse.Namespace(name="r2", port=8767, bind="127.0.0.1"))
     out, err = capsys.readouterr()
@@ -1061,9 +1060,9 @@ def test_serve_pod_startem_nie_drukuje_karty(home, monkeypatch, capsys):
 def test_serve_samodzielny_nadal_drukuje_karte(home, monkeypatch, capsys):
     """Kontrola: bez rodzica karte drukuje `serve` i tylko on — inaczej
     czlowiek odpalajacy hub w terminalu nie dostaje adresu wcale."""
-    import chat.server
+    import agentmachi.chat.server
     monkeypatch.delenv(cli.SPAWNED_BY_START, raising=False)
-    monkeypatch.setattr(chat.server, "main", lambda: None)
+    monkeypatch.setattr(agentmachi.chat.server, "main", lambda: None)
     assert cli.cmd_serve(argparse.Namespace(name="sam", port=8932,
                                             bind="127.0.0.1")) == 0
     assert "address: ws://localhost:8932" in capsys.readouterr().out
@@ -2011,8 +2010,8 @@ def test_start_bez_portu_przezywa_wlasne_jawne_port_w_spawnowanym_serve(
         stan["ran"] = True
         raise Boom()
 
-    import chat.server
-    monkeypatch.setattr(chat.server, "main", fake_server_main)
+    import agentmachi.chat.server
+    monkeypatch.setattr(agentmachi.chat.server, "main", fake_server_main)
     try:
         args.fn(args)
     except Boom:
@@ -2039,8 +2038,8 @@ def test_serve_bez_portu_bierze_domyslny_i_nadal_przesuwa(home, monkeypatch,
         stan["ran"] = True
         raise Boom()
 
-    import chat.server
-    monkeypatch.setattr(chat.server, "main", fake_server_main)
+    import agentmachi.chat.server
+    monkeypatch.setattr(agentmachi.chat.server, "main", fake_server_main)
     args = cli._build_parser().parse_args(["serve", "--name", "nowy"])
     assert args.port is None, "parser musi umiec powiedziec 'nie podal portu'"
     try:
@@ -2058,8 +2057,8 @@ def test_serve_z_jawnym_portem_odmawia_zamiast_wejsc_obok(home, monkeypatch,
     cli.ensure_hub("goldberg", 8790)
     monkeypatch.setattr(cli, "_pid_is_our_hub", lambda pid, name: False)
 
-    import chat.server
-    monkeypatch.setattr(chat.server, "main",
+    import agentmachi.chat.server
+    monkeypatch.setattr(agentmachi.chat.server, "main",
                         lambda: pytest.fail("serve wstal mimo kolizji portu"))
     rc = cli.main(["serve", "--name", "nowy", "--port", "8790"])
     err = capsys.readouterr().err
@@ -2431,7 +2430,7 @@ def test_del_zabiera_ze_soba_kursory_klientow(home, monkeypatch, tmp_path):
 
     Sprzatane sa nicki z tokens.json ORAZ ze snapshotu rejestru, wiec takze
     ci, ktorzy weszli bez tokenu i nigdy nie byli w pliku."""
-    from chat.client_session import Session, session_files
+    from agentmachi.chat.client_session import Session, session_files
     sesje = tmp_path / "sesje"
     monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
     d, port = cli.ensure_hub("pokoj", 8931)
@@ -2471,7 +2470,7 @@ def test_purge_cursors_bierze_wszystkie_pisownie_adresu(home, monkeypatch,
     Zamek pilnuje trzech rzeczy naraz, bo kazda z nich osobno da sie zepsuc
     poprawka drugiej: wszystkie pisownie znikaja, obcy port zostaje,
     a ZYWY listener-lock nie jest odlinkowany."""
-    from chat.client_session import Session, session_files
+    from agentmachi.chat.client_session import Session, session_files
     sesje = tmp_path / "sesje"
     monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
     _, port = cli.ensure_hub("tailnetowy", 8941, bind="100.64.0.5")
@@ -2503,7 +2502,7 @@ def test_purge_cursors_bierze_surowy_bind_wildcard(home, monkeypatch,
     ktora ta poprawka mial zamknac, tylko pod inna pisownia. Zgloszone przez
     agent2 jako probe: dla bindu 0.0.0.0 pierwsza wersja listy zwracala
     wylacznie [localhost, 127.0.0.1]."""
-    from chat.client_session import Session, session_files
+    from agentmachi.chat.client_session import Session, session_files
     sesje = tmp_path / "sesje"
     monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
     _, port = cli.ensure_hub("publiczny", 8944, bind="0.0.0.0")
@@ -2528,7 +2527,7 @@ def test_purge_cursors_nie_odlinkowuje_zywego_locka(home, monkeypatch,
     i pokoj ma dwa nasluchy na jednym nicku. Rozszerzenie purge na trzy
     pisownie mnozy okazje do tego bledu przez trzy, wiec zamek jest tu,
     a nie w komentarzu."""
-    from chat.client_session import Session, session_files
+    from agentmachi.chat.client_session import Session, session_files
     sesje = tmp_path / "sesje"
     monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
     _, port = cli.ensure_hub("zajety", 8943)
@@ -2553,7 +2552,7 @@ def test_purge_cursors_nie_rusza_kursorow_innego_pokoju(home, monkeypatch,
                                                         tmp_path):
     """Sprzatanie idzie po hub_id (host:port), wiec pokoj obok musi zostac
     nietkniety. Bez tego `del` jednego pokoju zerowalby kursory wszystkich."""
-    from chat.client_session import Session, session_files
+    from agentmachi.chat.client_session import Session, session_files
     sesje = tmp_path / "sesje"
     monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
     _, port_a = cli.ensure_hub("a", 8931)
@@ -2600,7 +2599,7 @@ def test_del_zabiera_kursor_agenta_ktorego_nie_ma_w_snapshocie(home, monkeypatch
     agent, ktory wszedl po ostatnim, istnieje wtedy WYLACZNIE w events.jsonl.
     Bez czytania logu jego kursor przezywal pokoj i wybuchal dopiero pod
     nastepnym hubem na tym porcie (zlapane 2026-07-31, review Codexa)."""
-    from chat.client_session import Session, session_files
+    from agentmachi.chat.client_session import Session, session_files
     sesje = tmp_path / "sesje"
     monkeypatch.setenv("CHAT_SESSION_DIR", str(sesje))
     d, port = cli.ensure_hub("pokoj", 8933)
@@ -3383,7 +3382,7 @@ def test_board_rules_przez_CLI_dochodzi_do_read_board(home, monkeypatch):
 def _klient_send_na_port(tmp_path, monkeypatch):
     """Modul `send` wycelowany w wolny port testu; tryb huba wybiera test."""
     import socket
-    import send
+    from agentmachi import send
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -3401,7 +3400,7 @@ def test_board_i_read_BEZ_NICKA_na_hubie_z_tokenami_PODAJA_naprawe(
     2026-11-02). Przed cae49ee CLI mowilo "pass --nick"; po nim — slepy
     zaulek dokladnie tam, gdzie token jest obowiazkowy."""
     import asyncio
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     send, port = _klient_send_na_port(tmp_path, monkeypatch)
     monkeypatch.setenv("CHAT_TOKEN", "tok-a")
 
@@ -3434,7 +3433,7 @@ def test_podglad_NIE_zaklada_pliku_sesji_dla_obcego_nicka(tmp_path,
     weryfikacja 4258477, 2026-11-02. Plik sesji zaklada `listen`; podglad
     bierze go tylko, gdy juz jest (ten sam instance_id co nasluch)."""
     import asyncio
-    from chat.server import ChatServer
+    from agentmachi.chat.server import ChatServer
     send, port = _klient_send_na_port(tmp_path, monkeypatch)
 
     async def scenario():
@@ -3507,10 +3506,11 @@ def test_tui_bez_extra_mowi_jak_doinstalowac(home, monkeypatch, capsys):
     import builtins
     prawdziwy = builtins.__import__
 
-    def bez_rich(name, *a, **k):
-        if name == "tui":
+    def bez_rich(name, globals=None, locals=None, fromlist=(), level=0):
+        # `from agentmachi import tui` -> name="agentmachi", fromlist=("tui",)
+        if name == "agentmachi" and "tui" in (fromlist or ()):
             raise ModuleNotFoundError("No module named 'rich'", name="rich")
-        return prawdziwy(name, *a, **k)
+        return prawdziwy(name, globals, locals, fromlist, level)
 
     cli.ensure_hub("alpha", 8931)
     monkeypatch.setattr(builtins, "__import__", bez_rich)
@@ -3534,7 +3534,7 @@ def test_card_nick_DOPISUJE_tozsamosc_z_tokenem(home, capsys, monkeypatch):
     i karta odsylaly go tam slowami (opus, runda 4, 2026-11-02; Codex
     utknal na tym kilkanascie minut — cli.py przy cmd_node). `card --nick`
     to zaproszenie: wpis z losowym tokenem i zdanie z tym nickiem."""
-    from chat.identity import Registry
+    from agentmachi.chat.identity import Registry
     monkeypatch.setattr(cli, "hub_pid", lambda _n: None)
     cli.ensure_hub("alpha", 8931)
     przed, _ = cli.load_tokens("alpha")

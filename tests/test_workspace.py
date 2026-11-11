@@ -1,9 +1,7 @@
 """workspace_now: fakty z gita, ktore klient `listen` wysyla na board sam."""
 import subprocess
 
-import send
-
-
+from agentmachi import send
 def _repo(tmp_path, nazwa="repo-wt-x"):
     d = tmp_path / nazwa
     d.mkdir()
@@ -62,7 +60,7 @@ def test_dluga_nazwa_katalogu_przycieta_widocznie_i_zgodna_z_protokolem(
         tmp_path, monkeypatch):
     # review codex P2: legalny katalog 101 znakow dawal ramke odbijana
     # przez wlasny protokol przy kazdym hello.
-    from chat import protocol
+    from agentmachi.chat import protocol
     monkeypatch.delenv("AGENTMACHI_NO_WORKSPACE", raising=False)
     d = _repo(tmp_path, "k" * 101)
     ws = send.workspace_now(cwd=d)

@@ -23,7 +23,7 @@ import socket
 
 import websockets
 
-from chat.server import ChatServer
+from agentmachi.chat.server import ChatServer
 
 TOKENS = {"human": {"token": "h", "role": "human"}}
 
@@ -250,7 +250,7 @@ def test_json_trzyma_jedna_ramke_w_jednej_linii_mimo_newline_w_tresci():
 
 import pytest
 
-from chat.identity import AuthError, Registry, sprawdz_ksztalt_nicka
+from agentmachi.chat.identity import AuthError, Registry, sprawdz_ksztalt_nicka
 
 
 ZLE_NICKI = [

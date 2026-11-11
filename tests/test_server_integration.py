@@ -1,4 +1,4 @@
-"""Testy integracyjne chat/server.py: hello/auth, generation przypieta do
+"""Testy integracyjne agentmachi/chat/server.py: hello/auth, generation przypieta do
 socketu, backlog/resync, echo po nicku, wzmianki, grupy adresowe,
 snapshot+restart, replay result-based, pasywny board.
 
@@ -15,9 +15,9 @@ import pytest
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from chat import protocol
-from chat.identity import AuthError
-from chat.server import ChatServer
+from agentmachi.chat import protocol
+from agentmachi.chat.identity import AuthError
+from agentmachi.chat.server import ChatServer
 
 TOKENS = {
     "alfa": "ta",                                                     # stary format (kompat)
@@ -606,7 +606,7 @@ def test_resync_snapshot_seq_matches_returned_fresh_state(srv):
         assert "queue" not in state, "martwa kolejka wrocila na drut"
         assert state["status"]["alfa"]["subject"] == "audyt"
         assert state["status_seq"]["alfa"] >= 1, \
-            "deklaracja bez daty — patrz chat/server.py, self.status_seq"
+            "deklaracja bez daty — patrz agentmachi/chat/server.py, self.status_seq"
         assert "alfa" in state["registry"]["gen"]
         # replay od zwroconego snapshot_seq nie dubluje niczego juz w state
         assert server.log.events_after(reply["snapshot_seq"]) == []
@@ -2146,7 +2146,7 @@ def test_status_na_granicy_snapshotu_przezywa_pad(srv):
 
     Czysty stop() to leczyl (robi wlasny snapshot), wiec bug widac dopiero
     przy padzie. Test sprawdza SAM SNAPSHOT, nie restart."""
-    from chat.server import SNAPSHOT_EVERY
+    from agentmachi.chat.server import SNAPSHOT_EVERY
 
     async def scenario(server):
         ws, _ = await hello("alfa", "ta")
@@ -2235,7 +2235,7 @@ def test_rozlaczenie_klienta_nie_jest_awaria_serwera(srv, caplog):
         await asyncio.sleep(0.3)
         await ws.close()
 
-    with caplog.at_level(logging.ERROR, logger="chat.server"):
+    with caplog.at_level(logging.ERROR, logger="agentmachi.chat.server"):
         asyncio.run(srv(scenario))
     awarie = [r for r in caplog.records
               if "internal frame failure" in r.getMessage()]
@@ -2358,7 +2358,7 @@ def test_wiazanie_adresu_przezywa_crash_bez_snapshotu(tmp_path):
     port = _free_port()
     tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
     s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
-    s1._append_durable(__import__("chat.protocol", fromlist=["x"]).make_frame(
+    s1._append_durable(__import__("agentmachi.chat.protocol", fromlist=["x"]).make_frame(
         "hello", "agent1", 0.0, instance_id="inst-1", groups=[], role="agent",
         open_addr="100.64.0.7"))
     del s1                                    # crash: zaden snapshot nie powstal
@@ -2375,7 +2375,7 @@ def test_kick_zwalnia_wiazanie_takze_po_restarcie(tmp_path):
     wiazanie i blokowal mu powrot z nowego adresu."""
     port = _free_port()
     tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
-    protocol = __import__("chat.protocol", fromlist=["x"])
+    protocol = __import__("agentmachi.chat.protocol", fromlist=["x"])
     s1 = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
     s1.registry.open_hello("agent1", "inst-1", "100.64.0.7")
     s1.snapshot()                             # wiazanie ZAPISANE w snapshocie
@@ -2471,7 +2471,7 @@ def test_wracajacy_agent_dostaje_backlog_wiekszy_niz_domyslny_sufit(tmp_path):
     async def scenario():
         await srv.start()
         try:
-            import send
+            from agentmachi import send
             odp = await _hello(send.MAX_HUB_FRAME)
             assert odp["type"] == "ok" and len(odp["backlog"]) == 20, odp["type"]
             # a z DOMYSLNYM sufitem to samo polaczenie pada
@@ -2495,7 +2495,7 @@ def test_hub_odrzuca_ramke_ponad_wlasny_sufit_wejscia(tmp_path):
     async def scenario():
         await srv.start()
         try:
-            import send
+            from agentmachi import send
             async with websockets.connect(f"ws://localhost:{port}",
                                           max_size=send.MAX_HUB_FRAME) as w:
                 await w.send(json.dumps({
@@ -2538,7 +2538,7 @@ def test_upgrade_huba_ze_stara_wielka_historia_nie_blokuje_wznowienia(tmp_path):
     async def scenario():
         await srv.start()
         try:
-            import send
+            from agentmachi import send
             async with websockets.connect(f"ws://localhost:{port}",
                                           max_size=send.MAX_HUB_FRAME) as w:
                 await w.send(json.dumps({
@@ -2601,7 +2601,7 @@ def test_pokoj_juz_zatruty_daje_sie_wznowic(tmp_path):
     async def scenario():
         await srv_.start()
         try:
-            import send
+            from agentmachi import send
             async with websockets.connect(f"ws://localhost:{port}",
                                           max_size=send.MAX_HUB_FRAME) as w:
                 await w.send(json.dumps({
@@ -2704,7 +2704,7 @@ def test_kick_na_granicy_snapshotu_naprawde_zwalnia_wiazanie(tmp_path):
 
     Ten sam blad kolejnosci naprawialem tego dnia dla `status` i nie
     rozejrzalem sie, gdzie jeszcze siedzi."""
-    from chat.server import SNAPSHOT_EVERY
+    from agentmachi.chat.server import SNAPSHOT_EVERY
     port = _free_port()
     tokens = {"emil": {"token": "te", "role": "human", "groups": []}}
     srv_ = ChatServer(data_dir=tmp_path, tokens=tokens, port=port)
@@ -3180,7 +3180,7 @@ def test_hello_z_resyncem_nie_wywala_handlera_na_dogonieniu(tmp_path):
     async def scenario():
         await server.start()
         try:
-            import send
+            from agentmachi import send
             # PIERWSZE polaczenie — zeby drugie bylo TAKEOVEREM. To warunek
             # konieczny: `_announce_takeover` dopisuje event MIEDZY zamrozonym
             # `koniec_backlogu` a `snapshot()` z galezi resync, i dopiero
