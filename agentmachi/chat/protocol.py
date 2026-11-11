@@ -21,9 +21,8 @@ def utf8_safe(obj):
     wiec `.encode("utf-8")` rzuca. Pytamy o to PRZED wpuszczeniem ramki,
     bo `chat` jest trwaly PRZED publikacja: raz zapisana taka ramka zostaje
     w events.jsonl i wywala handler przy KAZDYM nastepnym hello, ktorego
-    backlog ja obejmuje. Zmierzone: pokoj po jednej takiej ramce oddawal
-    1011 kazdemu wznawiajacemu sie — dowolny uczestnik mogl go trwale zabic
-    (osme review Codexa)."""
+    backlog ja obejmuje: pokoj oddaje 1011 kazdemu wznawiajacemu sie, wiec
+    dowolny uczestnik moze go trwale zabic jedna ramka."""
     try:
         json.dumps(obj, ensure_ascii=False).encode("utf-8")
     except UnicodeEncodeError:
@@ -36,11 +35,10 @@ def dumps(obj):
 
     Nie jest to kosmetyka, tylko warunek spojnosci sufitow. `max_size`
     websockets liczy bajty UTF-8, a domyslny `json.dumps` rozpisuje kazdy
-    znak spoza ASCII na `\\uXXXX` — emoji puchnie z 4 bajtow do 12. Ramka,
-    ktora przeszla sufit WEJSCIA jako 65 252 B, wracala w odpowiedzi jako
-    195 652 B (zmierzone: 3.0x). Przy oknie rozmowy 200 ramek dawalo to
-    37 MB odpowiedzi i klient znow nie mogl sie wznowic — sufit wyjscia
-    goniby wejscie w nieskonczonosc. Z `ensure_ascii=False` wyjscie ma ten
+    znak spoza ASCII na `\\uXXXX` — emoji puchnie z 4 bajtow do 12. Ramka
+    tuz pod sufitem WEJSCIA wraca wtedy ~3x wieksza; przy oknie rozmowy 200
+    ramek to 37 MB odpowiedzi i klient nie moze sie wznowic — sufit wyjscia
+    gonilby wejscie w nieskonczonosc. Z `ensure_ascii=False` wyjscie ma ten
     sam rzad co wejscie i arytmetyka sufitow sie domyka.
 
     NIGDY nie rzuca. Osamotniony surogat nie ma reprezentacji w UTF-8, wiec
@@ -94,8 +92,7 @@ def clamp_frame(frame):
     3. pola spoza rdzenia, od najwiekszego — usuwane, nazwy trafiaja do
        `dropped`. Krok istnieje, bo ramke moze rozdymac pole, o ktorym ten
        kod nie wie: stary log przepuszczal dowolne dodatkowe pola do 1 MiB.
-       60 takich ramek zostawalo 55 MB po przycieciu samego `text`
-       (dziesiate review Codexa).
+       60 takich ramek zostaje 55 MB po przycieciu samego `text`.
 
     Miara to `frame_bytes` GOTOWEJ ramki, nie dlugosc prefiksu: `dumps`
     escapuje znaki sterujace, wiec NUL rosnie z 1 bajtu do szesciu.
@@ -122,17 +119,14 @@ def clamp_frame(frame):
     # Koszt liczony RAZ na klucz, i to DOKLADNIE: `"klucz":wartosc` plus
     # dwa separatory. Dwie rzeczy, ktore trzeba tu zrobic dobrze:
     #
-    # (a) NAZWA klucza wchodzi do kosztu. Bez niej ranking widzial tylko
-    #     wartosci — 100 KiB w nazwie klucza z pusta wartoscia przegrywalo
-    #     z krotkim `text`, wiec kasowalismy TRESC WIADOMOSCI, zostawiajac
-    #     winowajce.
+    # (a) NAZWA klucza wchodzi do kosztu. Ranking po samych wartosciach
+    #     stawia 100 KiB w nazwie klucza z pusta wartoscia za krotkim
+    #     `text` — kasujemy wtedy TRESC WIADOMOSCI, zostawiajac winowajce.
     # (b) Odejmujemy koszt od biezacego rozmiaru zamiast serializowac cala
-    #     ramke po KAZDYM usunieciu. Stara petla byla kwadratowa i robila to
-    #     SYNCHRONICZNIE w petli zdarzeń: legalna ramka sprzed sufitu (8000
-    #     malych pol, 905 KiB) zamrazala CALY hub na 18,7 s przy czyimkolwiek
-    #     hello. Nie "jeden klient sie nie wznowi" — wszyscy stoja.
-    #
-    # Oba z dwunastego review Codexa.
+    #     ramke po KAZDYM usunieciu. Tamto jest kwadratowe i SYNCHRONICZNE
+    #     w petli zdarzeń: legalna ramka sprzed sufitu (8000 malych pol,
+    #     905 KiB) zamraza CALY hub na 18,7 s przy czyimkolwiek hello.
+    #     Nie "jeden klient sie nie wznowi" — wszyscy stoja.
     koszt = {k: len(dumps(k).encode("utf-8"))
                 + len(dumps(out[k]).encode("utf-8")) + 2 for k in kandydaci}
     kandydaci.sort(key=lambda k: koszt[k], reverse=True)
@@ -161,8 +155,8 @@ def clamp_frame(frame):
 
     # Krok 4: rozdyma nas SAM RDZEN. Nick nie ma limitu dlugosci, wiec pokoj
     # zalozony pod starym sufitem 1 MiB mogl miec uczestnika o nicku wiekszym
-    # niz cala dzisiejsza ramka — i wtedy KAZDY jego wpis w logu byl ponad
-    # sufitem (jedenaste review Codexa). Przycinamy `from`/`type` na koncu,
+    # niz cala dzisiejsza ramka — i wtedy KAZDY jego wpis w logu jest ponad
+    # sufitem. Przycinamy `from`/`type` na koncu,
     # bo to psuje rozpoznanie nadawcy — ale ramka ponad sufitem psuje
     # wznowienie WSZYSTKIM, wiec wybor jest miedzy zla a gorsza opcja.
     # `ts` i `seq` zostaja nietkniete: na `seq` stoi kursor.
@@ -181,13 +175,13 @@ def _przytnij_pole(out, pole, wartosc, wymus=False):
     Domyslnie sprawdzamy najpierw, czy to pole W OGOLE jest problemem: gdy
     ramka nie miesci sie nawet z PUSTYM tym polem, rozdyma ja co innego —
     wtedy zostawiamy je nietkniete i oddajemy robote nastepnemu krokowi. Bez
-    tej kontroli ramka z krotkim `text` i wielkim obcym polem tracila `text`
-    do zera, zanim ktokolwiek tknal winowajce.
+    tej kontroli ramka z krotkim `text` i wielkim obcym polem traci `text`
+    do zera, zanim ktokolwiek tknie winowajce.
 
     `wymus=True` te kontrole wylacza i jest konieczne w kroku 4, gdzie
     rozdyma nas KILKA pol rdzenia naraz: przy wielkim `type` I wielkim
     `from` kontrola odpowiada "to nie ja" dla obu, wiec zadne nie zostaje
-    przyciete i gwarancja pada. Zlapane fuzzem, nie przemysleniem."""
+    przyciete i gwarancja pada."""
     oryginal = out[pole]
     out[pole] = ""
     if not wymus and frame_bytes(out) > MAX_FRAME_BYTES:
@@ -228,12 +222,10 @@ def _przytnij_pole(out, pole, wartosc, wymus=False):
             hi = srodek - 1
     _miesci(lo, ogon)
 
-# (Runda 4 #5 / laka-nie-obora A2/A3/A4) Rozdzial typow: INBOUND to jedyne
-# typy, ktore klient moze przyslac. OUTBOUND to typy WYLACZNIE serwerowe,
-# generowane w locie (backlog/resync_required/error/ok). Cala obora wycieta —
-# juz nie istnieja: inbound task_*/heartbeat (A2, teraz unknown type), offer
-# machinery task_offer/offer_resolved (A3), kolejka zadaniowa task_expired/
-# task_expired_batch (A4). Serwer nie planuje pracy; board = state/subject/note.
+# INBOUND to jedyne typy, ktore klient moze przyslac. OUTBOUND to typy
+# WYLACZNIE serwerowe, generowane w locie (backlog/resync_required/error/ok).
+# Serwer nie planuje pracy — typy zadaniowe (task_*, heartbeat, oferty)
+# wycofano celowo; board to state/subject/note.
 INBOUND_FRAME_TYPES = {
     "hello", "chat", "fyi", "status", "membership_set", "kick",
     "workspace",  # efemeryczny (bez seq): gdzie pracuje klient — patrz _validate_body
@@ -241,7 +233,7 @@ INBOUND_FRAME_TYPES = {
 OUTBOUND_FRAME_TYPES = {
     "backlog", "resync_required", "error", "ok",
     "presence",  # efemeryczny (bez seq): nick wszedl/wypadl z polaczenia
-    "takeover",  # F3: TRWALY slad wyparcia nicka przez nowsze hello
+    "takeover",  # TRWALY slad wyparcia nicka przez nowsze hello
 }
 # `kick` jest jedynym typem, ktory wystepuje w OBU kierunkach: klient
 # (human) prosi o wyrzucenie, serwer publikuje TRWALY fakt z polami
@@ -250,10 +242,10 @@ FRAME_TYPES = INBOUND_FRAME_TYPES | OUTBOUND_FRAME_TYPES
 
 # Kanon statusow agenta (deklarowane ramka `status`; presence
 # connected/offline nadaje serwer z zywych polaczen, NIE deklaracja).
-# Od tego zadania `state` to WOLNY TEKST (niepusty str, maks 32 znaki) —
-# ponizszy zbior to WYLACZNIE dokumentacja stanow umownych, walidacja
-# schematu juz go nie egzekwuje (patrz _validate_body):
-#   sleeping — smiem czekam na wzmianke (node/agent jeszcze nie obudzony)
+# `state` to WOLNY TEKST (niepusty str, maks 32 znaki) — ponizszy zbior
+# to WYLACZNIE dokumentacja stanow umownych, walidacja schematu go nie
+# egzekwuje (patrz _validate_body):
+#   sleeping — spie, czekam na wzmianke (node/agent jeszcze nie obudzony)
 #   idle    — czekam na przydzial pracy (deklaruje sie na kanale)
 #   working — robie cos (opcjonalnie subject = nad czym, + note co dokladnie)
 #   blocked — stoje, czekam na odpowiedz/decyzje (subject/note = na co)
@@ -263,16 +255,10 @@ STATUS_STATES = frozenset(
     {"sleeping", "idle", "working", "blocked", "review", "done"})
 
 # Myslnik NALEZY do nicka. Hub przyjmuje kazdy niepusty string jako nick
-# (identity.py), a rules kanalu pkt 15 wprost kaza prefiksowac nazwy
-# pomocnicze wlasnym nickiem — "tester-worker3", "wt-worker2". Przy samym
-# \w takie wzmianki rozpadaly sie cicho: "@tester-worker3" parsowalo sie do
-# "tester", ktorego nikt nie trzyma, wiec adresat NIE BYL budzony, a nadawca
-# nie dostawal zadnego bledu.
-#
-# Zmierzone na zywym kanale: agent 'tester-claude' wszedl poprawnie
-# (hello seq 116), ramka "@tester-claude ..." wyladowala w logu (seq 118)
-# i nie dotarla do niego wcale. Regula kanalu instruowala wiec agentow, zeby
-# nadawali sobie nazwy, ktorych nikt nie moze zawolac.
+# (identity.py), a nicki pomocnicze bywaja prefiksowane — "tester-worker3".
+# Przy samym \w takie wzmianki rozpadaja sie cicho: "@tester-worker3"
+# parsuje sie do "tester", ktorego nikt nie trzyma, wiec adresat NIE JEST
+# budzony, a nadawca nie dostaje zadnego bledu.
 #
 # Myslnik tylko MIEDZY segmentami: "@nick-" na koncu zdania albo "@nick-,"
 # ma dac "nick", nie "nick-". Ta sama zasada dla grup.
@@ -295,15 +281,14 @@ def make_frame(ftype, frm, ts, **fields):
 
 
 def validate(frame):
-    # (Runda 4 #5) walidacja INBOUND ze SCHEMATEM PER TYP: wspolne pola +
-    # per-typ. Wejscie klienckie musi przejsc tu ZANIM dotknie logu/kolejki.
+    # Walidacja INBOUND ze SCHEMATEM PER TYP: wspolne pola + per-typ.
+    # Wejscie klienckie musi przejsc tu ZANIM dotknie logu/kolejki.
     if "type" not in frame:
         return "missing type"
     ftype = frame["type"]
-    # (Runda 5 C1) type MUSI byc niepustym stringiem ZANIM sprawdzimy
-    # przynaleznosc do FRAME_TYPES: type=[]/{} to unhashable, a `in FRAME_TYPES`
-    # (membership po secie) rzucalo TypeError, wywalajac cala walidacje zanim
-    # zdazyla zwrocic czytelny blad.
+    # type MUSI byc niepustym stringiem ZANIM sprawdzimy przynaleznosc do
+    # FRAME_TYPES: type=[]/{} to unhashable, a `in FRAME_TYPES` rzuca
+    # TypeError, wywalajac cala walidacje zanim zwroci czytelny blad.
     if not isinstance(ftype, str) or not ftype:
         return "type required (non-empty string)"
     if ftype not in FRAME_TYPES:
@@ -311,7 +296,7 @@ def validate(frame):
     if ftype not in INBOUND_FRAME_TYPES:
         # znany typ, ale wylacznie wyjsciowy/trwaly — klient nie moze go przyslac
         return f"{ftype}: outbound/persisted-only type, a client cannot send it"
-    # C2: kontrola `context` MUSI stac PRZED galezia nickless hello ponizej —
+    # Kontrola `context` MUSI stac PRZED galezia nickless hello ponizej —
     # tamta konczy walidacje returnem, wiec kontrola w _validate_body nigdy
     # by sie nie wykonala dla wejscia bez nicka. A to wlasnie ta sciezka jest
     # tu krytyczna: agent wpuszczany po niezalezna perspektywe czesto nie ma
@@ -329,7 +314,7 @@ def validate(frame):
             return "peek must be true or false"
     # wspolne: from niepusty string, ts liczba SKONCZONA (bool wykluczony)
     if "from" not in frame:
-        # B6: hello w trybie otwartym moze NIE niesc nicka — agent prosi
+        # Hello w trybie otwartym moze NIE niesc nicka — agent prosi
         # wtedy o dowolny wolny, a serwer odsyla przydzielony w polu `nick`.
         # Kazda inna ramka nadal wymaga tozsamosci.
         if frame.get("type") == "hello":
@@ -340,10 +325,10 @@ def validate(frame):
     if "ts" not in frame:
         return "missing ts"
     ts = frame["ts"]
-    # (Runda 5 C2) ts musi byc liczba SKONCZONA — NaN/inf przechodzily
-    # (isinstance float True) i trafialy do logu jako niestandardowy JSON.
-    # (Runda 6 #3) math.isfinite wolamy TYLKO dla float: math.isfinite(10**400)
-    # rzuca OverflowError (int za duzy na konwersje do float) i wysypywal cala
+    # ts musi byc liczba SKONCZONA — NaN/inf przechodza isinstance(float)
+    # i trafilyby do logu jako niestandardowy JSON.
+    # math.isfinite wolamy TYLKO dla float: math.isfinite(10**400) rzuca
+    # OverflowError (int za duzy na konwersje do float) i wysypuje cala
     # walidacje. int sprawdzamy zakresowo BEZ konwersji (porownanie int<->float
     # jest w Pythonie dokladne, nie przepelnia): int poza zakresem float to
     # bezsensowny timestamp — odrzucony komunikatem, nie wyjatkiem.
@@ -369,16 +354,15 @@ def _validate_body(frame, ftype):
         if not isinstance(state, str) or not state or len(state) > 32:
             return ("status: state required (non-empty string, "
                     "max 32 characters)")
-        # B1 retire: task_id wycofane — subject je zastapil. Odrzucamy JAWNIE
-        # (nie jako ciche unknown pole), bo handler _append(frame) utrwalilby
-        # cala ramke do logu i broadcastu do ludzi zanim board-projekcja by je
-        # odsiala; sam drop na boardzie nie wystarcza, zeby task_id nie wyciekl.
+        # task_id (zastapione przez subject) odrzucamy JAWNIE, z podpowiedzia:
+        # handler _append(frame) utrwalilby cala ramke do logu i broadcastu
+        # do ludzi, zanim board-projekcja by je odsiala.
         if "task_id" in frame:
             return "status: task_id is retired; use subject"
         # Nieznany klucz odbity, nie zgubiony: handler utrwala cala ramke,
-        # a board projektuje tylko state/subject/note — agent dostawal
-        # "(sent)" i myslal, ze zadeklarowal cos, czego nikt nie zobaczy
-        # (zmierzone 2026-11-02: `text` zamiast `subject`).
+        # a board projektuje tylko state/subject/note — agent dostaje
+        # "(sent)" i mysli, ze zadeklarowal cos (np. `text` zamiast
+        # `subject`), czego nikt nie zobaczy.
         nieznane = set(frame) - {"type", "from", "ts", "state", "subject",
                                  "note", "target"}
         if nieznane:
@@ -394,8 +378,7 @@ def _validate_body(frame, ftype):
         return None
     if ftype == "workspace":
         # Gdzie pracuje agent — fakt, ktory klient zna, a ktorego agent nie
-        # aktualizuje recznie (zmierzone 2026-11-02: cala sesja bez galezi
-        # i worktree na boardzie). Bez absolutnych sciezek: `worktree` to
+        # aktualizuje recznie. Bez absolutnych sciezek: `worktree` to
         # nazwa katalogu, nie sciezka. Brak `branch` = detached HEAD.
         nieznane = set(frame) - {"type", "from", "ts", "worktree", "branch",
                                  "head"}
@@ -416,7 +399,7 @@ def _validate_body(frame, ftype):
             return "workspace: branch if given must be a non-empty string (max 100)"
         return None
     if ftype == "kick":
-        # B6: moderacja czlowieka. Zadnych pol poza target — powod, ban,
+        # Moderacja czlowieka. Zadnych pol poza target — powod, ban,
         # czas trwania to stan, ktorego nie potrzebujemy (kick nie jest
         # banem: wyrzucony moze wrocic, a moderator moze go wyrzucic znowu).
         target = frame.get("target")
