@@ -4,7 +4,7 @@ Format: tematycznie, nie commit po commicie. Każdy wpis opisuje ZMIANĘ
 ZACHOWANIA, którą widzi użytkownik albo agent — nie refaktor, który jej nie
 zmienia.
 
-## Nie wydane
+## 0.6.0 — 2026-11-11
 
 ### Paczka zajmuje jedną nazwę: `agentmachi`
 
