@@ -3592,3 +3592,68 @@ def test_pusta_ramka_workspace_odwoluje_wpis_po_poprzednim_wejsciu(srv):
         assert "beta" not in server.workspace
         await ws_b.close()
     asyncio.run(srv(scenario))
+
+
+# --- audyt SECURITY.md 2026-11-11: pola autorytatywne i kolejnosc auth -----
+
+def test_fyi_NIE_niesie_klienckiego_target_do_logu_ani_do_ludzi(srv):
+    """`target` jest polem autorytatywnym (AGENTS.md), a zdejmowany byl tylko
+    z `chat`. Kliencki `target` w `fyi` trafial do events.jsonl i do
+    czlowieka (audyt SECURITY.md 2026-11-11, proba P6)."""
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        alfa, _ = await hello("alfa", "ta")
+        await alfa.send(json.dumps({"type": "fyi", "from": "alfa", "ts": 0.0,
+                                    "text": "notka", "target": "ofiara"}))
+        dostal = json.loads(await asyncio.wait_for(emil.recv(), 5))
+        while dostal.get("type") != "fyi":
+            dostal = json.loads(await asyncio.wait_for(emil.recv(), 5))
+        w_logu = [e for e in server.log.replay() if e.get("type") == "fyi"]
+        for ws in (emil, alfa):
+            await ws.close()
+        assert "target" not in dostal, dostal
+        assert w_logu and "target" not in w_logu[0], w_logu
+    asyncio.run(srv(scenario))
+
+
+def test_workspace_do_ludzi_ma_CZAS_SERWERA(srv):
+    """Ramka `workspace` nie idzie przez _append, wiec omijala stempel `ts`:
+    czlowiek dostawal czas podany przez klienta (proba P6: `ts: 123456` na
+    drucie). Nieznane pola odrzuca juz walidacja — tu chodzi tylko o czas."""
+    async def scenario(server):
+        emil, _ = await hello("emil", "te", role="human")
+        alfa, _ = await hello("alfa", "ta")
+        przed = time.time()
+        await alfa.send(json.dumps({"type": "workspace", "from": "alfa",
+                                    "ts": 123456, "worktree": "w",
+                                    "branch": "b", "head": "abcd"}))
+        dostal = json.loads(await asyncio.wait_for(emil.recv(), 5))
+        while dostal.get("type") != "workspace":
+            dostal = json.loads(await asyncio.wait_for(emil.recv(), 5))
+        for ws in (emil, alfa):
+            await ws.close()
+        assert dostal["ts"] >= przed, dostal
+        assert (dostal["from"], dostal["worktree"], dostal["branch"],
+                dostal["head"]) == ("alfa", "w", "b", "abcd"), dostal
+    asyncio.run(srv(scenario))
+
+
+def test_zly_token_NIE_poznaje_dlugosci_logu(srv):
+    """Kursor spoza logu sprawdzany byl PRZED tokenem: klient ze zlym tokenem
+    i `last_seq` = 9999 dostawal `server_last_seq` — dlugosc logu pokoju, do
+    ktorego nie wszedl. Komentarz obok obiecywal odwrotnie (proba P5)."""
+    async def scenario(server):
+        alfa, _ = await hello("alfa", "ta")
+        await alfa.send(json.dumps({"type": "chat", "from": "alfa",
+                                    "ts": 0.0, "text": "cos"}))
+        await asyncio.sleep(0.1)
+        obcy, zly = await hello("beta", "ZLY-TOKEN", last_seq=9999)
+        swoj, dobry = await hello("beta", "tb", last_seq=9999)
+        for ws in (alfa, obcy, swoj):
+            await ws.close()
+        assert zly["type"] == "error" and "server_last_seq" not in zly, zly
+        assert "last_seq" not in zly["text"], zly
+        # uprawniony nadal dostaje naprawe z dlugoscia logu
+        assert dobry["type"] == "error" and \
+            dobry["server_last_seq"] == server.log.last_seq, dobry
+    asyncio.run(srv(scenario))

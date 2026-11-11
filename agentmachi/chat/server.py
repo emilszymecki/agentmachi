@@ -846,26 +846,6 @@ class ChatServer:
                        if isinstance(nick_candidate, str) else 0)
             try:
                 last_seq = self._validate_last_seq(frame.get("last_seq"))
-                # Kursor spoza logu (last_seq > serwerowy last_seq) to
-                # jawny blad — klient nie mogl widziec eventow, ktorych serwer
-                # nie ma; bez tego dostawalby ciche ok+pusty backlog.
-                #
-                # Komunikat NIESIE NAPRAWE, bo bez niej odmowa jest slepym
-                # zaulkiem: kursor klienta jest per host:port (patrz
-                # send.hub_id_from_url), wiec KAZDY nowy hub postawiony na
-                # porcie po poprzednim dziedziczy jego kursory i zamurowuje
-                # wszystkich, ktorzy tam wczesniej byli. Reset kursora robi
-                # CZLOWIEK — kontrakt
-                # client_session jest fail-closed i nie resetuje po cichu.
-                if last_seq > self.log.last_seq:
-                    raise CursorBeyondLog(
-                        self.log.last_seq,
-                        f"last_seq {last_seq} > server last_seq "
-                        f"{self.log.last_seq}: your cursor comes from a "
-                        f"DIFFERENT log — usually from a previous hub on the "
-                        f"same port. Fix: delete your session file "
-                        f"(~/.chat-sessions/<nick>-<hash>.json) = a "
-                        f"deliberate full resync from zero")
                 # niezmiennik d): groups/role w hello sa TYLKO walidowane —
                 # przypisanie faktyczne pochodzi WYLACZNIE z configu serwera
                 # (registry.role_of/groups_of), nigdy z deklaracji klienta.
@@ -954,6 +934,28 @@ class ChatServer:
                     generation = trial_registry.hello(
                         frame.get("from"), frame.get("instance_id"),
                         frame.get("token"))
+                # PO auth, nie przed: odmowa niesie dlugosc logu, a tej nie
+                # wolno poznac komus, kto nie przeszedl tokenu.
+                # Kursor spoza logu (last_seq > serwerowy last_seq) to
+                # jawny blad — klient nie mogl widziec eventow, ktorych serwer
+                # nie ma; bez tego dostawalby ciche ok+pusty backlog.
+                #
+                # Komunikat NIESIE NAPRAWE, bo bez niej odmowa jest slepym
+                # zaulkiem: kursor klienta jest per host:port (patrz
+                # send.hub_id_from_url), wiec KAZDY nowy hub postawiony na
+                # porcie po poprzednim dziedziczy jego kursory i zamurowuje
+                # wszystkich, ktorzy tam wczesniej byli. Reset kursora robi
+                # CZLOWIEK — kontrakt
+                # client_session jest fail-closed i nie resetuje po cichu.
+                if last_seq > self.log.last_seq:
+                    raise CursorBeyondLog(
+                        self.log.last_seq,
+                        f"last_seq {last_seq} > server last_seq "
+                        f"{self.log.last_seq}: your cursor comes from a "
+                        f"DIFFERENT log — usually from a previous hub on the "
+                        f"same port. Fix: delete your session file "
+                        f"(~/.chat-sessions/<nick>-<hash>.json) = a "
+                        f"deliberate full resync from zero")
             except AuthError as e:
                 # Pole doklada WYLACZNIE ta jedna odmowa (patrz
                 # CursorBeyondLog). Nie dopisujemy go do kazdego bledu auth:
@@ -1301,6 +1303,7 @@ class ChatServer:
             # PUBLIKACJA, NIE ZAWOLANIE: do logu i do ludzi, ale nie budzi
             # zadnego agenta. Bez niego jedyna droga publikacji jest
             # obudzenie wszystkich.
+            frame.pop("target", None)   # pole autorytatywne; fyi go nie ma
             seq = self._append(frame)
             frame["seq"] = seq
             for odbiorca, rola in list(self.roles.items()):
@@ -1360,9 +1363,13 @@ class ChatServer:
                 # pusta ramka: listener z opt-outem albo spoza repo odwoluje
                 # to, co zostalo po poprzednim wejsciu
                 self.workspace.pop(nick, None)
+            # Ramka SERWERA, nie klienta: bez _append nie ma stempla `ts`,
+            # a kliencka niosla na drut wlasny czas i dowolne pola.
+            wyjscie = protocol.make_frame("workspace", nick, time.time(),
+                                          **stan)
             for observer, role in list(self.roles.items()):
                 if role == "human" and observer != nick:
-                    await self._send(observer, frame)
+                    await self._send(observer, wyjscie)
         elif ftype == "kick":
             await self._on_kick(frame, nick, ws)
         elif ftype == "membership_set":
