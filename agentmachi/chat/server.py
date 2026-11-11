@@ -1,17 +1,17 @@
 """Serwer czatu agentow: hello/auth, backlog/resync, echo po nicku,
 wzmianki, grupy adresowe. Jedyny modul z asyncio/websockets.
 
-Kluczowe niezmienniki (review tercetu, wiazace):
+Kluczowe niezmienniki:
   a) generation przypieta do SOCKETU przy hello — kazda kolejna ramka z
      tego samego polaczenia jest mutowana TA generacja, nigdy
      frame.get("generation"). Po takeover (nowe hello tego samego nicka
      z innym instance_id) serwer zamyka stare sockety NATYCHMIAST (przy
      samym hello, nie dopiero przy ich kolejnej ramce); per-ramkowy check
      generacji zostaje jako druga linia obrony.
-  b) snapshot niesie {"registry": ..., "status": ...} — restart odtwarza je
+  b) snapshot niesie {"registry", "status", "status_seq"} — restart odtwarza je
      i DODATKOWO replay'uje kazdy event > snapshot_seq (registry z hello/
-     membership, status z deklaracji). Kolejka zadaniowa wycieta (laka-nie-
-     obora, A4): stary log z task_*/task_expired_batch jest pomijany.
+     membership, status z deklaracji). Stary log z task_*/task_expired_batch
+     jest pomijany.
      resync_required zwraca snapshot_seq etykietujacy dokladnie wyslany
      state. Gdy stan zmienil sie od snapshotu na dysku, robi swiezy,
      atomowy snapshot(); gdy jest identyczny, etykietuje go biezacym koncem
@@ -55,7 +55,7 @@ STORAGE_UNAVAILABLE = "storage unavailable; retry"
 # w _on_frame. Musza mowic klientowi doslownie to samo, wiec jest stala.
 STALE_GENERATION = ("stale generation: this socket was taken over by a "
                     "newer hello")
-STOP_CLOSE_TIMEOUT = 3.0   # F9: sufit czasu na zamkniecie serwera w stop()
+STOP_CLOSE_TIMEOUT = 3.0   # sufit czasu na zamkniecie serwera w stop()
 LOGGER = logging.getLogger(__name__)
 
 
@@ -82,12 +82,12 @@ def _open_bind(bind):
 
 
 def _bind_is_tailnet(bind):
-    """B7: czy hub bindowany na interfejs TAILNETU (nie loopback).
+    """Czy hub bindowany na interfejs TAILNETU (nie loopback).
 
     Tylko wtedy `remote_address` peera to jego prawdziwy adres tailnetu i
     IP-binding ma sens. Przy bind-loopback wszyscy peer to 127.0.0.1
     (lokalny test albo proxy) — adres nie rozroznia podmiotow, wiec
-    wiazanie sie NIE stosuje. Patrz tabela bind->zachowanie w planie B7."""
+    wiazanie sie NIE stosuje."""
     return _is_tailnet_ip(bind)
 
 
@@ -103,9 +103,8 @@ def _strict_json_loads(raw):
     # w validate() — bo hello omija walidacje typow, a jego pola (instance_id,
     # groups) tez ida do logu. `chat` jest trwaly PRZED publikacja, wiec
     # ramka wpuszczona raz zostaje na zawsze i wywala handler przy KAZDYM
-    # nastepnym hello, ktorego backlog ja obejmuje: zmierzone — pokoj oddawal
-    # 1011 kazdemu wznawiajacemu sie, a zabic go mogl dowolny uczestnik
-    # jednym stringiem (osme review Codexa).
+    # nastepnym hello, ktorego backlog ja obejmuje: pokoj oddaje 1011 kazdemu
+    # wznawiajacemu sie, a zabic go moze dowolny uczestnik jednym stringiem.
     if not protocol.utf8_safe(frame):
         raise ValueError("frame contains a lone surrogate — it is not UTF-8")
     return frame
@@ -114,16 +113,12 @@ def _strict_json_loads(raw):
 class CursorBeyondLog(AuthError):
     """Kursor klienta wskazuje ZA koniec logu — i odmowa niesie tu LICZBE.
 
-    Powod istnienia jest waski i konkretny. Ta odmowa jest dla `read`
-    (send.read_frames) sytuacja ZWYKLA, nie awaria: agent pyta o `seq`,
-    ktorego jeszcze nie ma, i musi dostac koniec logu, zeby wiedziec, o co
-    zapytac. Dopoki liczba siedziala WYLACZNIE w tekscie dla czlowieka,
-    klient wylapywal ja regexem `r"> server last_seq (\\d+)"` — czyli
-    parsowal prose przeznaczona dla oczu. Repo zakazuje dokladnie tego przy
-    formacie czytelnym `listen` ("nie parsuj, agenci wklejaja sobie logi"),
-    a tutaj sam produkt robil to samo u siebie: przeredagowanie zdania
-    w tej klasie cicho psulo klienta, bez zadnego czerwonego testu po
-    stronie serwera.
+    Ta odmowa jest dla `read` (send.read_frames) sytuacja ZWYKLA, nie
+    awaria: agent pyta o `seq`, ktorego jeszcze nie ma, i musi dostac koniec
+    logu, zeby wiedziec, o co zapytac. Liczba WYLACZNIE w tekscie dla
+    czlowieka zmusza klienta do parsowania prozy regexem — przeredagowanie
+    zdania w tej klasie cicho psuje klienta, bez zadnego czerwonego testu
+    po stronie serwera.
 
     Tekst zostaje bez zmian (czyta go czlowiek), a `server_last_seq` idzie
     POLEM ramki `error` — pole jest kontraktem, zdanie nie jest."""
@@ -137,7 +132,7 @@ class ChatServer:
     def __init__(self, data_dir, tokens, port, bind="127.0.0.1", open_mode=None):
         self.port = port
         self.bind = bind
-        # B6: tryb otwarty (agent bez tokenu) wlacza sie SAM przy bindzie,
+        # Tryb otwarty (agent bez tokenu) wlacza sie SAM przy bindzie,
         # ktory juz jest bramka: loopback albo adres tailnetowy. Przy 0.0.0.0
         # hub stoi takze na LAN i publicznie — tam siec nie chroni niczego,
         # wiec token wraca jako wymog dla wszystkich.
@@ -154,10 +149,10 @@ class ChatServer:
         self.roles = {}        # nick -> role
         self.groups = {}       # nick -> set[group], lustro trwalego Registry
         self._server = None
-        # niezmiennik A: eventy > snapshot_seq NIGDY nie byly odtwarzane do
-        # stanu — trwalosc byla teatrem. Replay stosuje te same mutacje
-        # (registry/status) co live, bez zadnych side-effectow sieciowych
-        # (bez _send/_append — eventy juz sa na dysku).
+        # Eventy > snapshot_seq odtwarzamy do stanu — bez tego trwalosc jest
+        # teatrem. Replay stosuje te same mutacje (registry/status) co live,
+        # bez zadnych side-effectow sieciowych (bez _send/_append — eventy juz
+        # sa na dysku).
         # self.status MUSI istniec PRZED _replay_events() — replay eventow
         # status nadpisuje stan przywrocony ze snapshotu (nowsze wygrywa)
         self.status = {}       # nick -> {state, subject?, note?} (ostatnia deklaracja)
@@ -165,31 +160,20 @@ class ChatServer:
         # projekcja tego, co powiedzial agent — seq nadaje serwer i nie ma
         # go z czym mieszac.
         #
-        # Stalo tu, ze wiek "nie przezywa restartu bez logu i to jest
-        # w porzadku, bo nieznany wiek uczciwiej opisuje stan niz zmyslona
-        # liczba". Rozumowanie bronilo przed ZMYSLANIEM wieku i w tym byla
-        # racja — ale wnioskiem bylo wyrzucenie liczby PRAWDZIWEJ. `seq`
-        # nadaje serwer przy appendzie, jest monotoniczny i nigdy nie wraca,
-        # wiec "zadeklarowane na 253" zostaje prawda na zawsze i liczy sie
-        # wzgledem dowolnego pozniejszego konca logu. Zapisanie go czyni wiek
-        # ZNANYM, a nie wymyslonym; to dwie rozne rzeczy.
-        # Rozstrzyga asymetria, w ktorej system przeczyl sam sobie: snapshot
-        # trzymal TWIERDZENIE i wyrzucal jego DATE, a komentarz przy
-        # `_participants_snapshot` mowi wprost, ze bez `status_seq` board
-        # KLAMIE zamiast milczec (incydent kinas-machine: "worker1: idle"
-        # przez cala jego prace). Po restarcie bylismy dokladnie w tym
-        # stanie — deklaracja bez daty. Uczciwe opcje byly dwie: zapisac
-        # oba albo zadne; wyrzucenie twierdzenia niszczyloby realna
-        # informacje, wiec zostaje data. Zmierzone na zywym pokoju
-        # `prezentacja` 2026-08-07, godzine po napisaniu `agentmachi board`:
-        # status przezyl restart, wiek wrocil jako nieznany.
+        # Wiek PRZEZYWA restart (snapshot). `seq` nadaje serwer przy
+        # appendzie, jest monotoniczny i nigdy nie wraca, wiec "zadeklarowane
+        # na 253" zostaje prawda na zawsze i liczy sie wzgledem dowolnego
+        # pozniejszego konca logu — zapisany wiek jest ZNANY, nie wymyslony.
+        # Snapshot z twierdzeniem bez daty to board, ktory KLAMIE zamiast
+        # milczec (patrz `_participants_snapshot`): zapisujemy oba albo
+        # zadne, a wyrzucenie twierdzenia niszczyloby realna informacje.
         self.status_seq = {}   # nick -> seq ramki status (metadana serwera)
         # nick -> {worktree, head, branch?}: gdzie pracuje klient. EFEMERYCZNE
         # jak `connected`: bez logu i snapshotu, bo klient wysyla je przy
         # kazdym hello, wiec po restarcie huba wraca samo.
         self.workspace = {}
         if snap:
-            # Legacy-snapshot sanityzacja: stary snapshot (pre-B1) niesie martwe
+            # Legacy-snapshot sanityzacja: stary snapshot niesie martwe
             # task_id w status. Projektujemy KAZDY wpis tylko na dozwolone klucze,
             # zeby martwe/obce pola nie przetrwaly restartu — handler/replay juz
             # ich nie zapisuja, stare log-eventy czysci projekcja _replay_events.
@@ -201,27 +185,19 @@ class ChatServer:
             # dysku, wiec jego zawartosc jest WEJSCIEM, nie prawda. Wpis, co
             # do ktorego nie mamy pewnosci, ODPADA — a odpadniety `status_seq`
             # daje wiek "nieznany", czyli stan opisany uczciwie. Podstawienie
-            # czegokolwiek w to miejsce byloby dokladnie ta zmyslona liczba,
-            # przed ktora bronil pierwotny komentarz wyzej.
+            # czegokolwiek w to miejsce byloby zmyslona liczba.
             #
             # BRAK pola i pole USZKODZONE to dwie rozne rzeczy i musza sie
-            # roznie konczyc. Pierwsza wersja zwijala oba do "caly wiek
-            # nieznany" — hub wstawal, a uszkodzony snapshot cicho tracil
-            # wszystkie daty. Review (2026-08-07) rozdzielil to ostrzej, niz
-            # to widzialem: pole NIEOBECNE to legacy, czyli snapshot sprzed
-            # tej zmiany i normalny stan; pole OBECNE, ale nie bedace mapa,
-            # znaczy, ze ktos zapisal tam bzdure — a to jest naruszenie
-            # spojnosci i ma byc slyszalne. (Wersja jeszcze wczesniejsza,
-            # `(... or {}).items()`, dawala na to samo AttributeError i hub
-            # nie wstawal BEZ POWODU podanego czlowiekowi — to bylo najgorsze
-            # z trojga: skutek fail-closed bez jego komunikatu.)
-            # Rozstrzyga OBECNOSC KLUCZA, nie wartosc `.get()`. Bylo tu
-            # `state.get("status_seq")` i `if surowe is None` — a to zwijalo
-            # z powrotem dokladnie te dwa stany, ktore ten kontrakt mial
-            # rozdzielic: brak klucza (legacy) i klucz z `null` (obecny, wiec
+            # roznie konczyc. Pole NIEOBECNE to legacy, czyli snapshot sprzed
+            # tego pola i normalny stan; pole OBECNE, ale nie bedace mapa,
+            # znaczy, ze ktos zapisal tam bzdure — naruszenie spojnosci, ktore
+            # ma byc slyszalne. Zwiniecie obu do "caly wiek nieznany" cicho
+            # traci wszystkie daty, a AttributeError zatrzymuje hub BEZ
+            # POWODU podanego czlowiekowi.
+            # Rozstrzyga OBECNOSC KLUCZA, nie wartosc `.get()`: `.get()` zwija
+            # z powrotem brak klucza (legacy) i klucz z `null` (obecny, wiec
             # zapisany przez cos, co nie jest naszym kodem — nowy snapshot
-            # nigdy legalnie nie pisze tam null). Uzasadnienie commita mowilo
-            # "ABSENT != CORRUPTED", a implementacja nadal mowila co innego.
+            # nigdy legalnie nie pisze tam null).
             if "status_seq" not in state:
                 surowe = {}                      # prawdziwe legacy
             elif not isinstance(state["status_seq"], dict):
@@ -255,10 +231,10 @@ class ChatServer:
         self._replay_events()
         # Zrodlem sa GRUPY rejestru, nie mapa tokenow: agent z trybu otwartego
         # ma wpis w `groups`/`roles`, ale nigdy w `tokens`. Iteracja po tokenach
-        # gubila jego czlonkostwo przy starcie (zlapane 2026-07-31).
+        # gubilaby jego czlonkostwo przy starcie.
         self.groups = {nick: set(self.registry.groups_of(nick))
                        for nick in self.registry.roles}
-        # (A3) licznik snapshot-co-100 liczy DALEJ od tego, co juz jest w
+        # Licznik snapshot-co-100 liczy DALEJ od tego, co juz jest w
         # logu po snapshot_seq — nie od zera (inaczej po restarcie trzeba by
         # 100 nowych eventow, zanim serwer w ogole rozwazy snapshot).
         self._events_since_snapshot = len(self.log.replay())
@@ -266,8 +242,7 @@ class ChatServer:
     def _replay_events(self):
         # Replay: eventy > snapshot_seq odtwarzaja stan (registry z hello/
         # membership, status z deklaracji) BEZ re-execution i side-effectow
-        # sieciowych. Kolejka zadaniowa wycieta (A4) — stary log z task_*/
-        # task_expired_batch jest pomijany.
+        # sieciowych. Stary log z task_*/task_expired_batch jest pomijany.
         #
         # `osierocone_kickiem`: nicki, ktorym replayowany kick zabral wiazanie
         # adresu. Zyje TYLKO na czas tego przebiegu — sluzy do rozpoznania
@@ -301,16 +276,15 @@ class ChatServer:
                     # rejestr nie ma jak odtworzyc, do czego nick byl
                     # przypiety. Zostawiony niezwiazany = do wziecia przez
                     # pierwszego chetnego z tailnetu, czyli upgrade huba
-                    # otwieralby okno na przejecie tozsamosci (czwarte review
-                    # Codexa — regresja wprowadzona przez replay kicka wyzej).
+                    # otwieralby okno na przejecie tozsamosci.
                     adres = UNRESOLVED_ADDR
                 self.registry.replay_hello(kto, event["instance_id"], adres)
                 osierocone_kickiem.discard(kto)
             elif etype == "kick":
                 # Rozkaz moderatora tez musi przezyc crash. `kick` zwalnia
                 # wiazanie nick->adres, zeby wyrzucony wrocil po re-IP; bez
-                # replayu snapshot wskrzeszal STARE wiazanie i blokowal mu
-                # powrot z nowego adresu (drugie review Codexa). `kick` jest
+                # replayu snapshot wskrzeszalby STARE wiazanie i blokowal mu
+                # powrot z nowego adresu. `kick` jest
                 # w CONVERSATION_TYPES, wiec przezywa tez kompakcje.
                 cel = event.get("target")
                 if isinstance(cel, str) and cel:
@@ -323,24 +297,23 @@ class ChatServer:
             elif etype == "membership_set":
                 # Usuniety z konfiguracji nick nie odzyskuje czlonkostwa z logu.
                 # Znana tozsamosc = `roles` (nadzbior `tokens`) — inaczej
-                # replay gubil czlonkostwo agenta z trybu otwartego.
+                # replay gubilby czlonkostwo agenta z trybu otwartego.
                 if event["target"] in self.registry.roles:
                     self.registry.set_groups(event["target"], event["groups"])
-            # chat/fyi/status/ok/error i stare task_*/offer/expiry-eventy: bez
-            # mutacji — cala kolejka wycieta (laka-nie-obora, A4). Stary log z
-            # task_new/task_claim/task_expired_batch/offer jest po prostu pomijany;
-            # zostaje tylko registry (hello/membership) i status.
+            # chat/fyi/ok/error i stare task_*/offer/expiry-eventy: bez
+            # mutacji — stan to wylacznie registry (hello/membership/kick)
+            # i status.
 
     # -- infrastruktura ----------------------------------------------------
     async def start(self):
         # Keepalive JAWNIE, nie z domyslnych: od niego zalezy, co znaczy
-        # "nick zajety przez zywe polaczenie" (B6). Martwy socket bez pingu
-        # wisi w ESTAB minutami — zdarzylo sie w dogfoodzie i agent nie mogl
-        # wrocic na wlasny nick. Przy tych wartosciach trup wypada w ~40 s.
+        # "nick zajety przez zywe polaczenie". Martwy socket bez pingu wisi
+        # w ESTAB minutami, a agent nie moze w tym czasie wrocic na wlasny
+        # nick. Przy tych wartosciach trup wypada w ~40 s.
         # max_size JAWNIE, nie z domyslnych — dotyczy WEJSCIA, wiec to jedyna
         # rzecz stojaca miedzy jednym agentem a pamiecia huba (konstytucja:
         # "ochrona zasobow, gdy nikt nie patrzy" jest fizyka huba). Domyslny
-        # 1 MiB websockets pozwalal wkleic w chat prawie megabajt; taka ramka
+        # 1 MiB websockets pozwala wkleic w chat prawie megabajt; taka ramka
         # zostaje w oknie rozmowy (CONVERSATION_LIMIT) i wraca w backlogu
         # KAZDEMU, kto sie wznawia. 64 KiB to wciaz ~30 stron tekstu na jedna
         # wiadomosc — plik wysyla sie sciezka, nie wklejeniem do kanalu.
@@ -351,13 +324,12 @@ class ChatServer:
 
     async def stop(self):
         self._server.close()
-        # F9: zamykanie serwera pod TWARDYM limitem czasu. Zmierzone na
-        # produkcji: hub dostal SIGTERM, zwolnil port, ale PROCES WISIAL —
-        # operator musial go dobic kill -9, a do tego czasu zawieszony proces
-        # blokowal kolejny start (fail-fast z F7 widzi go jako zywy hub).
-        # Root cause zawisu nie zostal odtworzony w tescie, ale kontrakt jest
-        # od niego niezalezny: `stop()` konczy sie zawsze, a snapshot (ponizej)
-        # MUSI sie wykonac, bo to on domyka trwalosc. Glosny log zamiast ciszy.
+        # Zamykanie serwera pod TWARDYM limitem czasu. Hub po SIGTERM potrafi
+        # zwolnic port, a PROCES WISI — do kill -9 blokuje kolejny start
+        # (fail-fast split-brain widzi go jako zywy hub). Przyczyna zawisu
+        # nie jest odtworzona w tescie, ale kontrakt jest od niej niezalezny:
+        # `stop()` konczy sie zawsze, a snapshot (ponizej) MUSI sie wykonac,
+        # bo to on domyka trwalosc. Glosny log zamiast ciszy.
         try:
             await asyncio.wait_for(self._server.wait_closed(),
                                    timeout=STOP_CLOSE_TIMEOUT)
@@ -371,7 +343,7 @@ class ChatServer:
         self.snapshot()  # clean shutdown -> snapshot zawsze (polityka c)
 
     def snapshot(self):
-        """F7: kompakcja jest jedyna operacja przepisujaca log w calosci.
+        """Kompakcja jest jedyna operacja przepisujaca log w calosci.
         Gdy w katalogu pisze inny proces huba (split-brain), store odmawia —
         i DOBRZE: wolimy hub bez kompakcji niz skasowana rozmowe. Glosny log
         operatora, zycie huba bez zmian."""
@@ -388,16 +360,14 @@ class ChatServer:
     def _stan_trwaly(self):
         """Stan, ktory PRZEZYWA kompakcje — jedno zrodlo dla dysku i drutu.
 
-        Bylo pisane w DWOCH miejscach osobno (snapshot i `state` w
-        resync_required) z komentarzem "wire resync state = DOKLADNIE
-        persisted snapshot state". Komentarz opisywal intencje, a nic jej nie
-        pilnowalo: dopisanie pola do jednego z nich rozjezdzalo je po cichu.
-        Dokladnie ta klasa bledu, ktora tu wlasnie naprawiamy — `status`
-        przezywal restart, a jego `status_seq` nie."""
+        Snapshot i `state` w resync_required musza byc DOKLADNIE tym samym.
+        Pisane w dwoch miejscach rozjezdzaja sie po cichu przy dopisaniu pola
+        do jednego z nich — np. `status` przezylby restart, a jego
+        `status_seq` nie."""
         return {"registry": self.registry.dump(),
                 "status": dict(self.status),
                 # Data deklaracji jedzie razem z deklaracja. Rozdzielenie ich
-                # zostawialo board z twierdzeniem bez daty — patrz komentarz
+                # zostawia board z twierdzeniem bez daty — patrz komentarz
                 # przy self.status_seq w __init__.
                 "status_seq": dict(self.status_seq)}
 
@@ -410,7 +380,7 @@ class ChatServer:
         return seq
 
     def _append_durable(self, frame):
-        # (Runda 5 A) trwaly append ROZDZIELONY od auto-snapshotu: seq
+        # Trwaly append ROZDZIELONY od auto-snapshotu: seq
         # przydzielony i event NA DYSKU, ale snapshot jeszcze NIE odpalony.
         # Mutacje wymagajace domkniecia stanu MIEDZY (trwaly event) a
         # (ewentualny snapshot) wstawiaja swoj efekt PO udanym appendzie,
@@ -421,14 +391,13 @@ class ChatServer:
         # `ts` NADAJE SERWER, tak samo jak `seq` — to jedyne miejsce, przez
         # ktore przechodzi KAZDY trwaly event, wiec tu jest jedyna kontrola,
         # ktorej nie da sie zapomniec przy nowym typie ramki. Klienci wysylaja
-        # `ts: 0.0` (patrz send.py, tui.py) i tak zostawalo na dysku: log mial
-        # kolejnosc, ale nie mial GODZINY. Cala rozmowa — czyli to, co czlowiek
-        # czyta, gdy chce zrozumiec, co sie stalo — byla bez czasu, a ramki
-        # serwerowe (hello, kick, takeover) czas mialy. Mieszanka gorsza niz
-        # brak: wygladala na dzialajaca.
+        # `ts: 0.0` (send.py, tui.py); bez nadpisania cala rozmowa — czyli to,
+        # co czlowiek czyta, gdy chce zrozumiec, co sie stalo — jest bez
+        # GODZINY, a ramki serwerowe (hello, kick, takeover) czas maja.
+        # Mieszanka gorsza niz brak: wyglada na dzialajaca.
         #
         # Wartosc klienta jest WEJSCIEM DO WALIDACJI, nigdy prawda (niezmiennik
-        # z CLAUDE.md). Zegar stoi tutaj, a nie w logice decyzyjnej — zadna
+        # z AGENTS.md). Zegar stoi tutaj, a nie w logice decyzyjnej — zadna
         # decyzja huba nie zalezy od `ts`.
         frame["ts"] = time.time()
         seq = self.log.append(frame)
@@ -452,8 +421,7 @@ class ChatServer:
         # `_send` oddaje sterowanie petli, wiec MIEDZY iteracjami moze
         # dokonczyc sie cudze hello i dopisac nick do `self.roles`; iteracja
         # po zywym dicie leci wtedy RuntimeError, ktory wywala handler
-        # w polowie rozgloszenia. Pozostale rozgloszenia (kick, membership,
-        # status) robily juz kopie — te dwa zostaly w tyle.
+        # w polowie rozgloszenia.
         for other, role in list(self.roles.items()):
             if role == "human" and self.conns.get(other):
                 await self._send(other, frame)
@@ -463,27 +431,23 @@ class ChatServer:
         (registry) + jego serwerowe role/groups + realne connected.
         Zrodlo prawdy: registry (durable, replayowane) + conns (live) —
         nigdy statyczny plik tokenow po stronie klienta."""
-        # B6: roster to NIE lista posiadaczy tokenow. W trybie otwartym agent
+        # Roster to NIE lista posiadaczy tokenow. W trybie otwartym agent
         # wchodzi bez wpisu w tokens.json — gdyby go tu brakowalo, moderator
         # nie zobaczylby, kogo ma wyrzucic, a inni agenci nie wiedzieliby, ze
         # ktos doszedl. Zrodlem jest suma: konfiguracja + realne polaczenia.
         znani = set(self.registry.tokens) | set(self.registry.roles)
         # last_seq: numer ostatniej ramki ROZMOWY tego uczestnika — zrodlem
         # jest `conversation_after`, wiec licza sie CONVERSATION_TYPES
-        # (chat/fyi/takeover/kick), a `status` i `hello` NIE. Stalo tu
-        # "OSTATNIEJ ramki, ktora wyslal" i bylo to o klase za szerokie:
-        # agent, ktory wlasnie zadeklarowal status, ma na boardzie stary
-        # last_seq i wyglada na cichszego, niz jest. Zachowanie zostaje —
-        # "kiedy sie ostatnio odezwal" to wlasciwe pytanie, bo status widac
-        # osobno w status_seq. Zlapane 2026-08-07 przy pisaniu `agentmachi
-        # board`, ktore to pole POKAZUJE: opis pola byl starszy niz kod.
+        # (chat/fyi/takeover/kick), a `status` i `hello` NIE. Agent, ktory
+        # wlasnie zadeklarowal status, ma wiec stary last_seq — i slusznie:
+        # "kiedy sie ostatnio odezwal" to wlasciwe pytanie, a status widac
+        # osobno w status_seq.
         # `connected` mowi tylko tyle, ze gniazdo jest otwarte — a gniazdo
-        # zyje niezaleznie od tego, czy ktokolwiek po drugiej stronie czyta.
-        # W dogfoodzie kinas-machine dwa agenty mialy procesy z uptime 2h,
-        # gniazda ESTAB i przesuwajacy sie kursor, a model nie zobaczyl ani
-        # jednej ramki; hub raportowal je jako obecne, czlowiek trzy razy
-        # pytal "czemu stoicie". Dane sa juz w logu — to tylko ich pokazanie,
-        # bez nowego mechanizmu i bez zmian w protokole.
+        # zyje niezaleznie od tego, czy ktokolwiek po drugiej stronie czyta:
+        # proces z gniazdem ESTAB i przesuwajacym sie kursorem moze miec
+        # model, ktory nie zobaczyl ani jednej ramki. Dane sa juz w logu —
+        # to tylko ich pokazanie, bez nowego mechanizmu i bez zmian
+        # w protokole.
         ostatnia = {}
         for e in self.log.conversation_after(0):
             nadawca, seq = e.get("from"), e.get("seq")
@@ -492,20 +456,17 @@ class ChatServer:
         # status_seq OBOK status, nie w srodku: `status` zostaje czysta
         # projekcja deklaracji agenta (state/subject/note), a wiek tej
         # deklaracji jest metadana serwera — tak samo jak last_seq wyzej.
-        # Zmieszanie ich zbilo cztery testy i slusznie: agent nie deklaruje
-        # wlasnego seq, wiec nie ma prawa go tam zobaczyc.
+        # Agent nie deklaruje wlasnego seq, wiec nie ma prawa go tam zobaczyc.
         return [{"nick": nick,
                  "role": self.registry.role_of(nick),
                  "groups": sorted(self.registry.groups_of(nick)),
                  "connected": bool(self.conns.get(nick)),
                  "status": self.status.get(nick),
                  # Ile ramek temu ta deklaracja powstala. Bez tego board
-                 # KLAMIE zamiast milczec: snapshot huba po dogfoodzie
-                 # kinas-machine pokazywal "worker1: idle" (pracowal caly
-                 # czas) i "worker2: working, buduje polowe A" (skonczyl ja
-                 # wiele godzin wczesniej). Obaj agenci znali regule
-                 # aktualizowania statusu; zaden nie mial powodu, bo kazda
-                 # wiadomosc i tak szla wprost do drugiego.
+                 # KLAMIE zamiast milczec: `idle` u kogos, kto pracuje caly
+                 # czas, `working` u kogos, kto skonczyl godziny temu.
+                 # Agenci nie maja powodu odswiezac statusu, gdy kazda
+                 # wiadomosc i tak idzie wprost do drugiego.
                  # Wieku cudzej deklaracji nie da sie wyliczyc po stronie
                  # klienta — to jedyny powod, dla ktorego jest tutaj.
                  "status_seq": self.status_seq.get(nick),
@@ -522,9 +483,9 @@ class ChatServer:
         — klient go nie podaje, wiec nie da sie go podrobic (inwariant: pola
         autorytatywne nadaje serwer, nie ramka klienta). Odpowiada na pytanie
         'kto jest na ktorej maszynie', ktorego z samego kanalu nie da sie
-        wyczytac (dwie lokalne instancje wygladaja jak dwie zdalne — nauka
-        z B5). Zrodlo to ws.remote_address, dokladnie to, ktorego B7 uzywa do
-        wiazania nick->adres — zero nowego kola. Ma sens TYLKO przy bindzie na
+        wyczytac (dwie lokalne instancje wygladaja jak dwie zdalne). Zrodlo
+        to ws.remote_address, dokladnie to, ktorego uzywa wiazanie
+        nick->adres — zero nowego kola. Ma sens TYLKO przy bindzie na
         tailnet; przy loopback/proxy remote_address nie rozroznia podmiotow,
         wiec zwracamy None zamiast falszywej informacji."""
         if not _bind_is_tailnet(self.bind):
@@ -539,20 +500,17 @@ class ChatServer:
     def _wolny_nick(self, prefix="agent"):
         """Pierwszy nick, ktorego nikt nie trzyma — propozycja dla wchodzacego.
 
-        PAKIET 1 (plan V1): prefiks `agent`, nie `worker`. Hub nadaje te
-        nazwe dwa razy — wchodzacemu bez nicka i temu, komu nick zajeto —
-        wiec byla to pierwsza rzecz, jaka uczestnik o sobie slyszal. "worker"
-        mowi, ze jest wykonawca czyjegos polecenia; to ustroj, a nie
-        mechanika. Ta sama zmiana co usuniecie domyslnej grupy `workers`.
+        Prefiks `agent`, nie `worker`. Hub nadaje te nazwe wchodzacemu bez
+        nicka i temu, komu nick zajeto, wiec to pierwsza rzecz, jaka
+        uczestnik o sobie slyszy. "worker" mowi, ze jest wykonawca czyjegos
+        polecenia; to ustroj, a nie mechanika.
 
-        WOLNY znaczy NIEZNANY REJESTROWI, nie "chwilowo nieobecny". Wczesniej
-        warunkiem bylo `not self.conns.get(...)`, wiec nick rozlaczonego
-        uczestnika wracal do puli — RAZEM Z JEGO GRUPAMI, bo `roles`/`groups`
-        rozlaczenia nie kasuja. Zmierzone na zywym hubie, bez restartu:
-        agent1 dostaje `admin`, rozlacza sie, a nastepny przybysz BEZ NICKA
-        dostaje `agent1` i `admin` w odpowiedzi na hello. Czyli hub sam
-        wreczal obcemu cudza tozsamosc wraz z uprawnieniem do kicka
-        (zlapane 2026-07-31, drugie review Codexa).
+        WOLNY znaczy NIEZNANY REJESTROWI, nie "chwilowo nieobecny". Przy
+        warunku `not self.conns.get(...)` nick rozlaczonego uczestnika wraca
+        do puli RAZEM Z JEGO GRUPAMI, bo `roles`/`groups` rozlaczenia nie
+        kasuja: agent1 dostaje `admin`, rozlacza sie, a nastepny przybysz
+        BEZ NICKA dostaje `agent1` i `admin` w odpowiedzi na hello. Hub sam
+        wreczylby obcemu cudza tozsamosc wraz z uprawnieniem do kicka.
 
         Cena: licznik rosnie przez cale zycie pokoju i agent, ktory nie
         zachowal swojego nicka, wraca pod nowym. To jest wlasciwe zachowanie,
@@ -562,7 +520,7 @@ class ChatServer:
 
         `kick` swiadomie NIE zwalnia nicka — zwalnia tylko wiazanie adresu
         (release_open_addr), zeby ten sam agent wrocil po re-IP. Oddanie
-        nazwy komus innemu bylo by dokladnie ta luka, ktora tu zamykamy."""
+        nazwy komus innemu byloby dokladnie ta luka, ktora tu zamykamy."""
         n = 1
         while True:
             kandydat = f"{prefix}{n}"
@@ -580,7 +538,7 @@ class ChatServer:
         return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _load_howto(self):
-        """F5 (B5): instrukcja obslugi kanalu — dla agenta, ktory ma TYLKO
+        """Instrukcja obslugi kanalu — dla agenta, ktory ma TYLKO
         socket. Plik w repo jest bezuzyteczny dla klienta na golym ws (nie
         ma repo), wiec onboarding musi isc ta sama droga co rules: w
         odpowiedzi na hello. Howto opisuje MECHANIKE protokolu (nicki,
@@ -596,8 +554,8 @@ class ChatServer:
     async def _error(self, ws, text, **fields):
         """Jedno gardlo dla ramek `error` do KONKRETNEGO socketu.
 
-        Wzorzec powtarzal sie kilkanascie razy i domyka dwie rzeczy, ktore
-        dotad trzymala wylacznie dyscyplina:
+        Wzorzec wystepuje kilkanascie razy; jedno gardlo domyka dwie rzeczy,
+        ktorych sama dyscyplina nie utrzyma:
         - regula "detal implementacji NIGDY do klienta" (errno, sciezki
           absolutne) — teraz jest jedno miejsce, ktore da sie obwarowac,
         - `command_id` przenosilo sie tylko w czesci wywolan, mimo ze
@@ -619,10 +577,10 @@ class ChatServer:
                 pass
 
     async def _close_stale_sockets(self, nick):
-        # niezmiennik C: wywolywane w momencie takeover (bump generacji przy
+        # Niezmiennik a): wywolywane w momencie takeover (bump generacji przy
         # nowym hello) — zamyka KAZDY dotychczasowy socket tego nicka zanim
         # dolaczy nowy, zeby nic wiecej do nich nie trafilo (routing/_send).
-        # (6) usuniecie z conns MUSI byc SYNCHRONICZNE — przed pierwszym await.
+        # Usuniecie z conns MUSI byc SYNCHRONICZNE — przed pierwszym await.
         # Inaczej rownolegly _send (np. broadcast humanowi) w oknie miedzy
         # await send a discard dostarczylby jeszcze staremu socketowi. Najpierw
         # wypinamy z routingu (synchronicznie), dopiero potem best-effort
@@ -647,11 +605,10 @@ class ChatServer:
         """Czy ta ramka POSZLABY na zywo do tego nicka, gdyby byl podlaczony?
 
         Istnieje po to, zeby dogonienie okna takeoveru dostarczalo DOKLADNIE
-        to, co dostarczylby routing na zywo — ani mniej, ani wiecej. Pierwsza
-        wersja dogonienia replayowala wszystko po kolei i wysylala agentom
-        `takeover`, ktory z zasady idzie tylko do ludzi. Zlamalo to niezmiennik
-        "live push do agentow jest WYLACZNIE wzmiankowy" i zlapalo sie na
-        pieciu cudzych testach — kazda ramka wyslana agentowi kosztuje go
+        to, co dostarczylby routing na zywo — ani mniej, ani wiecej. Replay
+        wszystkiego po kolei wysylalby agentom `takeover`, ktory z zasady
+        idzie tylko do ludzi, i lamal niezmiennik "live push do agentow jest
+        WYLACZNIE wzmiankowy" — kazda ramka wyslana agentowi kosztuje go
         tokeny, wiec nie ma "przy okazji dosle jeszcze to"."""
         if event.get("from") == nick:
             return False
@@ -695,10 +652,9 @@ class ChatServer:
         groups_mentioned = protocol.parse_groups(text)
         known_groups = {g for gs in self.groups.values() for g in gs}
         unknown_groups = sorted(g for g in groups_mentioned if g not in known_groups)
-        # To samo dla NICKA. Asymetria kosztowala nas realna wymiane na zywym
-        # kanale 2026-07-31: agent1 napisal `@agent3 czesc` do pokoju, w ktorym
-        # bylem `agent2`. Wzmianka nie obudzila nikogo, hub nie pisnal slowa,
-        # a agent1 uznal, ze sie odezwal i ze ja "milcze". Kto istnieje, wie
+        # To samo dla NICKA: wzmianka do nieistniejacego nicka nie budzi
+        # nikogo, a bez ostrzezenia nadawca uznaje, ze sie odezwal, i czeka
+        # na odpowiedz, ktora nie przyjdzie. Kto istnieje, wie
         # WYLACZNIE hub — wiec to fizyka, nie uprzejmosc; zaden skill ani
         # konwencja tego nie zastapi. Ramka i tak idzie do logu: ostrzezenie
         # nie jest odmowa, tylko informacja, ze wolanie poszlo w prozne.
@@ -707,38 +663,30 @@ class ChatServer:
             m for m in mentions if m != "all" and m not in znani)
 
         # TRWALOSC PRZED PUBLIKACJA DOTYCZY TAKZE OSTRZEZEN, nie tylko ramki,
-        # o ktorej one mowia. Do 2026-08-16 oba ostrzezenia wychodzily WYZEJ,
-        # przed tym zapisem, a jedno z nich obiecywalo "The frame went to the
-        # log" — czyli publikowalo fakt o trwalosci, zanim trwalosc zaistniala.
-        # Gdy zapis rzucil `OSError`, nadawca dostawal obietnice logu, a chwile pozniej
-        # `storage unavailable; retry`, i musial zgadywac, ktore zdanie jest
-        # prawdziwe. Zglosila to gamma przy naprawie ostrzezenia o GRUPIE
-        # (`agentmachi_fix.md`, review 2026-08-16) i celowo nie ruszyla, bo
-        # nick nie byl jej zakresem. Po przeniesieniu obietnica nie moze
-        # wyprzedzic faktu: gdy zapis padnie, nie wychodzi zadne z tych zdan.
-        # `target` jest polem AUTORYTATYWNYM (CLAUDE.md, lista inwariantow) —
+        # o ktorej one mowia. Ostrzezenie wyslane przed zapisem publikuje fakt
+        # o trwalosci, zanim trwalosc zaistnieje: gdy zapis rzuci `OSError`,
+        # nadawca dostaje obietnice logu, a chwile pozniej `storage
+        # unavailable; retry`, i musi zgadywac, ktore zdanie jest prawdziwe.
+        # Dlatego ostrzezenia wychodza ponizej, po zapisie — gdy zapis padnie,
+        # nie wychodzi zadne z nich.
+        # `target` jest polem AUTORYTATYWNYM (AGENTS.md, lista inwariantow) —
         # a chat go nie ma: adresatow wyznacza wylacznie wzmianka w TRESCI
         # (`_publish_chat`), wiec dla ramki chat wartosc autorytatywna to BRAK.
-        # Do 2026-09-03 wartosc z klienta przechodzila nietknieta do logu i do
-        # kazdego odbiorcy. Nie byl to exploit routingu — routing jej nie czyta,
-        # co pilnuje `test_target_z_ramki_chat_nie_wplywa_na_routing` — ale
-        # ramka w logu KLAMALA o tym, kto jest adresatem, a `read`/`listen
-        # --json` oddaja ja wiernie kazdemu, kto po nia siegnie. Zdjecie MUSI
-        # byc przed `_append`: log jest tym artefaktem, ktory przezyje pokoj.
+        # Routing jej nie czyta (pilnuje tego
+        # `test_target_z_ramki_chat_nie_wplywa_na_routing`), ale ramka w logu
+        # KLAMALABY o tym, kto jest adresatem, a `read`/`listen --json` oddaja
+        # ja wiernie kazdemu, kto po nia siegnie. Zdjecie MUSI byc przed
+        # `_append`: log jest tym artefaktem, ktory przezyje pokoj.
         frame.pop("target", None)
         seq = self._append(frame)  # trwaly zapis PRZED publikacja (niezmiennik f)
         frame["seq"] = seq
         if unknown_groups:
             # Ostrzezenie musi powiedziec, co sie stalo z RAMKA, nie tylko co
-            # jest nie tak ze wzmianka. Przez rok mowilo samo "unknown group:
-            # X" i to wystarczylo, zeby dwa Claude Code (Opus 5) po dniu pracy
-            # przez kanal zapisaly w pamieci swojego projektu, ze `$nieznana`
-            # zjada cala wiadomosc (`agentmachi_fix.md`, pokoj `justjoinet`,
-            # 2026-08-15/16). Ramka szla do logu i budzila wzmianki `@nick`
-            # przez caly ten czas — objaw wziety za skutek, bo hub pokazal
-            # wylacznie objaw. `howto_default.md` mowil prawde ("still logs
-            # your frame"), ale w miejscu, do ktorego nie zaglada sie
-            # z komunikatem bledu przed oczami.
+            # jest nie tak ze wzmianka. Samo "unknown group: X" agenci biora
+            # za "`$nieznana` zjada cala wiadomosc" i zapisuja to sobie jako
+            # fakt — choc ramka idzie do logu i budzi wzmianki `@nick`.
+            # Howto mowi prawde, ale nie tam, gdzie patrzy sie z komunikatem
+            # bledu przed oczami.
             #
             # "no participant has that group" jest doslowne, nie retoryczne:
             # `known_groups` liczy sie z CALEGO rejestru, wiec grupa, ktorej
@@ -746,17 +694,10 @@ class ChatServer:
             # regula co dla wzmianki do rozlaczonego nicka). Grupa pusta nie
             # istnieje — czlonkostwo JEST jej istnieniem.
             #
-            # CZAS GRAMATYCZNY byl tu wymuszony, gdy oba ostrzezenia wychodzily
-            # PRZED `self._append` — wtedy zdanie "ramka poszla do logu" bylo
-            # w chwili wyslania jeszcze nieprawda i gamma slusznie napisala
-            # o REGULE routingu zamiast o dokonanym losie ramki. Ograniczenie
-            # zniknelo: warunki liczymy nadal tutaj, ale SAME RAMKI wychodza
-            # ponizej, po zapisie. Tekst zostaje bez zmian, bo regula jest
-            # prawdziwa tak samo po zapisie jak przed nim.
             # Do GNIAZDA nadawcy (`_error(ws, ...)` jak kazdy inny blad),
             # nie do wszystkich gniazd nicka: `send` dzieli tozsamosc
-            # z nasluchem, ktory pod --wake budzil agenta drugi raz o tym
-            # samym (2026-11-02: kb `@7d92bd7`, opus `$grupa`).
+            # z nasluchem, ktory pod --wake budzilby agenta drugi raz o tym
+            # samym.
             await self._error(
                 ws,
                 f"unknown group: {', '.join(unknown_groups)} — no "
@@ -769,14 +710,11 @@ class ChatServer:
         if nieznane_nicki:
             # "zaden AGENT", nie "nikt". Ludzie dostaja kazdy chat niezaleznie
             # od wzmianek (_publish_chat dokłada wszystkie podlaczone role
-            # human), wiec zdanie "nikogo nie obudzila" bylo NIEPRAWDA przy
-            # podlaczonym czlowieku: hub mowil "nikogo" i rownoczesnie
-            # dorecza1. Zlapane E2E przez agent1 (S16) na scenariuszu, ktorego
-            # moj wlasny test nie mial — bo sprawdzalem tylko nadawce.
-            # Drugi raz to samo, wezej niz wystepowalo: "NO AGENT woke up"
-            # padalo takze, gdy ta sama ramka budzila poprawna wzmianke
-            # (`@beta css: @font-face`) — audyt 2026-09-02, logi ats_create.
-            # Tekst wzorowany 1:1 na galezi grupowej wyzej.
+            # human), wiec "nikogo nie obudzila" byloby NIEPRAWDA przy
+            # podlaczonym czlowieku. I "przez TE wzmianke", nie "ta ramka":
+            # ta sama ramka moze budzic poprawna wzmianke
+            # (`@beta css: @font-face`). Tekst wzorowany 1:1 na galezi
+            # grupowej wyzej.
             await self._error(
                 ws,
                 f"unknown nick: {', '.join(nieznane_nicki)} — there is no "
@@ -805,11 +743,10 @@ class ChatServer:
 
     @staticmethod
     def _validate_role(value):
-        # (7) role deklarowana w hello jest tylko WALIDOWANA (przypisanie
-        # pochodzi z configu serwera — niezmiennik d/H) — ale jesli podana,
+        # Role deklarowana w hello jest tylko WALIDOWANA (przypisanie
+        # pochodzi z configu serwera — niezmiennik d) — ale jesli podana,
         # musi byc NIEPUSTYM stringiem (AGENTS.md: typ + niepustosc). role=[]
-        # oraz role="" to blad wejscia do nadawcy. (Runda 6 #4: "" przechodzil,
-        # bo "" jest str — teraz jawnie odrzucony.)
+        # oraz role="" to blad wejscia do nadawcy.
         if value is not None and (not isinstance(value, str) or not value):
             raise AuthError(f"invalid role: {value!r}")
         return value
@@ -826,7 +763,7 @@ class ChatServer:
         howto_text = self._load_howto()
         if howto_text is not None:
             extra["howto"] = howto_text
-        # (t2 review + B4 agent-first) roster musi byc cursor-coherent
+        # Roster musi byc cursor-coherent
         # i JAWNY dla kazdego uczestnika: czlowiek renderuje z niego TUI,
         # agent czyta board ("kto tu jest, kto co robi") — starsze ramki
         # status leza przed oknem kontekstu agenta, wiec snapshot w hello
@@ -840,10 +777,10 @@ class ChatServer:
         """Hello `peek`: ta sama odpowiedz, ZERO sladu w pokoju.
 
         `board` i `read` pytaja "kto tu jest" / "co jest w logu". Pelne
-        hello dopisywalo patrzacego do rejestru na stale (literowka w
-        `--nick` tworzyla nick-ducha, ktory gasil ostrzezenie "unknown
-        nick"), wpinalo go do `conns` (board pokazywal pytajacego jako
-        connected) i dopisywalo event do logu (patrzenie postarzalo kazdy
+        hello dopisaloby patrzacego do rejestru na stale (literowka w
+        `--nick` tworzylaby nick-ducha, ktory gasi ostrzezenie "unknown
+        nick"), wpieloby go do `conns` (board pokazywalby pytajacego jako
+        connected) i dopisalo event do logu (patrzenie postarzaloby kazdy
         status). Tu: auth przeszedl na klonie, klon idzie do kosza, nic
         nie trafia na dysk, socket nie wchodzi do `conns`, odpowiedz i koniec.
 
@@ -883,7 +820,7 @@ class ChatServer:
                 await ws.close(code=1008, reason="invalid json")
                 return
             if not isinstance(frame, dict):
-                # niezmiennik E: skalar/lista jako JSON nie moze zabic
+                # niezmiennik e): skalar/lista jako JSON nie moze zabic
                 # handlera przez .get() na nie-dict — error + jawne zamkniecie
                 await self._error(ws, "frame must be a JSON object")
                 await ws.close(code=1008, reason="frame must be a JSON object")
@@ -891,10 +828,9 @@ class ChatServer:
             if frame.get("type") != "hello":
                 await self._error(ws, "the first frame must be hello")
                 return
-            # (Runda 5 C3) pierwsze hello przez WSPOLNY schemat (type/from/ts)
-            # PRZED auth — dotad hello NIGDY nie przechodzilo przez
-            # protocol.validate, wiec hello bez ts / z from=[] dostawalo ok i
-            # bylo logowane (niestandardowy/niekompletny event). Gleboka
+            # Pierwsze hello przez WSPOLNY schemat (type/from/ts) PRZED auth —
+            # inaczej hello bez ts / z from=[] dostaje ok i trafia do logu
+            # (niestandardowy/niekompletny event). Gleboka
             # walidacja hello (instance_id/token/last_seq/groups/role) zostaje w
             # identity/serwerze ponizej.
             hello_err = protocol.validate(frame)
@@ -902,7 +838,7 @@ class ChatServer:
                 await self._error(ws, hello_err)
                 return
             nick_candidate = frame.get("from")
-            # niezmiennik C: generacja SPRZED tego hello — potrzebna zeby
+            # niezmiennik a): generacja SPRZED tego hello — potrzebna zeby
             # odroznic zwykly reconnect (ten sam instance_id, bez bumpa) od
             # faktycznego takeover (bump), zeby wiedziec czy stare sockety
             # trzeba zamknac natychmiast
@@ -910,7 +846,7 @@ class ChatServer:
                        if isinstance(nick_candidate, str) else 0)
             try:
                 last_seq = self._validate_last_seq(frame.get("last_seq"))
-                # (7) kursor spoza logu (last_seq > serwerowy last_seq) to
+                # Kursor spoza logu (last_seq > serwerowy last_seq) to
                 # jawny blad — klient nie mogl widziec eventow, ktorych serwer
                 # nie ma; bez tego dostawalby ciche ok+pusty backlog.
                 #
@@ -918,10 +854,8 @@ class ChatServer:
                 # zaulkiem: kursor klienta jest per host:port (patrz
                 # send.hub_id_from_url), wiec KAZDY nowy hub postawiony na
                 # porcie po poprzednim dziedziczy jego kursory i zamurowuje
-                # wszystkich, ktorzy tam wczesniej byli. Zlapane na zywym
-                # pokoju 2026-07-26: TUI czlowieka nie wchodzilo na swiezy
-                # hub, bo plik sesji pamietal seq 269 z poprzedniego huba na
-                # tym samym porcie. Reset kursora robi CZLOWIEK — kontrakt
+                # wszystkich, ktorzy tam wczesniej byli. Reset kursora robi
+                # CZLOWIEK — kontrakt
                 # client_session jest fail-closed i nie resetuje po cichu.
                 if last_seq > self.log.last_seq:
                     raise CursorBeyondLog(
@@ -932,12 +866,12 @@ class ChatServer:
                         f"same port. Fix: delete your session file "
                         f"(~/.chat-sessions/<nick>-<hash>.json) = a "
                         f"deliberate full resync from zero")
-                # niezmiennik H: groups/role w hello sa TYLKO walidowane —
+                # niezmiennik d): groups/role w hello sa TYLKO walidowane —
                 # przypisanie faktyczne pochodzi WYLACZNIE z configu serwera
                 # (registry.role_of/groups_of), nigdy z deklaracji klienta.
                 self._validate_groups(frame.get("groups"))
                 self._validate_role(frame.get("role"))
-                # (Runda 7) PROVISIONAL-THEN-COMMIT dla Registry: hello mutuje
+                # PROVISIONAL-THEN-COMMIT dla Registry: hello mutuje
                 # tozsamosc (bump generacji + zapis
                 # instance) na KLONIE, nie na live. AuthError leci Z KLONA ZANIM
                 # cokolwiek trwalego/live sie zmieni (auth-fail => error, zero
@@ -946,13 +880,13 @@ class ChatServer:
                 # dicty (nick->gen, nick->instance), wiec deepcopy-per-hello to
                 # swiadomy, tani trade-off — hello jest rzadki (nie hot-path).
                 trial_registry = copy.deepcopy(self.registry)
-                # B6: w trybie otwartym agent moze wejsc BEZ tokenu. Rola
+                # W trybie otwartym agent moze wejsc BEZ tokenu. Rola
                 # human wymaga go zawsze (open_hello odmawia), a tryb otwarty
                 # wlacza sie wylacznie przy bindzie loopback/tailnet — patrz
-                # _open_mode(). Nick zajety przez ZYWE polaczenie nie jest
+                # _open_bind(). Nick zajety przez ZYWE polaczenie nie jest
                 # odbierany (nizej): martwe sockety wypadaja same dzieki
                 # keepalive, wiec "zajety" znaczy "zajety naprawde".
-                # B7: adres, do ktorego to hello przypina tozsamosc. Musi byc
+                # Adres, do ktorego to hello przypina tozsamosc. Musi byc
                 # zwiazany PRZED galezia, bo sciezka tokenowa go nie ustawia,
                 # a event budujemy wspolnie dla obu.
                 open_addr = None
@@ -966,7 +900,7 @@ class ChatServer:
                     if not zadany:
                         zadany = self._wolny_nick()
                         frame["from"] = zadany
-                    # B7: adres wiazania. Aktywny TYLKO przy bindzie na
+                    # Adres wiazania. Aktywny TYLKO przy bindzie na
                     # interfejs tailnetu — wtedy remote_address peera to jego
                     # prawdziwy adres. Przy bind-loopback adres nie rozroznia
                     # podmiotow (addr = None -> open_hello nie wiaze).
@@ -991,27 +925,26 @@ class ChatServer:
                     # Odmowa TYLKO gdy zywy nick nalezy do INNEGO instance_id.
                     # Ten sam instance = wlasny self-resume/self-send (send/frame
                     # wspoldziela tozsamosc listenera, zeby nie robic takeoveru)
-                    # — musi przejsc jak na sciezce tokenowej. Bez tego zdalny
-                    # agent bez tokenu nie mogl wyslac ramki trzymajac nasluch
-                    # (finding Opuska: obietnica polowiczna, tylko dla nasluchu).
+                    # — musi przejsc jak na sciezce tokenowej. Bez tego
+                    # zdalny agent bez tokenu nie moze wyslac ramki,
+                    # trzymajac nasluch.
                     if (isinstance(zadany, str) and self.conns.get(zadany)
                             and trial_registry.role_of(zadany) != "human"
                             and self.registry.instance_of(zadany)
                                 != frame.get("instance_id")):
                         wolny = self._wolny_nick()
-                        # C4: propozycja idzie POLEM, nie tylko w tresci.
+                        # Propozycja idzie POLEM, nie tylko w tresci.
                         # Tekst czyta czlowiek; klient potrzebuje wartosci,
                         # ktorej nie musi wydlubywac ze stringa. Bez tego
-                        # agent, ktoremu nick zajal ktos inny, po prostu
-                        # umiera — zmierzone na kanale rube: Codex utknal
-                        # na kilkanascie minut, majac propozycje przed oczami.
+                        # agent, ktoremu nick zajal ktos inny, utyka, majac
+                        # propozycje przed oczami.
                         await self._error(
                             ws,
                             f"nick {zadany} is taken by a connected "
                             f"participant; free nick: {wolny}",
                             suggested_nick=wolny)
                         return
-                    # B7 host-check + zapis wiazania — w open_hello, na trial
+                    # Host-check + zapis wiazania — w open_hello, na trial
                     # (provisional-then-commit). Inny adres na przypiety nick =
                     # AuthError (lapane nizej jak kazdy blad open_hello).
                     generation = trial_registry.open_hello(
@@ -1033,25 +966,24 @@ class ChatServer:
             nick = frame["from"]
             # role jest stala z configu; groups to aktualny, trwaly stan
             # serwera. Deklaracja hello zadnego z nich nie nadpisuje.
-            # Z KLONA, nie z live: w trybie otwartym (B6) nowy nick dostaje
-            # role i grupy dopiero w open_hello, czyli na klonie — live
-            # jeszcze go nie zna, bo swap nastepuje po durable appendzie.
-            # Czytanie z live dawalo agentowi PUSTE grupy: technicznie na
-            # kanale, praktycznie gluchy na $workers (zlapane na zywym pokoju,
-            # testy jednostkowe Registry tego nie widzialy).
+            # Z KLONA, nie z live: w trybie otwartym nowy nick dostaje role
+            # i grupy dopiero w open_hello, czyli na klonie — live jeszcze go
+            # nie zna, bo swap nastepuje po durable appendzie. Czytanie z live
+            # daloby agentowi PUSTE grupy: technicznie na kanale, praktycznie
+            # gluchy na wzmianki grupowe.
             role = trial_registry.role_of(nick)
             groups = trial_registry.groups_of(nick)
             # backlog liczony PRZED zalogowaniem WLASNEGO hello — inaczej
             # klient zawsze widzialby wlasna ramke hello w swoim backlogu i
             # "last_seq == biezacy cursor" po reconnnekcie nigdy by nie
             # dawalo pustego backlogu (por. test_reconnect_resumes_from_last_seq)
-            # KONTRAKT (B3, zadanie 2): backlog jest NIEFILTROWANY. Filtr wzmianek
+            # KONTRAKT: backlog jest NIEFILTROWANY. Filtr wzmianek
             # dotyczy wylacznie live push (_publish_chat) — spiacy agent nie placi
             # za cudza rozmowe. Replay od kursora zwraca pelny log kazdemu
             # uwierzytelnionemu: selekcje robi node/agent, nie hub. Node (wake)
             # pobiera tedy kontekst — filtr tutaj = amnezja agentow tylnymi drzwiami.
             #
-            # C2 (wejscie fresh): agent wpuszczony po NIEZALEZNA perspektywe
+            # Wejscie fresh: agent wpuszczony po NIEZALEZNA perspektywe
             # nie moze dostac cudzego rozumowania — po dostarczeniu nie da
             # sie go "nie przeczytac", kotwica siedzi juz w oknie kontekstu.
             # Zadna instrukcja w howto tego nie cofnie, wiec to fizyka, nie
@@ -1072,7 +1004,7 @@ class ChatServer:
                 nick = None   # finally nie ma czego wypinac z conns
                 return
             backlog = self.log.events_after(last_seq)
-            # niezmiennik A + (Runda 7) DURABLE-FIRST: mutacja tozsamosci jest
+            # DURABLE-FIRST (niezmiennik f): mutacja tozsamosci jest
             # TRWALA PRZED live-swapem i JAKIMKOLWIEK side-effectem. Durable
             # append NAJPIERW (bez tokenu — sekret nigdy na dysk; bez auto-
             # snapshotu, patrz _maybe_snapshot na koncu). Gdy rzuci (np. OSError/
@@ -1085,9 +1017,9 @@ class ChatServer:
                 # `open_addr` w EVENCIE, nie tylko w snapshocie: w trybie
                 # otwartym wiazanie nick->adres jest JEDYNYM dowodem
                 # tozsamosci (nie ma tokenu), a snapshot zapisuje sie co
-                # SNAPSHOT_EVERY eventow. Hello po ostatnim snapshocie ginelo
-                # wiec przy crashu — i podszywacz odbijany przed padem
-                # przechodzil po nim (drugie review Codexa). Pole nie kosztuje
+                # SNAPSHOT_EVERY eventow. Bez tego hello po ostatnim
+                # snapshocie ginie przy crashu — i podszywacz odbijany przed
+                # padem przechodzi po nim. Pole nie kosztuje
                 # agentow kontekstu: `wire_backlog` wycina hello z drutu,
                 # a hello nie jest w CONVERSATION_TYPES. Na DYSKU jest jawne —
                 # kto czyta events.jsonl, widzi adresy peerow. To ten sam
@@ -1102,8 +1034,8 @@ class ChatServer:
                     # zeby replay wiedzial, czy brak adresu znaczy "to hello
                     # swiadomie nic nie wiazalo" (token / bind loopback), czy
                     # "log sprzed tego pola, nie wiadomo". Bez klucza replay
-                    # brał legalne hello TOKENOWE za stary format i nakladal
-                    # na nie zaslepke (jedenaste review Codexa).
+                    # bierze legalne hello TOKENOWE za stary format i naklada
+                    # na nie zaslepke.
                     open_addr=open_addr))
                 # KONIEC BACKLOGU zamrozony TUTAJ, nie przy budowaniu
                 # odpowiedzi. Miedzy tym punktem a wyslaniem reply sa awaity
@@ -1132,11 +1064,11 @@ class ChatServer:
             # POTEM side-effects (takeover close + rejestracja socketu).
             self.registry = trial_registry
             if generation != old_gen:
-                # niezmiennik C: takeover — odetnij stare sockety TERAZ (po
+                # niezmiennik a): takeover — odetnij stare sockety TERAZ (po
                 # trwalym fakcie), nie dopiero przy ich kolejnej (moze nigdy nie
                 # nadejsc) ramce
                 await self._close_stale_sockets(nick)
-            # F3 (B5): slad TYLKO dla faktycznego wyparcia. old_gen == 0 to
+            # Slad TYLKO dla faktycznego wyparcia. old_gen == 0 to
             # pierwsze hello tego nicka — nikogo nie wypiera, wiec nie ma o
             # czym meldowac (reconnect z tym samym instance_id nie bumpuje
             # generacji, wiec tez tu nie wpada).
@@ -1147,13 +1079,13 @@ class ChatServer:
             self.groups[nick] = set(groups)
             extra = self._orientacja()
             if backlog is None:
-                # niezmiennik B: resync spojny — snapshot_seq zwracany
+                # niezmiennik b): resync spojny — snapshot_seq zwracany
                 # klientowi musi etykietowac DOKLADNIE ten state, ktory
                 # wysylamy. Gdy stan rozni sie od tego na dysku, swiezy
                 # atomowy snapshot jest obowiazkowy. Gdy jest IDENTYCZNY,
                 # kolejna kompakcja bylaby nie tylko zbedna, ale szkodliwa:
-                # dwa klienty listen --once przeskakiwaly sobie snapshotem
-                # po kazdym bezmutacyjnym hello i zaden nigdy nie blokowal.
+                # dwa klienty listen --once przeskakiwalyby sobie snapshotem
+                # po kazdym bezmutacyjnym hello i zaden nigdy by nie blokowal.
                 #
                 # W tym drugim przypadku biezacy last_seq jest legalna,
                 # swieza etykieta TEGO SAMEGO stanu. Nie zmieniamy globalnego
@@ -1167,13 +1099,13 @@ class ChatServer:
                     wire_snapshot_seq = self.log.snapshot_seq
                 else:
                     wire_snapshot_seq = self.log.last_seq
-                # (Runda 4 #4) wire resync state = DOKLADNIE persisted snapshot
-                # state ({registry, status}), nie okrojony.
-                # F1 (B5): resync niesie takze PAMIEC kanalu. `state` odtwarza
-                # rejestr i board (registry/status), ale rozmowy nie odtworzy
-                # nic — a to ona jest jedyna pamiecia agenta. Bez tego agent
-                # po kompakcji wchodzil na kanal, na ktorym "nic sie nigdy nie
-                # wydarzylo" (zmierzone na produkcji: 105 ramek dogfoodu).
+                # Wire resync state = DOKLADNIE persisted snapshot state
+                # (_stan_trwaly), nie okrojony.
+                # Resync niesie takze PAMIEC kanalu. `state` odtwarza rejestr
+                # i board (registry/status), ale rozmowy nie odtworzy nic —
+                # a to ona jest jedyna pamiecia agenta. Bez tego agent po
+                # kompakcji wchodzi na kanal, na ktorym "nic sie nigdy nie
+                # wydarzylo".
                 reply = protocol.make_frame(
                     "resync_required", "server", time.time(),
                     nick=nick,   # KIM jestes — takze na sciezce resync, nie
@@ -1188,11 +1120,11 @@ class ChatServer:
                                   for e in self.log.conversation_after(last_seq)],
                     generation=generation, role=role, groups=list(groups), **extra)
             else:
-                # F2 (B5): backlog NA DRUCIE pomija ramki hello (zmierzone na
-                # produkcji: 54% backlogu to cudze hello). Log na dysku je
-                # zachowuje (potrzebne do replayu generacji przy restarcie) —
-                # filtrujemy wylacznie to, co idzie do klienta. Roster i tak
-                # przychodzi autorytatywnie w participants (B4), wiec agent
+                # Backlog NA DRUCIE pomija ramki hello (bywaja ponad polowa
+                # backlogu). Log na dysku je zachowuje (potrzebne do replayu
+                # generacji przy restarcie) — filtrujemy wylacznie to, co
+                # idzie do klienta. Roster i tak przychodzi autorytatywnie
+                # w participants, wiec agent
                 # placi kontekstem za czysty szum bez tego filtra. last_seq
                 # PONIZEJ zostaje self.log.last_seq (prawdziwy koniec logu),
                 # NIGDY seq ostatniej ramki po filtrowaniu — inaczej klient
@@ -1204,7 +1136,7 @@ class ChatServer:
                 reply = protocol.make_frame(
                     "ok", "server", time.time(),
                     nick=nick,   # KIM jestes — jawnie, nie do wywnioskowania
-                                 # z participants (B6 review: agent bez
+                                 # z participants (agent bez
                                  # wlasnej propozycji nicka inaczej nie wie,
                                  # kim zostal, a przy dwoch swiezych
                                  # wejsciach naraz zgadywanie sie lamie)
@@ -1223,15 +1155,15 @@ class ChatServer:
             # `snapshot()`, granica lezy ZA `koniec_backlogu` i dostajemy
             # None. Gdy stan byl identyczny z persisted snapshotem, globalna
             # granica sie nie rusza i dogonienie normalnie zwraca eventy.
-            # `or ()` obsluguje obie legalne sciezki. Pierwsza wersja
-            # iterowala po None wprost i wywalala handler kodem 1011.
+            # `or ()` obsluguje obie legalne sciezki; iteracja po None wprost
+            # wywala handler kodem 1011.
             #
             for zdarzenie in (self.log.events_after(koniec_backlogu) or ()):
                 if self._bylby_adresatem(zdarzenie, nick, role, groups):
                     await ws.send(protocol.dumps(
                         protocol.clamp_frame(zdarzenie)))
             await self._push_presence(nick, True)
-            # (Runda 7) hello append jest durable-only (bez auto-snapshotu) —
+            # Hello append jest durable-only (bez auto-snapshotu) —
             # domykamy polityke snapshot-co-100 tutaj, PO swapie live=klon, zeby
             # ewentualny snapshot #100 zlapal juz NOWA generacje. Resync,
             # ktory zmienil stan, zrobil pelny snapshot() wyzej (licznik=0);
@@ -1258,8 +1190,7 @@ class ChatServer:
 
         Bez tego wyparty agent znika po cichu: dla reszty kanalu wciaz jest
         "connected", a jego nasluch juz nic nie slyszy — agent-widmo, ktory
-        milczy i nikt nie wie dlaczego. Zdarzylo sie w dogfoodzie B5
-        i kosztowalo godzine szukania winy w kliencie. Slad jest TRWALY
+        milczy i nikt nie wie dlaczego. Slad jest TRWALY
         (nie efemeryczny jak presence), bo pytanie "dlaczego zamilkl" pada
         PO fakcie.
 
@@ -1267,11 +1198,10 @@ class ChatServer:
         `_close_stale_sockets` — opisuje fakt JUZ utrwalony. Wewnatrz
         kolejnosc jest czescia kontraktu: durable append PRZED publikacja.
 
-        Wydzielone z _handler, bo petla rozgloszenia miala zmienna `role`,
-        ktora REBINDOWALA autorytatywna role wchodzacego, ustawiona kilkadziesiat
-        linii wyzej w tym samym scope. Wlasny scope funkcji czyni te klase
-        bledu niemozliwa — patrz test_takeover_nie_podmienia_roli_gdy_human_
-        wszedl_ostatni."""
+        Osobna funkcja, bo petla rozgloszenia w _handler REBINDOWALABY
+        zmienna `role` — autorytatywna role wchodzacego z tego samego scope.
+        Wlasny scope funkcji czyni te klase bledu niemozliwa — patrz
+        test_takeover_nie_podmienia_roli_gdy_human_wszedl_ostatni."""
         takeover = protocol.make_frame(
             "takeover", "server", time.time(), nick=nick,
             generation=generation, previous_generation=old_gen,
@@ -1308,7 +1238,7 @@ class ChatServer:
                 await self._error(ws, "invalid json")
                 continue
             if not isinstance(frame, dict):
-                # niezmiennik E: w petli — error bez rozlaczania
+                # niezmiennik e): w petli — error bez rozlaczania
                 await self._error(ws, "frame must be a JSON object")
                 continue
             try:
@@ -1316,11 +1246,10 @@ class ChatServer:
             except websockets.exceptions.ConnectionClosed:
                 # ROZLACZENIE, NIE AWARIA. ConnectionClosed nie jest podklasa
                 # OSError (MRO: ConnectionClosed -> WebSocketException ->
-                # Exception), wiec bez tej galezi wpadalo nizej i logowalo
-                # pelny traceback jako "internal frame failure". Zmierzone:
-                # rutynowe rozlaczenia zglaszane jako wewnetrzna awaria
-                # serwera, czyli rozcienczanie jedynego sygnalu, ktory ma
-                # cos znaczyc dla operatora. Wychodzimy z petli — obsluge
+                # Exception), wiec bez tej galezi wpada nizej i loguje pelny
+                # traceback jako "internal frame failure" — rutynowe
+                # rozlaczenia rozcienczaja jedyny sygnal, ktory ma cos
+                # znaczyc dla operatora. Wychodzimy z petli — obsluge
                 # przejmuje `except ConnectionClosed` w _handler.
                 raise
             except OSError:
@@ -1357,9 +1286,10 @@ class ChatServer:
             # gdyby ktorys przyszly typ znow go wprowadzil.
             await self._error(ws, err, command_id=frame.get("command_id"))
             return False
-        # niezmiennik D: pola autorytatywne (seq/generation/groups/role) nadaje
-        # WYLACZNIE serwer. membership_set.groups jest tylko zwalidowanym
-        # zadaniem zmiany; handler zapisze znormalizowany wynik serwera.
+        # niezmiennik f): pola autorytatywne (seq/generation/groups/role)
+        # nadaje WYLACZNIE serwer. membership_set.groups jest tylko
+        # zwalidowanym zadaniem zmiany; handler zapisze znormalizowany wynik
+        # serwera.
         ftype = frame["type"]
         requested_groups = frame.get("groups") if ftype == "membership_set" else None
         for field in ("seq", "generation", "groups", "role"):
@@ -1369,10 +1299,8 @@ class ChatServer:
             await self._handle_chat(frame, nick, ws)
         elif ftype == "fyi":
             # PUBLIKACJA, NIE ZAWOLANIE: do logu i do ludzi, ale nie budzi
-            # zadnego agenta. Typ istnieje od planu B1, tylko nie byl nigdzie
-            # opisany — przez dwa dogfoody agenci pisali ramki po 3 tys.
-            # znakow, bo jedynym znanym sposobem publikacji bylo obudzenie
-            # wszystkich. Brakowalo odkrywalnosci, nie mechanizmu.
+            # zadnego agenta. Bez niego jedyna droga publikacji jest
+            # obudzenie wszystkich.
             seq = self._append(frame)
             frame["seq"] = seq
             for odbiorca, rola in list(self.roles.items()):
@@ -1380,13 +1308,11 @@ class ChatServer:
                     await self._send(odbiorca, frame)
         elif ftype == "status":
             target = frame.get("target") or nick
-            # C2: prawo do CUDZEGO statusu nalezy do klasy uprawnien
-            # (`admin`), nie do roli organizacyjnej. Grupa `orchestrator`
-            # dawala dokladnie to jedno prawo i nic wiecej — czyli byla
-            # stanowiskiem wpisanym w silnik, a konstytucja mowi, ze
+            # Prawo do CUDZEGO statusu nalezy do klasy uprawnien (`admin`),
+            # nie do roli organizacyjnej: grupa dajaca tylko to jedno prawo
+            # bylaby stanowiskiem wpisanym w silnik, a konstytucja mowi, ze
             # strukture zespolu wybieraja agenci, nie hub. `admin` ma juz
-            # lancuch zaufania (wprowadza human/admin przez membership_set),
-            # wiec zadna mozliwosc nie ginie; ginie nazwa stanowiska.
+            # lancuch zaufania (wprowadza human/admin przez membership_set).
             if target != nick and not (
                     self.registry.role_of(nick) == "human"
                     or "admin" in self.registry.groups_of(nick)):
@@ -1395,32 +1321,18 @@ class ChatServer:
                         "human or the admin group")
                 return False
             frame["target"] = target  # pole autorytatywne: server-side default
-            # DURABLE -> MUTACJA -> dopiero potem ewentualny snapshot. Reguly
-            # z docstringu modulu: "mutacje wymagajace domkniecia stanu MIEDZY
-            # (trwaly event) a (ewentualny snapshot) wstawiaja swoj efekt PO
-            # udanym appendzie, a PRZED snapshotem".
-            #
-            # Bylo tu `self._append(frame)` (durable + snapshot naraz), a
-            # mutacja self.status stala PO nim. Ramka status wypadajaca jako
-            # event #100 trafiala wiec do snapshotu ze STARYM stanem, mimo ze
-            # snapshot byl etykietowany jej wlasnym seq — a kompakcja usuwala
-            # ja z logu, bo `status` nie jest w CONVERSATION_TYPES. Deklaracja
-            # przepadala bezpowrotnie. Czysty stop() to leczyl (robi wlasny
-            # snapshot), wiec objaw byl widoczny dopiero po PADZIE huba.
-            # `_on_membership_set` robil to poprawnie od poczatku; status byl
-            # jedynym miejscem lamiacym te regule (zlapane 2026-07-31).
+            # DURABLE -> MUTACJA -> dopiero potem ewentualny snapshot (regula
+            # z _append_durable). Przy `self._append(frame)` (durable
+            # + snapshot naraz) z mutacja PO nim ramka status wypadajaca jako
+            # event #100 trafia do snapshotu ze STARYM stanem, etykietowanego
+            # jej wlasnym seq — a kompakcja usuwa ja z logu, bo `status` nie
+            # jest w CONVERSATION_TYPES. Deklaracja przepada bezpowrotnie,
+            # a widac to dopiero po PADZIE huba (czysty stop() robi wlasny
+            # snapshot).
             seq = self._append_durable(frame)
             frame["seq"] = seq
-            # `seq` przy statusie: board bez niego KLAMIE, a nie milczy.
-            # Zmierzone na koncu dogfoodu kinas-machine — snapshot huba po
-            # kilku godzinach pracy dwoch agentow:
-            #   worker1: idle
-            #   worker2: working "core gotowy, buduje polowe A"
-            # Pierwszy pracowal bez przerwy, drugi skonczyl polowe A wiele
-            # godzin wczesniej i budowal co innego. Obaj znali regule 7
-            # i zadnego z nich nie zaktualizowali — bo przy dwoch agentach
-            # kazda wiadomosc i tak szla wprost do drugiego, a status bylby
-            # jej ubozszym duplikatem.
+            # `seq` przy statusie: board bez niego KLAMIE, a nie milczy
+            # (patrz _participants_snapshot).
             # Wiek deklaracji zna WYLACZNIE serwer (agent nie widzi cudzego
             # zegara ani cudzego seq w chwili zapisu). Nie wygaszamy statusu
             # i nie wymuszamy aktualizacji — to byloby kodowanie zachowania.
@@ -1430,9 +1342,9 @@ class ChatServer:
                                    if k in frame}
             self.status_seq[target] = seq
             self._maybe_snapshot()   # dopiero TERAZ — stan jest juz domkniety
-            # Etap 1 (laka-nie-obora): status to CZYSTY fakt na boardzie —
-            # zero side-effectu schedulera. `state=idle` nie dopisuje juz do
-            # kolejki round-robin ani nie wyzwala oferty. Board jest pasywny.
+            # Status to CZYSTY fakt na boardzie — zero side-effectu
+            # schedulera: `state=idle` nie dopisuje do zadnej kolejki ani nie
+            # wyzwala oferty. Board jest pasywny.
             for observer, role in list(self.roles.items()):
                 if role == "human" and observer != nick:
                     # live board dla TUI; agenci dostaja tylko backlog/preambule
@@ -1446,7 +1358,7 @@ class ChatServer:
                 self.workspace[nick] = stan
             else:
                 # pusta ramka: listener z opt-outem albo spoza repo odwoluje
-                # to, co zostalo po poprzednim wejsciu (review codex P2)
+                # to, co zostalo po poprzednim wejsciu
                 self.workspace.pop(nick, None)
             for observer, role in list(self.roles.items()):
                 if role == "human" and observer != nick:
@@ -1461,34 +1373,29 @@ class ChatServer:
         return False
 
     async def _on_kick(self, frame, nick, ws):
-        """B6: moderacja czlowieka — jedyna odpowiedz na pytanie 'kim jestes'
-        w kanale bez tokenow dla agentow.
+        """Moderacja — jedyna odpowiedz na pytanie 'kim jestes' w kanale bez
+        tokenow dla agentow.
 
-        Uprawnienie ma WYLACZNIE rola human (a human zawsze ma token, wiec
-        to realne uprawnienie, nie umowa). Swiadomie WEZSZE niz przy
-        membership_set, gdzie wystarczy grupa admin: zmiana grup jest
-        odwracalna i wewnetrzna, a kick ODCINA uczestnika od kanalu.
+        Uprawnienie ma rola human (a human zawsze ma token, wiec to realne
+        uprawnienie, nie umowa) albo grupa admin — patrz nizej.
         """
         now = time.time()
         target = frame["target"]
         # Moderacja: rola human ZAWSZE, plus grupa admin (agent, ktoremu
         # czlowiek jawnie ja nadal). Lancuch zaufania zostaje: do admina
         # wprowadza wylacznie human/admin przez membership_set, wiec agent nie
-        # da sobie tej mocy sam. (B6 mial kick human-only; rozszerzone na
-        # rozkaz roota — rule 2 rules.md.)
+        # da sobie tej mocy sam.
         if (self.registry.role_of(nick) != "human"
                 and "admin" not in self.registry.groups_of(nick)):
             await self._error(
                 ws, "forbidden: kick requires the human role or the admin "
                     "group")
             return
-        # Kick dziala na TOZSAMOSCI, nie na sockecie. Wczesniej wymagal
-        # zywego polaczenia — i to zamykalo jedyna droge wyjscia z zaslepki
-        # UNRESOLVED_ADDR: nick, ktorego wiazania nie dalo sie odtworzyc
-        # z logu, jest z definicji ROZLACZONY, wiec moderator nie mial go jak
-        # zwolnic. Reklamowalem te droge w komunikacie open_hello, a mojego
-        # testu przeszla tylko dlatego, ze wolal release_open_addr WPROST,
-        # z pominieciem kicka (dziewiate review Codexa).
+        # Kick dziala na TOZSAMOSCI, nie na sockecie. To jedyna droga wyjscia
+        # z zaslepki UNRESOLVED_ADDR (reklamuje ja komunikat open_hello),
+        # a nick, ktorego wiazania nie dalo sie odtworzyc z logu, jest
+        # z definicji ROZLACZONY — kick wymagajacy zywego polaczenia nie
+        # mialby go jak zwolnic.
         #
         # Nieznany nick nadal odbija sie z bledem: moderacja ma dzialac na
         # uczestnikach tego pokoju, nie na dowolnym stringu.
@@ -1505,36 +1412,25 @@ class ChatServer:
         # ZANIM zwolnimy wiazanie — snapshot utrwala stare (albo
         # UNRESOLVED_ADDR), a kick laduje NA snapshot_seq, wiec replay go nie
         # powtorzy. Moderator dostaje `ok`, a po restarcie tozsamosc jest
-        # znowu zablokowana. Dziesiate review Codexa; ten sam blad kolejnosci
-        # naprawialem tego dnia dla status i nie rozejrzalem sie, gdzie
-        # jeszcze siedzi.
+        # znowu zablokowana.
         seq = self._append_durable(event)
-        # B7: rozkaz roota bije wiazanie — zwolnij przypiecie nick->adres,
+        # Rozkaz moderatora bije wiazanie — zwolnij przypiecie nick->adres,
         # zeby ten sam agent po re-IP (albo ktos inny) mogl wejsc na ten nick
         # z nowego adresu, a nick z zaslepka UNRESOLVED_ADDR mial jak wrocic.
         self.registry.release_open_addr(target)
         self._maybe_snapshot()
         event["seq"] = seq
         # ACK dla moderatora jest BEST-EFFORT — kolejnosc zostaje, znika
-        # tylko mozliwosc wywrocenia nia calego rozkazu. Poprzednio `ok` szlo
-        # bez zabezpieczenia: gdy
-        # jego socket byl juz martwy (padlo TUI, zerwana siec, zamkniete okno),
-        # `send` rzucal ConnectionClosed, handler przerywal — i NIE wykonywal
-        # ani broadcastu kicka, ani close(4003). Kick zostawal TRWALE w logu,
-        # a wyrzucony siedzial dalej na kanale: log mowil "wyrzucony", kanal
-        # mowil "jest". Zmierzone przez agent4 trzema przebiegami (TUI padalo
-        # na wlasnym KeyError), ale przyczyna jest NIEZALEZNA od tamtego buga —
-        # kazde zerwanie socketu moderatora w tym oknie daje ten sam rozjazd.
+        # tylko mozliwosc wywrocenia nia calego rozkazu. Gdy socket
+        # moderatora jest juz martwy (padlo TUI, zerwana siec, zamkniete
+        # okno), niezabezpieczony `send` rzuca ConnectionClosed, handler
+        # przerywa — i NIE wykonuje ani broadcastu kicka, ani close(4003).
+        # Kick zostaje TRWALE w logu, a wyrzucony siedzi dalej na kanale: log
+        # mowi "wyrzucony", kanal mowi "jest". Skutek rozkazu nie moze zalezec
+        # od tego, czy rozkazodawca jeszcze zyje.
         #
-        # To bylo spelnienie "trwalosc przed publikacja" tylko w polowie:
-        # trwalosc byla, publikacji nie bylo, i nic jej nie ponawialo. Skutek
-        # rozkazu nie moze zalezec od tego, czy rozkazodawca jeszcze zyje.
-        #
-        # NIE przestawiam ACK-u za broadcast, choc tak bylo w pierwszej
-        # wersji: wywalilo to cudzy test, ktory pilnuje, ze rozkazodawca
-        # poznaje wynik WLASNEJ komendy przed cudzym ruchem. Nie umiem
-        # udowodnic, ze tamten kontrakt jest bledny, a bledem bylo co innego —
-        # brak zabezpieczenia. Naprawiam to, czego dowiodl pomiar.
+        # ACK zostaje PRZED broadcastem: rozkazodawca poznaje wynik WLASNEJ
+        # komendy przed cudzym ruchem (pilnuje tego test).
         try:
             await ws.send(protocol.dumps(protocol.make_frame(
                 "ok", "server", now, target=target)))
