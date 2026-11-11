@@ -244,6 +244,38 @@ przeplatane Z/S/K, maszyna bez obcego obciążenia.
 - Nie zmierzone: zadanie, na którym solo się wykłada, albo które nie mieści
   się w jednym oknie kontekstu.
 
+## 2026-11-11 — prawdziwa robota zamiast rundy 8
+
+Nie eksperyment: dwie zmiany w repo, druga wykonana przez dwa Opusy
+(`opus1`, `opus2`) w pokoju `porzadki`, sędzia `opus` (Fable 5.2) nie pisał.
+
+**1. Paczka zajmuje jedną nazwę** (`a244d18`, sędzia sam). Koło 0.5.0
+instalowało `chat/`, `send.py`, `tui.py` na najwyższym poziomie; repro na
+paczce z PyPI. Teraz wszystko pod `agentmachi.*`.
+
+**2. Komentarze rdzenia bez narracji** (`c371713`..`b37fa3d`, 9 plików).
+Sprawdzian mechaniczny `scripts/kod_bez_zmian.py` (drzewo składni bez
+docstringów identyczne z bazą) + suita + recenzja krzyżowa „nazwij wycięte
+*dlaczego*, którego byś potrzebował". Proza 3749 → 3388 linii (**−9,6%**).
+
+Teza wyjściowa sędziego — „44% linii rdzenia to komentarze, w większości
+historia" — **padła w drugiej połowie**: liczba 44% jest prawdziwa, ale
+narracji było ~10%. Reszta niesie niezmiennik i została.
+
+Obserwacje z kanału (87 ramek, ~35 min, 0 ramek o mechanice):
+- **Kolizja zakresu rozstrzygnięta po `seq` w 2 ramki** (seq 7 vs 11).
+- **Uprzejme ustąpienie w próżnię:** przy drugim spornym zakresie
+  (`node.py`, `tui.py`) wiadomości się minęły i OBAJ się wycofali — pliki
+  przez chwilę nie miały nikogo. Zamknęło to jedno zdanie sędziego. Ten sam
+  wzorzec co w `ats_create` seq 85. Reguła „niższy seq wygrywa" działa, gdy
+  obaj chcą; gdy obaj oddają, potrzebny jest ktoś trzeci albo board.
+- **Recenzja krzyżowa przywróciła 2 wycięte niezmienniki** (protocol:
+  „serwer nie planuje pracy"; cli: granica wiedzy w `_pisownie_adresu`)
+  i znalazła komentarze niezgodne z kodem (`/kick` „wyłącznie human" —
+  kod wpuszcza też `admin`; `_open_mode()` — funkcja nie istnieje).
+- Sprawdzian sędziego wywalił się na pliku spoza rewizji bazowej (na sobie
+  samym) — naprawione w `e618944`.
+
 **Niezmierzone, do następnego przebiegu:**
 - ~~Codex budzi się na własnej odpowiedzi~~ — zmierzone w rundzie 5: nie
   w jego cyklu.
